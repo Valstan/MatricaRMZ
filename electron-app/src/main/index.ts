@@ -1,20 +1,51 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { openSqlite } from './database/db.js';
 import { migrateSqlite } from './database/migrate.js';
 import { seedIfNeeded } from './database/seed.js';
 import { registerIpc } from './ipc/registerIpc.js';
 import { initAutoUpdate, checkForUpdates } from './services/updateService.js';
 
+let mainWindow: BrowserWindow | null = null;
+
+function logToFile(message: string) {
+  try {
+    const dir = app.getPath('userData');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'matricarmz.log'), `[${new Date().toISOString()}] ${message}\n`);
+  } catch {
+    // ignore
+  }
+}
+
+function resolvePreloadPath(): string {
+  const candidates = [
+    join(__dirname, '../preload/index.mjs'),
+    join(__dirname, '../preload/index.js'),
+  ];
+  for (const p of candidates) if (existsSync(p)) return p;
+  return candidates[0];
+}
+
+function resolveRendererIndex(): string {
+  return join(__dirname, '../renderer/index.html');
+}
+
 function createWindow(): void {
-  const win = new BrowserWindow({
+  const preloadPath = resolvePreloadPath();
+  const rendererIndex = resolveRendererIndex();
+
+  logToFile(`createWindow: preload=${preloadPath}`);
+  logToFile(`createWindow: renderer=${rendererIndex}`);
+
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     title: 'Матрица РМЗ',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -24,15 +55,35 @@ function createWindow(): void {
   const devUrl = process.env.VITE_DEV_SERVER_URL;
 
   if (devUrl) {
-    void win.loadURL(devUrl);
-    win.webContents.openDevTools({ mode: 'detach' });
+    void mainWindow.loadURL(devUrl);
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'));
+    void mainWindow.loadFile(rendererIndex);
   }
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    logToFile(`did-fail-load: code=${code} desc=${desc} url=${url}`);
+    void dialog.showMessageBox({
+      type: 'error',
+      title: 'Ошибка запуска',
+      message: 'Не удалось загрузить интерфейс приложения.',
+      detail: `code=${code}\n${desc}\n${url}\n\nЛог: ${join(app.getPath('userData'), 'matricarmz.log')}`,
+    });
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
   initAutoUpdate();
+  process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
+  process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
   // Инициализация локальной SQLite (в userData).
   const userData = app.getPath('userData');
   mkdirSync(userData, { recursive: true });
@@ -43,6 +94,7 @@ app.whenReady().then(() => {
     void seedIfNeeded(db);
   } catch (e) {
     console.error('[electron] migrate failed', e);
+    logToFile(`sqlite init failed: ${String(e)}`);
   }
 
   // Технический client_id для синхронизации (MVP).
