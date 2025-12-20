@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 // Важно: НЕ импортируем SQLite/IPC сервисы на верхнем уровне.
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
@@ -9,6 +10,11 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { initAutoUpdate, checkForUpdates } from './services/updateService.js';
 
 let mainWindow: BrowserWindow | null = null;
+
+function appDirname(): string {
+  // В ESM нет __dirname/__filename. Получаем путь через import.meta.url.
+  return dirname(fileURLToPath(import.meta.url));
+}
 
 function logToFile(message: string) {
   try {
@@ -21,16 +27,17 @@ function logToFile(message: string) {
 }
 
 function resolvePreloadPath(): string {
+  const base = appDirname();
   const candidates = [
-    join(__dirname, '../preload/index.mjs'),
-    join(__dirname, '../preload/index.js'),
+    join(base, '../preload/index.mjs'),
+    join(base, '../preload/index.js'),
   ];
   for (const p of candidates) if (existsSync(p)) return p;
   return candidates[0];
 }
 
 function resolveRendererIndex(): string {
-  return join(__dirname, '../renderer/index.html');
+  return join(appDirname(), '../renderer/index.html');
 }
 
 function createWindow(): void {
