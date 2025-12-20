@@ -1,6 +1,11 @@
 node_modules
 dist
 build
+.cache
+.pnpm-store
+.eslintcache
+.idea
+.vscode
 .DS_Store
 
 # Env files
@@ -19,5 +24,9 @@ yarn-error.log*
 
 # Electron
 *.log
+
+# Release artifacts (не коммитим артефакты сборки)
+electron-app/release
+electron-app/dist
 
 
