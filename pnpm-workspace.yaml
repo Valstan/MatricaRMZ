@@ -1,0 +1,6 @@
+packages:
+  - "electron-app"
+  - "backend-api"
+  - "shared"
+
+

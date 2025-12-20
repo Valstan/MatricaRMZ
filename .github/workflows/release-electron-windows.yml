@@ -1,0 +1,43 @@
+name: Release Electron (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10.26.1"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared
+        run: pnpm -C shared build
+
+      - name: Build electron app
+        run: pnpm -C electron-app build
+
+      - name: Publish release (Windows x64)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm -C electron-app exec electron-builder --win --x64 --publish always
+
+

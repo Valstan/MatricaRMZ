@@ -1,0 +1,305 @@
+import { SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
+import { eq } from 'drizzle-orm';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+
+import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations, syncState } from '../database/schema.js';
+import type { SyncRunResult } from '../ipc/types.js';
+
+function nowMs() {
+  return Date.now();
+}
+
+async function getSyncStateNumber(db: BetterSQLite3Database, key: string, fallback: number) {
+  const row = await db.select().from(syncState).where(eq(syncState.key, key)).limit(1);
+  if (!row[0]) return fallback;
+  const n = Number(row[0].value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+async function setSyncState(db: BetterSQLite3Database, key: string, value: string) {
+  const ts = nowMs();
+  await db
+    .insert(syncState)
+    .values({ key, value, updatedAt: ts })
+    .onConflictDoUpdate({ target: syncState.key, set: { value, updatedAt: ts } });
+}
+
+async function collectPending(db: BetterSQLite3Database) {
+  const pending = 'pending';
+
+  const packs: SyncPushRequest['upserts'] = [];
+
+  async function add(table: SyncTableName, rows: unknown[]) {
+    if (rows.length === 0) return;
+    packs.push({ table, rows });
+  }
+
+  await add(
+    SyncTableName.EntityTypes,
+    await db.select().from(entityTypes).where(eq(entityTypes.syncStatus, pending)),
+  );
+  await add(SyncTableName.Entities, await db.select().from(entities).where(eq(entities.syncStatus, pending)));
+  await add(
+    SyncTableName.AttributeDefs,
+    await db.select().from(attributeDefs).where(eq(attributeDefs.syncStatus, pending)),
+  );
+  await add(
+    SyncTableName.AttributeValues,
+    await db.select().from(attributeValues).where(eq(attributeValues.syncStatus, pending)),
+  );
+  await add(
+    SyncTableName.Operations,
+    await db.select().from(operations).where(eq(operations.syncStatus, pending)),
+  );
+  await add(SyncTableName.AuditLog, await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)));
+
+  return packs;
+}
+
+async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, ids: string[]) {
+  if (ids.length === 0) return;
+  const ts = nowMs();
+
+  // Упрощенно: обновляем по одному (MVP). Позже оптимизируем IN().
+  for (const id of ids) {
+    switch (table) {
+      case SyncTableName.EntityTypes:
+        await db.update(entityTypes).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(entityTypes.id, id));
+        break;
+      case SyncTableName.Entities:
+        await db.update(entities).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(entities.id, id));
+        break;
+      case SyncTableName.AttributeDefs:
+        await db.update(attributeDefs).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(attributeDefs.id, id));
+        break;
+      case SyncTableName.AttributeValues:
+        await db.update(attributeValues).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(attributeValues.id, id));
+        break;
+      case SyncTableName.Operations:
+        await db.update(operations).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(operations.id, id));
+        break;
+      case SyncTableName.AuditLog:
+        await db.update(auditLog).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(auditLog.id, id));
+        break;
+    }
+  }
+}
+
+async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResponse['changes'][number]) {
+  const ts = nowMs();
+  const payload = JSON.parse(change.payload_json) as any;
+
+  // payload содержит поля snake_case, как в shared DTO.
+  // Мы храним их в колонках camelCase, но drizzle mapping делает это на уровне названий колонок.
+  // Поэтому здесь мы явно маппим на структуру sqlite схемы.
+  switch (change.table) {
+    case SyncTableName.EntityTypes:
+      await db
+        .insert(entityTypes)
+        .values({
+          id: payload.id,
+          code: payload.code,
+          name: payload.name,
+          createdAt: payload.created_at,
+          updatedAt: payload.updated_at,
+          deletedAt: payload.deleted_at ?? null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: entityTypes.id,
+          set: {
+            code: payload.code,
+            name: payload.name,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          },
+        });
+      break;
+    case SyncTableName.Entities:
+      await db
+        .insert(entities)
+        .values({
+          id: payload.id,
+          typeId: payload.type_id,
+          createdAt: payload.created_at,
+          updatedAt: payload.updated_at,
+          deletedAt: payload.deleted_at ?? null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: entities.id,
+          set: {
+            typeId: payload.type_id,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          },
+        });
+      break;
+    case SyncTableName.AttributeDefs:
+      await db
+        .insert(attributeDefs)
+        .values({
+          id: payload.id,
+          entityTypeId: payload.entity_type_id,
+          code: payload.code,
+          name: payload.name,
+          dataType: payload.data_type,
+          isRequired: !!payload.is_required,
+          sortOrder: payload.sort_order ?? 0,
+          metaJson: payload.meta_json ?? null,
+          createdAt: payload.created_at,
+          updatedAt: payload.updated_at,
+          deletedAt: payload.deleted_at ?? null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: attributeDefs.id,
+          set: {
+            entityTypeId: payload.entity_type_id,
+            code: payload.code,
+            name: payload.name,
+            dataType: payload.data_type,
+            isRequired: !!payload.is_required,
+            sortOrder: payload.sort_order ?? 0,
+            metaJson: payload.meta_json ?? null,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          },
+        });
+      break;
+    case SyncTableName.AttributeValues:
+      await db
+        .insert(attributeValues)
+        .values({
+          id: payload.id,
+          entityId: payload.entity_id,
+          attributeDefId: payload.attribute_def_id,
+          valueJson: payload.value_json ?? null,
+          createdAt: payload.created_at,
+          updatedAt: payload.updated_at,
+          deletedAt: payload.deleted_at ?? null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: attributeValues.id,
+          set: {
+            entityId: payload.entity_id,
+            attributeDefId: payload.attribute_def_id,
+            valueJson: payload.value_json ?? null,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          },
+        });
+      break;
+    case SyncTableName.Operations:
+      await db
+        .insert(operations)
+        .values({
+          id: payload.id,
+          engineEntityId: payload.engine_entity_id,
+          operationType: payload.operation_type,
+          status: payload.status,
+          note: payload.note ?? null,
+          createdAt: payload.created_at,
+          updatedAt: payload.updated_at,
+          deletedAt: payload.deleted_at ?? null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: operations.id,
+          set: {
+            engineEntityId: payload.engine_entity_id,
+            operationType: payload.operation_type,
+            status: payload.status,
+            note: payload.note ?? null,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          },
+        });
+      break;
+    case SyncTableName.AuditLog:
+      await db
+        .insert(auditLog)
+        .values({
+          id: payload.id,
+          actor: payload.actor,
+          action: payload.action,
+          entityId: payload.entity_id ?? null,
+          tableName: payload.table_name ?? null,
+          payloadJson: payload.payload_json ?? null,
+          createdAt: payload.created_at,
+          updatedAt: payload.updated_at,
+          deletedAt: payload.deleted_at ?? null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: auditLog.id,
+          set: {
+            actor: payload.actor,
+            action: payload.action,
+            entityId: payload.entity_id ?? null,
+            tableName: payload.table_name ?? null,
+            payloadJson: payload.payload_json ?? null,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          },
+        });
+      break;
+  }
+
+  // Обновим время локального состояния (для диагностики).
+  await setSyncState(db, 'lastAppliedAt', String(ts));
+}
+
+export async function runSync(db: BetterSQLite3Database, clientId: string, apiBaseUrl: string): Promise<SyncRunResult> {
+  const startedAt = nowMs();
+  try {
+    const upserts = await collectPending(db);
+    let pushed = 0;
+
+    if (upserts.length > 0) {
+      const pushBody: SyncPushRequest = { client_id: clientId, upserts };
+      const r = await fetch(`${apiBaseUrl}/sync/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pushBody),
+      });
+      if (!r.ok) throw new Error(`push HTTP ${r.status}`);
+      const json = (await r.json()) as { ok: boolean; applied?: number };
+      pushed = json.applied ?? 0;
+
+      // После успешного push помечаем отправленные строки как synced.
+      for (const pack of upserts) {
+        const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
+        await markAllSynced(db, pack.table, ids);
+      }
+    }
+
+    const since = await getSyncStateNumber(db, 'lastPulledServerSeq', 0);
+    const pull = await fetch(`${apiBaseUrl}/sync/pull?since=${since}`, { method: 'GET' });
+    if (!pull.ok) throw new Error(`pull HTTP ${pull.status}`);
+    const pullJson = (await pull.json()) as SyncPullResponse;
+
+    let pulled = 0;
+    for (const ch of pullJson.changes) {
+      // Если сервер прислал delete — у нас это soft delete через deleted_at в payload, поэтому обрабатываем как upsert.
+      await applyPulledChange(db, ch);
+      pulled += 1;
+    }
+
+    await setSyncState(db, 'lastPulledServerSeq', String(pullJson.server_cursor));
+    await setSyncState(db, 'lastSyncAt', String(startedAt));
+
+    return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
+  } catch (e) {
+    return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: String(e) };
+  }
+}
+
+

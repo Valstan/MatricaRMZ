@@ -1,0 +1,23 @@
+node_modules
+dist
+build
+.DS_Store
+
+# Env files
+.env
+.env.*.local
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# SQLite
+*.sqlite
+*.sqlite3
+
+# Electron
+*.log
+
+

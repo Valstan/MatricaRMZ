@@ -1,0 +1,21 @@
+{
+  "name": "@matricarmz/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsc -w -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
+
+
