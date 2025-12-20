@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.26.1",
   "repository": {
     "type": "git",
-    "url": "REPO_URL_WILL_BE_SET_AFTER_GITHUB_REPO_CREATED"
+    "url": "https://github.com/Valstan/MatricaRMZ.git"
   },
   "workspaces": [
     "electron-app",

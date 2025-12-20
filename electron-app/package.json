@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "main": "dist/main/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Valstan/MatricaRMZ.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -57,7 +61,13 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
     },
-    "publish": []
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Valstan",
+        "repo": "MatricaRMZ"
+      }
+    ]
   }
 }
 
