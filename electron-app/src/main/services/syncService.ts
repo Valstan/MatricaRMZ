@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations, syncState } from '../database/schema.js';
-import type { SyncRunResult } from '../ipc/types.js';
+import type { SyncRunResult } from '@matricarmz/shared';
 
 function nowMs() {
   return Date.now();

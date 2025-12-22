@@ -1,48 +1,24 @@
-import { app, BrowserWindow, Menu, ipcMain, dialog } from 'electron';
-import { dirname, join } from 'node:path';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
 // Важно: НЕ импортируем SQLite/IPC сервисы на верхнем уровне.
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
 import { initAutoUpdate, checkForUpdates } from './services/updateService.js';
+import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
+import { createFileLogger } from './utils/logger.js';
+import { setupMenu } from './utils/menu.js';
 
 let mainWindow: BrowserWindow | null = null;
 
-function appDirname(): string {
-  // В ESM нет __dirname/__filename. Получаем путь через import.meta.url.
-  return dirname(fileURLToPath(import.meta.url));
-}
-
-function logToFile(message: string) {
-  try {
-    const dir = app.getPath('userData');
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(join(dir, 'matricarmz.log'), `[${new Date().toISOString()}] ${message}\n`);
-  } catch {
-    // ignore
-  }
-}
-
-function resolvePreloadPath(): string {
-  const base = appDirname();
-  const candidates = [
-    join(base, '../preload/index.mjs'),
-    join(base, '../preload/index.js'),
-  ];
-  for (const p of candidates) if (existsSync(p)) return p;
-  return candidates[0];
-}
-
-function resolveRendererIndex(): string {
-  return join(appDirname(), '../renderer/index.html');
-}
+const { logToFile, getLogPath } = createFileLogger(app);
+const baseDir = appDirname(import.meta.url);
 
 function createWindow(): void {
-  const preloadPath = resolvePreloadPath();
-  const rendererIndex = resolveRendererIndex();
+  const preloadPath = resolvePreloadPath(baseDir);
+  const rendererIndex = resolveRendererIndex(baseDir);
 
   logToFile(`createWindow: preload=${preloadPath}`);
   logToFile(`createWindow: renderer=${rendererIndex}`);
@@ -79,36 +55,13 @@ function createWindow(): void {
       type: 'error',
       title: 'Ошибка запуска',
       message: 'Не удалось загрузить интерфейс приложения.',
-      detail: `code=${code}\n${desc}\n${url}\n\nЛог: ${join(app.getPath('userData'), 'matricarmz.log')}`,
+      detail: `code=${code}\n${desc}\n${url}\n\nЛог: ${getLogPath()}`,
     });
   });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-}
-
-function setupMenu() {
-  const releaseDate = process.env.MATRICA_RELEASE_DATE ?? 'unknown';
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'Справка',
-      submenu: [
-        {
-          label: 'О программе',
-          click: async () => {
-            await dialog.showMessageBox({
-              type: 'info',
-              title: 'О программе',
-              message: 'Матрица РМЗ',
-              detail: `Версия: ${app.getVersion()}\nДата релиза: ${releaseDate}`,
-            });
-          },
-        },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 app.whenReady().then(() => {
@@ -154,7 +107,7 @@ app.whenReady().then(() => {
           type: 'error',
           title: 'Ошибка базы данных',
           message: 'Не удалось инициализировать локальную базу данных SQLite.',
-          detail: `Лог: ${join(app.getPath('userData'), 'matricarmz.log')}\n\n${String(e)}`,
+          detail: `Лог: ${getLogPath()}\n\n${String(e)}`,
         });
         app.quit();
         return;
@@ -168,7 +121,7 @@ app.whenReady().then(() => {
         type: 'error',
         title: 'Ошибка запуска',
         message: 'Приложение не может запуститься на этом компьютере.',
-        detail: `Лог: ${join(app.getPath('userData'), 'matricarmz.log')}\n\n${String(e)}`,
+        detail: `Лог: ${getLogPath()}\n\n${String(e)}`,
       });
       app.quit();
     }

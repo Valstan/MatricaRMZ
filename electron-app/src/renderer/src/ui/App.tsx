@@ -1,43 +1,16 @@
 import React, { useEffect, useState } from 'react';
 
-declare global {
-  interface Window {
-    matrica: {
-      ping: () => Promise<{ ok: boolean; ts: number }>;
-      engines: {
-        list: () => Promise<any[]>;
-        create: () => Promise<{ id: string }>;
-        get: (id: string) => Promise<any>;
-        setAttr: (engineId: string, code: string, value: unknown) => Promise<void>;
-      };
-      operations: {
-        list: (engineId: string) => Promise<any[]>;
-        add: (engineId: string, operationType: string, status: string, note?: string) => Promise<void>;
-      };
-      audit: {
-        list: () => Promise<any[]>;
-      };
-      sync: {
-        run: () => Promise<{ ok: boolean; pushed: number; pulled: number; serverCursor: number; error?: string }>;
-      };
-      update: {
-        check: () => Promise<{ ok: boolean; updateAvailable?: boolean; version?: string; error?: string }>;
-        download: () => Promise<{ ok: boolean; error?: string }>;
-        install: () => Promise<{ ok: boolean; error?: string }>;
-      };
-    };
-  }
-}
+import type { AuditItem, EngineDetails, EngineListItem, OperationItem } from '@matricarmz/shared';
 
 export function App() {
   const [ping, setPing] = useState<string>('...');
-  const [engines, setEngines] = useState<any[]>([]);
+  const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [syncStatus, setSyncStatus] = useState<string>('');
   const [tab, setTab] = useState<'engines' | 'engine' | 'sync' | 'audit'>('engines');
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
-  const [engineDetails, setEngineDetails] = useState<any | null>(null);
-  const [ops, setOps] = useState<any[]>([]);
-  const [audit, setAudit] = useState<any[]>([]);
+  const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
+  const [ops, setOps] = useState<OperationItem[]>([]);
+  const [audit, setAudit] = useState<AuditItem[]>([]);
   const [newOpType, setNewOpType] = useState<string>('acceptance');
   const [newOpStatus, setNewOpStatus] = useState<string>('выполнено');
   const [newOpNote, setNewOpNote] = useState<string>('');

@@ -5,7 +5,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { EntityTypeCode } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
-import type { EngineDetails, EngineListItem } from '../ipc/types.js';
+import type { EngineDetails, EngineListItem } from '@matricarmz/shared';
 
 function nowMs() {
   return Date.now();
