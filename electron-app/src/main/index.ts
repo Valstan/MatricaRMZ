@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
-import { initAutoUpdate, checkForUpdates } from './services/updateService.js';
+import { initAutoUpdate, checkForUpdates, wireAutoUpdateDialogs } from './services/updateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -70,6 +70,7 @@ app.whenReady().then(() => {
   app.commandLine.appendSwitch('v', '1');
 
   initAutoUpdate();
+  wireAutoUpdateDialogs({ log: logToFile, getLogPath });
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
   process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
   setupMenu();
