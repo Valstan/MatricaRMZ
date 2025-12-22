@@ -46,11 +46,16 @@ jobs:
         run: pnpm -C electron-app exec electron-builder --win --x64 --publish always
 
       - name: Upload to Yandex.Disk
-        if: ${{ secrets.YANDEX_DISK_TOKEN != '' && vars.YANDEX_DISK_FOLDER != '' }}
+        shell: pwsh
         env:
           YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
           YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: node scripts/upload-yandex-disk.mjs --dir electron-app/release
+        run: |
+          if (-not $env:YANDEX_DISK_TOKEN -or -not $env:YANDEX_DISK_FOLDER) {
+            Write-Host "YANDEX_DISK_TOKEN or YANDEX_DISK_FOLDER is not set. Skipping upload."
+            exit 0
+          }
+          node scripts/upload-yandex-disk.mjs --dir electron-app/release
 
 
