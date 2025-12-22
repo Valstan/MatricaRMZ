@@ -35,6 +35,11 @@ jobs:
       - name: Build electron app
         run: pnpm -C electron-app build
 
+      - name: Set release date env
+        shell: pwsh
+        run: |
+          "MATRICA_RELEASE_DATE=$((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Publish release (Windows x64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

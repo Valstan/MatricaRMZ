@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog } from 'electron';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -88,6 +88,29 @@ function createWindow(): void {
   });
 }
 
+function setupMenu() {
+  const releaseDate = process.env.MATRICA_RELEASE_DATE ?? 'unknown';
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'Справка',
+      submenu: [
+        {
+          label: 'О программе',
+          click: async () => {
+            await dialog.showMessageBox({
+              type: 'info',
+              title: 'О программе',
+              message: 'Матрица РМЗ',
+              detail: `Версия: ${app.getVersion()}\nДата релиза: ${releaseDate}`,
+            });
+          },
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(() => {
   // Логи Chromium/Electron в stderr (в Windows можно потом смотреть через event viewer / debug tools).
   app.commandLine.appendSwitch('enable-logging');
@@ -96,6 +119,7 @@ app.whenReady().then(() => {
   initAutoUpdate();
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
   process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
+  setupMenu();
   // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
   createWindow();
 
