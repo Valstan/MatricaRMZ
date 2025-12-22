@@ -2,6 +2,7 @@ import { app, dialog, shell } from 'electron';
 import { createWriteStream } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string }
@@ -100,19 +101,51 @@ export async function quitAndInstall(): Promise<{ ok: boolean; error?: string }>
 // Yandex.Disk public update source
 // ------------------------
 
-// Публичная ссылка (public_key) на папку с релизами. Можно переопределить env.
-const DEFAULT_PUBLIC_KEY = 'https://disk.360.yandex.ru/d/0IX7V8JD68_Mkg';
-const DEFAULT_BASE_PATH = '/matricarmz/latest';
+type ReleaseInfo = {
+  releaseDate?: string;
+  update?: {
+    provider?: 'yandex';
+    yandexPublicKey?: string;
+    yandexBasePath?: string; // например: "latest"
+  };
+};
 
 let cachedLatest: { version: string; path: string } | null = null;
 let lastDownloadedInstallerPath: string | null = null;
 
+function readReleaseInfo(): ReleaseInfo | null {
+  try {
+    const p = join(app.getAppPath(), 'release-info.json');
+    const raw = readFileSync(p, 'utf8');
+    return JSON.parse(raw) as ReleaseInfo;
+  } catch {
+    return null;
+  }
+}
+
 function getPublicKey() {
-  return process.env.MATRICA_UPDATE_YANDEX_PUBLIC_KEY ?? DEFAULT_PUBLIC_KEY;
+  const fromEnv = process.env.MATRICA_UPDATE_YANDEX_PUBLIC_KEY;
+  if (fromEnv) return fromEnv;
+
+  const info = readReleaseInfo();
+  const fromBundled = info?.update?.yandexPublicKey;
+  if (fromBundled) return fromBundled;
+
+  // Нет public_key => обновления отключены/не настроены.
+  throw new Error('Yandex updater is not configured (missing yandexPublicKey)');
 }
 
 function getBasePath() {
-  return process.env.MATRICA_UPDATE_YANDEX_BASE_PATH ?? DEFAULT_BASE_PATH;
+  const fromEnv = process.env.MATRICA_UPDATE_YANDEX_BASE_PATH;
+  if (fromEnv) return normalizePublicPath(fromEnv);
+
+  const info = readReleaseInfo();
+  const fromBundled = info?.update?.yandexBasePath;
+  if (fromBundled) return normalizePublicPath(fromBundled);
+
+  // По умолчанию ожидаем, что public_key указывает на папку "/matricarmz"
+  // и внутри неё есть подпапка "latest".
+  return 'latest';
 }
 
 async function fetchLatestInfo(): Promise<{ version: string; path: string }> {
@@ -129,12 +162,18 @@ function joinPosix(a: string, b: string) {
   return `${aa}/${bb}`;
 }
 
+function normalizePublicPath(p: string) {
+  // В public/resources/download path должен быть ОТНОСИТЕЛЬНЫМ к public_key.
+  // То есть без ведущего "/".
+  return p.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
 async function getDownloadHref(pathOnDisk: string): Promise<string> {
   const api =
     'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
     new URLSearchParams({
       public_key: getPublicKey(),
-      path: pathOnDisk,
+      path: normalizePublicPath(pathOnDisk),
     }).toString();
   const r = await fetch(api);
   if (!r.ok) throw new Error(`Yandex download href failed ${r.status}`);

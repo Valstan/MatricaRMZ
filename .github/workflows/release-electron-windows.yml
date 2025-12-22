@@ -37,9 +37,10 @@ jobs:
 
       - name: Write release-info.json
         shell: pwsh
-        run: |
-          $date = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
-          '{ "releaseDate": "' + $date + '" }' | Out-File -FilePath electron-app/release-info.json -Encoding utf8
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
+        run: node scripts/write-release-info.mjs
 
       - name: Publish release (Windows x64)
         env:
