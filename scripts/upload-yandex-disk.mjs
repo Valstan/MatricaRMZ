@@ -69,6 +69,9 @@ async function uploadFile(token, localFilePath, remoteFilePath) {
   const put = await fetch(href, {
     method: 'PUT',
     body: createReadStream(localFilePath),
+    // Node.js требует duplex при отправке stream в fetch()
+    // (иначе: "duplex option is required when sending a body").
+    duplex: 'half',
     headers: {
       // Content-Type is optional for Yandex Disk PUT.
     },
@@ -82,8 +85,8 @@ async function uploadFile(token, localFilePath, remoteFilePath) {
 function isReleaseArtifact(filename) {
   const lower = filename.toLowerCase();
   return (
+    lower === 'latest.yml' ||
     lower.endsWith('.exe') ||
-    lower.endsWith('.yml') ||
     lower.endsWith('.blockmap') ||
     lower.endsWith('.zip')
   );
