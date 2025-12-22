@@ -1,4 +1,9 @@
-import { autoUpdater } from 'electron-updater';
+import { createRequire } from 'node:module';
+
+// electron-updater — CommonJS пакет. В ESM main-процессе Electron нельзя надежно
+// импортировать его named-export'ом, поэтому подключаем через require().
+const require = createRequire(import.meta.url);
+const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string }
