@@ -1,76 +1,73 @@
-import { createRequire } from 'node:module';
-
-// electron-updater — CommonJS пакет. В ESM main-процессе Electron нельзя надежно
-// импортировать его named-export'ом, поэтому подключаем через require().
-const require = createRequire(import.meta.url);
-const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
-import { dialog } from 'electron';
+import { app, dialog, shell } from 'electron';
+import { createWriteStream } from 'node:fs';
+import { mkdir, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string }
   | { ok: false; error: string };
 
 export function initAutoUpdate() {
-  // В MVP — базовая настройка. Позже добавим прогресс и окно подтверждения.
-  autoUpdater.autoDownload = false;
+  // Ничего не делаем: обновления идут не через GitHub (репозиторий приватный),
+  // а через Яндекс.Диск (public link + latest.yml).
 }
 
 export function wireAutoUpdateDialogs(opts: {
   log: (msg: string) => void;
   getLogPath: () => string;
 }) {
-  autoUpdater.on('error', (e) => {
-    opts.log(`autoUpdater error: ${String(e)}`);
-  });
+  // Автообновление через Яндекс.Диск: проверяем при запуске и показываем диалог.
+  void (async () => {
+    const check = await checkForUpdates();
+    if (!check.ok) {
+      opts.log(`update check failed: ${check.error}`);
+      return;
+    }
+    if (!check.updateAvailable) return;
 
-  autoUpdater.on('update-available', async (info) => {
-    opts.log(`update-available: ${info?.version ?? 'unknown'}`);
     const r = await dialog.showMessageBox({
       type: 'info',
       title: 'Доступно обновление',
       message: 'Найдена новая версия программы.',
-      detail: `Новая версия: ${info?.version ?? ''}\n\nЛог: ${opts.getLogPath()}`,
+      detail: `Новая версия: ${check.version ?? ''}\n\nЛог: ${opts.getLogPath()}`,
       buttons: ['Скачать обновление', 'Позже'],
       defaultId: 0,
       cancelId: 1,
     });
-    if (r.response === 0) {
-      try {
-        await autoUpdater.downloadUpdate();
-      } catch (e) {
-        opts.log(`downloadUpdate failed: ${String(e)}`);
-        await dialog.showMessageBox({
-          type: 'error',
-          title: 'Ошибка обновления',
-          message: 'Не удалось скачать обновление.',
-          detail: `${String(e)}\n\nЛог: ${opts.getLogPath()}`,
-        });
-      }
-    }
-  });
+    if (r.response !== 0) return;
 
-  autoUpdater.on('update-downloaded', async (info) => {
-    opts.log(`update-downloaded: ${info?.version ?? 'unknown'}`);
-    const r = await dialog.showMessageBox({
+    const dl = await downloadUpdate();
+    if (!dl.ok) {
+      opts.log(`download failed: ${dl.error ?? 'unknown'}`);
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Ошибка обновления',
+        message: 'Не удалось скачать обновление.',
+        detail: `${dl.error ?? 'unknown'}\n\nЛог: ${opts.getLogPath()}`,
+      });
+      return;
+    }
+
+    const r2 = await dialog.showMessageBox({
       type: 'question',
       title: 'Обновление готово',
       message: 'Обновление скачано. Установить сейчас?',
-      detail: `Версия: ${info?.version ?? ''}`,
+      detail: `Версия: ${check.version ?? ''}`,
       buttons: ['Установить и перезапустить', 'Позже'],
       defaultId: 0,
       cancelId: 1,
     });
-    if (r.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
+    if (r2.response !== 0) return;
+    await quitAndInstall();
+  })();
 }
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
-    const r = await autoUpdater.checkForUpdates();
-    const info = r?.updateInfo;
-    return { ok: true, updateAvailable: !!info, version: info?.version };
+    const latest = await fetchLatestInfo();
+    const current = app.getVersion();
+    const updateAvailable = compareSemver(latest.version, current) > 0;
+    return { ok: true, updateAvailable, version: latest.version };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -78,7 +75,9 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 
 export async function downloadUpdate(): Promise<{ ok: boolean; error?: string }> {
   try {
-    await autoUpdater.downloadUpdate();
+    const latest = await fetchLatestInfo();
+    const filePath = await downloadFromYandex(latest.path);
+    lastDownloadedInstallerPath = filePath;
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -87,11 +86,145 @@ export async function downloadUpdate(): Promise<{ ok: boolean; error?: string }>
 
 export async function quitAndInstall(): Promise<{ ok: boolean; error?: string }> {
   try {
-    autoUpdater.quitAndInstall();
+    const target = lastDownloadedInstallerPath ?? (await downloadFromYandex((await fetchLatestInfo()).path));
+    const err = await shell.openPath(target);
+    if (err) return { ok: false, error: err };
+    app.quit();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+// ------------------------
+// Yandex.Disk public update source
+// ------------------------
+
+// Публичная ссылка (public_key) на папку с релизами. Можно переопределить env.
+const DEFAULT_PUBLIC_KEY = 'https://disk.360.yandex.ru/d/0IX7V8JD68_Mkg';
+const DEFAULT_BASE_PATH = '/matricarmz/latest';
+
+let cachedLatest: { version: string; path: string } | null = null;
+let lastDownloadedInstallerPath: string | null = null;
+
+function getPublicKey() {
+  return process.env.MATRICA_UPDATE_YANDEX_PUBLIC_KEY ?? DEFAULT_PUBLIC_KEY;
+}
+
+function getBasePath() {
+  return process.env.MATRICA_UPDATE_YANDEX_BASE_PATH ?? DEFAULT_BASE_PATH;
+}
+
+async function fetchLatestInfo(): Promise<{ version: string; path: string }> {
+  if (cachedLatest) return cachedLatest;
+  const yml = await downloadTextFromYandex(joinPosix(getBasePath(), 'latest.yml'));
+  const info = parseLatestYml(yml);
+  cachedLatest = info;
+  return info;
+}
+
+function joinPosix(a: string, b: string) {
+  const aa = a.replaceAll('\\', '/').replace(/\/+$/, '');
+  const bb = b.replaceAll('\\', '/').replace(/^\/+/, '');
+  return `${aa}/${bb}`;
+}
+
+async function getDownloadHref(pathOnDisk: string): Promise<string> {
+  const api =
+    'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
+    new URLSearchParams({
+      public_key: getPublicKey(),
+      path: pathOnDisk,
+    }).toString();
+  const r = await fetch(api);
+  if (!r.ok) throw new Error(`Yandex download href failed ${r.status}`);
+  const json = await r.json();
+  if (!json?.href) throw new Error('Yandex API returned no href');
+  return json.href;
+}
+
+async function downloadTextFromYandex(pathOnDisk: string): Promise<string> {
+  const href = await getDownloadHref(pathOnDisk);
+  const r = await fetch(href);
+  if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
+  return await r.text();
+}
+
+async function downloadFromYandex(fileName: string): Promise<string> {
+  const href = await getDownloadHref(joinPosix(getBasePath(), fileName));
+  const r = await fetch(href);
+  if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
+
+  const dir = join(app.getPath('temp'), 'MatricaRMZ-updates');
+  await mkdir(dir, { recursive: true });
+  const outPath = join(dir, fileName);
+
+  const ws = createWriteStream(outPath);
+  await new Promise((resolve, reject) => {
+    r.body?.pipeTo
+      ? // Web streams
+        r.body
+          .pipeTo(new WritableStream({
+            write(chunk) {
+              ws.write(Buffer.from(chunk));
+            },
+            close() {
+              ws.end();
+              resolve(undefined);
+            },
+            abort(err) {
+              reject(err);
+            },
+          }))
+          .catch(reject)
+      : // Node stream fallback
+        (r.body
+          ? (r.body.on('data', (c) => ws.write(c)),
+            r.body.on('end', () => {
+              ws.end();
+              resolve(undefined);
+            }),
+            r.body.on('error', reject))
+          : reject(new Error('No response body')));
+  });
+
+  const s = await stat(outPath);
+  if (s.size < 1024 * 100) {
+    // слишком маленький файл — вероятно, скачали HTML/ошибку
+    throw new Error('Downloaded installer looks too small');
+  }
+  return outPath;
+}
+
+function parseLatestYml(yml: string): { version: string; path: string } {
+  // electron-builder latest.yml содержит top-level "version:" и "path:".
+  const version = pickYamlScalar(yml, 'version');
+  const path = pickYamlScalar(yml, 'path');
+  if (!version || !path) throw new Error('latest.yml parse failed (missing version/path)');
+  return { version, path };
+}
+
+function pickYamlScalar(yml: string, key: string): string | null {
+  const re = new RegExp(`^${key}:\\s*(.+)\\s*$`, 'm');
+  const m = yml.match(re);
+  if (!m) return null;
+  let v = m[1].trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  return v;
+}
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map((x) => Number(x));
+  const pb = b.split('.').map((x) => Number(x));
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da > db) return 1;
+    if (da < db) return -1;
+  }
+  return 0;
 }
 
 
