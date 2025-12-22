@@ -163,9 +163,10 @@ function joinPosix(a: string, b: string) {
 }
 
 function normalizePublicPath(p: string) {
-  // В public/resources/download path должен быть ОТНОСИТЕЛЬНЫМ к public_key.
-  // То есть без ведущего "/".
-  return p.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  // Для public/resources/download path должен быть путём ВНУТРИ опубликованного ресурса.
+  // На практике API ожидает ведущий "/", иначе часто возвращает 404.
+  const out = p.replaceAll('\\', '/').replace(/\/+$/, '');
+  return out.startsWith('/') ? out : `/${out}`;
 }
 
 async function getDownloadHref(pathOnDisk: string): Promise<string> {
@@ -176,7 +177,7 @@ async function getDownloadHref(pathOnDisk: string): Promise<string> {
       path: normalizePublicPath(pathOnDisk),
     }).toString();
   const r = await fetch(api);
-  if (!r.ok) throw new Error(`Yandex download href failed ${r.status}`);
+  if (!r.ok) throw new Error(`Yandex download href failed ${r.status} (path=${normalizePublicPath(pathOnDisk)})`);
   const json = await r.json();
   if (!json?.href) throw new Error('Yandex API returned no href');
   return json.href;
