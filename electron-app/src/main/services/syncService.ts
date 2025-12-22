@@ -31,7 +31,10 @@ async function collectPending(db: BetterSQLite3Database) {
 
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
-    packs.push({ table, rows });
+    // Важно: клиентская БД использует camelCase поля (drizzle),
+    // а контракт синхронизации (shared DTO) — snake_case.
+    // Перед push нормализуем в snake_case, чтобы сервер Zod-парсер принимал данные стабильно.
+    packs.push({ table, rows: rows.map((r) => toSyncRow(table, r)) });
   }
 
   await add(
@@ -54,6 +57,86 @@ async function collectPending(db: BetterSQLite3Database) {
   await add(SyncTableName.AuditLog, await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)));
 
   return packs;
+}
+
+function toSyncRow(table: SyncTableName, row: any): any {
+  // Приводим к структуре shared/src/sync/dto.ts (snake_case).
+  // Не делаем “умный” deep-convert: нам нужны только известные поля.
+  switch (table) {
+    case SyncTableName.EntityTypes:
+      return {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.Entities:
+      return {
+        id: row.id,
+        type_id: row.typeId,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.AttributeDefs:
+      return {
+        id: row.id,
+        entity_type_id: row.entityTypeId,
+        code: row.code,
+        name: row.name,
+        data_type: row.dataType,
+        is_required: !!row.isRequired,
+        sort_order: row.sortOrder ?? 0,
+        meta_json: row.metaJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.AttributeValues:
+      return {
+        id: row.id,
+        entity_id: row.entityId,
+        attribute_def_id: row.attributeDefId,
+        value_json: row.valueJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.Operations:
+      return {
+        id: row.id,
+        engine_entity_id: row.engineEntityId,
+        operation_type: row.operationType,
+        status: row.status,
+        note: row.note ?? null,
+        performed_at: row.performedAt ?? null,
+        performed_by: row.performedBy ?? null,
+        meta_json: row.metaJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.AuditLog:
+      return {
+        id: row.id,
+        actor: row.actor,
+        action: row.action,
+        entity_id: row.entityId ?? null,
+        table_name: row.tableName ?? null,
+        payload_json: row.payloadJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+  }
 }
 
 async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, ids: string[]) {
@@ -204,6 +287,9 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
           operationType: payload.operation_type,
           status: payload.status,
           note: payload.note ?? null,
+          performedAt: payload.performed_at ?? null,
+          performedBy: payload.performed_by ?? null,
+          metaJson: payload.meta_json ?? null,
           createdAt: payload.created_at,
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
@@ -216,6 +302,9 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
             operationType: payload.operation_type,
             status: payload.status,
             note: payload.note ?? null,
+            performedAt: payload.performed_at ?? null,
+            performedBy: payload.performed_by ?? null,
+            metaJson: payload.meta_json ?? null,
             updatedAt: payload.updated_at,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',

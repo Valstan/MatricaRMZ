@@ -24,6 +24,9 @@ export type OperationItem = {
   operationType: string;
   status: string;
   note: string | null;
+  performedAt: number | null;
+  performedBy: string | null;
+  metaJson: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -51,6 +54,14 @@ export type SyncRunResult = {
   error?: string;
 };
 
+export type SyncStatus = {
+  state: 'idle' | 'syncing' | 'error';
+  lastSyncAt: number | null;
+  lastError: string | null;
+  lastResult: SyncRunResult | null;
+  nextAutoSyncInMs: number | null;
+};
+
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string }
   | { ok: false; error: string };
@@ -74,6 +85,43 @@ export type MatricaApi = {
   };
   sync: {
     run: () => Promise<SyncRunResult>;
+    status: () => Promise<SyncStatus>;
+  };
+  reports: {
+    // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
+    periodStagesCsv: (args: { startMs?: number; endMs: number }) => Promise<{ ok: true; csv: string } | { ok: false; error: string }>;
+  };
+  admin: {
+    entityTypes: {
+      list: () => Promise<{ id: string; code: string; name: string; updatedAt: number; deletedAt: number | null }[]>;
+      upsert: (args: { id?: string; code: string; name: string }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+    };
+    attributeDefs: {
+      listByEntityType: (entityTypeId: string) => Promise<
+        {
+          id: string;
+          entityTypeId: string;
+          code: string;
+          name: string;
+          dataType: string;
+          isRequired: boolean;
+          sortOrder: number;
+          metaJson: string | null;
+          updatedAt: number;
+          deletedAt: number | null;
+        }[]
+      >;
+      upsert: (args: {
+        id?: string;
+        entityTypeId: string;
+        code: string;
+        name: string;
+        dataType: string;
+        isRequired?: boolean;
+        sortOrder?: number;
+        metaJson?: string | null;
+      }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+    };
   };
   update: {
     check: () => Promise<UpdateCheckResult>;

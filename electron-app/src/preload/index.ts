@@ -20,6 +20,29 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   sync: {
     run: async () => ipcRenderer.invoke('sync:run'),
+    status: async () => ipcRenderer.invoke('sync:status'),
+  },
+  reports: {
+    periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
+  },
+  admin: {
+    entityTypes: {
+      list: async () => ipcRenderer.invoke('admin:entityTypes:list'),
+      upsert: async (args: { id?: string; code: string; name: string }) => ipcRenderer.invoke('admin:entityTypes:upsert', args),
+    },
+    attributeDefs: {
+      listByEntityType: async (entityTypeId: string) => ipcRenderer.invoke('admin:attributeDefs:listByEntityType', entityTypeId),
+      upsert: async (args: {
+        id?: string;
+        entityTypeId: string;
+        code: string;
+        name: string;
+        dataType: string;
+        isRequired?: boolean;
+        sortOrder?: number;
+        metaJson?: string | null;
+      }) => ipcRenderer.invoke('admin:attributeDefs:upsert', args),
+    },
   },
   update: {
     check: async () => ipcRenderer.invoke('update:check'),

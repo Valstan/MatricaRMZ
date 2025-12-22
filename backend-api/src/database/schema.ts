@@ -90,6 +90,9 @@ export const operations = pgTable('operations', {
   operationType: text('operation_type').notNull(), // acceptance/kitting/defect/repair/test
   status: text('status').notNull(),
   note: text('note'),
+  performedAt: integer('performed_at'), // когда событие реально произошло (может отличаться от created_at)
+  performedBy: text('performed_by'), // кто выполнил (пока строка; позже -> user_id)
+  metaJson: text('meta_json'), // JSON-строка (табличные блоки, реквизиты актов, ссылки на файлы)
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   deletedAt: integer('deleted_at'),

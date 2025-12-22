@@ -24,6 +24,11 @@ export const OperationTypeCode = {
   Defect: 'defect', // дефектовка
   Repair: 'repair', // ремонт
   Test: 'test', // испытания
+  Disassembly: 'disassembly', // разборка (передача на разборку)
+  Otk: 'otk', // ОТК (контроль комплектности/разрешение)
+  Packaging: 'packaging', // упаковка + место хранения
+  Shipment: 'shipment', // отгрузка
+  CustomerDelivery: 'customer_delivery', // подтверждение доставки/претензии
 } as const;
 
 export type OperationTypeCode = (typeof OperationTypeCode)[keyof typeof OperationTypeCode];

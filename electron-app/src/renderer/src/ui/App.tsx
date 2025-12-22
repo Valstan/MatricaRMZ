@@ -1,20 +1,26 @@
 import React, { useEffect, useState } from 'react';
 
-import type { AuditItem, EngineDetails, EngineListItem, OperationItem } from '@matricarmz/shared';
+import type { AuditItem, EngineDetails, EngineListItem, OperationItem, SyncStatus } from '@matricarmz/shared';
+
+import { Page } from './layout/Page.js';
+import { Tabs, type TabId } from './layout/Tabs.js';
+import { EnginesPage } from './pages/EnginesPage.js';
+import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
+import { SyncPage } from './pages/SyncPage.js';
+import { ReportsPage } from './pages/ReportsPage.js';
+import { AdminPage } from './pages/AdminPage.js';
+import { AuditPage } from './pages/AuditPage.js';
 
 export function App() {
   const [ping, setPing] = useState<string>('...');
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [tab, setTab] = useState<TabId>('engines');
+
   const [engines, setEngines] = useState<EngineListItem[]>([]);
-  const [syncStatus, setSyncStatus] = useState<string>('');
-  const [tab, setTab] = useState<'engines' | 'engine' | 'sync' | 'audit'>('engines');
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
   const [ops, setOps] = useState<OperationItem[]>([]);
   const [audit, setAudit] = useState<AuditItem[]>([]);
-  const [newOpType, setNewOpType] = useState<string>('acceptance');
-  const [newOpStatus, setNewOpStatus] = useState<string>('выполнено');
-  const [newOpNote, setNewOpNote] = useState<string>('');
-  const [updateStatus, setUpdateStatus] = useState<string>('');
 
   useEffect(() => {
     window.matrica
@@ -22,10 +28,26 @@ export function App() {
       .then((r) => setPing(`ok=${r.ok}, ts=${new Date(r.ts).toLocaleString('ru-RU')}`))
       .catch((e) => setPing(`ошибка: ${String(e)}`));
 
-    window.matrica.engines
-      .list()
-      .then(setEngines)
-      .catch(() => setEngines([]));
+    void refreshEngines();
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const s = await window.matrica.sync.status();
+        if (!alive) return;
+        setSyncStatus(s);
+      } catch {
+        // ignore
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
   }, []);
 
   async function refreshEngines() {
@@ -42,292 +64,114 @@ export function App() {
     setOps(o);
   }
 
+  async function reloadEngine() {
+    if (!selectedEngineId) return;
+    const d = await window.matrica.engines.get(selectedEngineId);
+    setEngineDetails(d);
+    const o = await window.matrica.operations.list(selectedEngineId);
+    setOps(o);
+  }
+
   async function refreshAudit() {
     const a = await window.matrica.audit.list();
     setAudit(a);
   }
 
-  function TabButton(props: { id: typeof tab; title: string }) {
-    const active = tab === props.id;
-    return (
-      <button
-        onClick={() => setTab(props.id)}
-        style={{
-          padding: '6px 10px',
-          borderRadius: 8,
-          border: '1px solid #ddd',
-          background: active ? '#f3f4f6' : '#fff',
-          cursor: 'pointer',
-        }}
-      >
-        {props.title}
-      </button>
-    );
+  const pageTitle =
+    tab === 'engines'
+      ? 'Матрица РМЗ — Двигатели'
+      : tab === 'engine'
+        ? 'Матрица РМЗ — Карточка двигателя'
+        : tab === 'sync'
+          ? 'Матрица РМЗ — Синхронизация'
+          : tab === 'reports'
+            ? 'Матрица РМЗ — Отчёты'
+            : tab === 'admin'
+              ? 'Матрица РМЗ — Справочники'
+          : 'Матрица РМЗ — Журнал';
+
+  function formatSyncStatus(s: SyncStatus | null): string {
+    if (!s) return 'SYNC: ...';
+    const stateLabel = s.state === 'idle' ? 'OK' : s.state === 'syncing' ? 'SYNC' : 'ERR';
+    const last = s.lastSyncAt ? new Date(s.lastSyncAt).toLocaleTimeString('ru-RU') : '-';
+    const next =
+      s.nextAutoSyncInMs == null
+        ? '-'
+        : s.nextAutoSyncInMs >= 60_000
+          ? `${Math.ceil(s.nextAutoSyncInMs / 60_000)}м`
+          : `${Math.ceil(s.nextAutoSyncInMs / 1000)}с`;
+    return `SYNC: ${stateLabel} | last ${last} | next ${next}`;
   }
 
   return (
-    <div style={{ fontFamily: 'system-ui', padding: 16 }}>
-      <h1 style={{ margin: 0 }}>Матрица РМЗ</h1>
-      <p style={{ color: '#555' }}>Тест связи renderer → main (IPC): {ping}</p>
-
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-        <TabButton id="engines" title="Двигатели" />
-        <TabButton id="sync" title="Синхронизация" />
-        <TabButton id="audit" title="Журнал действий" />
-        <span style={{ flex: 1 }} />
-        <span style={{ color: '#555' }}>{syncStatus}</span>
-      </div>
-
-      {tab === 'engines' && (
-        <>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12 }}>
-            <button
-              onClick={async () => {
-                const r = await window.matrica.engines.create();
-                await window.matrica.engines.setAttr(r.id, 'engine_number', 'ТЕСТ-001');
-                await window.matrica.engines.setAttr(r.id, 'engine_brand', 'ТЕСТ-МАРКА');
-                await refreshEngines();
-              }}
-            >
-              Добавить тестовый двигатель
-            </button>
-            <button onClick={refreshEngines}>Обновить список</button>
+    <Page
+      title={pageTitle}
+      right={
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+          <div style={{ color: '#6b7280', fontSize: 12 }}>IPC: {ping}</div>
+          <div style={{ color: syncStatus?.state === 'error' ? '#b91c1c' : '#6b7280', fontSize: 12 }}>
+            {formatSyncStatus(syncStatus)}
           </div>
+        </div>
+      }
+    >
+      <Tabs
+        tab={tab}
+        onTab={(t) => {
+          setTab(t);
+          if (t === 'audit') void refreshAudit();
+        }}
+      />
 
-          <h2 style={{ marginTop: 16 }}>Двигатели</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Номер</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Марка</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Sync</th>
-              </tr>
-            </thead>
-            <tbody>
-              {engines.map((e) => (
-                <tr key={e.id} style={{ cursor: 'pointer' }} onClick={() => openEngine(e.id)}>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{e.engineNumber ?? '-'}</td>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{e.engineBrand ?? '-'}</td>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{e.syncStatus ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {tab === 'engine' && selectedEngineId && (
-        <>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-            <button onClick={() => setTab('engines')}>← Назад</button>
-            <strong>Карточка двигателя</strong>
-          </div>
-
-          {engineDetails ? (
-            <>
-              <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8 }}>
-                <div style={{ color: '#555' }}>Номер двигателя</div>
-                <input
-                  value={String(engineDetails.attributes?.engine_number ?? '')}
-                  onChange={(e) =>
-                    setEngineDetails({
-                      ...engineDetails,
-                      attributes: { ...(engineDetails.attributes ?? {}), engine_number: e.target.value },
-                    })
-                  }
-                />
-                <div style={{ color: '#555' }}>Марка двигателя</div>
-                <input
-                  value={String(engineDetails.attributes?.engine_brand ?? '')}
-                  onChange={(e) =>
-                    setEngineDetails({
-                      ...engineDetails,
-                      attributes: { ...(engineDetails.attributes ?? {}), engine_brand: e.target.value },
-                    })
-                  }
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button
-                  onClick={async () => {
-                    await window.matrica.engines.setAttr(
-                      selectedEngineId,
-                      'engine_number',
-                      engineDetails.attributes?.engine_number ?? '',
-                    );
-                    await window.matrica.engines.setAttr(
-                      selectedEngineId,
-                      'engine_brand',
-                      engineDetails.attributes?.engine_brand ?? '',
-                    );
-                    await refreshEngines();
-                    const d = await window.matrica.engines.get(selectedEngineId);
-                    setEngineDetails(d);
-                  }}
-                >
-                  Сохранить
-                </button>
-                <button
-                  onClick={async () => {
-                    const d = await window.matrica.engines.get(selectedEngineId);
-                    setEngineDetails(d);
-                  }}
-                >
-                  Отменить
-                </button>
-              </div>
-
-              <h3 style={{ marginTop: 16 }}>Операции / стадии</h3>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <select value={newOpType} onChange={(e) => setNewOpType(e.target.value)}>
-                  <option value="acceptance">Приемка</option>
-                  <option value="kitting">Комплектовка</option>
-                  <option value="defect">Дефектовка</option>
-                  <option value="repair">Ремонт</option>
-                  <option value="test">Испытания</option>
-                </select>
-                <input
-                  value={newOpStatus}
-                  onChange={(e) => setNewOpStatus(e.target.value)}
-                  placeholder="Статус"
-                />
-                <input value={newOpNote} onChange={(e) => setNewOpNote(e.target.value)} placeholder="Примечание" />
-                <button
-                  onClick={async () => {
-                    await window.matrica.operations.add(selectedEngineId, newOpType, newOpStatus, newOpNote || undefined);
-                    const o = await window.matrica.operations.list(selectedEngineId);
-                    setOps(o);
-                    setNewOpNote('');
-                  }}
-                >
-                  Добавить операцию
-                </button>
-              </div>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Дата</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Тип</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Статус</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Примечание</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ops.map((o) => (
-                    <tr key={o.id}>
-                      <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>
-                        {new Date(o.createdAt).toLocaleString('ru-RU')}
-                      </td>
-                      <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{o.operationType}</td>
-                      <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{o.status}</td>
-                      <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{o.note ?? ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          ) : (
-            <p style={{ color: '#555' }}>Загрузка...</p>
-          )}
-        </>
-      )}
-
-      {tab === 'sync' && (
-        <>
-          <h2 style={{ marginTop: 16 }}>Синхронизация</h2>
-          <button
-            onClick={async () => {
-              setSyncStatus('Синхронизация...');
-              const r = await window.matrica.sync.run();
-              setSyncStatus(
-                r.ok
-                  ? `OK: push=${r.pushed}, pull=${r.pulled}, cursor=${r.serverCursor}`
-                  : `Ошибка: ${r.error ?? 'unknown'}`,
-              );
+      <div style={{ marginTop: 14 }}>
+        {tab === 'engines' && (
+          <EnginesPage
+            engines={engines}
+            onRefresh={refreshEngines}
+            onOpen={openEngine}
+            onCreate={async () => {
+              const r = await window.matrica.engines.create();
+              await window.matrica.engines.setAttr(r.id, 'engine_number', '');
+              await window.matrica.engines.setAttr(r.id, 'engine_brand', '');
               await refreshEngines();
+              await openEngine(r.id);
             }}
-          >
-            Синхронизировать сейчас
-          </button>
-          <p style={{ color: '#555' }}>
-            Для теста: запустите backend-api и укажите адрес через переменную окружения <code>MATRICA_API_URL</code>.
-          </p>
+          />
+        )}
 
-          <h3 style={{ marginTop: 16 }}>Обновления</h3>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              onClick={async () => {
-                setUpdateStatus('Проверка обновлений...');
-                const r = await window.matrica.update.check();
-                setUpdateStatus(
-                  r.ok
-                    ? r.updateAvailable
-                      ? `Доступно обновление: ${r.version ?? ''}`
-                      : 'Обновлений нет'
-                    : `Ошибка: ${r.error ?? 'unknown'}`,
-                );
-              }}
-            >
-              Проверить обновления
-            </button>
-            <button
-              onClick={async () => {
-                setUpdateStatus('Скачивание обновления...');
-                const r = await window.matrica.update.download();
-                setUpdateStatus(r.ok ? 'Обновление скачано. Нажмите “Установить”.' : `Ошибка: ${r.error ?? 'unknown'}`);
-              }}
-            >
-              Скачать
-            </button>
-            <button
-              onClick={async () => {
-                await window.matrica.update.install();
-              }}
-            >
-              Установить
-            </button>
-            <span style={{ color: '#555' }}>{updateStatus}</span>
-          </div>
-        </>
-      )}
-
-      {tab === 'audit' && (
-        <>
-          <h2 style={{ marginTop: 16 }}>Журнал действий</h2>
-          <button
-            onClick={async () => {
-              await refreshAudit();
+        {tab === 'engine' && selectedEngineId && engineDetails && (
+          <EngineDetailsPage
+            engineId={selectedEngineId}
+            engine={engineDetails}
+            ops={ops}
+            onBack={() => setTab('engines')}
+            onReload={reloadEngine}
+            onSaveAttrs={async (engineNumber, engineBrand) => {
+              await window.matrica.engines.setAttr(selectedEngineId, 'engine_number', engineNumber);
+              await window.matrica.engines.setAttr(selectedEngineId, 'engine_brand', engineBrand);
+              await refreshEngines();
+              await reloadEngine();
             }}
-          >
-            Обновить журнал
-          </button>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Дата</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Кто</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Действие</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Сущность</th>
-              </tr>
-            </thead>
-            <tbody>
-              {audit.map((a) => (
-                <tr key={a.id}>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>
-                    {new Date(a.createdAt).toLocaleString('ru-RU')}
-                  </td>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{a.actor}</td>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{a.action}</td>
-                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{a.entityId ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-    </div>
+            onAddOp={async (operationType, status, note) => {
+              await window.matrica.operations.add(selectedEngineId, operationType, status, note);
+              await reloadEngine();
+            }}
+          />
+        )}
+
+        {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
+
+        {tab === 'reports' && <ReportsPage />}
+
+        {tab === 'admin' && <AdminPage />}
+
+        {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} />}
+
+        {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
+          <div style={{ color: '#6b7280' }}>Выберите двигатель из списка.</div>
+        )}
+      </div>
+    </Page>
   );
 }
 

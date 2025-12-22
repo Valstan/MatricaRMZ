@@ -42,9 +42,23 @@ export const attributeValueRowSchema = z.object({
 export const operationRowSchema = z.object({
   ...baseRowFields,
   engine_entity_id: z.string().uuid(),
-  operation_type: z.enum(['acceptance', 'kitting', 'defect', 'repair', 'test']),
+  operation_type: z.enum([
+    'acceptance',
+    'kitting',
+    'defect',
+    'repair',
+    'test',
+    'disassembly',
+    'otk',
+    'packaging',
+    'shipment',
+    'customer_delivery',
+  ]),
   status: z.string().min(1),
   note: z.string().nullable().optional(),
+  performed_at: z.number().int().nullable().optional(),
+  performed_by: z.string().nullable().optional(),
+  meta_json: z.string().nullable().optional(),
 });
 
 export const auditLogRowSchema = z.object({
