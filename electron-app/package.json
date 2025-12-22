@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/electron-app",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "private": true,
   "type": "module",
   "main": "dist/main/index.js",
@@ -45,18 +45,13 @@
     "files": [
       "dist/**",
       "drizzle/**",
+      "release-info.json",
       "package.json"
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
           "arch": [
             "x64"
           ]
