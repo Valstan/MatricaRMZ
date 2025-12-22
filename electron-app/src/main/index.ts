@@ -99,7 +99,11 @@ app.whenReady().then(() => {
       const { db, sqlite } = openSqlite(dbPath);
 
       try {
-        migrateSqlite(db, sqlite);
+        // В packaged-версии миграции лежат внутри app.asar.
+        // Поэтому используем абсолютный путь от app.getAppPath().
+        const migrationsFolder = join(app.getAppPath(), 'drizzle');
+        logToFile(`sqlite migrationsFolder=${migrationsFolder}`);
+        migrateSqlite(db, sqlite, migrationsFolder);
         await seedIfNeeded(db);
       } catch (e) {
         logToFile(`sqlite migrate/seed failed: ${String(e)}`);
