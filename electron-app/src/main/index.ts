@@ -31,6 +31,8 @@ function createWindow(): void {
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
+      // В sandbox режиме preload требует CommonJS. Явно отключаем sandbox для стабильности.
+      sandbox: false,
       nodeIntegration: false,
     },
   });
