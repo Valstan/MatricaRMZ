@@ -1,4 +1,4 @@
-import { app, dialog, shell } from 'electron';
+import { app, dialog, shell, net } from 'electron';
 import { createWriteStream } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -176,23 +176,23 @@ async function getDownloadHref(pathOnDisk: string): Promise<string> {
       public_key: getPublicKey(),
       path: normalizePublicPath(pathOnDisk),
     }).toString();
-  const r = await fetch(api);
+  const r = await net.fetch(api);
   if (!r.ok) throw new Error(`Yandex download href failed ${r.status} (path=${normalizePublicPath(pathOnDisk)})`);
-  const json = await r.json();
+  const json = await r.json().catch(() => ({}));
   if (!json?.href) throw new Error('Yandex API returned no href');
   return json.href;
 }
 
 async function downloadTextFromYandex(pathOnDisk: string): Promise<string> {
   const href = await getDownloadHref(pathOnDisk);
-  const r = await fetch(href);
+  const r = await net.fetch(href);
   if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
   return await r.text();
 }
 
 async function downloadFromYandex(fileName: string): Promise<string> {
   const href = await getDownloadHref(joinPosix(getBasePath(), fileName));
-  const r = await fetch(href);
+  const r = await net.fetch(href);
   if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
 
   const dir = join(app.getPath('temp'), 'MatricaRMZ-updates');
@@ -264,7 +264,7 @@ async function listPublicFolder(pathOnDisk: string): Promise<string[]> {
       limit: '200',
     }).toString();
 
-  const r = await fetch(api);
+  const r = await net.fetch(api);
   if (!r.ok) throw new Error(`Yandex list failed ${r.status} (path=${normalizePublicPath(pathOnDisk)})`);
   const json = (await r.json()) as any;
   const items = (json?._embedded?.items ?? []) as any[];
