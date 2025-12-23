@@ -21,12 +21,24 @@ window.addEventListener('unhandledrejection', (e) => {
 
 safeLog('info', 'renderer boot start');
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
-
-safeLog('info', 'renderer boot mounted');
+const root = document.getElementById('root');
+if (!root) {
+  safeLog('error', 'renderer boot failed: #root not found');
+} else if (!(window as any).matrica) {
+  // Если preload не поднялся, UI не сможет работать — показываем понятную ошибку вместо белого экрана.
+  root.innerHTML =
+    '<div style="font-family:system-ui;padding:16px;color:#b91c1c">' +
+    '<h2 style="margin:0 0 8px 0">Ошибка запуска интерфейса</h2>' +
+    '<div>Не загружен preload (IPC мост). Проверьте файл лога matricarmz.log и обновитесь до последней версии.</div>' +
+    '</div>';
+  safeLog('error', 'window.matrica is undefined (preload not loaded)');
+} else {
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+  safeLog('info', 'renderer boot mounted');
+}
 
 

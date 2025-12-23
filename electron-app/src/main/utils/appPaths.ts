@@ -7,7 +7,9 @@ export function appDirname(metaUrl: string): string {
 }
 
 export function resolvePreloadPath(baseDir: string): string {
-  const candidates = [join(baseDir, '../preload/index.mjs'), join(baseDir, '../preload/index.js')];
+  // В packaged сборке preload должен быть CommonJS (index.js).
+  // Если случайно окажется и .mjs и .js — приоритетно берём .js.
+  const candidates = [join(baseDir, '../preload/index.js'), join(baseDir, '../preload/index.mjs')];
   for (const p of candidates) if (existsSync(p)) return p;
   return candidates[0];
 }

@@ -13,6 +13,14 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: 'dist/preload',
+      rollupOptions: {
+        output: {
+          // В Windows preload по умолчанию исполняется как CommonJS.
+          // ESM preload (.mjs) может падать с "Cannot use import statement outside a module".
+          format: 'cjs',
+          entryFileNames: 'index.js',
+        },
+      },
     },
   },
   renderer: {
