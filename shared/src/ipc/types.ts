@@ -91,6 +91,8 @@ export type MatricaApi = {
   sync: {
     run: () => Promise<SyncRunResult>;
     status: () => Promise<SyncStatus>;
+    configGet: () => Promise<{ ok: boolean; apiBaseUrl?: string; error?: string }>;
+    configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
   };
   reports: {
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.

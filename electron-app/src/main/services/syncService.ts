@@ -31,6 +31,47 @@ async function safeBodyText(r: Response): Promise<string> {
   }
 }
 
+function formatError(e: unknown): string {
+  if (!e) return 'unknown error';
+  const anyE = e as any;
+  const name = anyE?.name ? String(anyE.name) : '';
+  const message = anyE?.message ? String(anyE.message) : String(e);
+  const cause = anyE?.cause ? ` cause=${String(anyE.cause)}` : '';
+  const code = anyE?.code ? ` code=${String(anyE.code)}` : '';
+  const stack = anyE?.stack ? `\n${String(anyE.stack)}` : '';
+  return `${name ? name + ': ' : ''}${message}${code}${cause}${stack}`;
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull' },
+): Promise<Response> {
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= opts.attempts; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
+    try {
+      const started = nowMs();
+      const r = await net.fetch(url, { ...init, signal: ac.signal as any });
+      const dur = nowMs() - started;
+      logSync(`${opts.label} attempt=${attempt}/${opts.attempts} status=${r.status} durMs=${dur} url=${url}`);
+      return r;
+    } catch (e) {
+      lastErr = e;
+      const dur = opts.timeoutMs;
+      logSync(`${opts.label} attempt=${attempt}/${opts.attempts} failed durMs=${dur} url=${url} err=${formatError(e)}`);
+      if (attempt < opts.attempts) {
+        const backoff = attempt === 1 ? 1000 : 3000;
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  throw lastErr ?? new Error('fetch failed');
+}
+
 async function getSyncStateNumber(db: BetterSQLite3Database, key: string, fallback: number) {
   const row = await db.select().from(syncState).where(eq(syncState.key, key)).limit(1);
   if (!row[0]) return fallback;
@@ -378,11 +419,11 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     if (upserts.length > 0) {
       const pushBody: SyncPushRequest = { client_id: clientId, upserts };
       const pushUrl = `${apiBaseUrl}/sync/push`;
-      const r = await net.fetch(pushUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pushBody),
-      });
+      const r = await fetchWithRetry(
+        pushUrl,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
+        { attempts: 3, timeoutMs: 15_000, label: 'push' },
+      );
       if (!r.ok) {
         const body = await safeBodyText(r);
         logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
@@ -400,7 +441,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
     const since = await getSyncStateNumber(db, 'lastPulledServerSeq', 0);
     const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
-    const pull = await net.fetch(pullUrl, { method: 'GET' });
+    const pull = await fetchWithRetry(pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: 15_000, label: 'pull' });
     if (!pull.ok) {
       const body = await safeBodyText(pull);
       logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
@@ -421,8 +462,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
     return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
   } catch (e) {
-    logSync(`error ${String(e)}`);
-    return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: String(e) };
+    const err = formatError(e);
+    logSync(`error ${err}`);
+    return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
   }
 }
 

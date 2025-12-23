@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('matrica', {
   sync: {
     run: async () => ipcRenderer.invoke('sync:run'),
     status: async () => ipcRenderer.invoke('sync:status'),
+    configGet: async () => ipcRenderer.invoke('sync:config:get'),
+    configSet: async (args: { apiBaseUrl: string }) => ipcRenderer.invoke('sync:config:set', args),
   },
   reports: {
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),

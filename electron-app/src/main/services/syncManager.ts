@@ -20,8 +20,16 @@ export class SyncManager {
   constructor(
     private readonly db: BetterSQLite3Database,
     private readonly clientId: string,
-    private readonly apiBaseUrl: string,
+    private apiBaseUrl: string,
   ) {}
+
+  setApiBaseUrl(next: string) {
+    this.apiBaseUrl = next;
+  }
+
+  getApiBaseUrl() {
+    return this.apiBaseUrl;
+  }
 
   getStatus(): SyncStatus {
     const now = nowMs();

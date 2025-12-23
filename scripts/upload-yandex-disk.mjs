@@ -149,7 +149,8 @@ async function main() {
   const latestItems = await listFolder(token, remoteLatestFolder).catch(() => []);
   for (const it of latestItems) {
     if (!it.name.toLowerCase().endsWith('.exe')) continue;
-    const from = normalizeRemotePath(it.path);
+    // В ответах API поле path обычно вида "disk:/...". Его нельзя прогонять через normalizeRemotePath.
+    const from = it.path;
     const to = normalizeRemotePath(posixPath.join(remoteBase, it.name));
     // eslint-disable-next-line no-console
     console.log(`Moving old latest -> root: ${it.name}`);
@@ -174,7 +175,8 @@ async function main() {
   const keep = new Set(withVer.slice(0, 3).map((x) => x.name));
   for (const x of withVer.slice(3)) {
     if (keep.has(x.name)) continue;
-    const p = normalizeRemotePath(x.path);
+    // В ответах API поле path обычно вида "disk:/...". Его нельзя прогонять через normalizeRemotePath.
+    const p = x.path;
     // eslint-disable-next-line no-console
     console.log(`Deleting old installer: ${x.name}`);
     await deleteResource(token, p);

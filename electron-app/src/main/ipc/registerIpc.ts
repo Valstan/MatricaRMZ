@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { eq } from 'drizzle-orm';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
@@ -11,6 +12,7 @@ import { SyncManager } from '../services/syncManager.js';
 import { listAttributeDefsByEntityType, listEntityTypes, upsertAttributeDef, upsertEntityType } from '../services/adminService.js';
 import { buildPeriodStagesCsv } from '../services/reportService.js';
 import { checkForUpdates } from '../services/updateService.js';
+import { syncState } from '../database/schema.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
   function logToFile(message: string) {
@@ -47,6 +49,30 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
 
   ipcMain.handle('sync:run', async () => mgr.runOnce());
   ipcMain.handle('sync:status', async () => mgr.getStatus());
+  ipcMain.handle('sync:config:get', async () => {
+    try {
+      const row = await db.select().from(syncState).where(eq(syncState.key, 'apiBaseUrl')).limit(1);
+      return { ok: true, apiBaseUrl: row[0]?.value ?? mgr.getApiBaseUrl() };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+  ipcMain.handle('sync:config:set', async (_e, args: { apiBaseUrl: string }) => {
+    try {
+      const v = String(args.apiBaseUrl ?? '').trim();
+      if (!v) return { ok: false, error: 'apiBaseUrl is empty' };
+      const ts = Date.now();
+      await db
+        .insert(syncState)
+        .values({ key: 'apiBaseUrl', value: v, updatedAt: ts })
+        .onConflictDoUpdate({ target: syncState.key, set: { value: v, updatedAt: ts } });
+      mgr.setApiBaseUrl(v);
+      logToFile(`sync apiBaseUrl set: ${v}`);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
 
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) =>
     buildPeriodStagesCsv(db, args),
