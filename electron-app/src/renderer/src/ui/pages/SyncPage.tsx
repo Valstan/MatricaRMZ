@@ -5,6 +5,7 @@ import { Button } from '../components/Button.js';
 export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
   const [syncStatus, setSyncStatus] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<string>('');
+  const [diag, setDiag] = useState<string>('');
 
   return (
     <div>
@@ -19,11 +20,14 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
           setSyncStatus(
             r.ok ? `OK: push=${r.pushed}, pull=${r.pulled}, cursor=${r.serverCursor}` : `Ошибка: ${r.error ?? 'unknown'}`,
           );
+          const s = await window.matrica.sync.status().catch(() => null);
+          if (s) setDiag(`state=${s.state}, lastError=${s.lastError ?? '-'}, next=${s.nextAutoSyncInMs ?? '-'}`);
           await props.onAfterSync?.();
         }}
       >
         Синхронизировать сейчас
       </Button>
+      {diag && <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Диагностика: {diag}</div>}
 
       <h2 style={{ margin: '18px 0 8px' }}>Обновления</h2>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>

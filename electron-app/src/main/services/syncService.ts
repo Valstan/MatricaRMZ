@@ -1,12 +1,34 @@
 import { SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
+import { app, net } from 'electron';
 import { eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations, syncState } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 
 function nowMs() {
   return Date.now();
+}
+
+function logSync(message: string) {
+  try {
+    const dir = app.getPath('userData');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'matricarmz.log'), `[${new Date().toISOString()}] sync ${message}\n`);
+  } catch {
+    // ignore
+  }
+}
+
+async function safeBodyText(r: Response): Promise<string> {
+  try {
+    const t = await r.text();
+    return t.length > 4000 ? t.slice(0, 4000) + '…' : t;
+  } catch {
+    return '';
+  }
 }
 
 async function getSyncStateNumber(db: BetterSQLite3Database, key: string, fallback: number) {
@@ -349,17 +371,23 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
 export async function runSync(db: BetterSQLite3Database, clientId: string, apiBaseUrl: string): Promise<SyncRunResult> {
   const startedAt = nowMs();
   try {
+    logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
     const upserts = await collectPending(db);
     let pushed = 0;
 
     if (upserts.length > 0) {
       const pushBody: SyncPushRequest = { client_id: clientId, upserts };
-      const r = await fetch(`${apiBaseUrl}/sync/push`, {
+      const pushUrl = `${apiBaseUrl}/sync/push`;
+      const r = await net.fetch(pushUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pushBody),
       });
-      if (!r.ok) throw new Error(`push HTTP ${r.status}`);
+      if (!r.ok) {
+        const body = await safeBodyText(r);
+        logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
+        throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
+      }
       const json = (await r.json()) as { ok: boolean; applied?: number };
       pushed = json.applied ?? 0;
 
@@ -371,8 +399,13 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     }
 
     const since = await getSyncStateNumber(db, 'lastPulledServerSeq', 0);
-    const pull = await fetch(`${apiBaseUrl}/sync/pull?since=${since}`, { method: 'GET' });
-    if (!pull.ok) throw new Error(`pull HTTP ${pull.status}`);
+    const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
+    const pull = await net.fetch(pullUrl, { method: 'GET' });
+    if (!pull.ok) {
+      const body = await safeBodyText(pull);
+      logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
+      throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
+    }
     const pullJson = (await pull.json()) as SyncPullResponse;
 
     let pulled = 0;
@@ -385,8 +418,10 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     await setSyncState(db, 'lastPulledServerSeq', String(pullJson.server_cursor));
     await setSyncState(db, 'lastSyncAt', String(startedAt));
 
+    logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
     return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
   } catch (e) {
+    logSync(`error ${String(e)}`);
     return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: String(e) };
   }
 }
