@@ -10,7 +10,7 @@ import { listAudit } from '../services/auditService.js';
 import { SyncManager } from '../services/syncManager.js';
 import { listAttributeDefsByEntityType, listEntityTypes, upsertAttributeDef, upsertEntityType } from '../services/adminService.js';
 import { buildPeriodStagesCsv } from '../services/reportService.js';
-import { checkForUpdates, downloadUpdate, quitAndInstall } from '../services/updateService.js';
+import { checkForUpdates } from '../services/updateService.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
   function logToFile(message: string) {
@@ -77,8 +77,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   );
 
   ipcMain.handle('update:check', async () => checkForUpdates());
-  ipcMain.handle('update:download', async () => downloadUpdate());
-  ipcMain.handle('update:install', async () => quitAndInstall());
 }
 
 

@@ -50,8 +50,6 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   update: {
     check: async () => ipcRenderer.invoke('update:check'),
-    download: async () => ipcRenderer.invoke('update:download'),
-    install: async () => ipcRenderer.invoke('update:install'),
   },
 });
 

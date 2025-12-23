@@ -130,8 +130,6 @@ export type MatricaApi = {
   };
   update: {
     check: () => Promise<UpdateCheckResult>;
-    download: () => Promise<UpdateResult>;
-    install: () => Promise<UpdateResult>;
   };
 };
 

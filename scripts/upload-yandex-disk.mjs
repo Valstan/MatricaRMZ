@@ -84,45 +84,104 @@ async function uploadFile(token, localFilePath, remoteFilePath) {
 
 function isReleaseArtifact(filename) {
   const lower = filename.toLowerCase();
-  return (
-    lower === 'latest.yml' ||
-    lower.endsWith('.exe') ||
-    lower.endsWith('.blockmap') ||
-    lower.endsWith('.zip')
-  );
+  // По новой политике: в папку latest кладём только один installer .exe.
+  return lower.endsWith('.exe');
+}
+
+async function listFolder(token, remotePath) {
+  const url =
+    'https://cloud-api.yandex.net/v1/disk/resources?' +
+    new URLSearchParams({ path: remotePath, limit: '200' }).toString();
+  const res = await yreq(url, token, { method: 'GET' });
+  const json = await res.json();
+  const items = (json?._embedded?.items ?? []).filter(Boolean);
+  return items.map((x) => ({ name: String(x.name), path: String(x.path), modified: String(x.modified ?? '') }));
+}
+
+async function moveResource(token, fromPath, toPath) {
+  const url =
+    'https://cloud-api.yandex.net/v1/disk/resources/move?' +
+    new URLSearchParams({ from: fromPath, path: toPath, overwrite: 'true' }).toString();
+  await yreq(url, token, { method: 'POST' });
+}
+
+async function deleteResource(token, remotePath) {
+  const url =
+    'https://cloud-api.yandex.net/v1/disk/resources?' +
+    new URLSearchParams({ path: remotePath, permanently: 'true' }).toString();
+  await yreq(url, token, { method: 'DELETE' });
+}
+
+function extractVersion(name) {
+  const m = name.match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
+function compareSemver(a, b) {
+  const pa = String(a).split('.').map((x) => Number(x));
+  const pb = String(b).split('.').map((x) => Number(x));
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da > db) return 1;
+    if (da < db) return -1;
+  }
+  return 0;
 }
 
 async function main() {
   const token = requireEnv('YANDEX_DISK_TOKEN');
   const dir = getArg('--dir') ?? 'electron-app/release';
   const remoteBase = normalizeRemotePath(requireEnv('YANDEX_DISK_FOLDER'));
-  const tag = process.env.GITHUB_REF_NAME || process.env.GITHUB_REF || 'unknown';
-  const remoteTagFolder = normalizeRemotePath(posixPath.join(remoteBase, tag));
   const remoteLatestFolder = normalizeRemotePath(posixPath.join(remoteBase, 'latest'));
 
   const entries = await readdir(dir, { withFileTypes: true });
   const files = entries.filter((e) => e.isFile()).map((e) => e.name).filter(isReleaseArtifact);
-  if (files.length === 0) {
+  const exe = files.find((f) => f.toLowerCase().endsWith('.exe'));
+  if (!exe) {
     throw new Error(`No release artifacts found in ${dir}`);
   }
 
   await ensureFolder(token, remoteBase);
-  await ensureFolder(token, remoteTagFolder);
   await ensureFolder(token, remoteLatestFolder);
 
-  for (const name of files) {
-    const localPath = join(dir, name);
-    const remotePath = normalizeRemotePath(posixPath.join(remoteTagFolder, name));
-    const remoteLatestPath = normalizeRemotePath(posixPath.join(remoteLatestFolder, name));
-
+  // 1) Переносим предыдущий installer из /latest в корень.
+  const latestItems = await listFolder(token, remoteLatestFolder).catch(() => []);
+  for (const it of latestItems) {
+    if (!it.name.toLowerCase().endsWith('.exe')) continue;
+    const from = normalizeRemotePath(it.path);
+    const to = normalizeRemotePath(posixPath.join(remoteBase, it.name));
     // eslint-disable-next-line no-console
-    console.log(`Uploading to Yandex.Disk: ${name}`);
-    await uploadFile(token, localPath, remotePath);
-    await uploadFile(token, localPath, remoteLatestPath);
+    console.log(`Moving old latest -> root: ${it.name}`);
+    await moveResource(token, from, to);
+  }
+
+  // 2) Загружаем новый installer в /latest (и только его).
+  const localPath = join(dir, exe);
+  const remoteLatestPath = normalizeRemotePath(posixPath.join(remoteLatestFolder, exe));
+  // eslint-disable-next-line no-console
+  console.log(`Uploading installer to latest: ${exe}`);
+  await uploadFile(token, localPath, remoteLatestPath);
+
+  // 3) Храним в корне только 3 последние версии (по semver из имени, иначе по modified).
+  const rootItems = await listFolder(token, remoteBase);
+  const exes = rootItems.filter((x) => x.name.toLowerCase().endsWith('.exe'));
+  const withVer = exes.map((x) => ({ ...x, ver: extractVersion(x.name) }));
+  withVer.sort((a, b) => {
+    if (a.ver && b.ver) return compareSemver(b.ver, a.ver);
+    return String(b.modified).localeCompare(String(a.modified));
+  });
+  const keep = new Set(withVer.slice(0, 3).map((x) => x.name));
+  for (const x of withVer.slice(3)) {
+    if (keep.has(x.name)) continue;
+    const p = normalizeRemotePath(x.path);
+    // eslint-disable-next-line no-console
+    console.log(`Deleting old installer: ${x.name}`);
+    await deleteResource(token, p);
   }
 
   // eslint-disable-next-line no-console
-  console.log(`Yandex.Disk upload done: ${remoteTagFolder} and ${remoteLatestFolder}`);
+  console.log(`Yandex.Disk upload done: ${remoteLatestFolder} (latest=1 exe) and root keep=3`);
 }
 
 main().catch((e) => {

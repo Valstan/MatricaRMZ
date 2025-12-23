@@ -1,4 +1,4 @@
-import { app, dialog, shell, net } from 'electron';
+import { app, BrowserWindow, shell, net } from 'electron';
 import { createWriteStream } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -9,58 +9,92 @@ export type UpdateCheckResult =
   | { ok: false; error: string };
 
 export function initAutoUpdate() {
-  // Ничего не делаем: обновления идут не через GitHub (репозиторий приватный),
-  // а через Яндекс.Диск (public link + latest.yml).
+  // Обновления идут через Яндекс.Диск (public folder).
 }
 
-export function wireAutoUpdateDialogs(opts: {
-  log: (msg: string) => void;
-  getLogPath: () => string;
-}) {
-  // Автообновление через Яндекс.Диск: проверяем при запуске и показываем диалог.
-  void (async () => {
+let updateInFlight = false;
+let updateUiWindow: BrowserWindow | null = null;
+
+function showUpdateWindow(parent?: BrowserWindow | null) {
+  if (updateUiWindow && !updateUiWindow.isDestroyed()) return updateUiWindow;
+  updateUiWindow = new BrowserWindow({
+    width: 420,
+    height: 220,
+    modal: !!parent,
+    parent: parent ?? undefined,
+    title: `Обновление MatricaRMZ`,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: false,
+      nodeIntegration: false,
+    },
+  });
+
+  const html = `<!doctype html>
+  <html><head><meta charset="utf-8"/><title>Update</title>
+  <style>
+    body{font-family:system-ui; padding:16px;}
+    .muted{color:#6b7280}
+    .bar{height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-top:10px}
+    .fill{height:10px;background:#0f172a;width:0%}
+    .row{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .pct{font-variant-numeric:tabular-nums}
+  </style></head>
+  <body>
+    <h2 style="margin:0">Обновление</h2>
+    <div id="msg" class="muted" style="margin-top:8px">Проверяем обновления…</div>
+    <div class="row"><div class="pct" id="pct">0%</div><div class="muted" id="ver"></div></div>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+  </body></html>`;
+  void updateUiWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  return updateUiWindow;
+}
+
+async function setUpdateUi(msg: string, pct?: number, version?: string) {
+  const w = updateUiWindow;
+  if (!w || w.isDestroyed()) return;
+  const safeMsg = msg.replace(/'/g, "\\'");
+  const p = pct == null ? null : Math.max(0, Math.min(100, Math.floor(pct)));
+  const safeVer = (version ?? '').replace(/'/g, "\\'");
+  const js = `
+    document.getElementById('msg').innerText='${safeMsg}';
+    ${p == null ? '' : `document.getElementById('pct').innerText='${p}%'; document.getElementById('fill').style.width='${p}%';`}
+    document.getElementById('ver').innerText='${safeVer ? 'Новая версия: ' + safeVer : ''}';
+  `;
+  await w.webContents.executeJavaScript(js, true).catch(() => {});
+}
+
+export async function runAutoUpdateFlow(opts: { reason: 'startup' | 'manual_menu'; parentWindow?: BrowserWindow | null } = { reason: 'startup' }) {
+  if (updateInFlight) return;
+  updateInFlight = true;
+  try {
+    showUpdateWindow(opts.parentWindow ?? null);
+    await setUpdateUi('Проверяем обновления…', 0);
+
     const check = await checkForUpdates();
     if (!check.ok) {
-      opts.log(`update check failed: ${check.error}`);
+      await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
       return;
     }
-    if (!check.updateAvailable) return;
-
-    const r = await dialog.showMessageBox({
-      type: 'info',
-      title: 'Доступно обновление',
-      message: 'Найдена новая версия программы.',
-      detail: `Новая версия: ${check.version ?? ''}\n\nЛог: ${opts.getLogPath()}`,
-      buttons: ['Скачать обновление', 'Позже'],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (r.response !== 0) return;
-
-    const dl = await downloadUpdate();
-    if (!dl.ok) {
-      opts.log(`download failed: ${dl.error ?? 'unknown'}`);
-      await dialog.showMessageBox({
-        type: 'error',
-        title: 'Ошибка обновления',
-        message: 'Не удалось скачать обновление.',
-        detail: `${dl.error ?? 'unknown'}\n\nЛог: ${opts.getLogPath()}`,
-      });
+    if (!check.updateAvailable) {
+      await setUpdateUi('Обновлений нет', 100);
+      // на старте можно быстро скрыть окно
+      if (opts.reason === 'startup') setTimeout(() => updateUiWindow?.close(), 900);
       return;
     }
 
-    const r2 = await dialog.showMessageBox({
-      type: 'question',
-      title: 'Обновление готово',
-      message: 'Обновление скачано. Установить сейчас?',
-      detail: `Версия: ${check.version ?? ''}`,
-      buttons: ['Установить и перезапустить', 'Позже'],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (r2.response !== 0) return;
+    await setUpdateUi(`Найдена новая версия. Скачиваем…`, 0, check.version);
+    const latest = await fetchLatestInfo();
+    const filePath = await downloadInstaller(latest.fileName, (pct) => setUpdateUi('Скачиваем обновление…', pct, latest.version));
+    lastDownloadedInstallerPath = filePath;
+    await setUpdateUi('Скачивание завершено. Запускаем установку…', 100, latest.version);
     await quitAndInstall();
-  })();
+  } finally {
+    updateInFlight = false;
+  }
 }
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
@@ -74,20 +108,9 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   }
 }
 
-export async function downloadUpdate(): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const latest = await fetchLatestInfo();
-    const filePath = await downloadInstallerWithFallback(latest);
-    lastDownloadedInstallerPath = filePath;
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
-}
-
 export async function quitAndInstall(): Promise<{ ok: boolean; error?: string }> {
   try {
-    const target = lastDownloadedInstallerPath ?? (await downloadInstallerWithFallback(await fetchLatestInfo()));
+    const target = lastDownloadedInstallerPath ?? (await downloadInstaller((await fetchLatestInfo()).fileName));
     const err = await shell.openPath(target);
     if (err) return { ok: false, error: err };
     app.quit();
@@ -110,7 +133,7 @@ type ReleaseInfo = {
   };
 };
 
-let cachedLatest: { version: string; path: string } | null = null;
+let cachedLatest: { version: string; fileName: string } | null = null;
 let lastDownloadedInstallerPath: string | null = null;
 
 function readReleaseInfo(): ReleaseInfo | null {
@@ -150,10 +173,16 @@ function getBasePath() {
 
 async function fetchLatestInfo(): Promise<{ version: string; path: string }> {
   if (cachedLatest) return cachedLatest;
-  const yml = await downloadTextFromYandex(joinPosix(getBasePath(), 'latest.yml'));
-  const info = parseLatestYml(yml);
-  cachedLatest = info;
-  return info;
+
+  // Новая стратегия: в /latest лежит один .exe. Определяем “последний” по версии из имени файла.
+  const folder = getBasePath();
+  const items = await listPublicFolder(folder);
+  const exe = pickNewestInstaller(items);
+  if (!exe) throw new Error(`No installer .exe found in ${folder}`);
+  const version = extractVersionFromFileName(exe);
+  if (!version) throw new Error(`Cannot extract version from installer name: ${exe}`);
+  cachedLatest = { version, fileName: exe };
+  return cachedLatest;
 }
 
 function joinPosix(a: string, b: string) {
@@ -183,14 +212,7 @@ async function getDownloadHref(pathOnDisk: string): Promise<string> {
   return json.href;
 }
 
-async function downloadTextFromYandex(pathOnDisk: string): Promise<string> {
-  const href = await getDownloadHref(pathOnDisk);
-  const r = await net.fetch(href);
-  if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
-  return await r.text();
-}
-
-async function downloadFromYandex(fileName: string): Promise<string> {
+async function downloadInstaller(fileName: string, onProgress?: (pct: number) => void): Promise<string> {
   const href = await getDownloadHref(joinPosix(getBasePath(), fileName));
   const r = await net.fetch(href);
   if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
@@ -199,34 +221,39 @@ async function downloadFromYandex(fileName: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   const outPath = join(dir, fileName);
 
+  const total = Number(r.headers.get('content-length') ?? '0') || 0;
   const ws = createWriteStream(outPath);
-  await new Promise((resolve, reject) => {
-    r.body?.pipeTo
-      ? // Web streams
-        r.body
-          .pipeTo(new WritableStream({
-            write(chunk) {
-              ws.write(Buffer.from(chunk));
-            },
-            close() {
-              ws.end();
-              resolve(undefined);
-            },
-            abort(err) {
-              reject(err);
-            },
-          }))
-          .catch(reject)
-      : // Node stream fallback
-        (r.body
-          ? (r.body.on('data', (c) => ws.write(c)),
-            r.body.on('end', () => {
-              ws.end();
-              resolve(undefined);
-            }),
-            r.body.on('error', reject))
-          : reject(new Error('No response body')));
-  });
+  let received = 0;
+
+  // Web stream путь (electron.net.fetch обычно отдаёт web stream)
+  if ((r.body as any)?.getReader) {
+    const reader = (r.body as any).getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const buf = Buffer.from(value);
+      ws.write(buf);
+      received += buf.length;
+      if (total > 0 && onProgress) onProgress((received / total) * 100);
+    }
+    ws.end();
+  } else if (r.body) {
+    // Node stream fallback (без прогресса если нет content-length)
+    await new Promise<void>((resolve, reject) => {
+      (r.body as any).on('data', (c: Buffer) => {
+        ws.write(c);
+        received += c.length;
+        if (total > 0 && onProgress) onProgress((received / total) * 100);
+      });
+      (r.body as any).on('end', () => {
+        ws.end();
+        resolve();
+      });
+      (r.body as any).on('error', reject);
+    });
+  } else {
+    throw new Error('No response body');
+  }
 
   const s = await stat(outPath);
   if (s.size < 1024 * 100) {
@@ -234,25 +261,6 @@ async function downloadFromYandex(fileName: string): Promise<string> {
     throw new Error('Downloaded installer looks too small');
   }
   return outPath;
-}
-
-async function downloadInstallerWithFallback(latest: { version: string; path: string }): Promise<string> {
-  try {
-    return await downloadFromYandex(latest.path);
-  } catch (e) {
-    const msg = String(e);
-    // Если файл по имени из latest.yml не найден — попробуем найти любой .exe в папке basePath,
-    // предпочтительно содержащий версию.
-    if (!msg.includes('Yandex download href failed 404')) throw e;
-
-    const folder = getBasePath();
-    const items = await listPublicFolder(folder);
-    const exe = pickInstaller(items, latest.version);
-    if (!exe) {
-      throw new Error(`Installer not found in ${folder}. latest.yml path=${latest.path}. Available: ${items.join(', ')}`);
-    }
-    return await downloadFromYandex(exe);
-  }
 }
 
 async function listPublicFolder(pathOnDisk: string): Promise<string[]> {
@@ -271,30 +279,23 @@ async function listPublicFolder(pathOnDisk: string): Promise<string[]> {
   return items.map((x) => String(x?.name ?? '')).filter(Boolean);
 }
 
-function pickInstaller(items: string[], version: string): string | null {
+function extractVersionFromFileName(fileName: string): string | null {
+  // Поддерживаем имена вроде:
+  // - MatricaRMZ-Setup-0.0.23.exe
+  // - MatricaRMZ Setup 0.0.23.exe
+  const m = fileName.match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
+function pickNewestInstaller(items: string[]): string | null {
   const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
   if (exes.length === 0) return null;
-  const byVersion = exes.find((n) => n.includes(version));
-  return byVersion ?? exes[0] ?? null;
-}
-
-function parseLatestYml(yml: string): { version: string; path: string } {
-  // electron-builder latest.yml содержит top-level "version:" и "path:".
-  const version = pickYamlScalar(yml, 'version');
-  const path = pickYamlScalar(yml, 'path');
-  if (!version || !path) throw new Error('latest.yml parse failed (missing version/path)');
-  return { version, path };
-}
-
-function pickYamlScalar(yml: string, key: string): string | null {
-  const re = new RegExp(`^${key}:\\s*(.+)\\s*$`, 'm');
-  const m = yml.match(re);
-  if (!m) return null;
-  let v = m[1].trim();
-  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-    v = v.slice(1, -1);
-  }
-  return v;
+  const parsed = exes
+    .map((n) => ({ n, v: extractVersionFromFileName(n) }))
+    .filter((x) => x.v);
+  if (parsed.length === 0) return exes[0];
+  parsed.sort((a, b) => compareSemver(b.v!, a.v!));
+  return parsed[0].n;
 }
 
 function compareSemver(a: string, b: string): number {

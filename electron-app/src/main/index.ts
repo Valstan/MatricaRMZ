@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
-import { initAutoUpdate, checkForUpdates, wireAutoUpdateDialogs } from './services/updateService.js';
+import { initAutoUpdate, runAutoUpdateFlow } from './services/updateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -26,7 +26,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: 'Матрица РМЗ',
+    title: `Матрица РМЗ v${app.getVersion()}`,
     show: false,
     webPreferences: {
       preload: preloadPath,
@@ -98,7 +98,6 @@ app.whenReady().then(() => {
   app.commandLine.appendSwitch('v', '1');
 
   initAutoUpdate();
-  wireAutoUpdateDialogs({ log: logToFile, getLogPath });
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
   process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
   setupMenu();
@@ -112,8 +111,8 @@ app.whenReady().then(() => {
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru:3001';
 
-  // Автопроверка обновлений при старте (MVP).
-  void checkForUpdates();
+  // Автообновление при старте: если есть новая версия — сразу скачиваем и запускаем установщик.
+  void runAutoUpdateFlow({ reason: 'startup', parentWindow: mainWindow });
   // Инициализируем SQLite + IPC асинхронно (после создания окна).
   void (async () => {
     try {
