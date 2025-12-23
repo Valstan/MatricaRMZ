@@ -68,8 +68,13 @@ export type UpdateCheckResult =
 
 export type UpdateResult = { ok: boolean; error?: string };
 
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
+  log: {
+    send: (level: LogLevel, message: string) => Promise<void>;
+  };
   engines: {
     list: () => Promise<EngineListItem[]>;
     create: () => Promise<{ id: string }>;

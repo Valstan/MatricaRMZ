@@ -3,6 +3,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 // API, доступный в renderer. Дальше будем расширять CRUD и синхронизацию.
 contextBridge.exposeInMainWorld('matrica', {
   ping: async () => ipcRenderer.invoke('app:ping'),
+  log: {
+    send: async (level: 'debug' | 'info' | 'warn' | 'error', message: string) =>
+      ipcRenderer.invoke('log:send', { level, message }),
+  },
   engines: {
     list: async () => ipcRenderer.invoke('engine:list'),
     create: async () => ipcRenderer.invoke('engine:create'),

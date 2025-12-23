@@ -45,6 +45,32 @@ function createWindow(): void {
     void mainWindow.loadFile(rendererIndex);
   }
 
+  mainWindow.webContents.on('did-finish-load', async () => {
+    try {
+      const href = await mainWindow?.webContents.executeJavaScript('location.href', true);
+      const scripts = await mainWindow?.webContents.executeJavaScript(
+        "Array.from(document.scripts).map(s => s.src || s.type || '').join(' | ')",
+        true,
+      );
+      logToFile(`renderer did-finish-load: href=${String(href)}`);
+      logToFile(`renderer scripts: ${String(scripts)}`);
+    } catch (e) {
+      logToFile(`renderer did-finish-load inspect failed: ${String(e)}`);
+    }
+  });
+
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    logToFile(`renderer console[level=${level}] ${message} (line=${line} src=${sourceId})`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    logToFile(`renderer process gone: reason=${details.reason} exitCode=${details.exitCode}`);
+  });
+
+  mainWindow.webContents.on('preload-error', (_e, preloadPath, error) => {
+    logToFile(`preload-error: path=${preloadPath} err=${String(error)}`);
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
   });

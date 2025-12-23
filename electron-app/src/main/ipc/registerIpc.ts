@@ -1,5 +1,8 @@
 import { ipcMain } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { app } from 'electron';
 
 import { createEngine, getEngineDetails, listEngines, setEngineAttribute } from '../services/engineService.js';
 import { addOperation, listOperations } from '../services/operationService.js';
@@ -10,9 +13,23 @@ import { buildPeriodStagesCsv } from '../services/reportService.js';
 import { checkForUpdates, downloadUpdate, quitAndInstall } from '../services/updateService.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
+  function logToFile(message: string) {
+    try {
+      const dir = app.getPath('userData');
+      mkdirSync(dir, { recursive: true });
+      appendFileSync(join(dir, 'matricarmz.log'), `[${new Date().toISOString()}] ${message}\n`);
+    } catch {
+      // ignore
+    }
+  }
+
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
   const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl);
   mgr.startAuto(5 * 60_000);
+
+  ipcMain.handle('log:send', async (_e, payload: { level: string; message: string }) => {
+    logToFile(`renderer ${payload.level}: ${payload.message}`);
+  });
 
   ipcMain.handle('engine:list', async () => listEngines(db));
   ipcMain.handle('engine:create', async () => createEngine(db));
