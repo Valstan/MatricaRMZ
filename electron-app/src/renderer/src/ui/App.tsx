@@ -112,7 +112,7 @@ export function App() {
           <div style={{ color: syncStatus?.state === 'error' ? '#b91c1c' : '#6b7280', fontSize: 12 }}>
             {formatSyncStatus(syncStatus)}
           </div>
-        </div>
+          </div>
       }
     >
       <Tabs
@@ -121,7 +121,7 @@ export function App() {
           setTab(t);
           if (t === 'audit') void refreshAudit();
         }}
-      />
+                />
 
       <div style={{ marginTop: 14 }}>
         {tab === 'engines' && (
@@ -133,9 +133,9 @@ export function App() {
               const r = await window.matrica.engines.create();
               await window.matrica.engines.setAttr(r.id, 'engine_number', '');
               await window.matrica.engines.setAttr(r.id, 'engine_brand', '');
-              await refreshEngines();
+                    await refreshEngines();
               await openEngine(r.id);
-            }}
+                  }}
           />
         )}
 
@@ -155,9 +155,9 @@ export function App() {
             onAddOp={async (operationType, status, note) => {
               await window.matrica.operations.add(selectedEngineId, operationType, status, note);
               await reloadEngine();
-            }}
+              }}
           />
-        )}
+      )}
 
         {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
 
@@ -169,8 +169,8 @@ export function App() {
 
         {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
           <div style={{ color: '#6b7280' }}>Выберите двигатель из списка.</div>
-        )}
-      </div>
+      )}
+    </div>
     </Page>
   );
 }

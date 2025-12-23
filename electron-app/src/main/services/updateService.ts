@@ -77,7 +77,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 export async function downloadUpdate(): Promise<{ ok: boolean; error?: string }> {
   try {
     const latest = await fetchLatestInfo();
-    const filePath = await downloadFromYandex(latest.path);
+    const filePath = await downloadInstallerWithFallback(latest);
     lastDownloadedInstallerPath = filePath;
     return { ok: true };
   } catch (e) {
@@ -87,7 +87,7 @@ export async function downloadUpdate(): Promise<{ ok: boolean; error?: string }>
 
 export async function quitAndInstall(): Promise<{ ok: boolean; error?: string }> {
   try {
-    const target = lastDownloadedInstallerPath ?? (await downloadFromYandex((await fetchLatestInfo()).path));
+    const target = lastDownloadedInstallerPath ?? (await downloadInstallerWithFallback(await fetchLatestInfo()));
     const err = await shell.openPath(target);
     if (err) return { ok: false, error: err };
     app.quit();
@@ -234,6 +234,48 @@ async function downloadFromYandex(fileName: string): Promise<string> {
     throw new Error('Downloaded installer looks too small');
   }
   return outPath;
+}
+
+async function downloadInstallerWithFallback(latest: { version: string; path: string }): Promise<string> {
+  try {
+    return await downloadFromYandex(latest.path);
+  } catch (e) {
+    const msg = String(e);
+    // Если файл по имени из latest.yml не найден — попробуем найти любой .exe в папке basePath,
+    // предпочтительно содержащий версию.
+    if (!msg.includes('Yandex download href failed 404')) throw e;
+
+    const folder = getBasePath();
+    const items = await listPublicFolder(folder);
+    const exe = pickInstaller(items, latest.version);
+    if (!exe) {
+      throw new Error(`Installer not found in ${folder}. latest.yml path=${latest.path}. Available: ${items.join(', ')}`);
+    }
+    return await downloadFromYandex(exe);
+  }
+}
+
+async function listPublicFolder(pathOnDisk: string): Promise<string[]> {
+  const api =
+    'https://cloud-api.yandex.net/v1/disk/public/resources?' +
+    new URLSearchParams({
+      public_key: getPublicKey(),
+      path: normalizePublicPath(pathOnDisk),
+      limit: '200',
+    }).toString();
+
+  const r = await fetch(api);
+  if (!r.ok) throw new Error(`Yandex list failed ${r.status} (path=${normalizePublicPath(pathOnDisk)})`);
+  const json = (await r.json()) as any;
+  const items = (json?._embedded?.items ?? []) as any[];
+  return items.map((x) => String(x?.name ?? '')).filter(Boolean);
+}
+
+function pickInstaller(items: string[], version: string): string | null {
+  const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
+  if (exes.length === 0) return null;
+  const byVersion = exes.find((n) => n.includes(version));
+  return byVersion ?? exes[0] ?? null;
 }
 
 function parseLatestYml(yml: string): { version: string; path: string } {
