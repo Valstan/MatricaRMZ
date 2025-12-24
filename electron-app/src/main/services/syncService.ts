@@ -8,6 +8,18 @@ import { join } from 'node:path';
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations, syncState } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 
+const PUSH_TIMEOUT_MS = 120_000;
+const PULL_TIMEOUT_MS = 30_000;
+const MAX_TOTAL_ROWS_PER_PUSH = 1200;
+const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
+  [SyncTableName.EntityTypes]: 200,
+  [SyncTableName.Entities]: 200,
+  [SyncTableName.AttributeDefs]: 200,
+  [SyncTableName.AttributeValues]: 500,
+  [SyncTableName.Operations]: 500,
+  [SyncTableName.AuditLog]: 500,
+};
+
 function nowMs() {
   return Date.now();
 }
@@ -91,33 +103,70 @@ async function collectPending(db: BetterSQLite3Database) {
   const pending = 'pending';
 
   const packs: SyncPushRequest['upserts'] = [];
+  let total = 0;
 
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
+    if (total >= MAX_TOTAL_ROWS_PER_PUSH) return;
+    const perTableLimit = MAX_ROWS_PER_TABLE[table] ?? MAX_TOTAL_ROWS_PER_PUSH;
+    const remaining = MAX_TOTAL_ROWS_PER_PUSH - total;
+    const take = Math.max(0, Math.min(rows.length, perTableLimit, remaining));
+    if (take === 0) return;
+    const sliced = rows.slice(0, take);
     // Важно: клиентская БД использует camelCase поля (drizzle),
     // а контракт синхронизации (shared DTO) — snake_case.
     // Перед push нормализуем в snake_case, чтобы сервер Zod-парсер принимал данные стабильно.
-    packs.push({ table, rows: rows.map((r) => toSyncRow(table, r)) });
+    packs.push({ table, rows: sliced.map((r) => toSyncRow(table, r)) });
+    total += take;
   }
+
+  const limitFor = (table: SyncTableName) => {
+    if (total >= MAX_TOTAL_ROWS_PER_PUSH) return 0;
+    const perTableLimit = MAX_ROWS_PER_TABLE[table] ?? MAX_TOTAL_ROWS_PER_PUSH;
+    const remaining = MAX_TOTAL_ROWS_PER_PUSH - total;
+    return Math.max(0, Math.min(perTableLimit, remaining));
+  };
 
   await add(
     SyncTableName.EntityTypes,
-    await db.select().from(entityTypes).where(eq(entityTypes.syncStatus, pending)),
+    await db
+      .select()
+      .from(entityTypes)
+      .where(eq(entityTypes.syncStatus, pending))
+      .limit(limitFor(SyncTableName.EntityTypes)),
   );
-  await add(SyncTableName.Entities, await db.select().from(entities).where(eq(entities.syncStatus, pending)));
+  await add(
+    SyncTableName.Entities,
+    await db.select().from(entities).where(eq(entities.syncStatus, pending)).limit(limitFor(SyncTableName.Entities)),
+  );
   await add(
     SyncTableName.AttributeDefs,
-    await db.select().from(attributeDefs).where(eq(attributeDefs.syncStatus, pending)),
+    await db
+      .select()
+      .from(attributeDefs)
+      .where(eq(attributeDefs.syncStatus, pending))
+      .limit(limitFor(SyncTableName.AttributeDefs)),
   );
   await add(
     SyncTableName.AttributeValues,
-    await db.select().from(attributeValues).where(eq(attributeValues.syncStatus, pending)),
+    await db
+      .select()
+      .from(attributeValues)
+      .where(eq(attributeValues.syncStatus, pending))
+      .limit(limitFor(SyncTableName.AttributeValues)),
   );
   await add(
     SyncTableName.Operations,
-    await db.select().from(operations).where(eq(operations.syncStatus, pending)),
+    await db
+      .select()
+      .from(operations)
+      .where(eq(operations.syncStatus, pending))
+      .limit(limitFor(SyncTableName.Operations)),
   );
-  await add(SyncTableName.AuditLog, await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)));
+  await add(
+    SyncTableName.AuditLog,
+    await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)).limit(limitFor(SyncTableName.AuditLog)),
+  );
 
   return packs;
 }
@@ -417,12 +466,15 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     let pushed = 0;
 
     if (upserts.length > 0) {
+      const summary = upserts.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
+      const total = upserts.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
+      logSync(`push pending total=${total} packs=[${summary}]`);
       const pushBody: SyncPushRequest = { client_id: clientId, upserts };
       const pushUrl = `${apiBaseUrl}/sync/push`;
       const r = await fetchWithRetry(
         pushUrl,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
-        { attempts: 3, timeoutMs: 15_000, label: 'push' },
+        { attempts: 3, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
       );
       if (!r.ok) {
         const body = await safeBodyText(r);
@@ -441,7 +493,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
     const since = await getSyncStateNumber(db, 'lastPulledServerSeq', 0);
     const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
-    const pull = await fetchWithRetry(pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: 15_000, label: 'pull' });
+    const pull = await fetchWithRetry(pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
     if (!pull.ok) {
       const body = await safeBodyText(pull);
       logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
