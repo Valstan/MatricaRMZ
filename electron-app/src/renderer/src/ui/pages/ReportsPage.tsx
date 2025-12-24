@@ -25,6 +25,7 @@ export function ReportsPage() {
   const [startDate, setStartDate] = useState<string>(() => toInputDate(new Date(today.getFullYear(), today.getMonth(), 1).getTime()));
   const [endDate, setEndDate] = useState<string>(() => toInputDate(Date.now()));
   const [status, setStatus] = useState<string>('');
+  const [groupBy, setGroupBy] = useState<'none' | 'customer' | 'contract' | 'work_order'>('none');
 
   async function downloadCsv() {
     const startMs = fromInputDate(startDate);
@@ -35,7 +36,14 @@ export function ReportsPage() {
       return;
     }
     setStatus('Формирование отчёта...');
-    const r = await window.matrica.reports.periodStagesCsv({ startMs: startMs ?? undefined, endMs });
+    const r =
+      groupBy === 'none'
+        ? await window.matrica.reports.periodStagesCsv({ startMs: startMs ?? undefined, endMs })
+        : await window.matrica.reports.periodStagesByLinkCsv({
+            startMs: startMs ?? undefined,
+            endMs,
+            linkAttrCode: groupBy === 'customer' ? 'customer_id' : groupBy === 'contract' ? 'contract_id' : 'work_order_id',
+          });
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);
       return;
@@ -44,7 +52,7 @@ export function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `stages_${startDate}_${endDate}.csv`;
+    a.download = groupBy === 'none' ? `stages_${startDate}_${endDate}.csv` : `stages_${groupBy}_${startDate}_${endDate}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     setStatus('Готово: CSV скачан.');
@@ -54,7 +62,7 @@ export function ReportsPage() {
     <div>
       <h2 style={{ margin: '8px 0' }}>Отчёты</h2>
       <div style={{ color: '#6b7280', marginBottom: 12 }}>
-        Отчёт v1: сколько двигателей на какой стадии (по последней операции на дату окончания).
+        Отчёт: сколько двигателей на какой стадии (по последней операции на дату окончания), опционально с группировкой по заказчику/контракту/наряду.
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -65,6 +73,19 @@ export function ReportsPage() {
         <div style={{ width: 200 }}>
           <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Конец (включительно)</div>
           <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+        <div style={{ width: 220 }}>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Группировка</div>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as any)}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="none">без группировки</option>
+            <option value="customer">по заказчику</option>
+            <option value="contract">по контракту</option>
+            <option value="work_order">по наряду</option>
+          </select>
         </div>
         <div style={{ flex: 1 }} />
         <Button onClick={() => void downloadCsv()}>Скачать CSV</Button>

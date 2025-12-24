@@ -3,6 +3,12 @@
 export const EntityTypeCode = {
   Engine: 'engine',
   EngineBrand: 'engine_brand',
+  Customer: 'customer',
+  Contract: 'contract',
+  WorkOrder: 'work_order',
+  Workshop: 'workshop',
+  Section: 'section',
+  Employee: 'employee',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];

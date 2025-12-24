@@ -71,7 +71,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   return result.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export async function createEngine(db: BetterSQLite3Database): Promise<{ id: string }> {
+export async function createEngine(db: BetterSQLite3Database, actor?: string): Promise<{ id: string }> {
   const ts = nowMs();
   const engineTypeId = await getEngineTypeId(db);
   const id = randomUUID();
@@ -86,7 +86,7 @@ export async function createEngine(db: BetterSQLite3Database): Promise<{ id: str
 
   await db.insert(auditLog).values({
     id: randomUUID(),
-    actor: 'local',
+    actor: actor?.trim() ? actor.trim() : 'local',
     action: 'engine.create',
     entityId: id,
     tableName: 'entities',
@@ -130,6 +130,7 @@ export async function setEngineAttribute(
   engineId: string,
   code: string,
   value: unknown,
+  actor?: string,
 ) {
   const ts = nowMs();
   const defs = await getEngineAttrDefs(db);
@@ -166,7 +167,7 @@ export async function setEngineAttribute(
 
   await db.insert(auditLog).values({
     id: randomUUID(),
-    actor: 'local',
+    actor: actor?.trim() ? actor.trim() : 'local',
     action: 'engine.setAttr',
     entityId: engineId,
     tableName: 'attribute_values',

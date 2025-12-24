@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations, syncState } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
+import { authRefresh, clearSession, getSession } from './authService.js';
 
 const PUSH_TIMEOUT_MS = 120_000;
 const PULL_TIMEOUT_MS = 30_000;
@@ -82,6 +83,39 @@ async function fetchWithRetry(
     }
   }
   throw lastErr ?? new Error('fetch failed');
+}
+
+function withAuthHeader(init: RequestInit, accessToken: string | null): RequestInit {
+  if (!accessToken) return init;
+  const headers = new Headers(init.headers ?? {});
+  headers.set('Authorization', `Bearer ${accessToken}`);
+  return { ...init, headers };
+}
+
+async function fetchAuthed(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  url: string,
+  init: RequestInit,
+  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull' },
+): Promise<Response> {
+  const session = await getSession(db).catch(() => null);
+  const first = await fetchWithRetry(url, withAuthHeader(init, session?.accessToken ?? null), opts);
+
+  // Если токен протух/невалиден — пробуем refresh один раз и повторяем запрос.
+  if ((first.status === 401 || first.status === 403) && session?.refreshToken) {
+    logSync(`${opts.label} auth failed status=${first.status}, trying refresh`);
+    const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
+    if (!refreshed.ok) {
+      logSync(`${opts.label} refresh failed: ${refreshed.error}`);
+      await clearSession(db).catch(() => {});
+      return first;
+    }
+    logSync(`${opts.label} refresh ok, retrying`);
+    return await fetchWithRetry(url, withAuthHeader(init, refreshed.accessToken), opts);
+  }
+
+  return first;
 }
 
 async function getSyncStateNumber(db: BetterSQLite3Database, key: string, fallback: number) {
@@ -461,6 +495,11 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
 export async function runSync(db: BetterSQLite3Database, clientId: string, apiBaseUrl: string): Promise<SyncRunResult> {
   const startedAt = nowMs();
   try {
+    const session = await getSession(db).catch(() => null);
+    if (!session?.accessToken) {
+      return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
+    }
+
     logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
     const upserts = await collectPending(db);
     let pushed = 0;
@@ -471,7 +510,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       logSync(`push pending total=${total} packs=[${summary}]`);
       const pushBody: SyncPushRequest = { client_id: clientId, upserts };
       const pushUrl = `${apiBaseUrl}/sync/push`;
-      const r = await fetchWithRetry(
+      const r = await fetchAuthed(
+        db,
+        apiBaseUrl,
         pushUrl,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
         { attempts: 3, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
@@ -479,6 +520,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       if (!r.ok) {
         const body = await safeBodyText(r);
         logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
+        if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
         throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
       }
       const json = (await r.json()) as { ok: boolean; applied?: number };
@@ -493,10 +535,11 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
     const since = await getSyncStateNumber(db, 'lastPulledServerSeq', 0);
     const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
-    const pull = await fetchWithRetry(pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
+    const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
     if (!pull.ok) {
       const body = await safeBodyText(pull);
       logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
+      if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
       throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
     }
     const pullJson = (await pull.json()) as SyncPullResponse;

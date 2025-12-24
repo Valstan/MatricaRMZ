@@ -5,6 +5,8 @@ import type { EngineDetails, OperationItem } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 
+type LinkOpt = { id: string; label: string };
+
 function escapeHtml(s: string) {
   return s
     .replaceAll('&', '&amp;')
@@ -116,6 +118,14 @@ export function EngineDetailsPage(props: {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
 
+  const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
+  const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
+  const [workOrderId, setWorkOrderId] = useState(String(props.engine.attributes?.work_order_id ?? ''));
+  const [workshopId, setWorkshopId] = useState(String(props.engine.attributes?.workshop_id ?? ''));
+  const [sectionId, setSectionId] = useState(String(props.engine.attributes?.section_id ?? ''));
+
+  const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
+
   const [newOpType, setNewOpType] = useState<string>('acceptance');
   const [newOpStatus, setNewOpStatus] = useState<string>('выполнено');
   const [newOpNote, setNewOpNote] = useState<string>('');
@@ -123,6 +133,22 @@ export function EngineDetailsPage(props: {
   const sortedOps = useMemo(() => {
     return [...props.ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
   }, [props.ops]);
+
+  async function loadLinkLists() {
+    const types = await window.matrica.admin.entityTypes.list();
+    const typeIdByCode = new Map(types.map((t) => [t.code, t.id] as const));
+    async function load(code: string, key: string) {
+      const tid = typeIdByCode.get(code);
+      if (!tid) return;
+      const rows = await window.matrica.admin.entities.listByEntityType(tid);
+      setLinkLists((p) => ({ ...p, [key]: rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id })) }));
+    }
+    await load('customer', 'customer_id');
+    await load('contract', 'contract_id');
+    await load('work_order', 'work_order_id');
+    await load('workshop', 'workshop_id');
+    await load('section', 'section_id');
+  }
 
   return (
     <div>
@@ -150,6 +176,91 @@ export function EngineDetailsPage(props: {
           <Input value={engineNumber} onChange={(e) => setEngineNumber(e.target.value)} />
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
           <Input value={engineBrand} onChange={(e) => setEngineBrand(e.target.value)} />
+
+          <div style={{ color: '#6b7280' }}>Заказчик</div>
+          <select
+            value={customerId}
+            onFocus={() => {
+              if (!linkLists.customer_id) void loadLinkLists();
+            }}
+            onChange={(e) => setCustomerId(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.customer_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ color: '#6b7280' }}>Контракт</div>
+          <select
+            value={contractId}
+            onFocus={() => {
+              if (!linkLists.contract_id) void loadLinkLists();
+            }}
+            onChange={(e) => setContractId(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.contract_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ color: '#6b7280' }}>Наряд</div>
+          <select
+            value={workOrderId}
+            onFocus={() => {
+              if (!linkLists.work_order_id) void loadLinkLists();
+            }}
+            onChange={(e) => setWorkOrderId(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.work_order_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ color: '#6b7280' }}>Цех</div>
+          <select
+            value={workshopId}
+            onFocus={() => {
+              if (!linkLists.workshop_id) void loadLinkLists();
+            }}
+            onChange={(e) => setWorkshopId(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.workshop_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ color: '#6b7280' }}>Участок</div>
+          <select
+            value={sectionId}
+            onFocus={() => {
+              if (!linkLists.section_id) void loadLinkLists();
+            }}
+            onChange={(e) => setSectionId(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.section_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
           <Button
@@ -162,8 +273,26 @@ export function EngineDetailsPage(props: {
           <Button
             variant="ghost"
             onClick={() => {
+              void window.matrica.engines.setAttr(props.engineId, 'customer_id', customerId || null);
+              void window.matrica.engines.setAttr(props.engineId, 'contract_id', contractId || null);
+              void window.matrica.engines.setAttr(props.engineId, 'work_order_id', workOrderId || null);
+              void window.matrica.engines.setAttr(props.engineId, 'workshop_id', workshopId || null);
+              void window.matrica.engines.setAttr(props.engineId, 'section_id', sectionId || null);
+              void props.onReload();
+            }}
+          >
+            Сохранить связи
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
               setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
               setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
+              setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
+              setContractId(String(props.engine.attributes?.contract_id ?? ''));
+              setWorkOrderId(String(props.engine.attributes?.work_order_id ?? ''));
+              setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
+              setSectionId(String(props.engine.attributes?.section_id ?? ''));
             }}
           >
             Отменить

@@ -2,7 +2,7 @@ import React from 'react';
 
 import { Button } from '../components/Button.js';
 
-export type TabId = 'engines' | 'engine' | 'sync' | 'reports' | 'admin' | 'audit';
+export type TabId = 'engines' | 'engine' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit';
 
 export function Tabs(props: {
   tab: TabId;
@@ -13,6 +13,9 @@ export function Tabs(props: {
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
       <Button variant={props.tab === 'engines' ? 'primary' : 'ghost'} onClick={() => props.onTab('engines')}>
         Двигатели
+      </Button>
+      <Button variant={props.tab === 'auth' ? 'primary' : 'ghost'} onClick={() => props.onTab('auth')}>
+        Вход
       </Button>
       <Button variant={props.tab === 'sync' ? 'primary' : 'ghost'} onClick={() => props.onTab('sync')}>
         Синхронизация

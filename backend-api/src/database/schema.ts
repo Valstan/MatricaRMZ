@@ -131,4 +131,40 @@ export const syncState = pgTable('sync_state', {
   lastPulledAt: bigint('last_pulled_at', { mode: 'number' }),
 });
 
+// -----------------------------
+// Auth (server-side only, не участвует в синхронизации)
+// -----------------------------
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey(),
+    username: text('username').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: text('role').notNull().default('user'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    usernameUq: uniqueIndex('users_username_uq').on(t.username),
+  }),
+);
+
+export const refreshTokens = pgTable(
+  'refresh_tokens',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    tokenHashUq: uniqueIndex('refresh_tokens_token_hash_uq').on(t.tokenHash),
+  }),
+);
+
 

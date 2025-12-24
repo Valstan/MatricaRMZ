@@ -18,6 +18,24 @@ export type EngineDetails = {
   attributes: Record<string, unknown>;
 };
 
+export type EntityListItem = {
+  id: string;
+  typeId: string;
+  updatedAt: number;
+  syncStatus: string;
+  displayName?: string;
+};
+
+export type EntityDetails = {
+  id: string;
+  typeId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+  attributes: Record<string, unknown>;
+};
+
 export type OperationItem = {
   id: string;
   engineEntityId: string;
@@ -70,10 +88,32 @@ export type UpdateResult = { ok: boolean; error?: string };
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+export type AuthUserInfo = {
+  id: string;
+  username: string;
+  role: string;
+};
+
+export type AuthStatus = {
+  loggedIn: boolean;
+  user: AuthUserInfo | null;
+};
+
+export type AuthLoginResult =
+  | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo }
+  | { ok: false; error: string };
+
+export type AuthLogoutResult = { ok: boolean; error?: string };
+
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
   log: {
     send: (level: LogLevel, message: string) => Promise<void>;
+  };
+  auth: {
+    status: () => Promise<AuthStatus>;
+    login: (args: { username: string; password: string }) => Promise<AuthLoginResult>;
+    logout: (args: { refreshToken?: string }) => Promise<AuthLogoutResult>;
   };
   engines: {
     list: () => Promise<EngineListItem[]>;
@@ -97,6 +137,10 @@ export type MatricaApi = {
   reports: {
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
     periodStagesCsv: (args: { startMs?: number; endMs: number }) => Promise<{ ok: true; csv: string } | { ok: false; error: string }>;
+    // CSV: “стадии по группам” (заказчик/контракт/наряд) по link-атрибуту двигателя.
+    periodStagesByLinkCsv: (args: { startMs?: number; endMs: number; linkAttrCode: string }) => Promise<
+      { ok: true; csv: string } | { ok: false; error: string }
+    >;
   };
   admin: {
     entityTypes: {
@@ -128,6 +172,13 @@ export type MatricaApi = {
         sortOrder?: number;
         metaJson?: string | null;
       }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+    };
+    entities: {
+      listByEntityType: (entityTypeId: string) => Promise<EntityListItem[]>;
+      create: (entityTypeId: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      get: (id: string) => Promise<EntityDetails>;
+      setAttr: (entityId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
+      softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
     };
   };
   update: {

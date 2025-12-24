@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import type { AuditItem, EngineDetails, EngineListItem, OperationItem, SyncStatus } from '@matricarmz/shared';
+import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, OperationItem, SyncStatus } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type TabId } from './layout/Tabs.js';
@@ -10,10 +10,12 @@ import { SyncPage } from './pages/SyncPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { AuditPage } from './pages/AuditPage.js';
+import { AuthPage } from './pages/AuthPage.js';
 
 export function App() {
   const [ping, setPing] = useState<string>('...');
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
   const [tab, setTab] = useState<TabId>('engines');
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
@@ -29,6 +31,7 @@ export function App() {
       .catch((e) => setPing(`ошибка: ${String(e)}`));
 
     void refreshEngines();
+    void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -82,6 +85,8 @@ export function App() {
       ? 'Матрица РМЗ — Двигатели'
       : tab === 'engine'
         ? 'Матрица РМЗ — Карточка двигателя'
+        : tab === 'auth'
+          ? 'Матрица РМЗ — Вход'
         : tab === 'sync'
           ? 'Матрица РМЗ — Синхронизация'
           : tab === 'reports'
@@ -109,6 +114,9 @@ export function App() {
       right={
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
           <div style={{ color: '#6b7280', fontSize: 12 }}>IPC: {ping}</div>
+          <div style={{ color: '#6b7280', fontSize: 12 }}>
+            AUTH: {authStatus.loggedIn ? authStatus.user?.username ?? 'ok' : 'no'}
+          </div>
           <div style={{ color: syncStatus?.state === 'error' ? '#b91c1c' : '#6b7280', fontSize: 12 }}>
             {formatSyncStatus(syncStatus)}
           </div>
@@ -164,6 +172,14 @@ export function App() {
         {tab === 'reports' && <ReportsPage />}
 
         {tab === 'admin' && <AdminPage />}
+
+        {tab === 'auth' && (
+          <AuthPage
+            onChanged={(s) => {
+              setAuthStatus(s);
+            }}
+          />
+        )}
 
         {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} />}
 

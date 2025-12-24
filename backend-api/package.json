@@ -9,14 +9,17 @@
     "start": "node dist/index.js",
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/database/migrate.ts"
+    "db:migrate": "tsx src/database/migrate.ts",
+    "user:create": "tsx src/scripts/createUser.ts"
   },
   "dependencies": {
     "@matricarmz/shared": "workspace:*",
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.40.1",
     "express": "^4.21.2",
+    "jose": "^6.1.0",
     "pg": "^8.13.1",
     "zod": "^3.25.76"
   },

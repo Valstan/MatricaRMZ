@@ -17,13 +17,29 @@ type AttrDefRow = {
   deletedAt: number | null;
 };
 
+type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string };
+
 export function AdminPage() {
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
   const [defs, setDefs] = useState<AttrDefRow[]>([]);
+  const [entities, setEntities] = useState<EntityRow[]>([]);
+  const [selectedEntityId, setSelectedEntityId] = useState<string>('');
+  const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   const [status, setStatus] = useState<string>('');
 
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
+  const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
+
+  const linkTargetByCode: Record<string, string> = {
+    customer_id: 'customer',
+    contract_id: 'contract',
+    work_order_id: 'work_order',
+    workshop_id: 'workshop',
+    section_id: 'section',
+  };
+
+  const [linkOptions, setLinkOptions] = useState<Record<string, { id: string; label: string }[]>>({});
 
   async function refreshTypes() {
     const rows = await window.matrica.admin.entityTypes.list();
@@ -36,13 +52,54 @@ export function AdminPage() {
     setDefs(rows);
   }
 
+  async function refreshEntities(typeId: string) {
+    const rows = await window.matrica.admin.entities.listByEntityType(typeId);
+    setEntities(rows as any);
+    if (!rows.find((r) => r.id === selectedEntityId)) setSelectedEntityId(rows[0]?.id ?? '');
+  }
+
+  async function openEntity(id: string) {
+    setSelectedEntityId(id);
+    const d = await window.matrica.admin.entities.get(id);
+    setEntityAttrs(d.attributes ?? {});
+  }
+
+  async function refreshLinkOptions(defsForType: AttrDefRow[]) {
+    // Для link полей подгружаем списки сущностей целевого типа.
+    const map: Record<string, { id: string; label: string }[]> = {};
+    for (const d of defsForType) {
+      if (d.dataType !== 'link') continue;
+      const targetCode = linkTargetByCode[d.code];
+      if (!targetCode) continue;
+      const targetType = types.find((t) => t.code === targetCode);
+      if (!targetType) continue;
+      const list = await window.matrica.admin.entities.listByEntityType(targetType.id);
+      map[d.code] = list.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
+    }
+    setLinkOptions(map);
+  }
+
   useEffect(() => {
     void refreshTypes();
   }, []);
 
   useEffect(() => {
-    if (selectedTypeId) void refreshDefs(selectedTypeId);
+    if (!selectedTypeId) return;
+    void (async () => {
+      await refreshDefs(selectedTypeId);
+      await refreshEntities(selectedTypeId);
+    })();
   }, [selectedTypeId]);
+
+  useEffect(() => {
+    if (!selectedEntityId) return;
+    void openEntity(selectedEntityId);
+  }, [selectedEntityId]);
+
+  useEffect(() => {
+    if (!selectedTypeId) return;
+    void refreshLinkOptions(defs);
+  }, [selectedTypeId, defs, types]);
 
   return (
     <div>
@@ -51,7 +108,7 @@ export function AdminPage() {
         Здесь можно создавать типы сущностей и атрибуты (для модульного расширения без миграций).
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <strong>Типы сущностей</strong>
@@ -147,6 +204,101 @@ export function AdminPage() {
               <div style={{ color: '#6b7280' }}>Выберите тип сущности</div>
             )}
           </div>
+        </div>
+
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <strong>Сущности</strong>
+            <span style={{ color: '#6b7280' }}>{selectedType ? `для ${selectedType.code}` : ''}</span>
+            <span style={{ flex: 1 }} />
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (selectedTypeId) void refreshEntities(selectedTypeId);
+              }}
+            >
+              Обновить
+            </Button>
+          </div>
+
+          {!selectedTypeId ? (
+            <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите тип сущности</div>
+          ) : (
+            <>
+              <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <Button
+                  onClick={async () => {
+                    setStatus('Создание сущности...');
+                    const r = await window.matrica.admin.entities.create(selectedTypeId);
+                    if (!r.ok) {
+                      setStatus(`Ошибка: ${r.error}`);
+                      return;
+                    }
+                    setStatus('Сущность создана');
+                    await refreshEntities(selectedTypeId);
+                    setSelectedEntityId(r.id);
+                  }}
+                >
+                  Создать
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    if (!selectedEntityId) return;
+                    setStatus('Удаление...');
+                    const r = await window.matrica.admin.entities.softDelete(selectedEntityId);
+                    setStatus(r.ok ? 'Удалено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                    await refreshEntities(selectedTypeId);
+                    setSelectedEntityId('');
+                    setEntityAttrs({});
+                  }}
+                >
+                  Удалить
+                </Button>
+                <span style={{ flex: 1 }} />
+                <select
+                  value={selectedEntityId}
+                  onChange={(e) => setSelectedEntityId(e.target.value)}
+                  style={{ maxWidth: 260, padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                >
+                  {entities.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {(e.displayName ? `${e.displayName} — ` : '') + e.id.slice(0, 8)}
+                    </option>
+                  ))}
+                  {entities.length === 0 && <option value="">(пусто)</option>}
+                </select>
+              </div>
+
+              {selectedEntity ? (
+                <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                  <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>Редактирование атрибутов</div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                    {defs.map((d) => (
+                      <React.Fragment key={d.id}>
+                        <div style={{ color: '#6b7280' }}>{d.name}</div>
+                        <FieldEditor
+                          def={d}
+                          value={entityAttrs[d.code]}
+                          linkOptions={linkOptions[d.code] ?? []}
+                          onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
+                          onSave={async (v) => {
+                            const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
+                            if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                            else setStatus('Сохранено');
+                            await refreshEntities(selectedTypeId);
+                          }}
+                        />
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите сущность</div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -244,6 +396,129 @@ function NewAttrDefForm(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function FieldEditor(props: {
+  def: AttrDefRow;
+  value: unknown;
+  linkOptions: { id: string; label: string }[];
+  onChange: (v: unknown) => void;
+  onSave: (v: unknown) => Promise<void>;
+}) {
+  const dt = props.def.dataType;
+
+  // date хранится как ms number (unix ms).
+  const toInputDate = (ms: number) => {
+    const d = new Date(ms);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const fromInputDate = (v: string): number | null => {
+    if (!v) return null;
+    const [y, m, d] = v.split('-').map((x) => Number(x));
+    if (!y || !m || !d) return null;
+    const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const ms = dt.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  };
+
+  if (dt === 'boolean') {
+    const checked = Boolean(props.value);
+    return (
+      <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => {
+            props.onChange(e.target.checked);
+            void props.onSave(e.target.checked);
+          }}
+        />
+        <span style={{ color: '#6b7280', fontSize: 12 }}>{checked ? 'да' : 'нет'}</span>
+      </label>
+    );
+  }
+
+  if (dt === 'date') {
+    const ms = typeof props.value === 'number' ? props.value : null;
+    return (
+      <Input
+        type="date"
+        value={ms ? toInputDate(ms) : ''}
+        onChange={(e) => {
+          const next = fromInputDate(e.target.value);
+          props.onChange(next);
+          void props.onSave(next);
+        }}
+      />
+    );
+  }
+
+  if (dt === 'number') {
+    const s = props.value == null ? '' : String(props.value);
+    return (
+      <Input
+        value={s}
+        onChange={(e) => props.onChange(e.target.value === '' ? null : Number(e.target.value))}
+        onBlur={() => void props.onSave(props.value == null || props.value === '' ? null : Number(props.value))}
+        placeholder="число"
+      />
+    );
+  }
+
+  if (dt === 'json') {
+    const s = props.value == null ? '' : JSON.stringify(props.value);
+    return (
+      <Input
+        value={s}
+        onChange={(e) => props.onChange(e.target.value)}
+        onBlur={() => {
+          try {
+            const v = s ? JSON.parse(s) : null;
+            void props.onSave(v);
+          } catch {
+            // оставим как есть
+          }
+        }}
+        placeholder="json"
+      />
+    );
+  }
+
+  if (dt === 'link') {
+    const current = typeof props.value === 'string' ? props.value : '';
+    return (
+      <select
+        value={current}
+        onChange={(e) => {
+          const v = e.target.value || null;
+          props.onChange(v);
+          void props.onSave(v);
+        }}
+        style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+      >
+        <option value="">(не выбрано)</option>
+        {props.linkOptions.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  // text / fallback
+  const text = props.value == null ? '' : String(props.value);
+  return (
+    <Input
+      value={text}
+      onChange={(e) => props.onChange(e.target.value)}
+      onBlur={() => void props.onSave(text)}
+      placeholder={props.def.code}
+    />
   );
 }
 

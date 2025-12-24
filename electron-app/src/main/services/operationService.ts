@@ -23,6 +23,7 @@ export async function addOperation(
   operationType: string,
   status: string,
   note?: string,
+  performedBy?: string,
 ) {
   const ts = nowMs();
   await db.insert(operations).values({
@@ -32,7 +33,7 @@ export async function addOperation(
     status,
     note: note ?? null,
     performedAt: ts,
-    performedBy: 'local',
+    performedBy: performedBy?.trim() ? performedBy.trim() : 'local',
     metaJson: null,
     createdAt: ts,
     updatedAt: ts,

@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld('matrica', {
     send: async (level: 'debug' | 'info' | 'warn' | 'error', message: string) =>
       ipcRenderer.invoke('log:send', { level, message }),
   },
+  auth: {
+    status: async () => ipcRenderer.invoke('auth:status'),
+    login: async (args: { username: string; password: string }) => ipcRenderer.invoke('auth:login', args),
+    logout: async (args: { refreshToken?: string }) => ipcRenderer.invoke('auth:logout', args),
+  },
   engines: {
     list: async () => ipcRenderer.invoke('engine:list'),
     create: async () => ipcRenderer.invoke('engine:create'),
@@ -30,6 +35,8 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   reports: {
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
+    periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
+      ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),
   },
   admin: {
     entityTypes: {
@@ -48,6 +55,13 @@ contextBridge.exposeInMainWorld('matrica', {
         sortOrder?: number;
         metaJson?: string | null;
       }) => ipcRenderer.invoke('admin:attributeDefs:upsert', args),
+    },
+    entities: {
+      listByEntityType: async (entityTypeId: string) => ipcRenderer.invoke('admin:entities:listByEntityType', entityTypeId),
+      create: async (entityTypeId: string) => ipcRenderer.invoke('admin:entities:create', entityTypeId),
+      get: async (id: string) => ipcRenderer.invoke('admin:entities:get', id),
+      setAttr: async (entityId: string, code: string, value: unknown) => ipcRenderer.invoke('admin:entities:setAttr', entityId, code, value),
+      softDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:softDelete', entityId),
     },
   },
   update: {

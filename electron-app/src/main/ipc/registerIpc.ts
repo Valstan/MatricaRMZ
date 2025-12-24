@@ -10,8 +10,10 @@ import { addOperation, listOperations } from '../services/operationService.js';
 import { listAudit } from '../services/auditService.js';
 import { SyncManager } from '../services/syncManager.js';
 import { listAttributeDefsByEntityType, listEntityTypes, upsertAttributeDef, upsertEntityType } from '../services/adminService.js';
-import { buildPeriodStagesCsv } from '../services/reportService.js';
+import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../services/reportService.js';
 import { checkForUpdates } from '../services/updateService.js';
+import { authLogin, authLogout, authStatus, getSession } from '../services/authService.js';
+import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
 import { syncState } from '../database/schema.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
@@ -29,23 +31,37 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl);
   mgr.startAuto(5 * 60_000);
 
+  async function currentActor(): Promise<string> {
+    const s = await getSession(db).catch(() => null);
+    const u = s?.user?.username;
+    return u && u.trim() ? u.trim() : 'local';
+  }
+
   ipcMain.handle('log:send', async (_e, payload: { level: string; message: string }) => {
     logToFile(`renderer ${payload.level}: ${payload.message}`);
   });
 
   ipcMain.handle('engine:list', async () => listEngines(db));
-  ipcMain.handle('engine:create', async () => createEngine(db));
+  ipcMain.handle('engine:create', async () => createEngine(db, await currentActor()));
   ipcMain.handle('engine:get', async (_e, id: string) => getEngineDetails(db, id));
   ipcMain.handle('engine:setAttr', async (_e, engineId: string, code: string, value: unknown) =>
-    setEngineAttribute(db, engineId, code, value),
+    setEngineAttribute(db, engineId, code, value, await currentActor()),
   );
 
   ipcMain.handle('ops:list', async (_e, engineId: string) => listOperations(db, engineId));
   ipcMain.handle('ops:add', async (_e, engineId: string, operationType: string, status: string, note?: string) =>
-    addOperation(db, engineId, operationType, status, note),
+    addOperation(db, engineId, operationType, status, note, await currentActor()),
   );
 
   ipcMain.handle('audit:list', async () => listAudit(db));
+
+  ipcMain.handle('auth:status', async () => authStatus(db));
+  ipcMain.handle('auth:login', async (_e, args: { username: string; password: string }) =>
+    authLogin(db, { apiBaseUrl: mgr.getApiBaseUrl(), username: args.username, password: args.password }),
+  );
+  ipcMain.handle('auth:logout', async (_e, args: { refreshToken?: string }) =>
+    authLogout(db, { apiBaseUrl: mgr.getApiBaseUrl(), refreshToken: args.refreshToken }),
+  );
 
   ipcMain.handle('sync:run', async () => mgr.runOnce());
   ipcMain.handle('sync:status', async () => mgr.getStatus());
@@ -77,6 +93,9 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) =>
     buildPeriodStagesCsv(db, args),
   );
+  ipcMain.handle('reports:periodStagesByLinkCsv', async (_e, args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
+    buildPeriodStagesCsvByLink(db, args),
+  );
 
   ipcMain.handle('admin:entityTypes:list', async () => listEntityTypes(db));
   ipcMain.handle('admin:entityTypes:upsert', async (_e, args: { id?: string; code: string; name: string }) =>
@@ -101,6 +120,14 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
       },
     ) => upsertAttributeDef(db, args),
   );
+
+  ipcMain.handle('admin:entities:listByEntityType', async (_e, entityTypeId: string) => listEntitiesByType(db, entityTypeId));
+  ipcMain.handle('admin:entities:create', async (_e, entityTypeId: string) => createEntity(db, entityTypeId));
+  ipcMain.handle('admin:entities:get', async (_e, id: string) => getEntityDetails(db, id));
+  ipcMain.handle('admin:entities:setAttr', async (_e, entityId: string, code: string, value: unknown) =>
+    setEntityAttribute(db, entityId, code, value),
+  );
+  ipcMain.handle('admin:entities:softDelete', async (_e, entityId: string) => softDeleteEntity(db, entityId));
 
   ipcMain.handle('update:check', async () => checkForUpdates());
 }
