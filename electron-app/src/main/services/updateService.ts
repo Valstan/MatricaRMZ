@@ -236,7 +236,7 @@ async function downloadInstaller(fileName: string, onProgress?: (pct: number) =>
       received += buf.length;
       if (total > 0 && onProgress) onProgress((received / total) * 100);
     }
-    ws.end();
+              ws.end();
   } else if (r.body) {
     // Node stream fallback (без прогресса если нет content-length)
     await new Promise<void>((resolve, reject) => {
@@ -246,7 +246,7 @@ async function downloadInstaller(fileName: string, onProgress?: (pct: number) =>
         if (total > 0 && onProgress) onProgress((received / total) * 100);
       });
       (r.body as any).on('end', () => {
-        ws.end();
+              ws.end();
         resolve();
       });
       (r.body as any).on('error', reject);

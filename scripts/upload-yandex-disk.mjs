@@ -162,7 +162,7 @@ async function main() {
   const remoteLatestPath = normalizeRemotePath(posixPath.join(remoteLatestFolder, exe));
   // eslint-disable-next-line no-console
   console.log(`Uploading installer to latest: ${exe}`);
-  await uploadFile(token, localPath, remoteLatestPath);
+    await uploadFile(token, localPath, remoteLatestPath);
 
   // 3) Храним в корне только 3 последние версии (по semver из имени, иначе по modified).
   const rootItems = await listFolder(token, remoteBase);

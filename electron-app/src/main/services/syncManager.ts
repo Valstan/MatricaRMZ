@@ -1,8 +1,10 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { eq } from 'drizzle-orm';
 
 import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
 
 import { runSync } from './syncService.js';
+import { syncState } from '../database/schema.js';
 
 function nowMs() {
   return Date.now();
@@ -29,6 +31,16 @@ export class SyncManager {
 
   getApiBaseUrl() {
     return this.apiBaseUrl;
+  }
+
+  private async refreshApiBaseUrlFromDb() {
+    try {
+      const row = await this.db.select().from(syncState).where(eq(syncState.key, 'apiBaseUrl')).limit(1);
+      const next = row[0]?.value ? String(row[0].value).trim() : '';
+      if (next) this.apiBaseUrl = next;
+    } catch {
+      // ignore
+    }
   }
 
   getStatus(): SyncStatus {
@@ -68,6 +80,9 @@ export class SyncManager {
     this.state = 'syncing';
     this.lastError = null;
     try {
+      // UI читает apiBaseUrl из SQLite, а менеджер живёт в памяти.
+      // Перед каждым синком подхватываем актуальную конфигурацию.
+      await this.refreshApiBaseUrlFromDb();
       const r = await runSync(this.db, this.clientId, this.apiBaseUrl);
       this.lastResult = r;
       this.lastSyncAt = nowMs();

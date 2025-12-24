@@ -34,10 +34,10 @@ if (!root) {
   safeLog('error', 'window.matrica is undefined (preload not loaded)');
 } else {
   ReactDOM.createRoot(root).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
   safeLog('info', 'renderer boot mounted');
 }
 

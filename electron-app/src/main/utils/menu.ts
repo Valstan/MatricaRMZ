@@ -30,12 +30,12 @@ export function setupMenu() {
           click: async () => {
             const r = await checkForUpdates();
             if (!r.ok) {
-              await dialog.showMessageBox({
+            await dialog.showMessageBox({
                 type: 'error',
-                title: 'Обновление',
+              title: 'Обновление',
                 message: 'Ошибка проверки обновлений',
                 detail: r.error,
-              });
+            });
               return;
             }
             if (!r.updateAvailable) {
