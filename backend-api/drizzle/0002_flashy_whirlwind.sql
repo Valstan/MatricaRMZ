@@ -1,0 +1,22 @@
+ALTER TABLE "attribute_defs" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "attribute_defs" ALTER COLUMN "updated_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "attribute_defs" ALTER COLUMN "deleted_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "attribute_values" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "attribute_values" ALTER COLUMN "updated_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "attribute_values" ALTER COLUMN "deleted_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "audit_log" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "audit_log" ALTER COLUMN "updated_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "audit_log" ALTER COLUMN "deleted_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "change_log" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "entities" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "entities" ALTER COLUMN "updated_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "entities" ALTER COLUMN "deleted_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "entity_types" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "entity_types" ALTER COLUMN "updated_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "entity_types" ALTER COLUMN "deleted_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "operations" ALTER COLUMN "created_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "operations" ALTER COLUMN "updated_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "operations" ALTER COLUMN "deleted_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "sync_state" ALTER COLUMN "last_pushed_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "sync_state" ALTER COLUMN "last_pulled_at" SET DATA TYPE bigint;--> statement-breakpoint
+ALTER TABLE "operations" ALTER COLUMN "performed_at" SET DATA TYPE bigint;

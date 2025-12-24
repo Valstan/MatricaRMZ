@@ -8,27 +8,37 @@ import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 export const syncRouter = Router();
 
 syncRouter.post('/push', async (req, res) => {
-  const parsed = syncPushRequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  }
+  try {
+    const parsed = syncPushRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    }
 
-  const result = await applyPushBatch(parsed.data);
-  return res.json({ ok: true, ...result });
+    const result = await applyPushBatch(parsed.data);
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[sync/push] failed', e);
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 syncRouter.get('/pull', async (req, res) => {
-  const querySchema = z.object({
-    since: z.coerce.number().int().nonnegative().default(0),
-  });
+  try {
+    const querySchema = z.object({
+      since: z.coerce.number().int().nonnegative().default(0),
+    });
 
-  const parsed = querySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const parsed = querySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    }
+
+    const response = await pullChangesSince(parsed.data.since);
+    return res.json(response);
+  } catch (e) {
+    console.error('[sync/pull] failed', e);
+    return res.status(500).json({ ok: false, error: String(e) });
   }
-
-  const response = await pullChangesSince(parsed.data.since);
-  return res.json(response);
 });
 
 

@@ -109,7 +109,8 @@ app.whenReady().then(() => {
   const clientId = `${process.env.COMPUTERNAME ?? 'pc'}-${randomUUID()}`;
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
-  const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru:3001';
+  // В проде обычно ходим через reverse-proxy (nginx) на 80/443, поэтому порт 3001 не указываем.
+  const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
 
   // Автообновление при старте: если есть новая версия — сразу скачиваем и запускаем установщик.
   void runAutoUpdateFlow({ reason: 'startup', parentWindow: mainWindow });

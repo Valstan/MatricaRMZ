@@ -50,7 +50,8 @@ cd /home/valstan/MatricaRMZ/backend-api
 pnpm run dev
 ```
 
-Backend будет доступен на `http://a6fd55b8e0ae.vps.myjino.ru:3001`
+Backend слушает локально: `http://127.0.0.1:3001`
+А **снаружи** обычно доступен через nginx/панель провайдера (80/443): `http://a6fd55b8e0ae.vps.myjino.ru`
 
 ### 2.2. Проверка работы
 
@@ -137,7 +138,7 @@ pnpm install
    - Отредактируйте `electron-app/src/main/index.ts`
    - Измените строку 50:
    ```typescript
-   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru:3001';
+   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
    ```
 
 4. Соберите приложение:
@@ -171,12 +172,12 @@ pnpm run dist
 В файле `electron-app/src/main/index.ts` (строка ~50):
 
 ```typescript
-const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru:3001';
+const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
 ```
 
 Или через переменную окружения при запуске:
 ```bash
-MATRICA_API_URL=http://a6fd55b8e0ae.vps.myjino.ru:3001 pnpm run dev
+MATRICA_API_URL=http://a6fd55b8e0ae.vps.myjino.ru pnpm run dev
 ```
 
 ### 4.2. Запуск в режиме разработки
@@ -185,6 +186,52 @@ MATRICA_API_URL=http://a6fd55b8e0ae.vps.myjino.ru:3001 pnpm run dev
 cd /home/valstan/MatricaRMZ/electron-app
 pnpm run dev
 ```
+
+---
+
+## HTTPS и панель провайдера (важно для синхронизации)
+
+Если на панели настроено проксирование **внешний 443 → внутренний 80**, то HTTPS терминируется не на VPS, а на стороне провайдера. В некоторых сетях Windows может падать с ошибкой schannel `0x80092013` (CRL/OCSP недоступен), и тогда **HTTPS запросы не проходят**, хотя HTTP работает.
+
+Рекомендуемая схема для прод:
+- панель: **внешний 80 → внутренний 80**
+- панель: **внешний 443 → внутренний 443**
+- на VPS: nginx `listen 443 ssl;` + сертификат Let's Encrypt
+
+Быстрый workaround: для синхронизации использовать `http://<domain>` как `apiBaseUrl` (без `:3001`).
+
+---
+
+## Частые проблемы и решения (для следующих сессий разработки)
+
+### 1) Синхронизация не работает “через интернет”
+Проверьте, что клиент использует **nginx (80/443)**, а не прямой порт backend:
+- правильно: `apiBaseUrl=http://<domain>` или `https://<domain>`
+- неправильно (часто заблокировано провайдером): `apiBaseUrl=http://<domain>:3001`
+
+На сервере nginx должен проксировать как минимум:
+- `GET /health` → `http://127.0.0.1:3001/health`
+- `POST /sync/push` → `http://127.0.0.1:3001/sync/push`
+- `GET /sync/pull?...` → `http://127.0.0.1:3001/sync/pull?...`
+
+### 2) Ошибка `push HTTP 502` (nginx Bad Gateway)
+Симптом: в Electron `push HTTP 502`, а nginx пишет `upstream prematurely closed connection`.
+
+Реальная причина, которую уже ловили в этом проекте: **переполнение `integer` временем в миллисекундах** (PostgreSQL int4).
+В проекте время (`created_at`, `updated_at`, `deleted_at`, `performed_at`, `sync_state.last_*`) хранится как Unix-time в **миллисекундах**, поэтому в PostgreSQL эти поля обязаны быть **`bigint`**.
+
+Фикс:
+- Drizzle schema: `bigint(..., { mode: 'number' })`
+- миграция: изменить тип колонок `ALTER TABLE ... ALTER COLUMN ... SET DATA TYPE bigint`
+
+### 3) Windows не может ходить по HTTPS (schannel `0x80092013`)
+Это не проблема API/БД, а проверка отзыва сертификата (CRL/OCSP) на стороне провайдера/панели.
+
+Варианты:
+- быстро: использовать `http://<domain>` для `apiBaseUrl`
+- правильно: сделать свой TLS на VPS (nginx + Let's Encrypt) и проброс 443→443
+
+См. также: `docs/TROUBLESHOOTING.md`.
 
 ---
 

@@ -15,6 +15,13 @@
       "when": 1766412000000,
       "tag": "0001_add_ops_meta_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1766582815203,
+      "tag": "0002_flashy_whirlwind",
+      "breakpoints": true
     }
   ]
 }

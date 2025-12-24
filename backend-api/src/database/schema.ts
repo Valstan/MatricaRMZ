@@ -6,9 +6,10 @@ import {
   uniqueIndex,
   uuid,
   bigserial,
+  bigint,
 } from 'drizzle-orm/pg-core';
 
-// Временные поля храним как Unix-time в миллисекундах (int/bigint),
+// Временные поля храним как Unix-time в миллисекундах (bigint),
 // чтобы одинаково жить в SQLite и PostgreSQL и проще сравниваться при синхронизации.
 
 export const entityTypes = pgTable(
@@ -17,9 +18,9 @@ export const entityTypes = pgTable(
     id: uuid('id').primaryKey(),
     code: text('code').notNull(),
     name: text('name').notNull(),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
@@ -32,9 +33,9 @@ export const entities = pgTable('entities', {
   typeId: uuid('type_id')
     .notNull()
     .references(() => entityTypes.id),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  deletedAt: integer('deleted_at'),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
 });
 
@@ -51,9 +52,9 @@ export const attributeDefs = pgTable(
     isRequired: boolean('is_required').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
     metaJson: text('meta_json'), // JSON-строка (параметры поля, единицы, подсказки)
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
@@ -72,9 +73,9 @@ export const attributeValues = pgTable(
       .notNull()
       .references(() => attributeDefs.id),
     valueJson: text('value_json'), // JSON-строка значения
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
@@ -90,12 +91,12 @@ export const operations = pgTable('operations', {
   operationType: text('operation_type').notNull(), // acceptance/kitting/defect/repair/test
   status: text('status').notNull(),
   note: text('note'),
-  performedAt: integer('performed_at'), // когда событие реально произошло (может отличаться от created_at)
+  performedAt: bigint('performed_at', { mode: 'number' }), // когда событие реально произошло (может отличаться от created_at)
   performedBy: text('performed_by'), // кто выполнил (пока строка; позже -> user_id)
   metaJson: text('meta_json'), // JSON-строка (табличные блоки, реквизиты актов, ссылки на файлы)
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  deletedAt: integer('deleted_at'),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
 });
 
@@ -106,9 +107,9 @@ export const auditLog = pgTable('audit_log', {
   entityId: uuid('entity_id'),
   tableName: text('table_name'),
   payloadJson: text('payload_json'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  deletedAt: integer('deleted_at'),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
 });
 
@@ -119,15 +120,15 @@ export const changeLog = pgTable('change_log', {
   rowId: uuid('row_id').notNull(),
   op: text('op').notNull(), // upsert/delete
   payloadJson: text('payload_json').notNull(),
-  createdAt: integer('created_at').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 });
 
 // Состояние синхронизации по рабочему месту (client_id).
 export const syncState = pgTable('sync_state', {
   clientId: text('client_id').primaryKey(),
   lastPulledServerSeq: integer('last_pulled_server_seq').notNull().default(0),
-  lastPushedAt: integer('last_pushed_at'),
-  lastPulledAt: integer('last_pulled_at'),
+  lastPushedAt: bigint('last_pushed_at', { mode: 'number' }),
+  lastPulledAt: bigint('last_pulled_at', { mode: 'number' }),
 });
 
 
