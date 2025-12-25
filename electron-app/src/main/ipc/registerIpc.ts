@@ -14,6 +14,7 @@ import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../services/re
 import { checkForUpdates } from '../services/updateService.js';
 import { authLogin, authLogout, authStatus, getSession } from '../services/authService.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
+import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 import {
   adminCreateUser,
   adminGetUserPermissions,
@@ -42,6 +43,15 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     const s = await getSession(db).catch(() => null);
     const u = s?.user?.username;
     return u && u.trim() ? u.trim() : 'local';
+  }
+
+  async function currentPermissions(): Promise<Record<string, boolean>> {
+    const s = await getSession(db).catch(() => null);
+    return (s?.permissions ?? {}) as Record<string, boolean>;
+  }
+
+  function hasPerm(perms: Record<string, boolean>, code: string): boolean {
+    return perms?.[code] === true;
   }
 
   ipcMain.handle('log:send', async (_e, payload: { level: string; message: string }) => {
@@ -149,6 +159,55 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   );
 
   ipcMain.handle('update:check', async () => checkForUpdates());
+
+  // -----------------------------
+  // Repair checklist
+  // -----------------------------
+  ipcMain.handle('checklists:templates:list', async (_e, args?: { stage?: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'operations.view')) return { ok: false, error: 'permission denied: operations.view' };
+    return listRepairChecklistTemplates(db, args?.stage);
+  });
+
+  ipcMain.handle('checklists:engine:get', async (_e, args: { engineId: string; stage: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'operations.view')) return { ok: false, error: 'permission denied: operations.view' };
+    const t = await listRepairChecklistTemplates(db, args.stage);
+    if (!t.ok) return t;
+    const r = await getRepairChecklistForEngine(db, args.engineId, args.stage);
+    if (!r.ok) return r;
+    return { ok: true as const, operationId: r.operationId, payload: r.payload, templates: t.templates };
+  });
+
+  ipcMain.handle(
+    'checklists:engine:save',
+    async (
+      _e,
+      args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: any },
+    ) => {
+      const perms = await currentPermissions();
+      if (!hasPerm(perms, 'operations.edit')) return { ok: false, error: 'permission denied: operations.edit' };
+
+      const t = await listRepairChecklistTemplates(db, args.stage);
+      if (!t.ok) return t;
+      const tmpl = t.templates.find((x) => x.id === args.templateId) ?? null;
+      if (!tmpl) return { ok: false, error: 'template not found' };
+
+      const actor = await currentActor();
+      const payload = {
+        kind: 'repair_checklist' as const,
+        templateId: tmpl.id,
+        templateVersion: tmpl.version,
+        stage: args.stage,
+        engineEntityId: args.engineId,
+        filledBy: actor || null,
+        filledAt: Date.now(),
+        answers: args.answers ?? {},
+      };
+
+      return saveRepairChecklistForEngine(db, { engineId: args.engineId, stage: args.stage, operationId: args.operationId, payload, actor });
+    },
+  );
 }
 
 

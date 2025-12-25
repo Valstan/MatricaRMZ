@@ -204,6 +204,7 @@ export function App() {
             canEditOperations={caps.canEditOperations}
             canPrintEngineCard={caps.canPrintReports}
             canViewMasterData={caps.canViewMasterData}
+            canExportReports={caps.canExportReports}
           />
       )}
 

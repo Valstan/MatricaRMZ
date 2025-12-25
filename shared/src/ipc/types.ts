@@ -106,6 +106,8 @@ export type AuthLoginResult =
 
 export type AuthLogoutResult = { ok: boolean; error?: string };
 
+import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
+
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
   log: {
@@ -205,6 +207,23 @@ export type MatricaApi = {
   };
   update: {
     check: () => Promise<UpdateCheckResult>;
+  };
+  checklists: {
+    templatesList: (args?: { stage?: string }) => Promise<
+      | { ok: true; templates: RepairChecklistTemplate[] }
+      | { ok: false; error: string }
+    >;
+    engineGet: (args: { engineId: string; stage: string }) => Promise<
+      | { ok: true; operationId: string | null; payload: RepairChecklistPayload | null; templates: RepairChecklistTemplate[] }
+      | { ok: false; error: string }
+    >;
+    engineSave: (args: {
+      engineId: string;
+      stage: string;
+      templateId: string;
+      operationId?: string | null;
+      answers: RepairChecklistAnswers;
+    }) => Promise<{ ok: true; operationId: string } | { ok: false; error: string }>;
   };
 };
 

@@ -75,6 +75,12 @@ contextBridge.exposeInMainWorld('matrica', {
   update: {
     check: async () => ipcRenderer.invoke('update:check'),
   },
+  checklists: {
+    templatesList: async (args?: { stage?: string }) => ipcRenderer.invoke('checklists:templates:list', args),
+    engineGet: async (args: { engineId: string; stage: string }) => ipcRenderer.invoke('checklists:engine:get', args),
+    engineSave: async (args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: unknown }) =>
+      ipcRenderer.invoke('checklists:engine:save', args),
+  },
 });
 
 

@@ -4,6 +4,7 @@ import type { EngineDetails, OperationItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -119,6 +120,7 @@ export function EngineDetailsPage(props: {
   canEditOperations: boolean;
   canPrintEngineCard: boolean;
   canViewMasterData: boolean;
+  canExportReports?: boolean;
 }) {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
@@ -407,6 +409,16 @@ export function EngineDetailsPage(props: {
             </table>
           </div>
         </div>
+      )}
+
+      {props.canViewOperations && (
+        <RepairChecklistPanel
+          engineId={props.engineId}
+          stage="repair"
+          canEdit={props.canEditOperations}
+          canPrint={props.canPrintEngineCard}
+          canExport={props.canExportReports === true}
+        />
       )}
     </div>
   );
