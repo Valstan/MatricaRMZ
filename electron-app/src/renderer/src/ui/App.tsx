@@ -34,6 +34,11 @@ export function App() {
     void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
   }, []);
 
+  // Gate: без входа показываем только вкладку "Вход".
+  useEffect(() => {
+    if (!authStatus.loggedIn && tab !== 'auth') setTab('auth');
+  }, [authStatus.loggedIn, tab]);
+
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -126,12 +131,20 @@ export function App() {
       <Tabs
         tab={tab}
         onTab={(t) => {
+          if (!authStatus.loggedIn && t !== 'auth') {
+            setTab('auth');
+            return;
+          }
           setTab(t);
           if (t === 'audit') void refreshAudit();
         }}
                 />
 
       <div style={{ marginTop: 14 }}>
+        {!authStatus.loggedIn && tab !== 'auth' && (
+          <div style={{ color: '#6b7280' }}>Требуется вход.</div>
+        )}
+
         {tab === 'engines' && (
           <EnginesPage
             engines={engines}

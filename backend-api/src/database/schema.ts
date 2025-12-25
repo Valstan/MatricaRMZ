@@ -167,4 +167,37 @@ export const refreshTokens = pgTable(
   }),
 );
 
+// -----------------------------
+// Permissions (server-side only)
+// -----------------------------
+export const permissions = pgTable(
+  'permissions',
+  {
+    code: text('code').primaryKey(),
+    description: text('description').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('permissions_code_uq').on(t.code),
+  }),
+);
+
+export const userPermissions = pgTable(
+  'user_permissions',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    permCode: text('perm_code')
+      .notNull()
+      .references(() => permissions.code),
+    allowed: boolean('allowed').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    userPermUq: uniqueIndex('user_permissions_user_perm_uq').on(t.userId, t.permCode),
+  }),
+);
+
 

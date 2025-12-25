@@ -20,6 +20,9 @@ type AttrDefRow = {
 type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string };
 
 export function AdminPage() {
+  const [authPerms, setAuthPerms] = useState<Record<string, boolean>>({});
+  const canManageUsers = authPerms['admin.users.manage'] === true;
+
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
   const [defs, setDefs] = useState<AttrDefRow[]>([]);
@@ -27,6 +30,15 @@ export function AdminPage() {
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   const [status, setStatus] = useState<string>('');
+
+  // Users admin state
+  const [users, setUsers] = useState<{ id: string; username: string; role: string; isActive: boolean }[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [userPerms, setUserPerms] = useState<{ base: Record<string, boolean>; overrides: Record<string, boolean>; effective: Record<string, boolean> } | null>(
+    null,
+  );
+  const [newUser, setNewUser] = useState<{ username: string; password: string; role: string }>({ username: '', password: '', role: 'user' });
+  const [resetPassword, setResetPassword] = useState<string>('');
 
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
@@ -80,6 +92,11 @@ export function AdminPage() {
   }
 
   useEffect(() => {
+    // permissions for UI gating
+    void window.matrica.auth
+      .status()
+      .then((s) => setAuthPerms(s.permissions ?? {}))
+      .catch(() => setAuthPerms({}));
     void refreshTypes();
   }, []);
 
@@ -100,6 +117,37 @@ export function AdminPage() {
     if (!selectedTypeId) return;
     void refreshLinkOptions(defs);
   }, [selectedTypeId, defs, types]);
+
+  async function refreshUsers() {
+    const r = await window.matrica.admin.users.list();
+    if (!r.ok) {
+      setStatus(`Ошибка users.list: ${r.error}`);
+      return;
+    }
+    setUsers(r.users);
+    if (!selectedUserId && r.users[0]) setSelectedUserId(r.users[0].id);
+  }
+
+  async function openUser(userId: string) {
+    setSelectedUserId(userId);
+    const r = await window.matrica.admin.users.permissionsGet(userId);
+    if (!r.ok) {
+      setStatus(`Ошибка perms.get: ${r.error}`);
+      setUserPerms(null);
+      return;
+    }
+    setUserPerms({ base: r.base, overrides: r.overrides, effective: r.effective });
+  }
+
+  useEffect(() => {
+    if (!canManageUsers) return;
+    void refreshUsers();
+  }, [canManageUsers]);
+
+  useEffect(() => {
+    if (!canManageUsers || !selectedUserId) return;
+    void openUser(selectedUserId);
+  }, [canManageUsers, selectedUserId]);
 
   return (
     <div>
@@ -301,6 +349,172 @@ export function AdminPage() {
           )}
         </div>
       </div>
+
+      {canManageUsers && (
+        <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <strong>Пользователи и права доступа</strong>
+            <span style={{ flex: 1 }} />
+            <Button variant="ghost" onClick={() => void refreshUsers()}>
+              Обновить
+            </Button>
+          </div>
+
+          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '360px 1fr', gap: 12 }}>
+            <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Создать пользователя</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Input value={newUser.username} onChange={(e) => setNewUser((p) => ({ ...p, username: e.target.value }))} placeholder="логин" />
+                <Input
+                  value={newUser.password}
+                  onChange={(e) => setNewUser((p) => ({ ...p, password: e.target.value }))}
+                  placeholder="пароль"
+                />
+                <select
+                  value={newUser.role}
+                  onChange={(e) => setNewUser((p) => ({ ...p, role: e.target.value }))}
+                  style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                >
+                  <option value="user">user</option>
+                  <option value="admin">admin</option>
+                </select>
+                <Button
+                  onClick={async () => {
+                    setStatus('Создание пользователя...');
+                    const r = await window.matrica.admin.users.create(newUser);
+                    setStatus(r.ok ? 'Пользователь создан' : `Ошибка: ${r.error ?? 'unknown'}`);
+                    if (r.ok) {
+                      setNewUser({ username: '', password: '', role: 'user' });
+                      await refreshUsers();
+                      setSelectedUserId(r.id);
+                    }
+                  }}
+                >
+                  Создать
+                </Button>
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Выбрать пользователя</div>
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username} ({u.role}) {u.isActive ? '' : '[disabled]'}
+                  </option>
+                ))}
+                {users.length === 0 && <option value="">(пусто)</option>}
+              </select>
+            </div>
+
+            <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <strong>Права</strong>
+                <span style={{ flex: 1 }} />
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (selectedUserId) void openUser(selectedUserId);
+                  }}
+                >
+                  Обновить
+                </Button>
+              </div>
+
+              {selectedUserId && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <select
+                    value={users.find((u) => u.id === selectedUserId)?.role ?? 'user'}
+                    onChange={async (e) => {
+                      const role = e.target.value;
+                      setStatus('Обновление роли...');
+                      const r = await window.matrica.admin.users.update(selectedUserId, { role });
+                      setStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
+                      await refreshUsers();
+                      await openUser(selectedUserId);
+                    }}
+                    style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                  >
+                    <option value="user">user</option>
+                    <option value="admin">admin</option>
+                  </select>
+
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                    <input
+                      type="checkbox"
+                      checked={users.find((u) => u.id === selectedUserId)?.isActive ?? true}
+                      onChange={async (e) => {
+                        setStatus('Обновление активности...');
+                        const r = await window.matrica.admin.users.update(selectedUserId, { isActive: e.target.checked });
+                        setStatus(r.ok ? 'Активность обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
+                        await refreshUsers();
+                      }}
+                    />
+                    активен
+                  </label>
+
+                  <Input
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    placeholder="новый пароль (опц.)"
+                  />
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      if (!resetPassword.trim()) return;
+                      setStatus('Смена пароля...');
+                      const r = await window.matrica.admin.users.update(selectedUserId, { password: resetPassword });
+                      setStatus(r.ok ? 'Пароль обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                      setResetPassword('');
+                    }}
+                  >
+                    Сменить пароль
+                  </Button>
+                </div>
+              )}
+
+              {!userPerms ? (
+                <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите пользователя</div>
+              ) : (
+                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10, alignItems: 'center' }}>
+                  {Object.keys(userPerms.effective)
+                    .sort()
+                    .map((code) => {
+                      const effective = userPerms.effective[code] === true;
+                      const override = code in userPerms.overrides ? userPerms.overrides[code] : null;
+                      return (
+                        <React.Fragment key={code}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>{code}</span>
+                            {override !== null && (
+                              <span style={{ fontSize: 12, color: '#6b7280' }}>(override)</span>
+                            )}
+                          </div>
+                          <label style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+                            <input
+                              type="checkbox"
+                              checked={effective}
+                              onChange={async (e) => {
+                                const next = e.target.checked;
+                                setStatus('Сохранение права...');
+                                const r = await window.matrica.admin.users.permissionsSet(selectedUserId, { [code]: next });
+                                setStatus(r.ok ? 'Сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                await openUser(selectedUserId);
+                              }}
+                            />
+                            <span style={{ fontSize: 12, color: '#6b7280' }}>{effective ? 'on' : 'off'}</span>
+                          </label>
+                        </React.Fragment>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {status && <div style={{ marginTop: 12, color: '#6b7280' }}>{status}</div>}
     </div>

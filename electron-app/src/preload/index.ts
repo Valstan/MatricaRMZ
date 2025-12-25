@@ -63,6 +63,14 @@ contextBridge.exposeInMainWorld('matrica', {
       setAttr: async (entityId: string, code: string, value: unknown) => ipcRenderer.invoke('admin:entities:setAttr', entityId, code, value),
       softDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:softDelete', entityId),
     },
+    users: {
+      list: async () => ipcRenderer.invoke('admin:users:list'),
+      create: async (args: { username: string; password: string; role: string }) => ipcRenderer.invoke('admin:users:create', args),
+      update: async (userId: string, args: { role?: string; isActive?: boolean; password?: string }) =>
+        ipcRenderer.invoke('admin:users:update', userId, args),
+      permissionsGet: async (userId: string) => ipcRenderer.invoke('admin:users:permissionsGet', userId),
+      permissionsSet: async (userId: string, set: Record<string, boolean>) => ipcRenderer.invoke('admin:users:permissionsSet', userId, set),
+    },
   },
   update: {
     check: async () => ipcRenderer.invoke('update:check'),

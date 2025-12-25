@@ -14,6 +14,13 @@ import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../services/re
 import { checkForUpdates } from '../services/updateService.js';
 import { authLogin, authLogout, authStatus, getSession } from '../services/authService.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
+import {
+  adminCreateUser,
+  adminGetUserPermissions,
+  adminListUsers,
+  adminSetUserPermissions,
+  adminUpdateUser,
+} from '../services/adminUsersService.js';
 import { syncState } from '../database/schema.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
@@ -128,6 +135,18 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     setEntityAttribute(db, entityId, code, value),
   );
   ipcMain.handle('admin:entities:softDelete', async (_e, entityId: string) => softDeleteEntity(db, entityId));
+
+  ipcMain.handle('admin:users:list', async () => adminListUsers(db, mgr.getApiBaseUrl()));
+  ipcMain.handle('admin:users:create', async (_e, args: { username: string; password: string; role: string }) =>
+    adminCreateUser(db, mgr.getApiBaseUrl(), args),
+  );
+  ipcMain.handle('admin:users:update', async (_e, userId: string, args: { role?: string; isActive?: boolean; password?: string }) =>
+    adminUpdateUser(db, mgr.getApiBaseUrl(), userId, args),
+  );
+  ipcMain.handle('admin:users:permissionsGet', async (_e, userId: string) => adminGetUserPermissions(db, mgr.getApiBaseUrl(), userId));
+  ipcMain.handle('admin:users:permissionsSet', async (_e, userId: string, set: Record<string, boolean>) =>
+    adminSetUserPermissions(db, mgr.getApiBaseUrl(), userId, set),
+  );
 
   ipcMain.handle('update:check', async () => checkForUpdates());
 }

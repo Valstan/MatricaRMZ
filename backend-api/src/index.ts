@@ -5,7 +5,9 @@ import cors from 'cors';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { syncRouter } from './routes/sync.js';
-import { requireAuth } from './auth/middleware.js';
+import { adminUsersRouter } from './routes/adminUsers.js';
+import { requireAuth, requirePermission } from './auth/middleware.js';
+import { PermissionCode } from './auth/permissions.js';
 
 const app = express();
 // За reverse-proxy (nginx / панель провайдера) важно корректно понимать X-Forwarded-* заголовки.
@@ -16,7 +18,8 @@ app.use(express.json({ limit: '20mb' }));
 
 app.use('/health', healthRouter);
 app.use('/auth', authRouter);
-app.use('/sync', requireAuth, syncRouter);
+app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
+app.use('/admin', adminUsersRouter);
 
 const port = Number(process.env.PORT ?? 3001);
 // По умолчанию слушаем только localhost и открываем наружу через nginx.

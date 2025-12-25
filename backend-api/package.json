@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/database/migrate.ts",
-    "user:create": "tsx src/scripts/createUser.ts"
+    "user:create": "tsx src/scripts/createUser.ts",
+    "perm:seed": "tsx src/scripts/seedPermissions.ts"
   },
   "dependencies": {
     "@matricarmz/shared": "workspace:*",

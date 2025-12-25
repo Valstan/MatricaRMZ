@@ -9,6 +9,7 @@ import { verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { randomUUID } from 'node:crypto';
+import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 
 export const authRouter = Router();
 
@@ -42,6 +43,7 @@ authRouter.post('/login', async (req, res) => {
 
     const authUser: AuthUser = { id: u.id, username: u.username, role: u.role };
     const accessToken = await signAccessToken(authUser);
+    const permissions = await getEffectivePermissionsForUser(u.id);
 
     const refreshToken = generateRefreshToken();
     const ts = Date.now();
@@ -54,7 +56,7 @@ authRouter.post('/login', async (req, res) => {
       createdAt: ts,
     });
 
-    return res.json({ ok: true, accessToken, refreshToken, user: authUser });
+    return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions });
   } catch (e) {
     console.error('[auth/login] failed', e);
     return res.status(500).json({ ok: false, error: String(e) });
@@ -63,7 +65,8 @@ authRouter.post('/login', async (req, res) => {
 
 authRouter.get('/me', requireAuth, async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
-  return res.json({ ok: true, user });
+  const permissions = await getEffectivePermissionsForUser(user.id).catch(() => ({}));
+  return res.json({ ok: true, user, permissions });
 });
 
 authRouter.post('/refresh', async (req, res) => {
@@ -93,6 +96,7 @@ authRouter.post('/refresh', async (req, res) => {
 
     const authUser: AuthUser = { id: u.id, username: u.username, role: u.role };
     const accessToken = await signAccessToken(authUser);
+    const permissions = await getEffectivePermissionsForUser(u.id);
 
     // Rotation refresh token: удаляем старый, выдаём новый.
     const newRefreshToken = generateRefreshToken();
@@ -106,7 +110,7 @@ authRouter.post('/refresh', async (req, res) => {
       createdAt: now,
     });
 
-    return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser });
+    return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser, permissions });
   } catch (e) {
     console.error('[auth/refresh] failed', e);
     return res.status(500).json({ ok: false, error: String(e) });

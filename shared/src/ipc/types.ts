@@ -97,10 +97,11 @@ export type AuthUserInfo = {
 export type AuthStatus = {
   loggedIn: boolean;
   user: AuthUserInfo | null;
+  permissions: Record<string, boolean> | null;
 };
 
 export type AuthLoginResult =
-  | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo }
+  | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo; permissions: Record<string, boolean> }
   | { ok: false; error: string };
 
 export type AuthLogoutResult = { ok: boolean; error?: string };
@@ -179,6 +180,27 @@ export type MatricaApi = {
       get: (id: string) => Promise<EntityDetails>;
       setAttr: (entityId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
       softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
+    };
+    users: {
+      list: () => Promise<{ ok: true; users: { id: string; username: string; role: string; isActive: boolean }[] } | { ok: false; error: string }>;
+      create: (args: { username: string; password: string; role: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      update: (
+        userId: string,
+        args: { role?: string; isActive?: boolean; password?: string },
+      ) => Promise<{ ok: boolean; error?: string }>;
+      permissionsGet: (
+        userId: string,
+      ) => Promise<
+        | {
+            ok: true;
+            user: { id: string; username: string; role: string };
+            base: Record<string, boolean>;
+            overrides: Record<string, boolean>;
+            effective: Record<string, boolean>;
+          }
+        | { ok: false; error: string }
+      >;
+      permissionsSet: (userId: string, set: Record<string, boolean>) => Promise<{ ok: boolean; error?: string }>;
     };
   };
   update: {

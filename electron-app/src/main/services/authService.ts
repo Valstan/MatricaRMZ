@@ -16,6 +16,7 @@ export type SessionPayload = {
   accessToken: string;
   refreshToken: string;
   user: AuthUserInfo;
+  permissions: Record<string, boolean>;
   savedAt: number;
 };
 
@@ -73,8 +74,8 @@ export async function clearSession(db: BetterSQLite3Database) {
 
 export async function authStatus(db: BetterSQLite3Database): Promise<AuthStatus> {
   const payload = await getSession(db);
-  if (!payload) return { loggedIn: false, user: null };
-  return { loggedIn: true, user: payload.user };
+  if (!payload) return { loggedIn: false, user: null, permissions: null };
+  return { loggedIn: true, user: payload.user, permissions: payload.permissions ?? {} };
 }
 
 export async function authLogin(
@@ -99,11 +100,18 @@ export async function authLogin(
       accessToken: String(json.accessToken),
       refreshToken: String(json.refreshToken),
       user: json.user as AuthUserInfo,
+      permissions: (json.permissions ?? {}) as Record<string, boolean>,
       savedAt: nowMs(),
     };
     const stored = encryptJson(JSON.stringify(payload));
     await setSyncState(db, KEY_SESSION, JSON.stringify(stored));
-    return { ok: true, accessToken: payload.accessToken, refreshToken: payload.refreshToken, user: payload.user };
+    return {
+      ok: true,
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      user: payload.user,
+      permissions: payload.permissions,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -130,6 +138,7 @@ export async function authRefresh(
       accessToken: String(json.accessToken),
       refreshToken: String(json.refreshToken),
       user: json.user as AuthUserInfo,
+      permissions: (json.permissions ?? {}) as Record<string, boolean>,
       savedAt: nowMs(),
     };
     const stored = encryptJson(JSON.stringify(payload));
