@@ -1,34 +1,63 @@
 import React from 'react';
 
 import { Button } from '../components/Button.js';
+import { tabAccent, theme } from '../theme.js';
 
 export type TabId = 'engines' | 'engine' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit';
 
 export function Tabs(props: {
   tab: TabId;
   onTab: (t: Exclude<TabId, 'engine'>) => void;
+  visibleTabs: Exclude<TabId, 'engine'>[];
   right?: React.ReactNode;
 }) {
+  function tabButton(id: Exclude<TabId, 'engine'>, label: string) {
+    const acc = theme.accents[tabAccent(id)];
+    const active = props.tab === id;
+    return (
+      <Button
+        key={id}
+        variant="ghost"
+        onClick={() => props.onTab(id)}
+        style={
+          active
+            ? {
+                border: `1px solid ${acc.border}`,
+                background: `linear-gradient(135deg, ${acc.bg} 0%, ${acc.border} 120%)`,
+                color: acc.text,
+                boxShadow: '0 12px 22px rgba(0,0,0,0.15)',
+              }
+            : {
+                border: `1px solid ${acc.border}`,
+                background: theme.colors.surface2,
+                color: acc.border,
+                boxShadow: '0 10px 18px rgba(15, 23, 42, 0.08)',
+              }
+        }
+      >
+        {label}
+      </Button>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-      <Button variant={props.tab === 'engines' ? 'primary' : 'ghost'} onClick={() => props.onTab('engines')}>
-        Двигатели
-      </Button>
-      <Button variant={props.tab === 'auth' ? 'primary' : 'ghost'} onClick={() => props.onTab('auth')}>
-        Вход
-      </Button>
-      <Button variant={props.tab === 'sync' ? 'primary' : 'ghost'} onClick={() => props.onTab('sync')}>
-        Синхронизация
-      </Button>
-      <Button variant={props.tab === 'reports' ? 'primary' : 'ghost'} onClick={() => props.onTab('reports')}>
-        Отчёты
-      </Button>
-      <Button variant={props.tab === 'admin' ? 'primary' : 'ghost'} onClick={() => props.onTab('admin')}>
-        Справочники
-      </Button>
-      <Button variant={props.tab === 'audit' ? 'primary' : 'ghost'} onClick={() => props.onTab('audit')}>
-        Журнал
-      </Button>
+      {props.visibleTabs.includes('engines') && (
+        tabButton('engines', 'Двигатели')
+      )}
+      {tabButton('auth', 'Вход')}
+      {props.visibleTabs.includes('sync') && (
+        tabButton('sync', 'Синхронизация')
+      )}
+      {props.visibleTabs.includes('reports') && (
+        tabButton('reports', 'Отчёты')
+      )}
+      {props.visibleTabs.includes('admin') && (
+        tabButton('admin', 'Справочники')
+      )}
+      {props.visibleTabs.includes('audit') && (
+        tabButton('audit', 'Журнал')
+      )}
       <span style={{ flex: 1 }} />
       {props.right}
     </div>

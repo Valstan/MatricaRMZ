@@ -11,6 +11,7 @@ import { ReportsPage } from './pages/ReportsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
+import { deriveUiCaps } from './auth/permissions.js';
 
 export function App() {
   const [ping, setPing] = useState<string>('...');
@@ -34,10 +35,28 @@ export function App() {
     void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
   }, []);
 
+  const caps = deriveUiCaps(authStatus.permissions ?? null);
+  const visibleTabs: Exclude<TabId, 'engine'>[] = [
+    ...(caps.canViewEngines ? (['engines'] as const) : []),
+    'auth',
+    ...(caps.canUseSync ? (['sync'] as const) : []),
+    ...(caps.canViewReports ? (['reports'] as const) : []),
+    ...((caps.canViewMasterData || caps.canManageUsers) ? (['admin'] as const) : []),
+    ...(caps.canViewAudit ? (['audit'] as const) : []),
+  ];
+  const visibleTabsKey = visibleTabs.join('|');
+
   // Gate: без входа показываем только вкладку "Вход".
   useEffect(() => {
     if (!authStatus.loggedIn && tab !== 'auth') setTab('auth');
   }, [authStatus.loggedIn, tab]);
+
+  // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
+  useEffect(() => {
+    if (tab === 'engine') return;
+    if (visibleTabs.includes(tab)) return;
+    setTab(visibleTabs[0] ?? 'auth');
+  }, [tab, visibleTabsKey]);
 
   useEffect(() => {
     let alive = true;
@@ -135,10 +154,12 @@ export function App() {
             setTab('auth');
             return;
           }
+          if (!visibleTabs.includes(t)) return;
           setTab(t);
           if (t === 'audit') void refreshAudit();
         }}
-                />
+        visibleTabs={visibleTabs}
+      />
 
       <div style={{ marginTop: 14 }}>
         {!authStatus.loggedIn && tab !== 'auth' && (
@@ -157,6 +178,7 @@ export function App() {
                     await refreshEngines();
               await openEngine(r.id);
                   }}
+            canCreate={caps.canEditEngines}
           />
         )}
 
@@ -177,14 +199,26 @@ export function App() {
               await window.matrica.operations.add(selectedEngineId, operationType, status, note);
               await reloadEngine();
               }}
+            canEditEngines={caps.canEditEngines}
+            canViewOperations={caps.canViewOperations}
+            canEditOperations={caps.canEditOperations}
+            canPrintEngineCard={caps.canPrintReports}
+            canViewMasterData={caps.canViewMasterData}
           />
       )}
 
         {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
 
-        {tab === 'reports' && <ReportsPage />}
+        {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
 
-        {tab === 'admin' && <AdminPage />}
+        {tab === 'admin' && (
+          <AdminPage
+            permissions={authStatus.permissions ?? {}}
+            canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
+            canManageUsers={caps.canManageUsers}
+          />
+        )}
 
         {tab === 'auth' && (
           <AuthPage

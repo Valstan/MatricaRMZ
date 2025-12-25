@@ -19,9 +19,13 @@ type AttrDefRow = {
 
 type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string };
 
-export function AdminPage() {
-  const [authPerms, setAuthPerms] = useState<Record<string, boolean>>({});
-  const canManageUsers = authPerms['admin.users.manage'] === true;
+export function AdminPage(props: {
+  permissions: Record<string, boolean>;
+  canViewMasterData: boolean;
+  canEditMasterData: boolean;
+  canManageUsers: boolean;
+}) {
+  const canManageUsers = props.canManageUsers;
 
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
@@ -92,11 +96,6 @@ export function AdminPage() {
   }
 
   useEffect(() => {
-    // permissions for UI gating
-    void window.matrica.auth
-      .status()
-      .then((s) => setAuthPerms(s.permissions ?? {}))
-      .catch(() => setAuthPerms({}));
     void refreshTypes();
   }, []);
 
@@ -153,10 +152,13 @@ export function AdminPage() {
     <div>
       <h2 style={{ margin: '8px 0' }}>Справочники (MVP)</h2>
       <div style={{ color: '#6b7280', marginBottom: 12 }}>
-        Здесь можно создавать типы сущностей и атрибуты (для модульного расширения без миграций).
+        {props.canViewMasterData
+          ? 'Здесь можно создавать типы сущностей и атрибуты (для модульного расширения без миграций).'
+          : 'У вас нет доступа к мастер-данным. Доступен только раздел управления пользователями/правами (если есть права).'}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
+      {props.canViewMasterData && (
+        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <strong>Типы сущностей</strong>
@@ -181,19 +183,21 @@ export function AdminPage() {
             </select>
           </div>
 
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить тип</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <NewEntityTypeForm
-                onSubmit={async (code, name) => {
-                  setStatus('Сохранение типа...');
-                  const r = await window.matrica.admin.entityTypes.upsert({ code, name });
-                  setStatus(r.ok ? 'Тип сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                  await refreshTypes();
-                }}
-              />
+          {props.canEditMasterData && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить тип</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <NewEntityTypeForm
+                  onSubmit={async (code, name) => {
+                    setStatus('Сохранение типа...');
+                    const r = await window.matrica.admin.entityTypes.upsert({ code, name });
+                    setStatus(r.ok ? 'Тип сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                    await refreshTypes();
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
@@ -209,23 +213,25 @@ export function AdminPage() {
           <div style={{ marginTop: 12 }}>
             {selectedTypeId ? (
               <>
-                <NewAttrDefForm
-                  entityTypeId={selectedTypeId}
-                  onSubmit={async (payload) => {
-                    setStatus('Сохранение атрибута...');
-                    const r = await window.matrica.admin.attributeDefs.upsert(payload);
-                    setStatus(r.ok ? 'Атрибут сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                    await refreshDefs(selectedTypeId);
-                  }}
-                />
+                {props.canEditMasterData && (
+                  <NewAttrDefForm
+                    entityTypeId={selectedTypeId}
+                    onSubmit={async (payload) => {
+                      setStatus('Сохранение атрибута...');
+                      const r = await window.matrica.admin.attributeDefs.upsert(payload);
+                      setStatus(r.ok ? 'Атрибут сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                      await refreshDefs(selectedTypeId);
+                    }}
+                  />
+                )}
                 <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                      <tr style={{ background: '#f9fafb' }}>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>code</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>name</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>type</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>required</th>
+                      <tr style={{ background: 'linear-gradient(135deg, #db2777 0%, #9d174d 120%)', color: '#fff' }}>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>code</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>name</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>type</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>required</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -274,35 +280,39 @@ export function AdminPage() {
           ) : (
             <>
               <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
-                <Button
-                  onClick={async () => {
-                    setStatus('Создание сущности...');
-                    const r = await window.matrica.admin.entities.create(selectedTypeId);
-                    if (!r.ok) {
-                      setStatus(`Ошибка: ${r.error}`);
-                      return;
-                    }
-                    setStatus('Сущность создана');
-                    await refreshEntities(selectedTypeId);
-                    setSelectedEntityId(r.id);
-                  }}
-                >
-                  Создать
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    if (!selectedEntityId) return;
-                    setStatus('Удаление...');
-                    const r = await window.matrica.admin.entities.softDelete(selectedEntityId);
-                    setStatus(r.ok ? 'Удалено' : `Ошибка: ${r.error ?? 'unknown'}`);
-                    await refreshEntities(selectedTypeId);
-                    setSelectedEntityId('');
-                    setEntityAttrs({});
-                  }}
-                >
-                  Удалить
-                </Button>
+                {props.canEditMasterData && (
+                  <>
+                    <Button
+                      onClick={async () => {
+                        setStatus('Создание сущности...');
+                        const r = await window.matrica.admin.entities.create(selectedTypeId);
+                        if (!r.ok) {
+                          setStatus(`Ошибка: ${r.error}`);
+                          return;
+                        }
+                        setStatus('Сущность создана');
+                        await refreshEntities(selectedTypeId);
+                        setSelectedEntityId(r.id);
+                      }}
+                    >
+                      Создать
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        if (!selectedEntityId) return;
+                        setStatus('Удаление...');
+                        const r = await window.matrica.admin.entities.softDelete(selectedEntityId);
+                        setStatus(r.ok ? 'Удалено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                        await refreshEntities(selectedTypeId);
+                        setSelectedEntityId('');
+                        setEntityAttrs({});
+                      }}
+                    >
+                      Удалить
+                    </Button>
+                  </>
+                )}
                 <span style={{ flex: 1 }} />
                 <select
                   value={selectedEntityId}
@@ -320,7 +330,9 @@ export function AdminPage() {
 
               {selectedEntity ? (
                 <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-                  <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>Редактирование атрибутов</div>
+                  <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
+                    {props.canEditMasterData ? 'Редактирование атрибутов' : 'Атрибуты (только просмотр)'}
+                  </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
                     {defs.map((d) => (
@@ -328,6 +340,7 @@ export function AdminPage() {
                         <div style={{ color: '#6b7280' }}>{d.name}</div>
                         <FieldEditor
                           def={d}
+                          canEdit={props.canEditMasterData}
                           value={entityAttrs[d.code]}
                           linkOptions={linkOptions[d.code] ?? []}
                           onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
@@ -349,6 +362,7 @@ export function AdminPage() {
           )}
         </div>
       </div>
+      )}
 
       {canManageUsers && (
         <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
@@ -615,6 +629,7 @@ function NewAttrDefForm(props: {
 
 function FieldEditor(props: {
   def: AttrDefRow;
+  canEdit: boolean;
   value: unknown;
   linkOptions: { id: string; label: string }[];
   onChange: (v: unknown) => void;
@@ -646,7 +661,9 @@ function FieldEditor(props: {
         <input
           type="checkbox"
           checked={checked}
+          disabled={!props.canEdit}
           onChange={(e) => {
+            if (!props.canEdit) return;
             props.onChange(e.target.checked);
             void props.onSave(e.target.checked);
           }}
@@ -662,7 +679,9 @@ function FieldEditor(props: {
       <Input
         type="date"
         value={ms ? toInputDate(ms) : ''}
+        disabled={!props.canEdit}
         onChange={(e) => {
+          if (!props.canEdit) return;
           const next = fromInputDate(e.target.value);
           props.onChange(next);
           void props.onSave(next);
@@ -676,8 +695,15 @@ function FieldEditor(props: {
     return (
       <Input
         value={s}
-        onChange={(e) => props.onChange(e.target.value === '' ? null : Number(e.target.value))}
-        onBlur={() => void props.onSave(props.value == null || props.value === '' ? null : Number(props.value))}
+        disabled={!props.canEdit}
+        onChange={(e) => {
+          if (!props.canEdit) return;
+          props.onChange(e.target.value === '' ? null : Number(e.target.value));
+        }}
+        onBlur={() => {
+          if (!props.canEdit) return;
+          void props.onSave(props.value == null || props.value === '' ? null : Number(props.value));
+        }}
         placeholder="число"
       />
     );
@@ -688,8 +714,13 @@ function FieldEditor(props: {
     return (
       <Input
         value={s}
-        onChange={(e) => props.onChange(e.target.value)}
+        disabled={!props.canEdit}
+        onChange={(e) => {
+          if (!props.canEdit) return;
+          props.onChange(e.target.value);
+        }}
         onBlur={() => {
+          if (!props.canEdit) return;
           try {
             const v = s ? JSON.parse(s) : null;
             void props.onSave(v);
@@ -707,7 +738,9 @@ function FieldEditor(props: {
     return (
       <select
         value={current}
+        disabled={!props.canEdit}
         onChange={(e) => {
+          if (!props.canEdit) return;
           const v = e.target.value || null;
           props.onChange(v);
           void props.onSave(v);
@@ -729,8 +762,15 @@ function FieldEditor(props: {
   return (
     <Input
       value={text}
-      onChange={(e) => props.onChange(e.target.value)}
-      onBlur={() => void props.onSave(text)}
+      disabled={!props.canEdit}
+      onChange={(e) => {
+        if (!props.canEdit) return;
+        props.onChange(e.target.value);
+      }}
+      onBlur={() => {
+        if (!props.canEdit) return;
+        void props.onSave(text);
+      }}
       placeholder={props.def.code}
     />
   );

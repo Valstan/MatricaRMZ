@@ -20,7 +20,7 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-export function ReportsPage() {
+export function ReportsPage(props: { canExport: boolean }) {
   const today = useMemo(() => new Date(), []);
   const [startDate, setStartDate] = useState<string>(() => toInputDate(new Date(today.getFullYear(), today.getMonth(), 1).getTime()));
   const [endDate, setEndDate] = useState<string>(() => toInputDate(Date.now()));
@@ -88,7 +88,7 @@ export function ReportsPage() {
           </select>
         </div>
         <div style={{ flex: 1 }} />
-        <Button onClick={() => void downloadCsv()}>Скачать CSV</Button>
+        {props.canExport && <Button onClick={() => void downloadCsv()}>Скачать CSV</Button>}
       </div>
 
       {status && <div style={{ marginTop: 10, color: '#6b7280' }}>{status}</div>}

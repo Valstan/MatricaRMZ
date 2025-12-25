@@ -10,6 +10,7 @@ export function EnginesPage(props: {
   onRefresh: () => Promise<void>;
   onOpen: (id: string) => Promise<void>;
   onCreate: () => Promise<void>;
+  canCreate: boolean;
 }) {
   const [query, setQuery] = useState('');
 
@@ -29,7 +30,7 @@ export function EnginesPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру или марке…" />
         </div>
-        <Button onClick={props.onCreate}>Добавить двигатель</Button>
+        {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         <Button variant="ghost" onClick={props.onRefresh}>
           Обновить
         </Button>
@@ -38,10 +39,10 @@ export function EnginesPage(props: {
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ background: '#f9fafb' }}>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Номер</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Марка</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Синхр.</th>
+            <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Номер</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Марка</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Синхр.</th>
             </tr>
           </thead>
           <tbody>

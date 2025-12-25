@@ -14,11 +14,11 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ background: '#f9fafb' }}>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Дата</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Кто</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Действие</th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 10 }}>Сущность</th>
+            <tr style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 120%)', color: '#fff' }}>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Дата</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Кто</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Действие</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Сущность</th>
             </tr>
           </thead>
           <tbody>
