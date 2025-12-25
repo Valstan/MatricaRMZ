@@ -189,9 +189,7 @@ export function App() {
             ops={ops}
             onBack={() => setTab('engines')}
             onReload={reloadEngine}
-            onSaveAttrs={async (engineNumber, engineBrand) => {
-              await window.matrica.engines.setAttr(selectedEngineId, 'engine_number', engineNumber);
-              await window.matrica.engines.setAttr(selectedEngineId, 'engine_brand', engineBrand);
+            onEngineUpdated={async () => {
               await refreshEngines();
               await reloadEngine();
             }}

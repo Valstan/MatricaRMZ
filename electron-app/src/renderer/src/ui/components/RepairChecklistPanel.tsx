@@ -64,6 +64,8 @@ export function RepairChecklistPanel(props: {
   canEdit: boolean;
   canPrint: boolean;
   canExport: boolean;
+  engineNumber?: string;
+  engineBrand?: string;
 }) {
   const [status, setStatus] = useState<string>('');
   const [templates, setTemplates] = useState<RepairChecklistTemplate[]>([]);
@@ -105,6 +107,25 @@ export function RepairChecklistPanel(props: {
     if (payload?.templateId) return;
     setAnswers((prev) => (Object.keys(prev).length ? prev : emptyAnswersForTemplate(activeTemplate)));
   }, [activeTemplate?.id]);
+
+  // Автоподстановка из свойств двигателя (только если поле в чек-листе пустое).
+  useEffect(() => {
+    if (!activeTemplate) return;
+    const key = 'engine_mark_number';
+    const a: any = (answers as any)[key];
+    const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+    if (current.trim()) return;
+    const brand = String(props.engineBrand ?? '').trim();
+    const num = String(props.engineNumber ?? '').trim();
+    if (!brand && !num) return;
+    const value = brand && num ? `${brand}, № ${num}` : brand || num;
+    setAnswers((prev) => ({ ...prev, [key]: { kind: 'text', value } } as RepairChecklistAnswers));
+    // сохраняем сразу, если есть права на редактирование
+    if (props.canEdit) {
+      const next = { ...answers, [key]: { kind: 'text', value } } as RepairChecklistAnswers;
+      void save(next);
+    }
+  }, [activeTemplate?.id, props.engineBrand, props.engineNumber]);
 
   async function save(nextAnswers: RepairChecklistAnswers) {
     if (!activeTemplate) return;

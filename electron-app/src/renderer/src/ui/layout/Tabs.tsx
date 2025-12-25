@@ -42,23 +42,15 @@ export function Tabs(props: {
 
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-      {props.visibleTabs.includes('engines') && (
-        tabButton('engines', 'Двигатели')
-      )}
-      {tabButton('auth', 'Вход')}
-      {props.visibleTabs.includes('sync') && (
-        tabButton('sync', 'Синхронизация')
-      )}
-      {props.visibleTabs.includes('reports') && (
-        tabButton('reports', 'Отчёты')
-      )}
       {props.visibleTabs.includes('admin') && (
         tabButton('admin', 'Справочники')
       )}
-      {props.visibleTabs.includes('audit') && (
-        tabButton('audit', 'Журнал')
-      )}
+      {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
+      {props.visibleTabs.includes('reports') && tabButton('reports', 'Отчёты')}
       <span style={{ flex: 1 }} />
+      {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}
+      {props.visibleTabs.includes('sync') && tabButton('sync', 'Синхронизация')}
+      {tabButton('auth', 'Вход')}
       {props.right}
     </div>
   );

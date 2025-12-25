@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import type { EngineDetails, OperationItem } from '@matricarmz/shared';
 
@@ -113,7 +113,7 @@ export function EngineDetailsPage(props: {
   ops: OperationItem[];
   onBack: () => void;
   onReload: () => Promise<void>;
-  onSaveAttrs: (engineNumber: string, engineBrand: string) => Promise<void>;
+  onEngineUpdated: () => Promise<void>;
   onAddOp: (operationType: string, status: string, note?: string) => Promise<void>;
   canEditEngines: boolean;
   canViewOperations: boolean;
@@ -137,9 +137,41 @@ export function EngineDetailsPage(props: {
   const [newOpStatus, setNewOpStatus] = useState<string>('выполнено');
   const [newOpNote, setNewOpNote] = useState<string>('');
 
+  const [saveStatus, setSaveStatus] = useState<string>('');
+
   const sortedOps = useMemo(() => {
     return [...props.ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
   }, [props.ops]);
+
+  // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
+  useEffect(() => {
+    setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
+    setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
+    setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
+    setContractId(String(props.engine.attributes?.contract_id ?? ''));
+    setWorkOrderId(String(props.engine.attributes?.work_order_id ?? ''));
+    setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
+    setSectionId(String(props.engine.attributes?.section_id ?? ''));
+  }, [props.engineId, props.engine.updatedAt]);
+
+  async function saveAttr(code: string, value: unknown) {
+    if (!props.canEditEngines) return;
+    try {
+      setSaveStatus('Сохраняю...');
+      await window.matrica.engines.setAttr(props.engineId, code, value);
+      await props.onEngineUpdated();
+      setSaveStatus('Сохранено');
+      setTimeout(() => setSaveStatus(''), 700);
+    } catch (e) {
+      setSaveStatus(`Ошибка сохранения: ${String(e)}`);
+    }
+  }
+
+  async function saveCoreFields() {
+    if (!props.canEditEngines) return;
+    await saveAttr('engine_number', engineNumber);
+    await saveAttr('engine_brand', engineBrand);
+  }
 
   async function loadLinkLists() {
     const types = await window.matrica.admin.entityTypes.list();
@@ -174,6 +206,7 @@ export function EngineDetailsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }} />
+        {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
         <Button variant="ghost" onClick={props.onReload}>
           Обновить
         </Button>
@@ -182,9 +215,19 @@ export function EngineDetailsPage(props: {
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 10 }}>
           <div style={{ color: '#6b7280' }}>Номер двигателя</div>
-          <Input value={engineNumber} disabled={!props.canEditEngines} onChange={(e) => setEngineNumber(e.target.value)} />
+          <Input
+            value={engineNumber}
+            disabled={!props.canEditEngines}
+            onChange={(e) => setEngineNumber(e.target.value)}
+            onBlur={() => void saveCoreFields()}
+          />
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-          <Input value={engineBrand} disabled={!props.canEditEngines} onChange={(e) => setEngineBrand(e.target.value)} />
+          <Input
+            value={engineBrand}
+            disabled={!props.canEditEngines}
+            onChange={(e) => setEngineBrand(e.target.value)}
+            onBlur={() => void saveCoreFields()}
+          />
 
           {props.canViewMasterData && (
             <>
@@ -195,7 +238,11 @@ export function EngineDetailsPage(props: {
                 onFocus={() => {
                   if (!linkLists.customer_id) void loadLinkLists();
                 }}
-                onChange={(e) => setCustomerId(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCustomerId(v);
+                  void saveAttr('customer_id', v || null);
+                }}
                 style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
               >
                 <option value="">(не выбрано)</option>
@@ -217,7 +264,11 @@ export function EngineDetailsPage(props: {
                 onFocus={() => {
                   if (!linkLists.contract_id) void loadLinkLists();
                 }}
-                onChange={(e) => setContractId(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setContractId(v);
+                  void saveAttr('contract_id', v || null);
+                }}
                 style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
               >
                 <option value="">(не выбрано)</option>
@@ -239,7 +290,11 @@ export function EngineDetailsPage(props: {
                 onFocus={() => {
                   if (!linkLists.work_order_id) void loadLinkLists();
                 }}
-                onChange={(e) => setWorkOrderId(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setWorkOrderId(v);
+                  void saveAttr('work_order_id', v || null);
+                }}
                 style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
               >
                 <option value="">(не выбрано)</option>
@@ -261,7 +316,11 @@ export function EngineDetailsPage(props: {
                 onFocus={() => {
                   if (!linkLists.workshop_id) void loadLinkLists();
                 }}
-                onChange={(e) => setWorkshopId(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setWorkshopId(v);
+                  void saveAttr('workshop_id', v || null);
+                }}
                 style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
               >
                 <option value="">(не выбрано)</option>
@@ -283,7 +342,11 @@ export function EngineDetailsPage(props: {
                 onFocus={() => {
                   if (!linkLists.section_id) void loadLinkLists();
                 }}
-                onChange={(e) => setSectionId(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSectionId(v);
+                  void saveAttr('section_id', v || null);
+                }}
                 style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
               >
                 <option value="">(не выбрано)</option>
@@ -297,30 +360,6 @@ export function EngineDetailsPage(props: {
           )}
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-          {props.canEditEngines && (
-            <Button
-              onClick={() => {
-                void props.onSaveAttrs(engineNumber, engineBrand);
-              }}
-            >
-              Сохранить
-            </Button>
-          )}
-          {props.canEditEngines && props.canViewMasterData && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                void window.matrica.engines.setAttr(props.engineId, 'customer_id', customerId || null);
-                void window.matrica.engines.setAttr(props.engineId, 'contract_id', contractId || null);
-                void window.matrica.engines.setAttr(props.engineId, 'work_order_id', workOrderId || null);
-                void window.matrica.engines.setAttr(props.engineId, 'workshop_id', workshopId || null);
-                void window.matrica.engines.setAttr(props.engineId, 'section_id', sectionId || null);
-                void props.onReload();
-              }}
-            >
-              Сохранить связи
-            </Button>
-          )}
           <Button
             variant="ghost"
             onClick={() => {
@@ -335,6 +374,12 @@ export function EngineDetailsPage(props: {
           >
             Отменить
           </Button>
+          <div style={{ flex: 1 }} />
+          {props.canEditEngines && (
+            <div style={{ color: '#64748b', fontSize: 12 }}>
+              Автосохранение: номер/марка — при выходе из поля, связи — сразу при выборе.
+            </div>
+          )}
         </div>
       </div>
 
@@ -418,6 +463,8 @@ export function EngineDetailsPage(props: {
           canEdit={props.canEditOperations}
           canPrint={props.canPrintEngineCard}
           canExport={props.canExportReports === true}
+          engineNumber={engineNumber}
+          engineBrand={engineBrand}
         />
       )}
     </div>
