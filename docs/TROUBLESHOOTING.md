@@ -15,6 +15,32 @@
 
 ---
 
+## 1.1) Логин (Electron) падает `login HTTP 404` (nginx 404)
+
+### Симптом
+В Electron на вкладке “Вход”:
+- `Ошибка: login HTTP 404: <html>... nginx ...</html>`
+
+### Причина
+Nginx проксирует не все пути backend. Для авторизации нужны пути:
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `GET /auth/me`
+а для админки:
+- `/admin/*`
+
+### Решение
+На VPS в nginx конфиге MatricaRMZ должны быть `location ^~ /auth/` и `location ^~ /admin/`.
+
+Проверка:
+```bash
+curl -I http://127.0.0.1/auth/me
+# ожидаемо 401 (если backend жив и прокси настроен)
+```
+
+---
+
 ## 2) `push HTTP 502` / `502 Bad Gateway`
 
 ### Симптом
@@ -44,6 +70,24 @@ curl -sS -X POST http://127.0.0.1/sync/push -H 'Content-Type: application/json' 
 ```
 
 Если `push` падает/502 — проблема на стороне backend/БД.
+
+---
+
+## 2.1) Логин падает `500 ... MATRICA_JWT_SECRET is not configured`
+
+### Причина
+Backend требует `MATRICA_JWT_SECRET` (32+ символа). Если он не задан в env, `/auth/login` вернёт 500.
+
+### Где задаётся
+Если backend запущен через systemd, обычно используется:
+- `EnvironmentFile=/home/valstan/MatricaRMZ/backend-api/.env`
+
+### Проверка
+```bash
+curl -sS -i -X POST http://127.0.0.1:3001/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"username":"admin","password":"admin111"}' | head
+```
 
 ### Рекомендованный фикс
 - Drizzle schema (`backend-api/src/database/schema.ts`): использовать `bigint(..., { mode: 'number' })` для ms timestamp полей.

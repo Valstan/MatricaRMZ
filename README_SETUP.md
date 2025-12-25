@@ -7,6 +7,9 @@
 - Схемы БД созданы (SQLite для клиента, PostgreSQL для сервера)
 - Backend API реализован (синхронизация push/pull)
 - Electron приложение с UI готово
+- Авторизация пользователей (логин/пароль → JWT) + refresh token
+- Гибкие права доступа (permissions) + админка управления пользователями/правами (в UI)
+- Обязательный логин при старте приложения (без входа дальше не пускает)
 - Все собирается и проходит линт
 
 ⚠️ **Требует настройки:**
@@ -61,6 +64,21 @@ curl http://localhost:3001/health
 ```
 
 Должен вернуть: `{"ok":true}`
+
+### 2.4. Важно: JWT secret (без него логин не работает)
+
+Backend запускается через systemd и читает env из файла:
+- `/home/valstan/MatricaRMZ/backend-api/.env`
+
+Там обязательно должен быть задан параметр:
+- `MATRICA_JWT_SECRET` (строка **32+ символов**)
+
+Проверка (должно дать 200/401/400, но не 404 и не 500):
+```bash
+curl -sS -i -X POST http://127.0.0.1:3001/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"username":"admin","password":"admin111"}' | head
+```
 
 ### 2.3. Запуск в production (через PM2 или systemd)
 
@@ -179,6 +197,25 @@ const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjin
 ```bash
 MATRICA_API_URL=http://a6fd55b8e0ae.vps.myjino.ru pnpm run dev
 ```
+
+### 4.3. Пользователи и права доступа (новое)
+
+Приложение требует входа при старте. Пользователи создаются на сервере.
+
+Создание пользователя (на VPS):
+```bash
+cd /home/valstan/MatricaRMZ
+pnpm --filter @matricarmz/backend-api user:create -- --username <login> --password <pass> --role admin
+```
+
+Seed прав (на VPS, один раз после миграций):
+```bash
+cd /home/valstan/MatricaRMZ/backend-api
+pnpm run perm:seed
+```
+
+UI управление правами:
+- Вкладка **Справочники** → блок **Пользователи и права доступа** (доступен только при permission `admin.users.manage`).
 
 ### 4.2. Запуск в режиме разработки
 
