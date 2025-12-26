@@ -11,6 +11,8 @@ import { ReportsPage } from './pages/ReportsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
+import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
+import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 export function App() {
@@ -25,6 +27,8 @@ export function App() {
   const [ops, setOps] = useState<OperationItem[]>([]);
   const [audit, setAudit] = useState<AuditItem[]>([]);
 
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+
   useEffect(() => {
     window.matrica
       .ping()
@@ -35,9 +39,30 @@ export function App() {
     void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
   }, []);
 
+  // Periodically sync auth permissions from server (important for delegated permissions).
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const s = await window.matrica.auth.sync();
+        if (!alive) return;
+        setAuthStatus(s);
+      } catch {
+        // ignore
+      }
+    };
+    const id = setInterval(() => void poll(), 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [authStatus.loggedIn]);
+
   const caps = deriveUiCaps(authStatus.permissions ?? null);
-  const visibleTabs: Exclude<TabId, 'engine'>[] = [
+  const visibleTabs: Exclude<TabId, 'engine' | 'request'>[] = [
     ...(caps.canViewEngines ? (['engines'] as const) : []),
+    ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     'auth',
     ...(caps.canUseSync ? (['sync'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
@@ -53,7 +78,7 @@ export function App() {
 
   // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
   useEffect(() => {
-    if (tab === 'engine') return;
+    if (tab === 'engine' || tab === 'request') return;
     if (visibleTabs.includes(tab)) return;
     setTab(visibleTabs[0] ?? 'auth');
   }, [tab, visibleTabsKey]);
@@ -91,6 +116,11 @@ export function App() {
     setOps(o);
   }
 
+  async function openRequest(id: string) {
+    setSelectedRequestId(id);
+    setTab('request');
+  }
+
   async function reloadEngine() {
     if (!selectedEngineId) return;
     const d = await window.matrica.engines.get(selectedEngineId);
@@ -109,6 +139,10 @@ export function App() {
       ? 'Матрица РМЗ — Двигатели'
       : tab === 'engine'
         ? 'Матрица РМЗ — Карточка двигателя'
+        : tab === 'requests'
+          ? 'Матрица РМЗ — Заявки'
+          : tab === 'request'
+            ? 'Матрица РМЗ — Заявка'
         : tab === 'auth'
           ? 'Матрица РМЗ — Вход'
         : tab === 'sync'
@@ -182,6 +216,10 @@ export function App() {
           />
         )}
 
+        {tab === 'requests' && (
+          <SupplyRequestsPage onOpen={openRequest} canCreate={caps.canCreateSupplyRequests} />
+        )}
+
         {tab === 'engine' && selectedEngineId && engineDetails && (
           <EngineDetailsPage
             engineId={selectedEngineId}
@@ -205,6 +243,20 @@ export function App() {
             canExportReports={caps.canExportReports}
           />
       )}
+
+        {tab === 'request' && selectedRequestId && (
+          <SupplyRequestDetailsPage
+            id={selectedRequestId}
+            onBack={() => setTab('requests')}
+            canEdit={caps.canEditSupplyRequests}
+            canSign={caps.canSignSupplyRequests}
+            canApprove={caps.canApproveSupplyRequests}
+            canAccept={caps.canAcceptSupplyRequests}
+            canFulfill={caps.canFulfillSupplyRequests}
+            canPrint={caps.canPrintSupplyRequests}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
 
         {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
 
@@ -232,6 +284,10 @@ export function App() {
         {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
           <div style={{ color: '#6b7280' }}>Выберите двигатель из списка.</div>
       )}
+
+        {tab === 'request' && !selectedRequestId && (
+          <div style={{ color: '#6b7280' }}>Выберите заявку из списка.</div>
+        )}
     </div>
     </Page>
   );

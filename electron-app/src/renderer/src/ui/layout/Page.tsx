@@ -23,13 +23,13 @@ export function Page(props: { title: string; right?: React.ReactNode; children: 
           padding: 16,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 22, color: theme.colors.text }}>{props.title}</h1>
-          </div>
-          {props.right}
         </div>
-        <div style={{ marginTop: 12 }}>{props.children}</div>
+        {props.right}
+      </div>
+      <div style={{ marginTop: 12 }}>{props.children}</div>
       </div>
     </div>
   );

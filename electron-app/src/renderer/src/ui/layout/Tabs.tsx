@@ -3,15 +3,15 @@ import React from 'react';
 import { Button } from '../components/Button.js';
 import { tabAccent, theme } from '../theme.js';
 
-export type TabId = 'engines' | 'engine' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit';
+export type TabId = 'engines' | 'engine' | 'requests' | 'request' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit';
 
 export function Tabs(props: {
   tab: TabId;
-  onTab: (t: Exclude<TabId, 'engine'>) => void;
-  visibleTabs: Exclude<TabId, 'engine'>[];
+  onTab: (t: Exclude<TabId, 'engine' | 'request'>) => void;
+  visibleTabs: Exclude<TabId, 'engine' | 'request'>[];
   right?: React.ReactNode;
 }) {
-  function tabButton(id: Exclude<TabId, 'engine'>, label: string) {
+  function tabButton(id: Exclude<TabId, 'engine' | 'request'>, label: string) {
     const acc = theme.accents[tabAccent(id)];
     const active = props.tab === id;
     return (
@@ -46,6 +46,7 @@ export function Tabs(props: {
         tabButton('admin', 'Справочники')
       )}
       {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
+      {props.visibleTabs.includes('requests') && tabButton('requests', 'Заявки')}
       {props.visibleTabs.includes('reports') && tabButton('reports', 'Отчёты')}
       <span style={{ flex: 1 }} />
       {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}

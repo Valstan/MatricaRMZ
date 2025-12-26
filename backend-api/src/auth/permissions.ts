@@ -1,7 +1,7 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { userPermissions, users } from '../database/schema.js';
+import { permissionDelegations, userPermissions, users } from '../database/schema.js';
 
 export const PermissionCode = {
   // system / admin
@@ -10,6 +10,16 @@ export const PermissionCode = {
   // master-data (EAV справочники)
   MasterDataView: 'masterdata.view',
   MasterDataEdit: 'masterdata.edit',
+
+  // supply requests (заявки в снабжение)
+  SupplyRequestsView: 'supply_requests.view',
+  SupplyRequestsCreate: 'supply_requests.create',
+  SupplyRequestsEdit: 'supply_requests.edit',
+  SupplyRequestsSign: 'supply_requests.sign',
+  SupplyRequestsDirectorApprove: 'supply_requests.director_approve',
+  SupplyRequestsAccept: 'supply_requests.accept',
+  SupplyRequestsFulfill: 'supply_requests.fulfill',
+  SupplyRequestsPrint: 'supply_requests.print',
 
   // engines & operations
   EnginesView: 'engines.view',
@@ -50,6 +60,12 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
       [PermissionCode.MasterDataView]: true,
       [PermissionCode.MasterDataEdit]: true,
 
+      [PermissionCode.SupplyRequestsView]: true,
+      [PermissionCode.SupplyRequestsCreate]: true,
+      [PermissionCode.SupplyRequestsEdit]: true,
+      [PermissionCode.SupplyRequestsSign]: true,
+      [PermissionCode.SupplyRequestsPrint]: true,
+
       [PermissionCode.EnginesView]: true,
       [PermissionCode.EnginesEdit]: true,
 
@@ -71,6 +87,7 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
 
   // default: только просмотр + sync
   return {
+    [PermissionCode.SupplyRequestsView]: true,
     [PermissionCode.EnginesView]: true,
     [PermissionCode.OperationsView]: true,
     [PermissionCode.ReportsView]: true,
@@ -96,6 +113,23 @@ export async function getEffectivePermissionsForUser(userId: string): Promise<Re
     .limit(10_000);
 
   for (const o of overrides) base[o.permCode] = !!o.allowed;
+
+  // Временные делегирования: если есть активное делегирование permCode -> userId, считаем permCode=true.
+  const now = Date.now();
+  const delegations = await db
+    .select({ permCode: permissionDelegations.permCode })
+    .from(permissionDelegations)
+    .where(
+      and(
+        eq(permissionDelegations.toUserId, userId),
+        lt(permissionDelegations.startsAt, now + 1),
+        gt(permissionDelegations.endsAt, now),
+        isNull(permissionDelegations.revokedAt),
+      ),
+    )
+    .limit(10_000);
+  for (const d of delegations) base[d.permCode] = true;
+
   return base;
 }
 

@@ -53,6 +53,7 @@ export const operationRowSchema = z.object({
     'packaging',
     'shipment',
     'customer_delivery',
+    'supply_request',
   ]),
   status: z.string().min(1),
   note: z.string().nullable().optional(),

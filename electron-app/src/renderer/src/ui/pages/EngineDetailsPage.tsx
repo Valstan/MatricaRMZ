@@ -196,14 +196,14 @@ export function EngineDetailsPage(props: {
           ← Назад
         </Button>
         {props.canPrintEngineCard && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              printEngineReport(props.engine, props.ops);
-            }}
-          >
-            Печать
-          </Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            printEngineReport(props.engine, props.ops);
+          }}
+        >
+          Печать
+        </Button>
         )}
         <div style={{ flex: 1 }} />
         {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
@@ -231,131 +231,131 @@ export function EngineDetailsPage(props: {
 
           {props.canViewMasterData && (
             <>
-              <div style={{ color: '#6b7280' }}>Заказчик</div>
-              <select
-                value={customerId}
+          <div style={{ color: '#6b7280' }}>Заказчик</div>
+          <select
+            value={customerId}
                 disabled={!props.canEditEngines}
-                onFocus={() => {
-                  if (!linkLists.customer_id) void loadLinkLists();
-                }}
+            onFocus={() => {
+              if (!linkLists.customer_id) void loadLinkLists();
+            }}
                 onChange={(e) => {
                   const v = e.target.value;
                   setCustomerId(v);
                   void saveAttr('customer_id', v || null);
                 }}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="">(не выбрано)</option>
-                {(linkLists.customer_id ?? []).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.customer_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
             </>
           )}
 
           {props.canViewMasterData && (
             <>
-              <div style={{ color: '#6b7280' }}>Контракт</div>
-              <select
-                value={contractId}
+          <div style={{ color: '#6b7280' }}>Контракт</div>
+          <select
+            value={contractId}
                 disabled={!props.canEditEngines}
-                onFocus={() => {
-                  if (!linkLists.contract_id) void loadLinkLists();
-                }}
+            onFocus={() => {
+              if (!linkLists.contract_id) void loadLinkLists();
+            }}
                 onChange={(e) => {
                   const v = e.target.value;
                   setContractId(v);
                   void saveAttr('contract_id', v || null);
                 }}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="">(не выбрано)</option>
-                {(linkLists.contract_id ?? []).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.contract_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
             </>
           )}
 
           {props.canViewMasterData && (
             <>
-              <div style={{ color: '#6b7280' }}>Наряд</div>
-              <select
-                value={workOrderId}
+          <div style={{ color: '#6b7280' }}>Наряд</div>
+          <select
+            value={workOrderId}
                 disabled={!props.canEditEngines}
-                onFocus={() => {
-                  if (!linkLists.work_order_id) void loadLinkLists();
-                }}
+            onFocus={() => {
+              if (!linkLists.work_order_id) void loadLinkLists();
+            }}
                 onChange={(e) => {
                   const v = e.target.value;
                   setWorkOrderId(v);
                   void saveAttr('work_order_id', v || null);
                 }}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="">(не выбрано)</option>
-                {(linkLists.work_order_id ?? []).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.work_order_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
             </>
           )}
 
           {props.canViewMasterData && (
             <>
-              <div style={{ color: '#6b7280' }}>Цех</div>
-              <select
-                value={workshopId}
+          <div style={{ color: '#6b7280' }}>Цех</div>
+          <select
+            value={workshopId}
                 disabled={!props.canEditEngines}
-                onFocus={() => {
-                  if (!linkLists.workshop_id) void loadLinkLists();
-                }}
+            onFocus={() => {
+              if (!linkLists.workshop_id) void loadLinkLists();
+            }}
                 onChange={(e) => {
                   const v = e.target.value;
                   setWorkshopId(v);
                   void saveAttr('workshop_id', v || null);
                 }}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="">(не выбрано)</option>
-                {(linkLists.workshop_id ?? []).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.workshop_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
             </>
           )}
 
           {props.canViewMasterData && (
             <>
-              <div style={{ color: '#6b7280' }}>Участок</div>
-              <select
-                value={sectionId}
+          <div style={{ color: '#6b7280' }}>Участок</div>
+          <select
+            value={sectionId}
                 disabled={!props.canEditEngines}
-                onFocus={() => {
-                  if (!linkLists.section_id) void loadLinkLists();
-                }}
+            onFocus={() => {
+              if (!linkLists.section_id) void loadLinkLists();
+            }}
                 onChange={(e) => {
                   const v = e.target.value;
                   setSectionId(v);
                   void saveAttr('section_id', v || null);
                 }}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="">(не выбрано)</option>
-                {(linkLists.section_id ?? []).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">(не выбрано)</option>
+            {(linkLists.section_id ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
             </>
           )}
         </div>
@@ -384,76 +384,76 @@ export function EngineDetailsPage(props: {
       </div>
 
       {props.canViewOperations && (
-        <div style={{ marginTop: 14 }}>
-          <h2 style={{ margin: '8px 0' }}>Таймлайн / операции</h2>
+      <div style={{ marginTop: 14 }}>
+        <h2 style={{ margin: '8px 0' }}>Таймлайн / операции</h2>
 
           {props.canEditOperations && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
-              <select
-                value={newOpType}
-                onChange={(e) => setNewOpType(e.target.value)}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="acceptance">Приемка</option>
-                <option value="kitting">Комплектовка</option>
-                <option value="disassembly">Разборка</option>
-                <option value="defect">Дефектовка</option>
-                <option value="repair">Ремонт</option>
-                <option value="test">Испытания</option>
-                <option value="otk">ОТК</option>
-                <option value="packaging">Упаковка</option>
-                <option value="shipment">Отгрузка</option>
-                <option value="customer_delivery">Доставка заказчику</option>
-              </select>
-              <div style={{ width: 180 }}>
-                <Input value={newOpStatus} onChange={(e) => setNewOpStatus(e.target.value)} placeholder="Статус" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Input value={newOpNote} onChange={(e) => setNewOpNote(e.target.value)} placeholder="Комментарий" />
-              </div>
-              <Button
-                onClick={() => {
-                  void props.onAddOp(newOpType, newOpStatus, newOpNote || undefined);
-                  setNewOpNote('');
-                }}
-              >
-                Добавить
-              </Button>
-            </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
+          <select
+            value={newOpType}
+            onChange={(e) => setNewOpType(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="acceptance">Приемка</option>
+            <option value="kitting">Комплектовка</option>
+            <option value="disassembly">Разборка</option>
+            <option value="defect">Дефектовка</option>
+            <option value="repair">Ремонт</option>
+            <option value="test">Испытания</option>
+            <option value="otk">ОТК</option>
+            <option value="packaging">Упаковка</option>
+            <option value="shipment">Отгрузка</option>
+            <option value="customer_delivery">Доставка заказчику</option>
+          </select>
+          <div style={{ width: 180 }}>
+            <Input value={newOpStatus} onChange={(e) => setNewOpStatus(e.target.value)} placeholder="Статус" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <Input value={newOpNote} onChange={(e) => setNewOpNote(e.target.value)} placeholder="Комментарий" />
+          </div>
+          <Button
+            onClick={() => {
+              void props.onAddOp(newOpType, newOpStatus, newOpNote || undefined);
+              setNewOpNote('');
+            }}
+          >
+            Добавить
+          </Button>
+        </div>
           )}
 
-          <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
+        <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
                 <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
                   <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Дата</th>
                   <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
                   <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Статус</th>
                   <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Комментарий</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedOps.map((o) => (
+                <tr key={o.id}>
+                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                    {new Date(o.performedAt ?? o.createdAt).toLocaleString('ru-RU')}
+                  </td>
+                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{opLabel(o.operationType)}</td>
+                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{o.status}</td>
+                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{o.note ?? ''}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {sortedOps.map((o) => (
-                  <tr key={o.id}>
-                    <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
-                      {new Date(o.performedAt ?? o.createdAt).toLocaleString('ru-RU')}
-                    </td>
-                    <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{opLabel(o.operationType)}</td>
-                    <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{o.status}</td>
-                    <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{o.note ?? ''}</td>
-                  </tr>
-                ))}
-                {sortedOps.length === 0 && (
-                  <tr>
-                    <td style={{ padding: 12, color: '#6b7280' }} colSpan={4}>
-                      Операций пока нет
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {sortedOps.length === 0 && (
+                <tr>
+                  <td style={{ padding: 12, color: '#6b7280' }} colSpan={4}>
+                    Операций пока нет
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
       )}
 
       {props.canViewOperations && (

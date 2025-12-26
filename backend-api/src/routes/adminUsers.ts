@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { permissions, userPermissions, users } from '../database/schema.js';
+import { permissionDelegations, permissions, userPermissions, users } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
@@ -172,6 +172,124 @@ adminUsersRouter.post('/permissions/seed', async (_req, res) => {
         .onConflictDoNothing();
     }
     return res.json({ ok: true, count: codes.length });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// -----------------------------
+// Permission delegations (временные делегирования прав)
+// -----------------------------
+
+adminUsersRouter.get('/users/:id/delegations', async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const rows = await db
+      .select({
+        id: permissionDelegations.id,
+        fromUserId: permissionDelegations.fromUserId,
+        toUserId: permissionDelegations.toUserId,
+        permCode: permissionDelegations.permCode,
+        startsAt: permissionDelegations.startsAt,
+        endsAt: permissionDelegations.endsAt,
+        note: permissionDelegations.note,
+        createdAt: permissionDelegations.createdAt,
+        createdByUserId: permissionDelegations.createdByUserId,
+        revokedAt: permissionDelegations.revokedAt,
+        revokedByUserId: permissionDelegations.revokedByUserId,
+        revokeNote: permissionDelegations.revokeNote,
+      })
+      .from(permissionDelegations)
+      .where(eq(permissionDelegations.toUserId, id))
+      .limit(2000);
+
+    return res.json({ ok: true, delegations: rows });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/delegations', async (req, res) => {
+  try {
+    const schema = z.object({
+      fromUserId: z.string().uuid(),
+      toUserId: z.string().uuid(),
+      permCode: z.string().min(1).max(200),
+      // ms epoch
+      startsAt: z.number().int().optional(),
+      endsAt: z.number().int(),
+      note: z.string().max(2000).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+
+    const now = Date.now();
+    const startsAt = parsed.data.startsAt ?? now;
+    const endsAt = parsed.data.endsAt;
+    if (endsAt <= startsAt) return res.status(400).json({ ok: false, error: 'endsAt must be > startsAt' });
+    if (endsAt <= now) return res.status(400).json({ ok: false, error: 'endsAt must be in the future' });
+    if (parsed.data.fromUserId === parsed.data.toUserId) return res.status(400).json({ ok: false, error: 'cannot delegate to self' });
+
+    // разрешаем делегировать только существующие permissions.code
+    const permRow = await db
+      .select({ code: permissions.code })
+      .from(permissions)
+      .where(eq(permissions.code, parsed.data.permCode))
+      .limit(1);
+    if (!permRow[0]) return res.status(400).json({ ok: false, error: 'unknown permCode' });
+
+    // sanity: делегирующий должен иметь это право сейчас (effective)
+    const fromEffective = await getEffectivePermissionsForUser(parsed.data.fromUserId);
+    if (fromEffective[parsed.data.permCode] !== true) {
+      return res.status(400).json({ ok: false, error: 'fromUser does not have this permission effectively' });
+    }
+
+    const id = randomUUID();
+    await db.insert(permissionDelegations).values({
+      id,
+      fromUserId: parsed.data.fromUserId,
+      toUserId: parsed.data.toUserId,
+      permCode: parsed.data.permCode,
+      startsAt,
+      endsAt,
+      note: parsed.data.note ?? null,
+      createdAt: now,
+      createdByUserId: actor.id,
+      revokedAt: null,
+      revokedByUserId: null,
+      revokeNote: null,
+    });
+
+    return res.json({ ok: true, id });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/delegations/:id/revoke', async (req, res) => {
+  try {
+    const schema = z.object({ note: z.string().max(2000).optional() });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+
+    const now = Date.now();
+    await db
+      .update(permissionDelegations)
+      .set({ revokedAt: now, revokedByUserId: actor.id, revokeNote: parsed.data.note ?? null })
+      .where(and(eq(permissionDelegations.id, id), isNull(permissionDelegations.revokedAt)));
+
+    return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

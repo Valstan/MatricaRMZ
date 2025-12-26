@@ -200,4 +200,46 @@ export const userPermissions = pgTable(
   }),
 );
 
+// -----------------------------
+// Permission delegations (server-side only)
+// -----------------------------
+export const permissionDelegations = pgTable(
+  'permission_delegations',
+  {
+    id: uuid('id').primaryKey(),
+
+    // кто делегировал (владелец права по регламенту)
+    fromUserId: uuid('from_user_id')
+      .notNull()
+      .references(() => users.id),
+
+    // кому делегировали
+    toUserId: uuid('to_user_id')
+      .notNull()
+      .references(() => users.id),
+
+    // какое право делегировано
+    permCode: text('perm_code')
+      .notNull()
+      .references(() => permissions.code),
+
+    startsAt: bigint('starts_at', { mode: 'number' }).notNull(),
+    endsAt: bigint('ends_at', { mode: 'number' }).notNull(),
+
+    note: text('note'),
+
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id),
+
+    revokedAt: bigint('revoked_at', { mode: 'number' }),
+    revokedByUserId: uuid('revoked_by_user_id').references(() => users.id),
+    revokeNote: text('revoke_note'),
+  },
+  (t) => ({
+    toUserPermIdx: uniqueIndex('permission_delegations_to_user_perm_uq').on(t.toUserId, t.permCode, t.endsAt),
+  }),
+);
+
 

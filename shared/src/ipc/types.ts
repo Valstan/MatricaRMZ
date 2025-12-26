@@ -107,6 +107,7 @@ export type AuthLoginResult =
 export type AuthLogoutResult = { ok: boolean; error?: string };
 
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
+import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
 
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
@@ -115,6 +116,8 @@ export type MatricaApi = {
   };
   auth: {
     status: () => Promise<AuthStatus>;
+    // Обновляет permissions по данным сервера (/auth/me) и сохраняет в локальную сессию.
+    sync: () => Promise<AuthStatus>;
     login: (args: { username: string; password: string }) => Promise<AuthLoginResult>;
     logout: (args: { refreshToken?: string }) => Promise<AuthLogoutResult>;
   };
@@ -203,6 +206,38 @@ export type MatricaApi = {
         | { ok: false; error: string }
       >;
       permissionsSet: (userId: string, set: Record<string, boolean>) => Promise<{ ok: boolean; error?: string }>;
+
+      delegationsList: (
+        userId: string,
+      ) => Promise<
+        | {
+            ok: true;
+            delegations: {
+              id: string;
+              fromUserId: string;
+              toUserId: string;
+              permCode: string;
+              startsAt: number;
+              endsAt: number;
+              note: string | null;
+              createdAt: number;
+              createdByUserId: string;
+              revokedAt: number | null;
+              revokedByUserId: string | null;
+              revokeNote: string | null;
+            }[];
+          }
+        | { ok: false; error: string }
+      >;
+      delegationCreate: (args: {
+        fromUserId: string;
+        toUserId: string;
+        permCode: string;
+        startsAt?: number;
+        endsAt: number;
+        note?: string;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      delegationRevoke: (args: { id: string; note?: string }) => Promise<{ ok: boolean; error?: string }>;
     };
   };
   update: {
@@ -224,6 +259,33 @@ export type MatricaApi = {
       operationId?: string | null;
       answers: RepairChecklistAnswers;
     }) => Promise<{ ok: true; operationId: string } | { ok: false; error: string }>;
+  };
+
+  supplyRequests: {
+    list: (args?: { q?: string; month?: string }) => Promise<
+      | {
+          ok: true;
+          requests: {
+            id: string;
+            requestNumber: string;
+            compiledAt: number;
+            status: SupplyRequestStatus;
+            title: string;
+            departmentId: string;
+            workshopId: string | null;
+            sectionId: string | null;
+            updatedAt: number;
+          }[];
+        }
+      | { ok: false; error: string }
+    >;
+    get: (id: string) => Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }>;
+    create: () => Promise<{ ok: true; id: string; payload: SupplyRequestPayload } | { ok: false; error: string }>;
+    update: (args: { id: string; payload: SupplyRequestPayload }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    transition: (args: { id: string; action: string; note?: string | null }) => Promise<
+      | { ok: true; payload: SupplyRequestPayload }
+      | { ok: false; error: string }
+    >;
   };
 };
 

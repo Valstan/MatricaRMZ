@@ -85,4 +85,34 @@ export async function adminSetUserPermissions(db: BetterSQLite3Database, apiBase
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+export async function adminListUserDelegations(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+  const r = await fetchAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/delegations`, { method: 'GET' });
+  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
+export async function adminCreateDelegation(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fromUserId: string; toUserId: string; permCode: string; startsAt?: number; endsAt: number; note?: string },
+) {
+  const r = await fetchAuthed(db, apiBaseUrl, `/admin/delegations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
+export async function adminRevokeDelegation(db: BetterSQLite3Database, apiBaseUrl: string, id: string, note?: string) {
+  const r = await fetchAuthed(db, apiBaseUrl, `/admin/delegations/${encodeURIComponent(id)}/revoke`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note ?? undefined }),
+  });
+  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 

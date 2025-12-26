@@ -41,6 +41,28 @@ export function AdminPage(props: {
   const [userPerms, setUserPerms] = useState<{ base: Record<string, boolean>; overrides: Record<string, boolean>; effective: Record<string, boolean> } | null>(
     null,
   );
+  const [delegations, setDelegations] = useState<
+    {
+      id: string;
+      fromUserId: string;
+      toUserId: string;
+      permCode: string;
+      startsAt: number;
+      endsAt: number;
+      note: string | null;
+      createdAt: number;
+      createdByUserId: string;
+      revokedAt: number | null;
+      revokedByUserId: string | null;
+      revokeNote: string | null;
+    }[]
+  >([]);
+  const [newDelegation, setNewDelegation] = useState<{ fromUserId: string; permCode: string; endsAt: string; note: string }>({
+    fromUserId: '',
+    permCode: 'supply_requests.sign',
+    endsAt: '',
+    note: '',
+  });
   const [newUser, setNewUser] = useState<{ username: string; password: string; role: string }>({ username: '', password: '', role: 'user' });
   const [resetPassword, setResetPassword] = useState<string>('');
 
@@ -136,6 +158,10 @@ export function AdminPage(props: {
       return;
     }
     setUserPerms({ base: r.base, overrides: r.overrides, effective: r.effective });
+
+    const d = await window.matrica.admin.users.delegationsList(userId);
+    if (d.ok) setDelegations(d.delegations);
+    else setDelegations([]);
   }
 
   useEffect(() => {
@@ -158,7 +184,7 @@ export function AdminPage(props: {
       </div>
 
       {props.canViewMasterData && (
-        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <strong>Типы сущностей</strong>
@@ -184,19 +210,19 @@ export function AdminPage(props: {
           </div>
 
           {props.canEditMasterData && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить тип</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <NewEntityTypeForm
-                  onSubmit={async (code, name) => {
-                    setStatus('Сохранение типа...');
-                    const r = await window.matrica.admin.entityTypes.upsert({ code, name });
-                    setStatus(r.ok ? 'Тип сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                    await refreshTypes();
-                  }}
-                />
-              </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить тип</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <NewEntityTypeForm
+                onSubmit={async (code, name) => {
+                  setStatus('Сохранение типа...');
+                  const r = await window.matrica.admin.entityTypes.upsert({ code, name });
+                  setStatus(r.ok ? 'Тип сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                  await refreshTypes();
+                }}
+              />
             </div>
+          </div>
           )}
         </div>
 
@@ -214,15 +240,15 @@ export function AdminPage(props: {
             {selectedTypeId ? (
               <>
                 {props.canEditMasterData && (
-                  <NewAttrDefForm
-                    entityTypeId={selectedTypeId}
-                    onSubmit={async (payload) => {
-                      setStatus('Сохранение атрибута...');
-                      const r = await window.matrica.admin.attributeDefs.upsert(payload);
-                      setStatus(r.ok ? 'Атрибут сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                      await refreshDefs(selectedTypeId);
-                    }}
-                  />
+                <NewAttrDefForm
+                  entityTypeId={selectedTypeId}
+                  onSubmit={async (payload) => {
+                    setStatus('Сохранение атрибута...');
+                    const r = await window.matrica.admin.attributeDefs.upsert(payload);
+                    setStatus(r.ok ? 'Атрибут сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                    await refreshDefs(selectedTypeId);
+                  }}
+                />
                 )}
                 <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -282,35 +308,35 @@ export function AdminPage(props: {
               <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
                 {props.canEditMasterData && (
                   <>
-                    <Button
-                      onClick={async () => {
-                        setStatus('Создание сущности...');
-                        const r = await window.matrica.admin.entities.create(selectedTypeId);
-                        if (!r.ok) {
-                          setStatus(`Ошибка: ${r.error}`);
-                          return;
-                        }
-                        setStatus('Сущность создана');
-                        await refreshEntities(selectedTypeId);
-                        setSelectedEntityId(r.id);
-                      }}
-                    >
-                      Создать
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={async () => {
-                        if (!selectedEntityId) return;
-                        setStatus('Удаление...');
-                        const r = await window.matrica.admin.entities.softDelete(selectedEntityId);
-                        setStatus(r.ok ? 'Удалено' : `Ошибка: ${r.error ?? 'unknown'}`);
-                        await refreshEntities(selectedTypeId);
-                        setSelectedEntityId('');
-                        setEntityAttrs({});
-                      }}
-                    >
-                      Удалить
-                    </Button>
+                <Button
+                  onClick={async () => {
+                    setStatus('Создание сущности...');
+                    const r = await window.matrica.admin.entities.create(selectedTypeId);
+                    if (!r.ok) {
+                      setStatus(`Ошибка: ${r.error}`);
+                      return;
+                    }
+                    setStatus('Сущность создана');
+                    await refreshEntities(selectedTypeId);
+                    setSelectedEntityId(r.id);
+                  }}
+                >
+                  Создать
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    if (!selectedEntityId) return;
+                    setStatus('Удаление...');
+                    const r = await window.matrica.admin.entities.softDelete(selectedEntityId);
+                    setStatus(r.ok ? 'Удалено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                    await refreshEntities(selectedTypeId);
+                    setSelectedEntityId('');
+                    setEntityAttrs({});
+                  }}
+                >
+                  Удалить
+                </Button>
                   </>
                 )}
                 <span style={{ flex: 1 }} />
@@ -523,6 +549,158 @@ export function AdminPage(props: {
                         </React.Fragment>
                       );
                     })}
+                </div>
+              )}
+
+              {selectedUserId && (
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <strong>Делегирование прав (временно)</strong>
+                    <span style={{ flex: 1 }} />
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        if (selectedUserId) void openUser(selectedUserId);
+                      }}
+                    >
+                      Обновить
+                    </Button>
+                  </div>
+
+                  <div style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
+                      Делегировать право выбранному пользователю до даты (делегат увидит это право автоматически).
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      <select
+                        value={newDelegation.fromUserId}
+                        onChange={(e) => setNewDelegation((p) => ({ ...p, fromUserId: e.target.value }))}
+                        style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                      >
+                        <option value="">делегирует (пользователь)</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.username}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        value={newDelegation.permCode}
+                        onChange={(e) => setNewDelegation((p) => ({ ...p, permCode: e.target.value }))}
+                        placeholder="permCode (например: supply_requests.sign)"
+                      />
+                      <Input
+                        type="date"
+                        value={newDelegation.endsAt}
+                        onChange={(e) => setNewDelegation((p) => ({ ...p, endsAt: e.target.value }))}
+                        placeholder="до даты"
+                      />
+                      <Input
+                        value={newDelegation.note}
+                        onChange={(e) => setNewDelegation((p) => ({ ...p, note: e.target.value }))}
+                        placeholder="примечание (опц.)"
+                        style={{ gridColumn: '1 / -1' }}
+                      />
+                      <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}>
+                        <Button
+                          onClick={async () => {
+                            if (!selectedUserId) return;
+                            if (!newDelegation.fromUserId) {
+                              setStatus('Ошибка: выберите кто делегирует');
+                              return;
+                            }
+                            if (!newDelegation.permCode.trim()) {
+                              setStatus('Ошибка: permCode пустой');
+                              return;
+                            }
+                            if (!newDelegation.endsAt) {
+                              setStatus('Ошибка: укажите дату окончания');
+                              return;
+                            }
+                            const [y, m, d] = newDelegation.endsAt.split('-').map((x) => Number(x));
+                            const endMs = new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999).getTime();
+                            setStatus('Создание делегирования...');
+                            const r = await window.matrica.admin.users.delegationCreate({
+                              fromUserId: newDelegation.fromUserId,
+                              toUserId: selectedUserId,
+                              permCode: newDelegation.permCode.trim(),
+                              endsAt: endMs,
+                              note: newDelegation.note.trim() ? newDelegation.note.trim() : undefined,
+                            });
+                            setStatus(r.ok ? 'Делегирование создано' : `Ошибка: ${r.error ?? 'unknown'}`);
+                            if (r.ok) {
+                              setNewDelegation((p) => ({ ...p, note: '' }));
+                              await openUser(selectedUserId);
+                            }
+                          }}
+                        >
+                          Делегировать
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 120%)', color: '#fff' }}>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>perm</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>кто → кому</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>срок</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>статус</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {delegations
+                          .slice()
+                          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+                          .map((d) => {
+                            const now = Date.now();
+                            const active = !d.revokedAt && d.startsAt <= now && d.endsAt > now;
+                            const state = d.revokedAt ? 'отозвано' : active ? 'активно' : d.endsAt <= now ? 'истекло' : 'ожидает';
+                            const fromU = users.find((u) => u.id === d.fromUserId)?.username ?? d.fromUserId;
+                            const toU = users.find((u) => u.id === d.toUserId)?.username ?? d.toUserId;
+                            return (
+                              <tr key={d.id}>
+                                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
+                                  {d.permCode}
+                                </td>
+                                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{fromU} → {toU}</td>
+                                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                                  {new Date(d.startsAt).toLocaleDateString('ru-RU')} — {new Date(d.endsAt).toLocaleDateString('ru-RU')}
+                                </td>
+                                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{state}</td>
+                                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 140 }}>
+                                  {active ? (
+                                    <Button
+                                      variant="ghost"
+                                      onClick={async () => {
+                                        setStatus('Отзыв делегирования...');
+                                        const r = await window.matrica.admin.users.delegationRevoke({ id: d.id });
+                                        setStatus(r.ok ? 'Отозвано' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                        await openUser(selectedUserId);
+                                      }}
+                                    >
+                                      Отозвать
+                                    </Button>
+                                  ) : (
+                                    <span style={{ color: '#6b7280', fontSize: 12 }}>—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        {delegations.length === 0 && (
+                          <tr>
+                            <td style={{ padding: 12, color: '#6b7280' }} colSpan={5}>
+                              Делегирований нет
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>

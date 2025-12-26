@@ -78,6 +78,44 @@ export async function authStatus(db: BetterSQLite3Database): Promise<AuthStatus>
   return { loggedIn: true, user: payload.user, permissions: payload.permissions ?? {} };
 }
 
+export async function authSync(db: BetterSQLite3Database, args: { apiBaseUrl: string }): Promise<AuthStatus> {
+  const session = await getSession(db).catch(() => null);
+  if (!session?.accessToken) return { loggedIn: false, user: null, permissions: null };
+
+  // 1) Пробуем /auth/me (обновляет permissions после делегирований)
+  try {
+    const r = await net.fetch(`${args.apiBaseUrl}/auth/me`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (r.ok) {
+      const json = (await r.json().catch(() => null)) as any;
+      if (json?.ok && json?.user && json?.permissions) {
+        const payload: SessionPayload = {
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
+          user: json.user as AuthUserInfo,
+          permissions: (json.permissions ?? {}) as Record<string, boolean>,
+          savedAt: nowMs(),
+        };
+        const stored = encryptJson(JSON.stringify(payload));
+        await setSyncState(db, KEY_SESSION, JSON.stringify(stored));
+        return { loggedIn: true, user: payload.user, permissions: payload.permissions };
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2) Fallback: если accessToken протух — пусть authRefresh обновит permissions.
+  if (session.refreshToken) {
+    const refreshed = await authRefresh(db, { apiBaseUrl: args.apiBaseUrl, refreshToken: session.refreshToken });
+    if (refreshed.ok) return await authStatus(db);
+  }
+
+  return await authStatus(db);
+}
+
 export async function authLogin(
   db: BetterSQLite3Database,
   args: { apiBaseUrl: string; username: string; password: string },

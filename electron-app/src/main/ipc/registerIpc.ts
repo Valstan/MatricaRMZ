@@ -12,13 +12,17 @@ import { SyncManager } from '../services/syncManager.js';
 import { listAttributeDefsByEntityType, listEntityTypes, upsertAttributeDef, upsertEntityType } from '../services/adminService.js';
 import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../services/reportService.js';
 import { checkForUpdates } from '../services/updateService.js';
-import { authLogin, authLogout, authStatus, getSession } from '../services/authService.js';
+import { authLogin, authLogout, authStatus, authSync, getSession } from '../services/authService.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
+import { createSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
 import {
   adminCreateUser,
   adminGetUserPermissions,
+  adminListUserDelegations,
   adminListUsers,
+  adminCreateDelegation,
+  adminRevokeDelegation,
   adminSetUserPermissions,
   adminUpdateUser,
 } from '../services/adminUsersService.js';
@@ -73,6 +77,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   ipcMain.handle('audit:list', async () => listAudit(db));
 
   ipcMain.handle('auth:status', async () => authStatus(db));
+  ipcMain.handle('auth:sync', async () => authSync(db, { apiBaseUrl: mgr.getApiBaseUrl() }));
   ipcMain.handle('auth:login', async (_e, args: { username: string; password: string }) =>
     authLogin(db, { apiBaseUrl: mgr.getApiBaseUrl(), username: args.username, password: args.password }),
   );
@@ -158,6 +163,16 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     adminSetUserPermissions(db, mgr.getApiBaseUrl(), userId, set),
   );
 
+  ipcMain.handle('admin:users:delegationsList', async (_e, userId: string) => adminListUserDelegations(db, mgr.getApiBaseUrl(), userId));
+  ipcMain.handle(
+    'admin:users:delegationCreate',
+    async (_e, args: { fromUserId: string; toUserId: string; permCode: string; startsAt?: number; endsAt: number; note?: string }) =>
+      adminCreateDelegation(db, mgr.getApiBaseUrl(), args),
+  );
+  ipcMain.handle('admin:users:delegationRevoke', async (_e, args: { id: string; note?: string }) =>
+    adminRevokeDelegation(db, mgr.getApiBaseUrl(), args.id, args.note),
+  );
+
   ipcMain.handle('update:check', async () => checkForUpdates());
 
   // -----------------------------
@@ -208,6 +223,56 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
       return saveRepairChecklistForEngine(db, { engineId: args.engineId, stage: args.stage, operationId: args.operationId, payload, actor });
     },
   );
+
+  // -----------------------------
+  // Supply requests (Заявки)
+  // -----------------------------
+  ipcMain.handle('supplyRequests:list', async (_e, args?: { q?: string; month?: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'supply_requests.view')) return { ok: false, error: 'permission denied: supply_requests.view' };
+    return listSupplyRequests(db, args);
+  });
+
+  ipcMain.handle('supplyRequests:get', async (_e, id: string) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'supply_requests.view')) return { ok: false, error: 'permission denied: supply_requests.view' };
+    return getSupplyRequest(db, id);
+  });
+
+  ipcMain.handle('supplyRequests:create', async () => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'supply_requests.create')) return { ok: false, error: 'permission denied: supply_requests.create' };
+    return createSupplyRequest(db, await currentActor());
+  });
+
+  ipcMain.handle('supplyRequests:update', async (_e, args: { id: string; payload: any }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'supply_requests.edit')) return { ok: false, error: 'permission denied: supply_requests.edit' };
+    const actor = await currentActor();
+    return updateSupplyRequest(db, { id: args.id, payload: args.payload, actor });
+  });
+
+  ipcMain.handle('supplyRequests:transition', async (_e, args: { id: string; action: string; note?: string | null }) => {
+    const perms = await currentPermissions();
+
+    const action = String(args.action);
+    const required =
+      action === 'sign'
+        ? 'supply_requests.sign'
+        : action === 'director_approve'
+          ? 'supply_requests.director_approve'
+          : action === 'accept'
+            ? 'supply_requests.accept'
+            : action === 'fulfill_full' || action === 'fulfill_partial'
+              ? 'supply_requests.fulfill'
+              : null;
+
+    if (!required) return { ok: false, error: `unknown action: ${action}` };
+    if (!hasPerm(perms, required)) return { ok: false, error: `permission denied: ${required}` };
+
+    const actor = await currentActor();
+    return transitionSupplyRequest(db, { id: args.id, action: action as any, actor, note: args.note ?? null });
+  });
 }
 
 

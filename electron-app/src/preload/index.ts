@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   auth: {
     status: async () => ipcRenderer.invoke('auth:status'),
+    sync: async () => ipcRenderer.invoke('auth:sync'),
     login: async (args: { username: string; password: string }) => ipcRenderer.invoke('auth:login', args),
     logout: async (args: { refreshToken?: string }) => ipcRenderer.invoke('auth:logout', args),
   },
@@ -70,6 +71,16 @@ contextBridge.exposeInMainWorld('matrica', {
         ipcRenderer.invoke('admin:users:update', userId, args),
       permissionsGet: async (userId: string) => ipcRenderer.invoke('admin:users:permissionsGet', userId),
       permissionsSet: async (userId: string, set: Record<string, boolean>) => ipcRenderer.invoke('admin:users:permissionsSet', userId, set),
+      delegationsList: async (userId: string) => ipcRenderer.invoke('admin:users:delegationsList', userId),
+      delegationCreate: async (args: {
+        fromUserId: string;
+        toUserId: string;
+        permCode: string;
+        startsAt?: number;
+        endsAt: number;
+        note?: string;
+      }) => ipcRenderer.invoke('admin:users:delegationCreate', args),
+      delegationRevoke: async (args: { id: string; note?: string }) => ipcRenderer.invoke('admin:users:delegationRevoke', args),
     },
   },
   update: {
@@ -80,6 +91,13 @@ contextBridge.exposeInMainWorld('matrica', {
     engineGet: async (args: { engineId: string; stage: string }) => ipcRenderer.invoke('checklists:engine:get', args),
     engineSave: async (args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: unknown }) =>
       ipcRenderer.invoke('checklists:engine:save', args),
+  },
+  supplyRequests: {
+    list: async (args?: { q?: string; month?: string }) => ipcRenderer.invoke('supplyRequests:list', args),
+    get: async (id: string) => ipcRenderer.invoke('supplyRequests:get', id),
+    create: async () => ipcRenderer.invoke('supplyRequests:create'),
+    update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('supplyRequests:update', args),
+    transition: async (args: { id: string; action: string; note?: string | null }) => ipcRenderer.invoke('supplyRequests:transition', args),
   },
 });
 

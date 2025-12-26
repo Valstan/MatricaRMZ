@@ -9,6 +9,14 @@ export type UiCaps = {
   canEditEngines: boolean;
   canViewOperations: boolean;
   canEditOperations: boolean;
+  canViewSupplyRequests: boolean;
+  canCreateSupplyRequests: boolean;
+  canEditSupplyRequests: boolean;
+  canSignSupplyRequests: boolean;
+  canApproveSupplyRequests: boolean;
+  canAcceptSupplyRequests: boolean;
+  canFulfillSupplyRequests: boolean;
+  canPrintSupplyRequests: boolean;
   canUseSync: boolean;
   canViewReports: boolean;
   canExportReports: boolean;
@@ -28,6 +36,15 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canExportReports = has(perms, 'reports.export');
   const canPrintReports = has(perms, 'reports.print');
 
+  const canViewSupplyRequests = has(perms, 'supply_requests.view');
+  const canCreateSupplyRequests = has(perms, 'supply_requests.create');
+  const canEditSupplyRequests = has(perms, 'supply_requests.edit');
+  const canSignSupplyRequests = has(perms, 'supply_requests.sign');
+  const canApproveSupplyRequests = has(perms, 'supply_requests.director_approve');
+  const canAcceptSupplyRequests = has(perms, 'supply_requests.accept');
+  const canFulfillSupplyRequests = has(perms, 'supply_requests.fulfill');
+  const canPrintSupplyRequests = has(perms, 'supply_requests.print');
+
   const canViewEngines = has(perms, 'engines.view');
   const canEditEngines = has(perms, 'engines.edit');
 
@@ -44,6 +61,14 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canEditEngines,
     canViewOperations,
     canEditOperations,
+    canViewSupplyRequests,
+    canCreateSupplyRequests,
+    canEditSupplyRequests,
+    canSignSupplyRequests,
+    canApproveSupplyRequests,
+    canAcceptSupplyRequests,
+    canFulfillSupplyRequests,
+    canPrintSupplyRequests,
     canUseSync,
     canViewReports,
     canExportReports,

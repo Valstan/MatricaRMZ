@@ -36,6 +36,13 @@
       "when": 1766643949763,
       "tag": "0004_goofy_skaar",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1766731467453,
+      "tag": "0005_elite_psylocke",
+      "breakpoints": true
     }
   ]
 }

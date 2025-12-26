@@ -8,6 +8,7 @@ export const EntityTypeCode = {
   WorkOrder: 'work_order',
   Workshop: 'workshop',
   Section: 'section',
+  Department: 'department',
   Employee: 'employee',
 } as const;
 
@@ -35,6 +36,7 @@ export const OperationTypeCode = {
   Packaging: 'packaging', // упаковка + место хранения
   Shipment: 'shipment', // отгрузка
   CustomerDelivery: 'customer_delivery', // подтверждение доставки/претензии
+  SupplyRequest: 'supply_request', // заявки в снабжение
 } as const;
 
 export type OperationTypeCode = (typeof OperationTypeCode)[keyof typeof OperationTypeCode];
