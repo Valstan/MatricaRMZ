@@ -22,6 +22,12 @@ import {
   syncState,
 } from '../../database/schema.js';
 
+// Специальный “контейнер” для операций заявок в снабжение.
+// Клиент использует этот UUID как operations.engine_entity_id для supply_request.
+const SUPPLY_REQUESTS_CONTAINER_ENTITY_ID = '00000000-0000-0000-0000-000000000001';
+const SUPPLY_REQUESTS_CONTAINER_TYPE_ID = '00000000-0000-0000-0000-000000000010';
+const SUPPLY_REQUESTS_CONTAINER_TYPE_CODE = 'system_container';
+
 function nowMs() {
   return Date.now();
 }
@@ -48,6 +54,72 @@ export async function applyPushBatch(req: SyncPushRequest): Promise<{ applied: n
     });
 
   let applied = 0;
+
+  async function ensureSupplyRequestsContainer() {
+    // 1) ensure entity_type exists
+    const et = await db
+      .select({ id: entityTypes.id })
+      .from(entityTypes)
+      .where(eq(entityTypes.id, SUPPLY_REQUESTS_CONTAINER_TYPE_ID as any))
+      .limit(1);
+    if (!et[0]) {
+      await db.insert(entityTypes).values({
+        id: SUPPLY_REQUESTS_CONTAINER_TYPE_ID as any,
+        code: SUPPLY_REQUESTS_CONTAINER_TYPE_CODE,
+        name: 'System container',
+        createdAt: appliedAt,
+        updatedAt: appliedAt,
+        deletedAt: null,
+        syncStatus: 'synced',
+      });
+      await db.insert(changeLog).values({
+        tableName: SyncTableName.EntityTypes,
+        rowId: SUPPLY_REQUESTS_CONTAINER_TYPE_ID as any,
+        op: 'upsert',
+        payloadJson: JSON.stringify({
+          id: SUPPLY_REQUESTS_CONTAINER_TYPE_ID,
+          code: SUPPLY_REQUESTS_CONTAINER_TYPE_CODE,
+          name: 'System container',
+          created_at: appliedAt,
+          updated_at: appliedAt,
+          deleted_at: null,
+          sync_status: 'synced',
+        }),
+        createdAt: appliedAt,
+      });
+    }
+
+    // 2) ensure entity exists
+    const e = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(eq(entities.id, SUPPLY_REQUESTS_CONTAINER_ENTITY_ID as any))
+      .limit(1);
+    if (!e[0]) {
+      await db.insert(entities).values({
+        id: SUPPLY_REQUESTS_CONTAINER_ENTITY_ID as any,
+        typeId: SUPPLY_REQUESTS_CONTAINER_TYPE_ID as any,
+        createdAt: appliedAt,
+        updatedAt: appliedAt,
+        deletedAt: null,
+        syncStatus: 'synced',
+      });
+      await db.insert(changeLog).values({
+        tableName: SyncTableName.Entities,
+        rowId: SUPPLY_REQUESTS_CONTAINER_ENTITY_ID as any,
+        op: 'upsert',
+        payloadJson: JSON.stringify({
+          id: SUPPLY_REQUESTS_CONTAINER_ENTITY_ID,
+          type_id: SUPPLY_REQUESTS_CONTAINER_TYPE_ID,
+          created_at: appliedAt,
+          updated_at: appliedAt,
+          deleted_at: null,
+          sync_status: 'synced',
+        }),
+        createdAt: appliedAt,
+      });
+    }
+  }
 
   async function isStaleById(
     table: { updatedAt: any; id: any },
@@ -231,6 +303,13 @@ export async function applyPushBatch(req: SyncPushRequest): Promise<{ applied: n
         for (const raw of upsert.rows) {
           const row = operationRowSchema.parse(raw);
           if (await isStaleById(operations, row.id, row.updated_at)) continue;
+
+          // Для supply_request engine_entity_id указывает на “контейнер”.
+          // Гарантируем, что контейнерная сущность существует на сервере (иначе FK валится).
+          if (row.operation_type === 'supply_request' && row.engine_entity_id === SUPPLY_REQUESTS_CONTAINER_ENTITY_ID) {
+            await ensureSupplyRequestsContainer();
+          }
+
           await db
             .insert(operations)
             .values({
