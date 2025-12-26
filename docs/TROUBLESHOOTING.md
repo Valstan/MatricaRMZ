@@ -114,4 +114,46 @@ Windows schannel не может проверить CRL/OCSP сертифика�
 
 Для диагностики (не прод): `curl.exe --ssl-no-revoke https://<domain>/health`
 
+---
+
+## 4) `push HTTP 500` из-за новых типов операций/документов (например `supply_request`)
+
+### Симптом
+В Electron на вкладке “Синхронизация”:
+- `push HTTP 500: ... invalid_enum_value ... received 'supply_request'`
+
+### Причина
+Backend запущен на старом `dist/` и его Zod-схема `operation_type` (в `@matricarmz/shared`) не содержит новый тип.
+
+### Решение (VPS)
+1) Обновить код (pull) до нужного тега/коммита.
+2) Пересобрать `shared` и `backend-api`, затем перезапустить systemd сервис.
+
+```bash
+cd /home/valstan/MatricaRMZ
+git describe --tags --always
+
+pnpm --filter @matricarmz/shared build
+pnpm --filter @matricarmz/backend-api build
+
+sudo systemctl restart matricarmz-backend.service
+sudo systemctl status matricarmz-backend.service --no-pager -l | head -n 30
+```
+
+---
+
+## 5) `push HTTP 500` (FK) при синхронизации заявок: `operations.engine_entity_id` не существует
+
+### Симптом
+Electron:
+- `push HTTP 500: error: insert or update on table "operations" violates foreign key constraint "operations_engine_entity_id_entities_id_fk"`
+
+### Причина
+Для модуля “Заявки” клиент пишет операции `operation_type='supply_request'` в таблицу `operations` и использует специальный контейнерный `engine_entity_id = 00000000-0000-0000-0000-000000000001`.
+Если такой `entities.id` отсутствует на сервере — FK на `operations.engine_entity_id -> entities.id` падает.
+
+### Решение
+- Backend должен гарантировать наличие контейнерной сущности перед upsert операций `supply_request`.
+- Фикс внесён в `backend-api/src/services/sync/applyPushBatch.ts`: авто-создание system container entity/type при получении `supply_request`.
+
 
