@@ -34,9 +34,30 @@ function safeFilename(name: string): string {
   return base.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
 }
 
+async function yandexEnsureFolder(token: string, folderPath: string) {
+  const p = folderPath.replaceAll('\\', '/');
+  if (!p.startsWith('/')) throw new Error(`Invalid yandex folderPath (must start with '/'): ${folderPath}`);
+
+  const url = new URL('https://cloud-api.yandex.net/v1/disk/resources');
+  url.searchParams.set('path', p);
+
+  // Probe (GET). If it fails, try to create (PUT). PUT may return 409 if already exists.
+  const probe = await fetch(url.toString(), { method: 'GET', headers: { Authorization: `OAuth ${token}` } });
+  if (probe.ok) return;
+
+  const mk = await fetch(url.toString(), { method: 'PUT', headers: { Authorization: `OAuth ${token}` } });
+  if (!mk.ok && mk.status !== 409) {
+    throw new Error(`yandex mkdir HTTP ${mk.status}: ${(await mk.text().catch(() => '')) || 'no body'}`);
+  }
+}
+
 async function yandexUpload(_args: { diskPath: string; bytes: Buffer; mime: string | null }) {
   const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
   if (!token) throw new Error('YANDEX_DISK_TOKEN is not configured');
+
+  // Ensure parent folder exists, otherwise Yandex returns 409 on resources/upload.
+  const parent = dirname(_args.diskPath.replaceAll('\\', '/')) || '/';
+  await yandexEnsureFolder(token, parent);
 
   // 1) get upload href
   const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
@@ -117,6 +138,39 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
     const existing = await db.select().from(fileAssets).where(eq(fileAssets.sha256, parsed.data.sha256)).limit(1);
     if (existing[0]) {
       const row = existing[0] as any;
+      // If it already exists as yandex asset, allow re-upload by returning a fresh uploadUrl
+      // (important if a previous init happened but the client didn't finish PUT).
+      if (row.storageKind === 'yandex' && row.yandexDiskPath) {
+        const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
+        if (!token) return res.status(500).json({ ok: false, error: 'YANDEX_DISK_TOKEN is not configured' });
+
+        const diskPath = String(row.yandexDiskPath);
+        const parent = dirname(diskPath.replaceAll('\\', '/')) || '/';
+        await yandexEnsureFolder(token, parent);
+
+        const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
+        q.searchParams.set('path', diskPath);
+        q.searchParams.set('overwrite', 'true');
+        const r1 = await fetch(q.toString(), { headers: { Authorization: `OAuth ${token}` } });
+        if (!r1.ok) return res.status(502).json({ ok: false, error: `yandex upload href HTTP ${r1.status}` });
+        const j = (await r1.json().catch(() => null)) as any;
+        const href = String(j?.href ?? '');
+        if (!href) return res.status(502).json({ ok: false, error: 'yandex upload href missing' });
+
+        return res.json({
+          ok: true,
+          file: {
+            id: row.id,
+            name: row.name,
+            size: Number(row.size),
+            mime: row.mime ?? null,
+            sha256: row.sha256,
+            createdAt: Number(row.createdAt),
+          },
+          uploadUrl: href,
+        });
+      }
+
       return res.json({
         ok: true,
         file: {
@@ -146,6 +200,10 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
     // Get pre-signed upload URL (href). Client will PUT directly to it.
     const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
     if (!token) return res.status(500).json({ ok: false, error: 'YANDEX_DISK_TOKEN is not configured' });
+
+    // Ensure base folder exists on Yandex.Disk (mkdir is idempotent).
+    await yandexEnsureFolder(token, baseYandexPath.replace(/\/+$/, '') || '/');
+
     const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
     q.searchParams.set('path', diskPath);
     q.searchParams.set('overwrite', 'true');
