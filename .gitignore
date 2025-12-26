@@ -29,4 +29,7 @@ yarn-error.log*
 electron-app/release
 electron-app/dist
 
+# Backend uploads (runtime storage)
+backend-api/uploads
+
 

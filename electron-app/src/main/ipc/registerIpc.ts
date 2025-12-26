@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -16,6 +16,7 @@ import { authLogin, authLogout, authStatus, authSync, getSession } from '../serv
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 import { createSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
+import { filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
 import {
   adminCreateUser,
   adminGetUserPermissions,
@@ -176,6 +177,51 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   ipcMain.handle('update:check', async () => checkForUpdates());
 
   // -----------------------------
+  // Files
+  // -----------------------------
+  ipcMain.handle('files:upload', async (_e, args: { path: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'files.upload')) return { ok: false, error: 'permission denied: files.upload' };
+    return filesUpload(db, mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('files:downloadDir:get', async () => {
+    return filesDownloadDirGet(db, { defaultDir: app.getPath('downloads') });
+  });
+
+  ipcMain.handle('files:downloadDir:pick', async () => {
+    try {
+      const perms = await currentPermissions();
+      if (!hasPerm(perms, 'files.view')) return { ok: false, error: 'permission denied: files.view' };
+      const r = await dialog.showOpenDialog({
+        title: 'Выберите папку для скачивания файлов',
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      const p = r.filePaths?.[0] ? String(r.filePaths[0]) : '';
+      if (!p) return { ok: false, error: 'cancelled' };
+      return await filesDownloadDirSet(db, p);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('files:download', async (_e, args: { fileId: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'files.view')) return { ok: false, error: 'permission denied: files.view' };
+    const dir = await filesDownloadDirGet(db, { defaultDir: app.getPath('downloads') });
+    if (!dir.ok) return dir;
+    return filesDownload(db, mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+  });
+
+  ipcMain.handle('files:open', async (_e, args: { fileId: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'files.view')) return { ok: false, error: 'permission denied: files.view' };
+    const dir = await filesDownloadDirGet(db, { defaultDir: app.getPath('downloads') });
+    if (!dir.ok) return dir;
+    return filesOpen(db, mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+  });
+
+  // -----------------------------
   // Repair checklist
   // -----------------------------
   ipcMain.handle('checklists:templates:list', async (_e, args?: { stage?: string }) => {
@@ -198,7 +244,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     'checklists:engine:save',
     async (
       _e,
-      args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: any },
+      args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: any; attachments?: any[] },
     ) => {
       const perms = await currentPermissions();
       if (!hasPerm(perms, 'operations.edit')) return { ok: false, error: 'permission denied: operations.edit' };
@@ -218,6 +264,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
         filledBy: actor || null,
         filledAt: Date.now(),
         answers: args.answers ?? {},
+        attachments: Array.isArray(args.attachments) ? args.attachments : undefined,
       };
 
       return saveRepairChecklistForEngine(db, { engineId: args.engineId, stage: args.stage, operationId: args.operationId, payload, actor });

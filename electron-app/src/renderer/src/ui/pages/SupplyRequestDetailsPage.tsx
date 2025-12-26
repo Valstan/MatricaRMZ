@@ -4,6 +4,7 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -205,6 +206,8 @@ export function SupplyRequestDetailsPage(props: {
   canFulfill: boolean;
   canPrint: boolean;
   canViewMasterData: boolean;
+  canViewFiles: boolean;
+  canUploadFiles: boolean;
 }) {
   const [payload, setPayload] = useState<SupplyRequestPayload | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('');
@@ -920,6 +923,17 @@ export function SupplyRequestDetailsPage(props: {
           </div>
         )}
       </div>
+
+      <AttachmentsPanel
+        title="Вложения к заявке"
+        value={payload.attachments}
+        canView={props.canViewFiles}
+        canUpload={props.canUploadFiles && props.canEdit}
+        onChange={async (next) => {
+          scheduleSave({ ...payload, attachments: next });
+          await saveNow({ ...payload, attachments: next });
+        }}
+      />
     </div>
   );
 }

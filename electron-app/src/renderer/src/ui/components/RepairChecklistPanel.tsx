@@ -4,6 +4,7 @@ import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTem
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
+import { AttachmentsPanel } from './AttachmentsPanel.js';
 
 function safeJsonStringify(v: unknown) {
   try {
@@ -66,6 +67,8 @@ export function RepairChecklistPanel(props: {
   canExport: boolean;
   engineNumber?: string;
   engineBrand?: string;
+  canViewFiles?: boolean;
+  canUploadFiles?: boolean;
 }) {
   const [status, setStatus] = useState<string>('');
   const [templates, setTemplates] = useState<RepairChecklistTemplate[]>([]);
@@ -435,6 +438,34 @@ export function RepairChecklistPanel(props: {
       )}
 
       {!props.canEdit && <div style={{ marginTop: 10, color: '#64748b' }}>Только просмотр (нет прав на редактирование операций).</div>}
+
+      <AttachmentsPanel
+        title="Вложения к контрольному листу"
+        value={(payload as any)?.attachments}
+        canView={props.canViewFiles === true}
+        canUpload={props.canUploadFiles === true && props.canEdit}
+        onChange={async (next) => {
+          if (!activeTemplate) return;
+          if (!props.canEdit) return;
+          setStatus('Сохранение...');
+          const r = await window.matrica.checklists.engineSave({
+            engineId: props.engineId,
+            stage: props.stage,
+            templateId: activeTemplate.id,
+            operationId,
+            answers,
+            attachments: next,
+          });
+          if (!r.ok) {
+            setStatus(`Ошибка: ${r.error}`);
+            return;
+          }
+          setOperationId(r.operationId);
+          setPayload((prev) => (prev ? ({ ...prev, attachments: next } as RepairChecklistPayload) : prev));
+          setStatus('Сохранено');
+          setTimeout(() => setStatus(''), 700);
+        }}
+      />
     </div>
   );
 }

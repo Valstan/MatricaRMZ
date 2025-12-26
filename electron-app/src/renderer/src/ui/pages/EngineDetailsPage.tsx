@@ -5,6 +5,7 @@ import type { EngineDetails, OperationItem } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
+import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -121,6 +122,8 @@ export function EngineDetailsPage(props: {
   canPrintEngineCard: boolean;
   canViewMasterData: boolean;
   canExportReports?: boolean;
+  canViewFiles: boolean;
+  canUploadFiles: boolean;
 }) {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
@@ -171,6 +174,10 @@ export function EngineDetailsPage(props: {
     if (!props.canEditEngines) return;
     await saveAttr('engine_number', engineNumber);
     await saveAttr('engine_brand', engineBrand);
+  }
+
+  async function saveAttachments(next: any[]) {
+    await saveAttr('attachments', next);
   }
 
   async function loadLinkLists() {
@@ -465,8 +472,18 @@ export function EngineDetailsPage(props: {
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
           engineBrand={engineBrand}
+          canViewFiles={props.canViewFiles}
+          canUploadFiles={props.canUploadFiles}
         />
       )}
+
+      <AttachmentsPanel
+        title="Вложения к двигателю"
+        value={props.engine.attributes?.attachments}
+        canView={props.canViewFiles}
+        canUpload={props.canUploadFiles && props.canEditEngines}
+        onChange={saveAttachments}
+      />
     </div>
   );
 }

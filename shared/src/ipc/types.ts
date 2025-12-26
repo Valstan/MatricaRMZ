@@ -108,6 +108,7 @@ export type AuthLogoutResult = { ok: boolean; error?: string };
 
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
 import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
+import type { FileRef } from '../domain/fileStorage.js';
 
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
@@ -258,6 +259,7 @@ export type MatricaApi = {
       templateId: string;
       operationId?: string | null;
       answers: RepairChecklistAnswers;
+      attachments?: FileRef[];
     }) => Promise<{ ok: true; operationId: string } | { ok: false; error: string }>;
   };
 
@@ -286,6 +288,18 @@ export type MatricaApi = {
       | { ok: true; payload: SupplyRequestPayload }
       | { ok: false; error: string }
     >;
+  };
+
+  files: {
+    // Загружает файл на сервер (сервер сам решает: локально или Яндекс.Диск).
+    upload: (args: { path: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
+    // Скачивает файл в локальную папку кеша (или выбранную пользователем) и возвращает путь.
+    download: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
+    // Открывает файл (скачивает при необходимости) средствами ОС.
+    open: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
+    // Папка скачивания/кеша.
+    downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+    downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
   };
 };
 

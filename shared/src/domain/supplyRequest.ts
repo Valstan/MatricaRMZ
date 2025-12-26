@@ -34,6 +34,8 @@ export type SupplyRequestAuditTrailItem = {
   note?: string | null;
 };
 
+import type { FileRef } from './fileStorage.js';
+
 export type SupplyRequestPayload = {
   kind: 'supply_request';
   version: 1;
@@ -57,6 +59,9 @@ export type SupplyRequestPayload = {
 
   // items
   items: SupplyRequestItem[];
+
+  // attachments
+  attachments?: FileRef[];
 
   // signatures / workflow
   signedByHead?: SupplyRequestSignature | null;

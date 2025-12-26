@@ -242,4 +242,33 @@ export const permissionDelegations = pgTable(
   }),
 );
 
+// -----------------------------
+// File storage (server-side only)
+// -----------------------------
+export const fileAssets = pgTable(
+  'file_assets',
+  {
+    id: uuid('id').primaryKey(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id),
+
+    name: text('name').notNull(),
+    mime: text('mime'),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    sha256: text('sha256').notNull(),
+
+    // 'local' (<=10MB) or 'yandex'
+    storageKind: text('storage_kind').notNull(),
+    // For local: relative path inside uploads dir
+    localRelPath: text('local_rel_path'),
+    // For Yandex: full disk path (as used in API calls)
+    yandexDiskPath: text('yandex_disk_path'),
+  },
+  (t) => ({
+    shaUq: uniqueIndex('file_assets_sha256_uq').on(t.sha256),
+  }),
+);
+
 

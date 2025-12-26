@@ -29,6 +29,8 @@ export type RepairChecklistAnswers = Record<
   | { kind: 'signature'; fio: string; position: string; signedAt: number | null }
 >;
 
+import type { FileRef } from './fileStorage.js';
+
 // То, что кладём в operations.metaJson
 export type RepairChecklistPayload = {
   kind: 'repair_checklist';
@@ -39,6 +41,7 @@ export type RepairChecklistPayload = {
   filledBy: string | null;
   filledAt: number | null;
   answers: RepairChecklistAnswers;
+  attachments?: FileRef[];
 };
 
 

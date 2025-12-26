@@ -31,6 +31,27 @@ export async function upsertEntityType(db: BetterSQLite3Database, args: { id?: s
         target: entityTypes.id,
         set: { code: args.code.trim(), name: args.name.trim(), updatedAt: ts, syncStatus: 'pending' },
       });
+
+    // Авто-добавление системного атрибута "attachments" для новых/обновлённых типов сущностей,
+    // чтобы в любой сущности можно было прикреплять документы/фото/чертежи/видео без отдельной доработки.
+    await db
+      .insert(attributeDefs)
+      .values({
+        id: randomUUID(),
+        entityTypeId: id,
+        code: 'attachments',
+        name: 'Вложения',
+        dataType: 'json',
+        isRequired: false,
+        sortOrder: 9990,
+        metaJson: null,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'pending',
+      })
+      .onConflictDoNothing();
+
     return { ok: true, id } as const;
   } catch (e) {
     return { ok: false, error: String(e) } as const;

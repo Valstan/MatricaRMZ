@@ -44,5 +44,13 @@
       "tag": "0005_elite_psylocke",
       "breakpoints": true
     }
+    ,
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1766759500000,
+      "tag": "0006_file_assets",
+      "breakpoints": true
+    }
   ]
 }

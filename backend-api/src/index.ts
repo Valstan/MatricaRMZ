@@ -6,6 +6,7 @@ import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { syncRouter } from './routes/sync.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
+import { filesRouter } from './routes/files.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 
@@ -20,6 +21,7 @@ app.use('/health', healthRouter);
 app.use('/auth', authRouter);
 app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
 app.use('/admin', adminUsersRouter);
+app.use('/files', filesRouter);
 
 const port = Number(process.env.PORT ?? 3001);
 // По умолчанию слушаем только localhost и открываем наружу через nginx.

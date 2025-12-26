@@ -40,6 +40,10 @@ export const PermissionCode = {
   // sync & updates
   SyncUse: 'sync.use',
   UpdatesUse: 'updates.use',
+
+  // files
+  FilesView: 'files.view',
+  FilesUpload: 'files.upload',
 } as const;
 
 export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
@@ -82,6 +86,10 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
 
       [PermissionCode.SyncUse]: true,
       [PermissionCode.UpdatesUse]: true,
+
+      // files
+      [PermissionCode.FilesView]: true,
+      [PermissionCode.FilesUpload]: true,
     };
   }
 
@@ -92,6 +100,9 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     [PermissionCode.OperationsView]: true,
     [PermissionCode.ReportsView]: true,
     [PermissionCode.SyncUse]: true,
+
+    // files (просмотр/скачивание по ссылке)
+    [PermissionCode.FilesView]: true,
   };
 }
 

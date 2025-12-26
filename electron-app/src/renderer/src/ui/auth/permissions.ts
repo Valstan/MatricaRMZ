@@ -25,6 +25,9 @@ export type UiCaps = {
   canEditMasterData: boolean;
   canManageUsers: boolean;
   canViewAudit: boolean;
+
+  canViewFiles: boolean;
+  canUploadFiles: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -56,6 +59,9 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   // По плану: вкладка "Журнал" = админская диагностика (без новых permissions).
   const canViewAudit = canManageUsers;
 
+  const canViewFiles = has(perms, 'files.view');
+  const canUploadFiles = has(perms, 'files.upload');
+
   return {
     canViewEngines,
     canEditEngines,
@@ -77,6 +83,9 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canEditMasterData,
     canManageUsers,
     canViewAudit,
+
+    canViewFiles,
+    canUploadFiles,
   };
 }
 

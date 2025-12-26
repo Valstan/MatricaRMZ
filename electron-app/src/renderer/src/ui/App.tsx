@@ -241,6 +241,8 @@ export function App() {
             canPrintEngineCard={caps.canPrintReports}
             canViewMasterData={caps.canViewMasterData}
             canExportReports={caps.canExportReports}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
           />
       )}
 
@@ -255,6 +257,8 @@ export function App() {
             canFulfill={caps.canFulfillSupplyRequests}
             canPrint={caps.canPrintSupplyRequests}
             canViewMasterData={caps.canViewMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
           />
         )}
 

@@ -3,7 +3,7 @@
 Дата обновления: 2025-12-26
 
 ## Последний релиз клиента
-- `v0.0.35` (GitHub Releases) — Windows installer собирается GitHub Actions по тегу.
+- `v0.0.36` (готовится) — добавлены вложения (файловое хранилище) + права `files.*`.
 
 ## Что реализовано
 
@@ -54,5 +54,6 @@ sudo systemctl restart matricarmz-backend.service
 ### B) `push HTTP 500 FK operations_engine_entity_id...`
 - причина: для заявок используется контейнерный `engine_entity_id=00000000-0000-0000-0000-000000000001`, которого не было в `entities`.
 - фикс: backend `applyPushBatch.ts` создаёт system container entity/type при приходе `supply_request`.
+
 
 
