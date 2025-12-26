@@ -74,7 +74,7 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
         .join('');
       return `<tr>
   <td>${idx + 1}</td>
-  <td>${escapeHtml(it.name ?? '')}</td>
+  <td class="name">${escapeHtml(it.name ?? '')}</td>
   <td>${escapeHtml(String(it.qty ?? ''))}</td>
   <td>${escapeHtml(it.unit ?? '')}</td>
   <td>${escapeHtml(it.note ?? '')}</td>
@@ -96,7 +96,8 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
     .meta { margin-bottom: 14px; color: #111; }
     .meta div { margin: 4px 0; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; vertical-align: top; }
+    table.items th, table.items td { border: 1px solid #ddd; padding: 9px 10px; text-align: left; font-size: 14px; vertical-align: top; }
+    table.items td.name { font-size: 15px; font-weight: 700; }
     th { background: #f5f5f5; }
     .muted { color: #666; }
     @media print { .no-print { display: none; } }
@@ -115,7 +116,7 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
     <div><b>Участок:</b> ${escapeHtml(sectionLabel || p.sectionId || '-')}</div>
     <div><b>Описание:</b> ${escapeHtml(p.title || '-')}</div>
   </div>
-  <table>
+  <table class="items">
     <thead>
       <tr>
         <th>№</th>
@@ -168,6 +169,25 @@ export function SupplyRequestDetailsPage(props: {
 
   const saveTimer = useRef<any>(null);
   const lastSavedJson = useRef<string>('');
+  const activeInputEl = useRef<HTMLInputElement | null>(null);
+
+  function insertSymbol(symbol: string) {
+    const el = activeInputEl.current;
+    if (!el) return;
+    try {
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? el.value.length;
+      const next = el.value.slice(0, start) + symbol + el.value.slice(end);
+      el.value = next;
+      const pos = start + symbol.length;
+      el.setSelectionRange(pos, pos);
+      el.focus();
+      // Важно: чтобы сработал React onChange у Input, диспатчим input event.
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    } catch {
+      // ignore
+    }
+  }
 
   async function load() {
     setSaveStatus('Загрузка…');
@@ -460,6 +480,22 @@ export function SupplyRequestDetailsPage(props: {
       <div style={{ marginTop: 14 }}>
         <h2 style={{ margin: '8px 0' }}>Список товаров</h2>
 
+        <div style={{ margin: '6px 0 10px 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Вставка символов:</div>
+          <Button variant="ghost" onClick={() => insertSymbol('⌀')}>
+            ⌀ диаметр
+          </Button>
+          <Button variant="ghost" onClick={() => insertSymbol('×')}>
+            ×
+          </Button>
+          <Button variant="ghost" onClick={() => insertSymbol('±')}>
+            ±
+          </Button>
+          <Button variant="ghost" onClick={() => insertSymbol('°')}>
+            °
+          </Button>
+        </div>
+
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <div style={{ flex: 1, color: '#6b7280' }}>
             Позиции заявки: наименование, количество, единица, примечание, фактические поставки.
@@ -514,6 +550,9 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...items[idx], name: e.target.value };
                             scheduleSave({ ...payload, items });
                           }}
+                          onFocus={(e) => {
+                            activeInputEl.current = e.currentTarget;
+                          }}
                           placeholder="Наименование товара…"
                         />
                       </td>
@@ -527,6 +566,9 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...items[idx], qty: Number.isFinite(n) ? n : 0 };
                             scheduleSave({ ...payload, items });
                           }}
+                          onFocus={(e) => {
+                            activeInputEl.current = e.currentTarget;
+                          }}
                         />
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 120 }}>
@@ -538,6 +580,9 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...items[idx], unit: e.target.value };
                             scheduleSave({ ...payload, items });
                           }}
+                          onFocus={(e) => {
+                            activeInputEl.current = e.currentTarget;
+                          }}
                         />
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
@@ -548,6 +593,9 @@ export function SupplyRequestDetailsPage(props: {
                             const items = [...(payload.items ?? [])];
                             items[idx] = { ...items[idx], note: e.target.value };
                             scheduleSave({ ...payload, items });
+                          }}
+                          onFocus={(e) => {
+                            activeInputEl.current = e.currentTarget;
                           }}
                         />
                       </td>
@@ -627,6 +675,9 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
+                                onFocus={(e) => {
+                                  activeInputEl.current = e.currentTarget;
+                                }}
                               />
                               <Input
                                 value={String(d.qty ?? '')}
@@ -640,6 +691,9 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
+                                onFocus={(e) => {
+                                  activeInputEl.current = e.currentTarget;
+                                }}
                               />
                               <Input
                                 value={String(d.note ?? '')}
@@ -651,6 +705,9 @@ export function SupplyRequestDetailsPage(props: {
                                   deliveries[di] = { ...deliveries[di], note: e.target.value };
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
+                                }}
+                                onFocus={(e) => {
+                                  activeInputEl.current = e.currentTarget;
                                 }}
                                 placeholder="Примечание…"
                               />
