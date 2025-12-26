@@ -37,6 +37,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   const workshopTypeId = await ensureEntityType(EntityTypeCode.Workshop, 'Цех');
   const sectionTypeId = await ensureEntityType(EntityTypeCode.Section, 'Участок');
   const departmentTypeId = await ensureEntityType(EntityTypeCode.Department, 'Подразделение / служба');
+  const productTypeId = await ensureEntityType(EntityTypeCode.Product, 'Товары (номенклатура)');
   const employeeTypeId = await ensureEntityType(EntityTypeCode.Employee, 'Сотрудник');
 
   async function ensureAttrDef(
@@ -105,6 +106,10 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
 
   // Department (подразделение / служба)
   await ensureAttrDef(departmentTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+
+  // Products (номенклатура)
+  await ensureAttrDef(productTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
+  await ensureAttrDef(productTypeId, 'unit', 'Единица измерения', AttributeDataType.Text, 20);
 
   // Employee
   await ensureAttrDef(employeeTypeId, 'full_name', 'ФИО', AttributeDataType.Text, 10);

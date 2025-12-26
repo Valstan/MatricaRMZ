@@ -9,6 +9,7 @@ export const EntityTypeCode = {
   Workshop: 'workshop',
   Section: 'section',
   Department: 'department',
+  Product: 'product',
   Employee: 'employee',
 } as const;
 

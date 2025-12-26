@@ -21,7 +21,7 @@ function statusLabel(s: string): string {
     case 'draft':
       return 'Черновик';
     case 'signed':
-      return 'Подписана начальником';
+      return 'Подписана начальником цеха';
     case 'director_approved':
       return 'Одобрена директором';
     case 'accepted':
@@ -58,7 +58,13 @@ function sumDelivered(deliveries: SupplyRequestDelivery[] | undefined): number {
   return deliveries.reduce((acc, d) => acc + (Number(d?.qty) || 0), 0);
 }
 
-function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, workshopLabel: string, sectionLabel: string) {
+function printSupplyRequest(
+  p: SupplyRequestPayload,
+  departmentLabel: string,
+  workshopLabel: string,
+  sectionLabel: string,
+  mode: 'short' | 'full',
+) {
   const items = p.items ?? [];
   const rowsHtml = items
     .map((it, idx) => {
@@ -72,9 +78,20 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
           }</div>`;
         })
         .join('');
+
+      if (mode === 'short') {
+        return `<tr>
+  <td>${idx + 1}</td>
+  <td>${escapeHtml(it.name ?? '')}</td>
+  <td>${escapeHtml(String(it.qty ?? ''))}</td>
+  <td>${escapeHtml(it.unit ?? '')}</td>
+  <td>${escapeHtml(it.note ?? '')}</td>
+</tr>`;
+      }
+
       return `<tr>
   <td>${idx + 1}</td>
-  <td class="name">${escapeHtml(it.name ?? '')}</td>
+  <td>${escapeHtml(it.name ?? '')}</td>
   <td>${escapeHtml(String(it.qty ?? ''))}</td>
   <td>${escapeHtml(it.unit ?? '')}</td>
   <td>${escapeHtml(it.note ?? '')}</td>
@@ -84,6 +101,24 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
 </tr>`;
     })
     .join('\n');
+
+  const headName = p.signedByHead?.username ?? '';
+  const headAt = p.signedByHead?.signedAt ? new Date(p.signedByHead.signedAt).toLocaleString('ru-RU') : '';
+  const dirName = p.approvedByDirector?.username ?? '';
+  const dirAt = p.approvedByDirector?.signedAt ? new Date(p.approvedByDirector.signedAt).toLocaleString('ru-RU') : '';
+  const supplyName = p.acceptedBySupply?.username ?? '';
+  const supplyAt = p.acceptedBySupply?.signedAt ? new Date(p.acceptedBySupply.signedAt).toLocaleString('ru-RU') : '';
+
+  const footer = `
+  <div style="margin-top:18px;">
+    <div><b>Подпись начальника цеха:</b> _______________ ([Ф.И.О начальника цеха или подразделения]) ${escapeHtml(headName)} ${escapeHtml(headAt)}</div>
+    <div style="margin-top:8px;"><b>К исполнению. Подпись директора:</b> __________________ ([Ф.И.О директора завода или исполняющего обязанности директора]) ${escapeHtml(
+      dirName,
+    )} ${escapeHtml(dirAt)}</div>
+    <div style="margin-top:8px;"><b>Принято снабжением:</b> _______________________ ([Ф.И.О начальника снабжения]) ${escapeHtml(supplyName)} ${escapeHtml(
+      supplyAt,
+    )}</div>
+  </div>`;
 
   const html = `<!doctype html>
 <html>
@@ -97,7 +132,6 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
     .meta div { margin: 4px 0; }
     table { width: 100%; border-collapse: collapse; }
     table.items th, table.items td { border: 1px solid #ddd; padding: 9px 10px; text-align: left; font-size: 14px; vertical-align: top; }
-    table.items td.name { font-size: 15px; font-weight: 700; }
     th { background: #f5f5f5; }
     .muted { color: #666; }
     @media print { .no-print { display: none; } }
@@ -118,7 +152,16 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
   </div>
   <table class="items">
     <thead>
-      <tr>
+      ${
+        mode === 'short'
+          ? `<tr>
+        <th>№</th>
+        <th>Наименование</th>
+        <th>Кол-во</th>
+        <th>Ед.</th>
+        <th>Примечание</th>
+      </tr>`
+          : `<tr>
         <th>№</th>
         <th>Наименование</th>
         <th>Кол-во</th>
@@ -127,18 +170,20 @@ function printSupplyRequest(p: SupplyRequestPayload, departmentLabel: string, wo
         <th>Привезено</th>
         <th>Осталось</th>
         <th>Факт поставок</th>
-      </tr>
+      </tr>`
+      }
     </thead>
     <tbody>
-      ${rowsHtml || '<tr><td colspan="8" class="muted">Нет позиций</td></tr>'}
+      ${
+        rowsHtml ||
+        (mode === 'short'
+          ? '<tr><td colspan="5" class="muted">Нет позиций</td></tr>'
+          : '<tr><td colspan="8" class="muted">Нет позиций</td></tr>')
+      }
     </tbody>
   </table>
 
-  <div style="margin-top:18px;">
-    <div><b>Подпись начальника:</b> ${escapeHtml(p.signedByHead?.username ?? '')} ${p.signedByHead?.signedAt ? escapeHtml(new Date(p.signedByHead.signedAt).toLocaleString('ru-RU')) : ''}</div>
-    <div><b>Одобрение директора:</b> ${escapeHtml(p.approvedByDirector?.username ?? '')} ${p.approvedByDirector?.signedAt ? escapeHtml(new Date(p.approvedByDirector.signedAt).toLocaleString('ru-RU')) : ''}</div>
-    <div><b>Принято снабжением:</b> ${escapeHtml(p.acceptedBySupply?.username ?? '')} ${p.acceptedBySupply?.signedAt ? escapeHtml(new Date(p.acceptedBySupply.signedAt).toLocaleString('ru-RU')) : ''}</div>
-  </div>
+  ${footer}
 </body>
 </html>`;
 
@@ -166,27 +211,38 @@ export function SupplyRequestDetailsPage(props: {
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
+  const [productOptions, setProductOptions] = useState<{ name: string; unit: string }[]>([]);
 
   const saveTimer = useRef<any>(null);
   const lastSavedJson = useRef<string>('');
-  const activeInputEl = useRef<HTMLInputElement | null>(null);
+  const activeField = useRef<{ kind: 'item_name'; idx: number } | null>(null);
+  const activeEl = useRef<HTMLInputElement | null>(null);
+  const dragFromIdx = useRef<number | null>(null);
 
   function insertSymbol(symbol: string) {
-    const el = activeInputEl.current;
-    if (!el) return;
-    try {
-      const start = el.selectionStart ?? el.value.length;
-      const end = el.selectionEnd ?? el.value.length;
-      const next = el.value.slice(0, start) + symbol + el.value.slice(end);
-      el.value = next;
-      const pos = start + symbol.length;
-      el.setSelectionRange(pos, pos);
-      el.focus();
-      // Важно: чтобы сработал React onChange у Input, диспатчим input event.
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    } catch {
-      // ignore
-    }
+    const field = activeField.current;
+    const el = activeEl.current;
+    if (!field || field.kind !== 'item_name' || !payload || !el) return;
+    const idx = field.idx;
+    const cur = payload.items?.[idx];
+    if (!cur) return;
+    const start = el.selectionStart ?? String(cur.name ?? '').length;
+    const end = el.selectionEnd ?? start;
+    const curText = String(cur.name ?? '');
+    const nextText = curText.slice(0, start) + symbol + curText.slice(end);
+    const nextItems = [...(payload.items ?? [])];
+    nextItems[idx] = { ...nextItems[idx], name: nextText };
+    scheduleSave({ ...payload, items: nextItems });
+
+    const pos = start + symbol.length;
+    setTimeout(() => {
+      try {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      } catch {
+        // ignore
+      }
+    }, 0);
   }
 
   async function load() {
@@ -217,6 +273,21 @@ export function SupplyRequestDetailsPage(props: {
     await loadType('department', 'departmentId');
     await loadType('workshop', 'workshopId');
     await loadType('section', 'sectionId');
+
+    // Product suggestions (master-data)
+    const productTid = typeIdByCode.get('product');
+    if (productTid) {
+      const rows = await window.matrica.admin.entities.listByEntityType(productTid);
+      // For MVP: use displayName as name (entityService picks 'name' if present).
+      // Unit can be fetched later by entity:get, but keep empty for now to avoid heavy N+1 calls.
+      setProductOptions(
+        rows
+          .map((r: any) => ({ name: String(r.displayName ?? ''), unit: '' }))
+          .filter((x) => x.name.trim().length > 0),
+      );
+    } else {
+      setProductOptions([]);
+    }
   }
 
   useEffect(() => {
@@ -287,14 +358,24 @@ export function SupplyRequestDetailsPage(props: {
           ← Назад
         </Button>
         {props.canPrint && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel);
-            }}
-          >
-            Печать
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel, 'short');
+              }}
+            >
+              Печать (кратко)
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel, 'full');
+              }}
+            >
+              Печать (полно)
+            </Button>
+          </>
         )}
         <div style={{ flex: 1 }} />
         {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
@@ -480,6 +561,12 @@ export function SupplyRequestDetailsPage(props: {
       <div style={{ marginTop: 14 }}>
         <h2 style={{ margin: '8px 0' }}>Список товаров</h2>
 
+        <datalist id="supply-products">
+          {productOptions.map((p, i) => (
+            <option key={`${p.name}-${i}`} value={p.name} />
+          ))}
+        </datalist>
+
         <div style={{ margin: '6px 0 10px 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ color: '#64748b', fontSize: 12 }}>Вставка символов:</div>
           <Button variant="ghost" onClick={() => insertSymbol('⌀')}>
@@ -497,40 +584,22 @@ export function SupplyRequestDetailsPage(props: {
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ flex: 1, color: '#6b7280' }}>
-            Позиции заявки: наименование, количество, единица, примечание, фактические поставки.
-          </div>
-          {props.canEdit && (
-            <Button
-              onClick={() => {
-                const nextItem: SupplyRequestItem = {
-                  lineNo: (payload.items?.length ?? 0) + 1,
-                  name: '',
-                  qty: 1,
-                  unit: 'шт',
-                  note: '',
-                  deliveries: [],
-                };
-                scheduleSave({ ...payload, items: [...(payload.items ?? []), nextItem] });
-              }}
-            >
-              Добавить позицию
-            </Button>
-          )}
+          <div style={{ flex: 1, color: '#6b7280' }}>Позиции заявки: наименование, количество, единица, примечание, фактические поставки.</div>
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>№</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Наименование</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Кол-во</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Ед.</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Примечание</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Привезено</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Осталось</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }} />
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6, width: 34 }} />
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>№</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Наименование</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Кол-во</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Ед.</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Примечание</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Привезено</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Осталось</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }} />
               </tr>
             </thead>
             <tbody>
@@ -539,25 +608,92 @@ export function SupplyRequestDetailsPage(props: {
                 const remaining = Math.max(0, (Number(it.qty) || 0) - delivered);
                 return (
                   <React.Fragment key={idx}>
-                    <tr>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{idx + 1}</td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                    <tr
+                      onDragOver={(e) => {
+                        if (!props.canEdit) return;
+                        e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        if (!props.canEdit) return;
+                        e.preventDefault();
+                        const from =
+                          dragFromIdx.current ??
+                          (() => {
+                            try {
+                              const raw = e.dataTransfer.getData('text/plain');
+                              const n = Number(raw);
+                              return Number.isFinite(n) ? n : null;
+                            } catch {
+                              return null;
+                            }
+                          })();
+                        if (from == null) return;
+                        const to = idx;
+                        if (from === to) return;
+                        const items = [...(payload.items ?? [])];
+                        if (!items[from] || !items[to]) return;
+                        const [moved] = items.splice(from, 1);
+                        items.splice(to, 0, moved);
+                        const renum = items.map((x, i) => ({ ...x, lineNo: i + 1 }));
+                        scheduleSave({ ...payload, items: renum });
+                      }}
+                    >
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 34 }}>
+                        <span
+                          title="Перетащить строку"
+                          draggable={props.canEdit}
+                          onDragStart={(e) => {
+                            if (!props.canEdit) return;
+                            dragFromIdx.current = idx;
+                            try {
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', String(idx));
+                            } catch {
+                              // ignore
+                            }
+                          }}
+                          onDragEnd={() => {
+                            dragFromIdx.current = null;
+                          }}
+                          style={{
+                            cursor: props.canEdit ? 'grab' : 'default',
+                            userSelect: 'none',
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(15,23,42,0.18)',
+                            color: '#475569',
+                            background: 'rgba(255,255,255,0.9)',
+                            fontSize: 12,
+                          }}
+                        >
+                          ⠿
+                        </span>
+                      </td>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>{idx + 1}</td>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
                         <Input
                           value={it.name}
                           disabled={!props.canEdit}
+                          list="supply-products"
                           onChange={(e) => {
                             const items = [...(payload.items ?? [])];
                             items[idx] = { ...items[idx], name: e.target.value };
                             scheduleSave({ ...payload, items });
                           }}
                           onFocus={(e) => {
-                            activeInputEl.current = e.currentTarget;
+                            activeEl.current = e.currentTarget;
+                            activeField.current = { kind: 'item_name', idx };
                           }}
+                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                           placeholder="Наименование товара…"
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 120 }}>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
                         <Input
+                          type="number"
+                          step={1}
+                          inputMode="numeric"
                           value={String(it.qty ?? '')}
                           disabled={!props.canEdit}
                           onChange={(e) => {
@@ -567,11 +703,13 @@ export function SupplyRequestDetailsPage(props: {
                             scheduleSave({ ...payload, items });
                           }}
                           onFocus={(e) => {
-                            activeInputEl.current = e.currentTarget;
+                            activeEl.current = e.currentTarget;
+                            activeField.current = null;
                           }}
+                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 120 }}>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
                         <Input
                           value={String(it.unit ?? '')}
                           disabled={!props.canEdit}
@@ -581,11 +719,13 @@ export function SupplyRequestDetailsPage(props: {
                             scheduleSave({ ...payload, items });
                           }}
                           onFocus={(e) => {
-                            activeInputEl.current = e.currentTarget;
+                            activeEl.current = e.currentTarget;
+                            activeField.current = null;
                           }}
+                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
                         <Input
                           value={String(it.note ?? '')}
                           disabled={!props.canEdit}
@@ -595,13 +735,15 @@ export function SupplyRequestDetailsPage(props: {
                             scheduleSave({ ...payload, items });
                           }}
                           onFocus={(e) => {
-                            activeInputEl.current = e.currentTarget;
+                            activeEl.current = e.currentTarget;
+                            activeField.current = null;
                           }}
+                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 90 }}>{delivered}</td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 90 }}>{remaining}</td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 210 }}>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 86 }}>{delivered}</td>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 86 }}>{remaining}</td>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 210 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <Button
                             variant="ghost"
@@ -628,7 +770,7 @@ export function SupplyRequestDetailsPage(props: {
                     </tr>
                     {expandedLine === idx && (
                       <tr>
-                        <td colSpan={8} style={{ padding: 12, background: '#f8fafc', borderBottom: '1px solid #f3f4f6' }}>
+                        <td colSpan={9} style={{ padding: 10, background: '#f8fafc', borderBottom: '1px solid #f3f4f6' }}>
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
                             <div style={{ fontWeight: 700 }}>Фактические поставки</div>
                             <div style={{ flex: 1 }} />
@@ -658,7 +800,7 @@ export function SupplyRequestDetailsPage(props: {
                                 gridTemplateColumns: '160px 120px 1fr 120px',
                                 gap: 10,
                                 alignItems: 'center',
-                                marginBottom: 8,
+                                marginBottom: 6,
                               }}
                             >
                               <Input
@@ -676,10 +818,15 @@ export function SupplyRequestDetailsPage(props: {
                                   scheduleSave({ ...payload, items });
                                 }}
                                 onFocus={(e) => {
-                                  activeInputEl.current = e.currentTarget;
+                                  activeEl.current = e.currentTarget;
+                                  activeField.current = null;
                                 }}
+                                style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                               />
                               <Input
+                                type="number"
+                                step={1}
+                                inputMode="numeric"
                                 value={String(d.qty ?? '')}
                                 disabled={!props.canEdit}
                                 onChange={(e) => {
@@ -692,8 +839,10 @@ export function SupplyRequestDetailsPage(props: {
                                   scheduleSave({ ...payload, items });
                                 }}
                                 onFocus={(e) => {
-                                  activeInputEl.current = e.currentTarget;
+                                  activeEl.current = e.currentTarget;
+                                  activeField.current = null;
                                 }}
+                                style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                               />
                               <Input
                                 value={String(d.note ?? '')}
@@ -707,8 +856,10 @@ export function SupplyRequestDetailsPage(props: {
                                   scheduleSave({ ...payload, items });
                                 }}
                                 onFocus={(e) => {
-                                  activeInputEl.current = e.currentTarget;
+                                  activeEl.current = e.currentTarget;
+                                  activeField.current = null;
                                 }}
+                                style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                                 placeholder="Примечание…"
                               />
                               {props.canEdit ? (
@@ -747,6 +898,27 @@ export function SupplyRequestDetailsPage(props: {
             </tbody>
           </table>
         </div>
+
+        {props.canEdit && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+            <div style={{ flex: 1 }} />
+            <Button
+              onClick={() => {
+                const nextItem: SupplyRequestItem = {
+                  lineNo: (payload.items?.length ?? 0) + 1,
+                  name: '',
+                  qty: 1,
+                  unit: 'шт',
+                  note: '',
+                  deliveries: [],
+                };
+                scheduleSave({ ...payload, items: [...(payload.items ?? []), nextItem] });
+              }}
+            >
+              Добавить позицию
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

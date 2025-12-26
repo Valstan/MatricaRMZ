@@ -20,7 +20,7 @@ function statusLabel(s: string): string {
     case 'draft':
       return 'Черновик';
     case 'signed':
-      return 'Подписана начальником';
+      return 'Подписана начальником цеха';
     case 'director_approved':
       return 'Одобрена директором';
     case 'accepted':
