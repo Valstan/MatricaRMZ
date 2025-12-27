@@ -265,6 +265,8 @@ export const fileAssets = pgTable(
     localRelPath: text('local_rel_path'),
     // For Yandex: full disk path (as used in API calls)
     yandexDiskPath: text('yandex_disk_path'),
+    
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
     shaUq: uniqueIndex('file_assets_sha256_uq').on(t.sha256),

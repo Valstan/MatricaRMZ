@@ -8,7 +8,7 @@ import { db } from '../database/db.js';
 import { fileAssets } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 // Multipart parser (no 3rd party): we accept base64 payload for MVP.
 // NOTE: For large files, Electron will stream later; for now keep it simple.
@@ -99,7 +99,7 @@ filesRouter.get('/:id/meta', requirePermission(PermissionCode.FilesView), async 
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const rows = await db.select().from(fileAssets).where(eq(fileAssets.id, id as any)).limit(1);
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
     if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
 
@@ -135,7 +135,7 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
     if (size > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `file too large (>${MAX_UPLOAD_BYTES} bytes)` });
 
     // de-dup
-    const existing = await db.select().from(fileAssets).where(eq(fileAssets.sha256, parsed.data.sha256)).limit(1);
+    const existing = await db.select().from(fileAssets).where(and(eq(fileAssets.sha256, parsed.data.sha256), isNull(fileAssets.deletedAt))).limit(1);
     if (existing[0]) {
       const row = existing[0] as any;
       // If it already exists as yandex asset, allow re-upload by returning a fresh uploadUrl
@@ -237,7 +237,7 @@ filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const rows = await db.select().from(fileAssets).where(eq(fileAssets.id, id as any)).limit(1);
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
     if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
 
@@ -276,7 +276,7 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
     const sha256 = createHash('sha256').update(bytes).digest('hex');
 
     // de-dup by sha256 (so links are stable and cacheable)
-    const existing = await db.select().from(fileAssets).where(eq(fileAssets.sha256, sha256)).limit(1);
+    const existing = await db.select().from(fileAssets).where(and(eq(fileAssets.sha256, sha256), isNull(fileAssets.deletedAt))).limit(1);
     if (existing[0]) {
       const row = existing[0] as any;
       return res.json({
@@ -359,7 +359,7 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const rows = await db.select().from(fileAssets).where(eq(fileAssets.id, id as any)).limit(1);
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
     if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
 
@@ -407,7 +407,7 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const rows = await db.select().from(fileAssets).where(eq(fileAssets.id, id as any)).limit(1);
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
     if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
 
