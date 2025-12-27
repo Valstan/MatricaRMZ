@@ -16,7 +16,8 @@ async function fetchAuthedJson(
 
   const headers = new Headers(init.headers ?? {});
   headers.set('Authorization', `Bearer ${session.accessToken}`);
-  const r1 = await net.fetch(url, { ...init, headers });
+  const fetchOptions: RequestInit = { ...init, headers, method: init.method ?? 'GET' };
+  const r1 = await net.fetch(url, fetchOptions);
   if (r1.status === 401 || r1.status === 403) {
     if (session.refreshToken) {
       const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
@@ -26,7 +27,8 @@ async function fetchAuthedJson(
       }
       const headers2 = new Headers(init.headers ?? {});
       headers2.set('Authorization', `Bearer ${refreshed.accessToken}`);
-      const r2 = await net.fetch(url, { ...init, headers: headers2 });
+      const fetchOptions2: RequestInit = { ...init, headers: headers2, method: init.method ?? 'GET' };
+      const r2 = await net.fetch(url, fetchOptions2);
       return { ok: r2.ok, status: r2.status, json: await r2.json().catch(() => null), text: await r2.text().catch(() => '') };
     }
     await clearSession(db).catch(() => {});
@@ -116,14 +118,19 @@ export async function partsCreate(
   | { ok: false; error: string }
 > {
   try {
+    const body = JSON.stringify({ attributes: args?.attributes });
     const r = await fetchAuthedJson(db, apiBaseUrl, '/parts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attributes: args?.attributes }),
+      body,
     });
     if (!r.ok) return { ok: false, error: `create HTTP ${r.status}: ${r.text ?? ''}`.trim() };
     if (!r.json) return { ok: false, error: `create response missing json: ${r.text ?? ''}`.trim() };
     if (!r.json.ok) return { ok: false, error: r.json.error ?? 'bad create response' };
+    // Проверяем, что это ответ от POST, а не от GET (который возвращает parts вместо part)
+    if (r.json.parts !== undefined) {
+      return { ok: false, error: `wrong endpoint: got list response instead of create. status=${r.status}, response=${JSON.stringify(r.json)}` };
+    }
     if (!r.json.part || !r.json.part.id) {
       return { ok: false, error: `create response missing part.id: ${JSON.stringify(r.json)}` };
     }
