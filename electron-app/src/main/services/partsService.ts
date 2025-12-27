@@ -133,11 +133,13 @@ export async function partsCreate(
 > {
   try {
     const body = JSON.stringify({ attributes: args?.attributes });
+    console.log('[partsService] partsCreate: sending POST to', `${apiBaseUrl}/parts`, 'body:', body);
     const r = await fetchAuthedJson(db, apiBaseUrl, '/parts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
     });
+    console.log('[partsService] partsCreate: response status=', r.status, 'json=', r.json);
     if (!r.ok) return { ok: false, error: `create HTTP ${r.status}: ${r.text ?? ''}`.trim() };
     if (!r.json) return { ok: false, error: `create response missing json: ${r.text ?? ''}`.trim() };
     if (!r.json.ok) return { ok: false, error: r.json.error ?? 'bad create response' };
