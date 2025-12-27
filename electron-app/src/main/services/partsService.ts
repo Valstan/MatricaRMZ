@@ -4,6 +4,7 @@ import { net } from 'electron';
 import { getSession } from './authService.js';
 import { authRefresh, clearSession } from './authService.js';
 
+// Локальная функция fetchAuthedJson (аналогичная fileService, но без циклических зависимостей)
 async function fetchAuthedJson(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -14,9 +15,10 @@ async function fetchAuthedJson(
   const session = await getSession(db).catch(() => null);
   if (!session?.accessToken) return { ok: false, status: 401, text: 'auth required' };
 
+  const method = init.method ?? 'GET';
   const headers = new Headers(init.headers ?? {});
   headers.set('Authorization', `Bearer ${session.accessToken}`);
-  const fetchOptions: RequestInit = { ...init, headers, method: init.method ?? 'GET' };
+  const fetchOptions: RequestInit = { ...init, headers, method };
   const r1 = await net.fetch(url, fetchOptions);
   if (r1.status === 401 || r1.status === 403) {
     if (session.refreshToken) {
@@ -27,7 +29,7 @@ async function fetchAuthedJson(
       }
       const headers2 = new Headers(init.headers ?? {});
       headers2.set('Authorization', `Bearer ${refreshed.accessToken}`);
-      const fetchOptions2: RequestInit = { ...init, headers: headers2, method: init.method ?? 'GET' };
+      const fetchOptions2: RequestInit = { ...init, headers: headers2, method };
       const r2 = await net.fetch(url, fetchOptions2);
       return { ok: r2.ok, status: r2.status, json: await r2.json().catch(() => null), text: await r2.text().catch(() => '') };
     }
