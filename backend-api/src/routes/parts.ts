@@ -19,7 +19,10 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
       return res.status(400).json({ ok: false, error: parsed.error.flatten() });
     }
 
-    const result = await listParts({ q: parsed.data.q, limit: parsed.data.limit });
+    const result = await listParts({
+      ...(parsed.data.q !== undefined && { q: parsed.data.q }),
+      ...(parsed.data.limit !== undefined && { limit: parsed.data.limit }),
+    });
     return res.json(result);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -54,7 +57,7 @@ partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req,
 
     const result = await createPart({
       actor: actor.username,
-      attributes: parsed.data.attributes,
+      ...(parsed.data.attributes !== undefined && { attributes: parsed.data.attributes }),
     });
     if (!result.ok) {
       return res.status(500).json(result);

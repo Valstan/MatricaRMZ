@@ -127,10 +127,13 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
     for (const attr of attrRows) {
       if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
       const val = attr.valueJson ? safeJsonParse(attr.valueJson) : null;
-      if (attr.attributeDefId === nameAttrId && typeof val === 'string') {
-        attrsByEntity[attr.entityId].name = val;
-      } else if (attr.attributeDefId === articleAttrId && typeof val === 'string') {
-        attrsByEntity[attr.entityId].article = val;
+      const entityAttrs = attrsByEntity[attr.entityId];
+      if (entityAttrs) {
+        if (attr.attributeDefId === nameAttrId && typeof val === 'string') {
+          entityAttrs.name = val;
+        } else if (attr.attributeDefId === articleAttrId && typeof val === 'string') {
+          entityAttrs.article = val;
+        }
       }
     }
 
@@ -145,13 +148,16 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
       });
     }
 
-    const parts = filtered.map((e) => ({
-      id: e.id,
-      name: attrsByEntity[e.id]?.name,
-      article: attrsByEntity[e.id]?.article,
-      createdAt: Number(e.createdAt),
-      updatedAt: Number(e.updatedAt),
-    }));
+    const parts = filtered.map((e) => {
+      const attrs = attrsByEntity[e.id];
+      return {
+        id: e.id,
+        ...(attrs?.name && { name: attrs.name }),
+        ...(attrs?.article && { article: attrs.article }),
+        createdAt: Number(e.createdAt),
+        updatedAt: Number(e.updatedAt),
+      };
+    });
 
     return { ok: true, parts };
   } catch (e) {
@@ -195,6 +201,9 @@ export async function getPart(args: { partId: string }): Promise<
     }
 
     const entity = entityRows[0];
+    if (!entity) {
+      return { ok: false, error: 'part not found' };
+    }
 
     // Получаем все атрибуты типа Part
     const attrDefs = await db
@@ -353,6 +362,7 @@ export async function updatePartAttribute(args: {
     if (!attrDefRows.length) return { ok: false, error: 'attribute not found' };
 
     const attrDef = attrDefRows[0];
+    if (!attrDef) return { ok: false, error: 'attribute not found' };
     const ts = nowMs();
 
     // Обновляем или создаем значение атрибута
