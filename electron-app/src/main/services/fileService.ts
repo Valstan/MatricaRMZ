@@ -11,6 +11,8 @@ import { authRefresh, clearSession, getSession } from './authService.js';
 
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
 
+export type UploadScope = { ownerType: string; ownerId: string; category: string };
+
 function safeFilename(name: string): string {
   const base = name.replaceAll('\\', '/').split('/').pop() || 'file';
   return base.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
@@ -75,7 +77,11 @@ async function sha256OfFile(filePath: string): Promise<string> {
   return hash.digest('hex');
 }
 
-export async function filesUpload(db: BetterSQLite3Database, apiBaseUrl: string, args: { path: string }): Promise<{ ok: true; file: FileRef } | { ok: false; error: string }> {
+export async function filesUpload(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { path: string; scope?: UploadScope },
+): Promise<{ ok: true; file: FileRef } | { ok: false; error: string }> {
   try {
     const filePath = String(args.path || '').trim();
     if (!filePath) return { ok: false, error: 'path is empty' };
@@ -88,10 +94,17 @@ export async function filesUpload(db: BetterSQLite3Database, apiBaseUrl: string,
 
     // Large file: init Yandex upload (backend returns pre-signed uploadUrl), then PUT directly to Yandex.
     if (size > MAX_LOCAL_BYTES) {
+      const scope = args.scope;
       const initRes = await fetchAuthedJson(db, apiBaseUrl, '/files/yandex/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, size, sha256, mime: null }),
+        body: JSON.stringify({
+          name,
+          size,
+          sha256,
+          mime: null,
+          ...(scope ? { scope } : {}),
+        }),
       });
       if (!initRes.ok) return { ok: false, error: `init HTTP ${initRes.status}: ${initRes.text ?? ''}`.trim() };
       const json = initRes.json as any;
@@ -113,11 +126,17 @@ export async function filesUpload(db: BetterSQLite3Database, apiBaseUrl: string,
     }
 
     // Small file: upload to backend (base64)
+    const scope = args.scope;
     const buf = await fsp.readFile(filePath);
     const r = await fetchAuthedJson(db, apiBaseUrl, '/files/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, mime: null, dataBase64: buf.toString('base64') }),
+      body: JSON.stringify({
+        name,
+        mime: null,
+        dataBase64: buf.toString('base64'),
+        ...(scope ? { scope } : {}),
+      }),
     });
     if (!r.ok) return { ok: false, error: `upload HTTP ${r.status}: ${r.text ?? ''}`.trim() };
     if (!r.json?.ok || !r.json?.file) return { ok: false, error: 'bad upload response' };

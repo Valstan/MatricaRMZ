@@ -224,3 +224,45 @@ export async function partsGetFiles(
     return { ok: false, error: String(e) };
   }
 }
+
+export async function partsCreateAttributeDef(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: {
+    code: string;
+    name: string;
+    dataType: 'text' | 'number' | 'boolean' | 'date' | 'json' | 'link';
+    isRequired?: boolean;
+    sortOrder?: number;
+    metaJson?: string | null;
+  },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    const code = String(args.code ?? '').trim();
+    const name = String(args.name ?? '').trim();
+    if (!code) return { ok: false, error: 'code is empty' };
+    if (!name) return { ok: false, error: 'name is empty' };
+
+    const payload: any = {
+      code,
+      name,
+      dataType: args.dataType,
+    };
+    if (args.isRequired !== undefined) payload.isRequired = args.isRequired;
+    if (args.sortOrder !== undefined) payload.sortOrder = args.sortOrder;
+    if (args.metaJson !== undefined) payload.metaJson = args.metaJson;
+
+    const r = await fetchAuthedJson(db, apiBaseUrl, '/parts/attribute-defs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) return { ok: false, error: `attributeDefCreate HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    if (!r.json?.ok) return { ok: false, error: r.json?.error ? String(r.json.error) : 'bad attributeDefCreate response' };
+    const id = String(r.json?.id ?? '');
+    if (!id) return { ok: false, error: 'attributeDefCreate response missing id' };
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}

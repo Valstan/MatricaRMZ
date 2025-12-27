@@ -294,6 +294,8 @@ export function App() {
             partId={selectedPartId}
             canEdit={caps.canEditParts}
             canDelete={caps.canDeleteParts}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
             onBack={() => setTab('parts')}
           />
         )}

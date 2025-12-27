@@ -26,6 +26,7 @@ export function AttachmentsPanel(props: {
   value: unknown; // FileRef[] in JSON
   canView: boolean;
   canUpload: boolean;
+  scope?: { ownerType: string; ownerId: string; category: string };
   onChange: (next: FileRef[]) => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState<string>('');
@@ -40,7 +41,7 @@ export function AttachmentsPanel(props: {
     try {
       const added: FileRef[] = [];
       for (const p of unique) {
-        const r = await window.matrica.files.upload({ path: p });
+        const r = await window.matrica.files.upload({ path: p, ...(props.scope ? { scope: props.scope } : {}) });
         if (!r.ok) throw new Error(r.error);
         added.push(r.file);
       }

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { createPart, deletePart, getPart, listParts, updatePartAttribute } from '../services/partsService.js';
+import { createPart, createPartAttributeDef, deletePart, getPart, listParts, updatePartAttribute } from '../services/partsService.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 
@@ -68,6 +68,48 @@ partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req,
     return res.json(result);
   } catch (e) {
     console.error('[parts] POST /parts error:', e);
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Создать новое поле (attribute_def) для карточки детали (для расширения карты без миграций).
+partsRouter.post('/attribute-defs', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const schema = z.object({
+      code: z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z][a-z0-9_]*$/i, 'code must match ^[a-z][a-z0-9_]*$'),
+      name: z.string().min(1).max(200),
+      dataType: z.enum(['text', 'number', 'boolean', 'date', 'json', 'link']),
+      isRequired: z.boolean().optional(),
+      sortOrder: z.coerce.number().int().min(0).max(100_000).optional(),
+      metaJson: z.string().max(20_000).nullable().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    }
+
+    const result = await createPartAttributeDef({
+      actor: actor.username,
+      code: parsed.data.code,
+      name: parsed.data.name,
+      dataType: parsed.data.dataType,
+      ...(parsed.data.isRequired !== undefined && { isRequired: parsed.data.isRequired }),
+      ...(parsed.data.sortOrder !== undefined && { sortOrder: parsed.data.sortOrder }),
+      ...(parsed.data.metaJson !== undefined && { metaJson: parsed.data.metaJson }),
+    });
+
+    if (!result.ok) {
+      const status = result.error.includes('already exists') ? 409 : 500;
+      return res.status(status).json(result);
+    }
+
+    return res.json(result);
+  } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

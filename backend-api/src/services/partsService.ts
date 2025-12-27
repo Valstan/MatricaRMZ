@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
-import { EntityTypeCode } from '@matricarmz/shared';
+import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
@@ -36,9 +36,59 @@ async function getPartEntityTypeId(): Promise<string | null> {
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
+async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
+  // Important: UI renders fields based on attribute_defs. If none exist, the Part card looks "empty".
+  const existing = await db
+    .select({ code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, partTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(10_000);
+  const have = new Set(existing.map((r) => String(r.code)));
+
+  const ts = nowMs();
+  async function ensure(code: string, name: string, dataType: string, sortOrder: number) {
+    if (have.has(code)) return;
+    await db.insert(attributeDefs).values({
+      id: randomUUID(),
+      entityTypeId: partTypeId,
+      code,
+      name,
+      dataType,
+      isRequired: false,
+      sortOrder,
+      metaJson: null,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+    have.add(code);
+  }
+
+  // Base fields (MVP) + required buckets for the redesigned UI.
+  await ensure('name', 'Название', AttributeDataType.Text, 10);
+  await ensure('article', 'Артикул / обозначение', AttributeDataType.Text, 20);
+  await ensure('description', 'Описание', AttributeDataType.Text, 30);
+
+  // Links
+  await ensure('engine_brand_ids', 'Марки двигателя', AttributeDataType.Json, 40); // string[] of engine_brand ids
+
+  // Purchase
+  await ensure('purchase_date', 'Дата покупки', AttributeDataType.Date, 50);
+  await ensure('supplier', 'Поставщик', AttributeDataType.Text, 60);
+
+  // Files (stored as FileRef[] in json)
+  await ensure('drawings', 'Чертежи', AttributeDataType.Json, 200);
+  await ensure('tech_docs', 'Технология', AttributeDataType.Json, 210);
+  await ensure('attachments', 'Вложения', AttributeDataType.Json, 9990);
+}
+
 async function ensurePartEntityType(): Promise<string> {
   const existing = await getPartEntityTypeId();
-  if (existing) return existing;
+  if (existing) {
+    await ensurePartAttributeDefs(existing);
+    return existing;
+  }
 
   const id = randomUUID();
   const ts = nowMs();
@@ -51,7 +101,83 @@ async function ensurePartEntityType(): Promise<string> {
     deletedAt: null,
     syncStatus: 'synced',
   });
+
+  await ensurePartAttributeDefs(id);
   return id;
+}
+
+export async function createPartAttributeDef(args: {
+  actor: string;
+  code: string;
+  name: string;
+  dataType: string;
+  isRequired?: boolean;
+  sortOrder?: number;
+  metaJson?: string | null;
+}): Promise<
+  | {
+      ok: true;
+      id: string;
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const typeId = await ensurePartEntityType();
+    const ts = nowMs();
+
+    const code = String(args.code ?? '').trim();
+    const name = String(args.name ?? '').trim();
+    const dataType = String(args.dataType ?? '').trim();
+    const sortOrder = Number(args.sortOrder ?? 0) || 0;
+    const isRequired = args.isRequired === true;
+    const metaJson = args.metaJson == null ? null : String(args.metaJson);
+
+    if (!code) return { ok: false, error: 'code is empty' };
+    if (!name) return { ok: false, error: 'name is empty' };
+    if (!dataType) return { ok: false, error: 'dataType is empty' };
+
+    const existing = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, code), isNull(attributeDefs.deletedAt)))
+      .limit(1);
+    if (existing[0]?.id) {
+      return { ok: false, error: `attribute already exists: ${code}` };
+    }
+
+    const id = randomUUID();
+    await db.insert(attributeDefs).values({
+      id,
+      entityTypeId: typeId,
+      code,
+      name,
+      dataType,
+      isRequired,
+      sortOrder,
+      metaJson,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      actor: args.actor,
+      action: 'part.attribute_def.create',
+      entityId: null,
+      tableName: 'attribute_defs',
+      payloadJson: JSON.stringify({ entityTypeCode: EntityTypeCode.Part, entityTypeId: typeId, attributeDefId: id, code, name, dataType }),
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'pending',
+    });
+
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 export async function listParts(args?: { q?: string; limit?: number }): Promise<

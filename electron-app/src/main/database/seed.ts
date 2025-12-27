@@ -86,6 +86,8 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(engineTypeId, 'section_id', 'Участок', AttributeDataType.Link, 70);
 
   // Common attachments for all master-data entities (универсально, чтобы "везде" можно было прикреплять файлы).
+  // EngineBrand (марки двигателя) — минимум: имя + вложения.
+  await ensureAttrDef(engineBrandTypeId, 'name', 'Название', AttributeDataType.Text, 10);
   await ensureAttrDef(engineBrandTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Customer

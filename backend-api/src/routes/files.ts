@@ -19,6 +19,8 @@ filesRouter.use(requireAuth);
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 250 * 1024 * 1024; // hard safety cap
 
+type UploadScope = { ownerType: string; ownerId: string; category: string };
+
 function uploadsDir(): string {
   // default under backend-api/uploads (systemd WorkingDirectory points to backend-api)
   return process.env.MATRICA_UPLOADS_DIR?.trim() || 'uploads';
@@ -32,6 +34,23 @@ function safeFilename(name: string): string {
   // minimal sanitization (keep extension, remove path separators)
   const base = name.replaceAll('\\', '/').split('/').pop() || 'file';
   return base.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
+}
+
+function safePathSegment(raw: string, fallback: string): string {
+  const s = String(raw || '').trim().replaceAll('\\', '/').split('/').filter(Boolean).join('_');
+  const cleaned = s.replaceAll(/[^a-zA-Z0-9а-яА-Я._-]+/g, '_').replaceAll(/_+/g, '_').slice(0, 120);
+  return cleaned || fallback;
+}
+
+function yandexDiskPathForFile(args: { baseYandexPath: string; fileId: string; fileName: string; scope?: UploadScope | null }): string {
+  const base = args.baseYandexPath.replace(/\/+$/, '') || '/';
+  if (!args.scope) {
+    return `${base}/${args.fileId}_${args.fileName}`;
+  }
+  const ownerType = safePathSegment(args.scope.ownerType, 'owner');
+  const ownerId = safePathSegment(args.scope.ownerId, 'id');
+  const category = safePathSegment(args.scope.category, 'files');
+  return `${base}/${ownerType}/${ownerId}/${category}/${args.fileId}_${args.fileName}`;
 }
 
 async function yandexEnsureFolder(token: string, folderPath: string) {
@@ -51,13 +70,26 @@ async function yandexEnsureFolder(token: string, folderPath: string) {
   }
 }
 
+async function yandexEnsureFolderDeep(token: string, folderPath: string) {
+  const p = folderPath.replaceAll('\\', '/').replace(/\/+$/, '');
+  if (!p.startsWith('/')) throw new Error(`Invalid yandex folderPath (must start with '/'): ${folderPath}`);
+  if (p === '/') return;
+  const parts = p.split('/').filter(Boolean);
+  let cur = '';
+  for (const part of parts) {
+    cur += `/${part}`;
+    // mkdir is idempotent via yandexEnsureFolder (GET then PUT)
+    await yandexEnsureFolder(token, cur);
+  }
+}
+
 async function yandexUpload(_args: { diskPath: string; bytes: Buffer; mime: string | null }) {
   const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
   if (!token) throw new Error('YANDEX_DISK_TOKEN is not configured');
 
   // Ensure parent folder exists, otherwise Yandex returns 409 on resources/upload.
   const parent = dirname(_args.diskPath.replaceAll('\\', '/')) || '/';
-  await yandexEnsureFolder(token, parent);
+  await yandexEnsureFolderDeep(token, parent);
 
   // 1) get upload href
   const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
@@ -127,6 +159,13 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
       mime: z.string().max(200).optional().nullable(),
       size: z.number().int().positive(),
       sha256: z.string().min(16).max(128),
+      scope: z
+        .object({
+          ownerType: z.string().min(1).max(64),
+          ownerId: z.string().min(1).max(200),
+          category: z.string().min(1).max(64),
+        })
+        .optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -146,7 +185,7 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
 
         const diskPath = String(row.yandexDiskPath);
         const parent = dirname(diskPath.replaceAll('\\', '/')) || '/';
-        await yandexEnsureFolder(token, parent);
+        await yandexEnsureFolderDeep(token, parent);
 
         const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
         q.searchParams.set('path', diskPath);
@@ -195,14 +234,21 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
     const createdAt = nowMs();
     const name = safeFilename(parsed.data.name);
     const mime = parsed.data.mime ? String(parsed.data.mime) : null;
-    const diskPath = `${baseYandexPath.replace(/\/+$/, '')}/${id}_${name}`;
+    const diskPath = yandexDiskPathForFile({
+      baseYandexPath,
+      fileId: id,
+      fileName: name,
+      scope: (parsed.data.scope ?? null) as any,
+    });
 
     // Get pre-signed upload URL (href). Client will PUT directly to it.
     const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
     if (!token) return res.status(500).json({ ok: false, error: 'YANDEX_DISK_TOKEN is not configured' });
 
     // Ensure base folder exists on Yandex.Disk (mkdir is idempotent).
-    await yandexEnsureFolder(token, baseYandexPath.replace(/\/+$/, '') || '/');
+    await yandexEnsureFolderDeep(token, baseYandexPath.replace(/\/+$/, '') || '/');
+    // Ensure target folder exists (nested scopes).
+    await yandexEnsureFolderDeep(token, dirname(diskPath.replaceAll('\\', '/')) || '/');
 
     const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
     q.searchParams.set('path', diskPath);
@@ -265,6 +311,13 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
       name: z.string().min(1).max(400),
       mime: z.string().max(200).optional().nullable(),
       dataBase64: z.string().min(1),
+      scope: z
+        .object({
+          ownerType: z.string().min(1).max(64),
+          ownerId: z.string().min(1).max(200),
+          category: z.string().min(1).max(64),
+        })
+        .optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -332,7 +385,12 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
     if (!baseYandexPath) {
       return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH is not configured (required for large files)' });
     }
-    const diskPath = `${baseYandexPath.replace(/\/+$/, '')}/${id}_${name}`;
+    const diskPath = yandexDiskPathForFile({
+      baseYandexPath,
+      fileId: id,
+      fileName: name,
+      scope: (parsed.data.scope ?? null) as any,
+    });
     await yandexUpload({ diskPath, bytes, mime });
 
     await db.insert(fileAssets).values({

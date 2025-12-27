@@ -105,13 +105,21 @@ contextBridge.exposeInMainWorld('matrica', {
     list: async (args?: { q?: string; limit?: number }) => ipcRenderer.invoke('parts:list', args),
     get: async (partId: string) => ipcRenderer.invoke('parts:get', partId),
     create: async (args?: { attributes?: Record<string, unknown> }) => ipcRenderer.invoke('parts:create', args),
+    createAttributeDef: async (args: {
+      code: string;
+      name: string;
+      dataType: 'text' | 'number' | 'boolean' | 'date' | 'json' | 'link';
+      isRequired?: boolean;
+      sortOrder?: number;
+      metaJson?: string | null;
+    }) => ipcRenderer.invoke('parts:attributeDefCreate', args),
     updateAttribute: async (args: { partId: string; attributeCode: string; value: unknown }) =>
       ipcRenderer.invoke('parts:updateAttribute', args),
     delete: async (partId: string) => ipcRenderer.invoke('parts:delete', partId),
     getFiles: async (partId: string) => ipcRenderer.invoke('parts:getFiles', partId),
   },
   files: {
-    upload: async (args: { path: string }) => ipcRenderer.invoke('files:upload', args),
+    upload: async (args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => ipcRenderer.invoke('files:upload', args),
     pick: async () => ipcRenderer.invoke('files:pick'),
     download: async (args: { fileId: string }) => ipcRenderer.invoke('files:download', args),
     open: async (args: { fileId: string }) => ipcRenderer.invoke('files:open', args),

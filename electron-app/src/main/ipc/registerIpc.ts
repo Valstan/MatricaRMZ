@@ -17,7 +17,7 @@ import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute,
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 import { createSupplyRequest, deleteSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
 import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
-import { partsCreate, partsDelete, partsGet, partsGetFiles, partsList, partsUpdateAttribute } from '../services/partsService.js';
+import { partsCreate, partsCreateAttributeDef, partsDelete, partsGet, partsGetFiles, partsList, partsUpdateAttribute } from '../services/partsService.js';
 import {
   adminCreateUser,
   adminGetUserPermissions,
@@ -206,7 +206,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // -----------------------------
   // Files
   // -----------------------------
-  ipcMain.handle('files:upload', async (_e, args: { path: string }) => {
+  ipcMain.handle('files:upload', async (_e, args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => {
     const perms = await currentPermissions();
     if (!hasPerm(perms, 'files.upload')) return { ok: false, error: 'permission denied: files.upload' };
     return filesUpload(db, mgr.getApiBaseUrl(), args);
@@ -401,6 +401,25 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     if (!hasPerm(perms, 'parts.edit')) return { ok: false, error: 'permission denied: parts.edit' };
     return partsUpdateAttribute(db, mgr.getApiBaseUrl(), args);
   });
+
+  ipcMain.handle(
+    'parts:attributeDefCreate',
+    async (
+      _e,
+      args: {
+        code: string;
+        name: string;
+        dataType: 'text' | 'number' | 'boolean' | 'date' | 'json' | 'link';
+        isRequired?: boolean;
+        sortOrder?: number;
+        metaJson?: string | null;
+      },
+    ) => {
+      const perms = await currentPermissions();
+      if (!hasPerm(perms, 'parts.edit')) return { ok: false, error: 'permission denied: parts.edit' };
+      return partsCreateAttributeDef(db, mgr.getApiBaseUrl(), args);
+    },
+  );
 
   ipcMain.handle('parts:delete', async (_e, partId: string) => {
     const perms = await currentPermissions();
