@@ -202,22 +202,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     }
   });
 
-  ipcMain.handle('files:pick', async () => {
-    try {
-      const perms = await currentPermissions();
-      if (!hasPerm(perms, 'files.upload')) return { ok: false, error: 'permission denied: files.upload' };
-      const r = await dialog.showOpenDialog({
-        title: 'Выберите файлы для загрузки',
-        properties: ['openFile', 'multiSelections'],
-      });
-      const paths = (r.filePaths ?? []).map((p) => String(p)).filter(Boolean);
-      if (paths.length === 0) return { ok: false, error: 'cancelled' };
-      return { ok: true, paths };
-    } catch (e) {
-      return { ok: false, error: String(e) };
-    }
-  });
-
   ipcMain.handle('files:downloadDir:get', async () => {
     return filesDownloadDirGet(db, { defaultDir: app.getPath('downloads') });
   });
