@@ -54,12 +54,22 @@ export function PartsPage(props: {
         {props.canCreate && (
           <Button
             onClick={async () => {
-              const r = await window.matrica.parts.create();
-              if (!r.ok) {
-                setStatus(`Ошибка: ${r.error}`);
-                return;
+              try {
+                setStatus('Создание детали...');
+                const r = await window.matrica.parts.create();
+                if (!r.ok) {
+                  setStatus(`Ошибка: ${r.error}`);
+                  return;
+                }
+                if (!r.part || !r.part.id) {
+                  setStatus('Ошибка: некорректный ответ от сервера');
+                  return;
+                }
+                setStatus('');
+                await props.onOpen(r.part.id);
+              } catch (e) {
+                setStatus(`Ошибка: ${String(e)}`);
               }
-              await props.onOpen(r.part.id);
             }}
           >
             Создать деталь

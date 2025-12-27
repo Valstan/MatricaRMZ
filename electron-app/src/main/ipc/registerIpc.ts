@@ -16,7 +16,7 @@ import { authLogin, authLogout, authStatus, authSync, getSession } from '../serv
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 import { createSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
-import { filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
+import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
 import { partsCreate, partsDelete, partsGet, partsGetFiles, partsList, partsUpdateAttribute } from '../services/partsService.js';
 import {
   adminCreateUser,
@@ -236,6 +236,12 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     const dir = await filesDownloadDirGet(db, { defaultDir: app.getPath('downloads') });
     if (!dir.ok) return dir;
     return filesOpen(db, mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+  });
+
+  ipcMain.handle('files:delete', async (_e, args: { fileId: string }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'files.delete')) return { ok: false, error: 'permission denied: files.delete' };
+    return filesDelete(db, mgr.getApiBaseUrl(), { fileId: args.fileId });
   });
 
   // -----------------------------

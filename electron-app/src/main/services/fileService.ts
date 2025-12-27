@@ -216,4 +216,22 @@ export async function filesOpen(
   return dl;
 }
 
+export async function filesDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fileId: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const fileId = String(args.fileId || '').trim();
+    if (!fileId) return { ok: false, error: 'fileId is empty' };
+
+    const r = await fetchAuthedJson(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+    if (!r.ok) return { ok: false, error: `delete HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 

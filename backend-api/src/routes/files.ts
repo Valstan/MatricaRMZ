@@ -391,4 +391,56 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
   }
 });
 
+async function yandexDeleteFile(diskPath: string): Promise<void> {
+  const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
+  if (!token) throw new Error('YANDEX_DISK_TOKEN is not configured');
+  const q = new URL('https://cloud-api.yandex.net/v1/disk/resources');
+  q.searchParams.set('path', diskPath);
+  const r = await fetch(q.toString(), { method: 'DELETE', headers: { Authorization: `OAuth ${token}` } });
+  if (!r.ok && r.status !== 404) {
+    throw new Error(`yandex delete HTTP ${r.status}: ${(await r.text().catch(() => '')) || 'no body'}`);
+  }
+}
+
+filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const rows = await db.select().from(fileAssets).where(eq(fileAssets.id, id as any)).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+
+    // Удаляем физический файл
+    if (row.storageKind === 'local') {
+      const rel = String(row.localRelPath || '');
+      if (rel) {
+        const abs = join(uploadsDir(), rel);
+        try {
+          const { unlink } = await import('node:fs/promises');
+          await unlink(abs).catch(() => {
+            // Игнорируем ошибки если файл уже удален
+          });
+        } catch {
+          // Игнорируем ошибки удаления файла
+        }
+      }
+    } else if (row.storageKind === 'yandex') {
+      const diskPath = String(row.yandexDiskPath || '');
+      if (diskPath) {
+        await yandexDeleteFile(diskPath).catch(() => {
+          // Игнорируем ошибки удаления файла на Yandex.Disk
+        });
+      }
+    }
+
+    // Удаляем запись из БД (soft delete)
+    await db.update(fileAssets).set({ deletedAt: nowMs() }).where(eq(fileAssets.id, id as any));
+
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 

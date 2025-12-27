@@ -137,12 +137,26 @@ export function AttachmentsPanel(props: {
                     {props.canUpload && (
                       <Button
                         variant="ghost"
-                        onClick={() => {
-                          const next = list.filter((x) => x.id !== f.id);
-                          void props.onChange(next);
+                        onClick={async () => {
+                          try {
+                            setBusy('Удаление файла...');
+                            const deleteResult = await window.matrica.files.delete({ fileId: f.id });
+                            if (!deleteResult.ok) {
+                              setBusy(`Ошибка: ${deleteResult.error}`);
+                              setTimeout(() => setBusy(''), 3000);
+                              return;
+                            }
+                            const next = list.filter((x) => x.id !== f.id);
+                            await props.onChange(next);
+                            setBusy('Файл удален');
+                            setTimeout(() => setBusy(''), 700);
+                          } catch (e) {
+                            setBusy(`Ошибка: ${String(e)}`);
+                            setTimeout(() => setBusy(''), 3000);
+                          }
                         }}
                       >
-                        Убрать
+                        Удалить файл
                       </Button>
                     )}
                   </div>

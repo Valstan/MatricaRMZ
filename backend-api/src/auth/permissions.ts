@@ -44,6 +44,7 @@ export const PermissionCode = {
   // files
   FilesView: 'files.view',
   FilesUpload: 'files.upload',
+  FilesDelete: 'files.delete',
 
   // parts (детали)
   PartsView: 'parts.view',
@@ -98,6 +99,7 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
       // files
       [PermissionCode.FilesView]: true,
       [PermissionCode.FilesUpload]: true,
+      [PermissionCode.FilesDelete]: true,
 
       // parts
       [PermissionCode.PartsView]: true,
