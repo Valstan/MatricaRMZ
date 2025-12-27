@@ -10,6 +10,7 @@ partsRouter.use(requireAuth);
 
 partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, res) => {
   try {
+    console.log('[parts] GET /parts called, method:', req.method, 'query:', req.query);
     const querySchema = z.object({
       q: z.string().optional(),
       limit: z.coerce.number().int().positive().max(5000).optional(),
@@ -46,6 +47,7 @@ partsRouter.get('/:id', requirePermission(PermissionCode.PartsView), async (req,
 
 partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req, res) => {
   try {
+    console.log('[parts] POST /parts called, method:', req.method, 'body:', req.body);
     const actor = (req as AuthenticatedRequest).user;
     const schema = z.object({
       attributes: z.record(z.unknown()).optional(),
@@ -62,8 +64,10 @@ partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req,
     if (!result.ok) {
       return res.status(500).json(result);
     }
+    console.log('[parts] POST /parts success, part.id:', result.part.id);
     return res.json(result);
   } catch (e) {
+    console.error('[parts] POST /parts error:', e);
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
