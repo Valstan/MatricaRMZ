@@ -74,7 +74,8 @@ export async function partsList(
     if (args?.q) queryParams.set('q', args.q);
     if (args?.limit) queryParams.set('limit', String(args.limit));
 
-    const url = `/parts${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
+    const url = `/parts/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const r = await fetchAuthedJson(db, apiBaseUrl, url, { method: 'GET' });
     if (!r.ok) return { ok: false, error: `list HTTP ${r.status}: ${r.text ?? ''}`.trim() };
     if (!r.json?.ok) return { ok: false, error: 'bad list response' };
@@ -136,7 +137,8 @@ export async function partsCreate(
   try {
     const body = JSON.stringify({ attributes: args?.attributes });
     console.log('[partsService] partsCreate: sending POST to', `${apiBaseUrl}/parts`, 'body:', body);
-    const r = await fetchAuthedJson(db, apiBaseUrl, '/parts', {
+    // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
+    const r = await fetchAuthedJson(db, apiBaseUrl, '/parts/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,

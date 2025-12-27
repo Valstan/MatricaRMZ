@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('matrica', {
     get: async (id: string) => ipcRenderer.invoke('engine:get', id),
     setAttr: async (engineId: string, code: string, value: unknown) =>
       ipcRenderer.invoke('engine:setAttr', engineId, code, value),
+    delete: async (engineId: string) => ipcRenderer.invoke('engine:delete', engineId),
   },
   operations: {
     list: async (engineId: string) => ipcRenderer.invoke('ops:list', engineId),

@@ -28,7 +28,7 @@ import {
   adminSetUserPermissions,
   adminUpdateUser,
 } from '../services/adminUsersService.js';
-import { logMessageGetEnabled, logMessageSetEnabled, startLogSender } from '../services/logService.js';
+import { logMessage, logMessageGetEnabled, logMessageSetEnabled, startLogSender } from '../services/logService.js';
 import { syncState } from '../database/schema.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
@@ -49,7 +49,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // Инициализация системы логирования
   void logMessageGetEnabled(db).then((enabled) => {
     if (enabled) {
-      startLogSender(db, opts.apiBaseUrl);
+      startLogSender(db, mgr.getApiBaseUrl());
     }
   });
 
@@ -68,8 +68,11 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     return perms?.[code] === true;
   }
 
-  ipcMain.handle('log:send', async (_e, payload: { level: string; message: string }) => {
+  ipcMain.handle('log:send', async (_e, payload: { level: 'debug' | 'info' | 'warn' | 'error'; message: string }) => {
     logToFile(`renderer ${payload.level}: ${payload.message}`);
+    // Если включена отправка логов — буферизуем и отправляем на сервер
+    await logMessage(db, mgr.getApiBaseUrl(), payload.level, payload.message, { source: 'renderer' }).catch(() => {});
+    return { ok: true };
   });
 
   // Logging settings
@@ -88,6 +91,11 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   ipcMain.handle('engine:setAttr', async (_e, engineId: string, code: string, value: unknown) =>
     setEngineAttribute(db, engineId, code, value, await currentActor()),
   );
+  ipcMain.handle('engine:delete', async (_e, engineId: string) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'engines.edit')) return { ok: false, error: 'permission denied: engines.edit' };
+    return softDeleteEntity(db, engineId);
+  });
 
   ipcMain.handle('ops:list', async (_e, engineId: string) => listOperations(db, engineId));
   ipcMain.handle('ops:add', async (_e, engineId: string, operationType: string, status: string, note?: string) =>
