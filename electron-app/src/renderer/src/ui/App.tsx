@@ -225,6 +225,7 @@ export function App() {
               await openEngine(r.id);
                   }}
             canCreate={caps.canEditEngines}
+            canDelete={caps.canEditEngines}
           />
         )}
 
