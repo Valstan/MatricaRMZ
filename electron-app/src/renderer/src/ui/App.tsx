@@ -30,6 +30,7 @@ export function App() {
   const [audit, setAudit] = useState<AuditItem[]>([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
 
   useEffect(() => {
     window.matrica

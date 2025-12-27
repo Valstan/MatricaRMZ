@@ -29,7 +29,6 @@ export function AttachmentsPanel(props: {
   onChange: (next: FileRef[]) => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState<string>('');
-  const fileInput = useRef<HTMLInputElement | null>(null);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
 
@@ -60,9 +59,11 @@ export function AttachmentsPanel(props: {
   async function onDrop(e: React.DragEvent) {
     if (!props.canUpload) return;
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files ?? []);
-    const paths = files.map((f: any) => String(f?.path ?? '')).filter(Boolean);
-    await addFromPaths(paths);
+    // В Electron drag&drop не дает доступ к path, поэтому используем диалог
+    const pickResult = await window.matrica.files.pick();
+    if (pickResult.ok && pickResult.paths) {
+      await addFromPaths(pickResult.paths);
+    }
   }
 
   if (!props.canView) return null;
@@ -82,20 +83,15 @@ export function AttachmentsPanel(props: {
         {busy && <div style={{ color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{busy}</div>}
         {props.canUpload && (
           <>
-            <input
-              ref={fileInput}
-              type="file"
-              style={{ display: 'none' }}
-              multiple
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                const paths = files.map((f: any) => String(f?.path ?? '')).filter(Boolean);
-                void addFromPaths(paths);
-                // reset to allow same file selection again
-                e.currentTarget.value = '';
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                const pickResult = await window.matrica.files.pick();
+                if (pickResult.ok && pickResult.paths) {
+                  await addFromPaths(pickResult.paths);
+                }
               }}
-            />
-            <Button variant="ghost" onClick={() => fileInput.current?.click()}>
+            >
               Добавить файл
             </Button>
           </>

@@ -110,6 +110,7 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   files: {
     upload: async (args: { path: string }) => ipcRenderer.invoke('files:upload', args),
+    pick: async () => ipcRenderer.invoke('files:pick'),
     download: async (args: { fileId: string }) => ipcRenderer.invoke('files:download', args),
     open: async (args: { fileId: string }) => ipcRenderer.invoke('files:open', args),
     downloadDirGet: async () => ipcRenderer.invoke('files:downloadDir:get'),
