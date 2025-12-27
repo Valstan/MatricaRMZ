@@ -15,7 +15,7 @@ import { checkForUpdates } from '../services/updateService.js';
 import { authLogin, authLogout, authStatus, authSync, getSession } from '../services/authService.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
-import { createSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
+import { createSupplyRequest, deleteSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
 import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
 import { partsCreate, partsDelete, partsGet, partsGetFiles, partsList, partsUpdateAttribute } from '../services/partsService.js';
 import {
@@ -28,6 +28,7 @@ import {
   adminSetUserPermissions,
   adminUpdateUser,
 } from '../services/adminUsersService.js';
+import { logMessageGetEnabled, logMessageSetEnabled, startLogSender } from '../services/logService.js';
 import { syncState } from '../database/schema.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
@@ -44,6 +45,13 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
   const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl);
   mgr.startAuto(5 * 60_000);
+
+  // Инициализация системы логирования
+  void logMessageGetEnabled(db).then((enabled) => {
+    if (enabled) {
+      startLogSender(db, opts.apiBaseUrl);
+    }
+  });
 
   async function currentActor(): Promise<string> {
     const s = await getSession(db).catch(() => null);
@@ -62,6 +70,16 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
 
   ipcMain.handle('log:send', async (_e, payload: { level: string; message: string }) => {
     logToFile(`renderer ${payload.level}: ${payload.message}`);
+  });
+
+  // Logging settings
+  ipcMain.handle('logging:getEnabled', async () => {
+    return { ok: true, enabled: await logMessageGetEnabled(db) };
+  });
+
+  ipcMain.handle('logging:setEnabled', async (_e, enabled: boolean) => {
+    await logMessageSetEnabled(db, enabled, mgr.getApiBaseUrl());
+    return { ok: true };
   });
 
   ipcMain.handle('engine:list', async () => listEngines(db));
@@ -320,6 +338,12 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     if (!hasPerm(perms, 'supply_requests.edit')) return { ok: false, error: 'permission denied: supply_requests.edit' };
     const actor = await currentActor();
     return updateSupplyRequest(db, { id: args.id, payload: args.payload, actor });
+  });
+
+  ipcMain.handle('supplyRequests:delete', async (_e, id: string) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'supply_requests.edit')) return { ok: false, error: 'permission denied: supply_requests.edit' };
+    return deleteSupplyRequest(db, id);
   });
 
   ipcMain.handle('supplyRequests:transition', async (_e, args: { id: string; action: string; note?: string | null }) => {

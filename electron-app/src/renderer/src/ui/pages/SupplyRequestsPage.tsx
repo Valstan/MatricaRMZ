@@ -37,6 +37,7 @@ function statusLabel(s: string): string {
 export function SupplyRequestsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
+  canDelete: boolean;
 }) {
   const [query, setQuery] = useState<string>('');
   const [month, setMonth] = useState<string>(''); // YYYY-MM
@@ -105,29 +106,83 @@ export function SupplyRequestsPage(props: {
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Статус</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Описание</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Подразделение</th>
+              {props.canDelete && (
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 100 }}>
+                  Действия
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <tr
-                key={r.id}
-                style={{ cursor: 'pointer' }}
-                onClick={() => {
-                  void props.onOpen(r.id);
-                }}
-              >
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{r.requestNumber || r.id}</td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+              <tr key={r.id}>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 10, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {r.requestNumber || r.id}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 10, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
                   {r.compiledAt ? new Date(r.compiledAt).toLocaleDateString('ru-RU') : '-'}
                 </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{statusLabel(r.status)}</td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{r.title || '-'}</td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{r.departmentId || '-'}</td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 10, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {statusLabel(r.status)}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 10, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {r.title || '-'}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 10, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {r.departmentId || '-'}
+                </td>
+                {props.canDelete && (
+                  <td
+                    style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}
+                    onClick={(ev) => ev.stopPropagation()}
+                  >
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        if (!confirm('Удалить заявку?')) return;
+                        const result = await window.matrica.supplyRequests.delete(r.id);
+                        if (!result.ok) {
+                          alert(`Ошибка удаления: ${result.error}`);
+                          return;
+                        }
+                        void refresh();
+                      }}
+                      style={{ color: '#b91c1c' }}
+                    >
+                      Удалить
+                    </Button>
+                  </td>
+                )}
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td style={{ padding: 12, color: '#6b7280' }} colSpan={5}>
+                <td style={{ padding: 12, color: '#6b7280' }} colSpan={props.canDelete ? 6 : 5}>
                   Ничего не найдено
                 </td>
               </tr>

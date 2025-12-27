@@ -15,6 +15,7 @@ import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
 import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
 import { PartsPage } from './pages/PartsPage.js';
 import { PartDetailsPage } from './pages/PartDetailsPage.js';
+import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 export function App() {
@@ -67,11 +68,12 @@ export function App() {
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
-    'auth',
     ...(caps.canUseSync ? (['sync'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...((caps.canViewMasterData || caps.canManageUsers) ? (['admin'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
+    'settings',
+    'auth',
   ];
   const visibleTabsKey = visibleTabs.join('|');
 
@@ -155,10 +157,12 @@ export function App() {
           ? 'Матрица РМЗ — Вход'
         : tab === 'sync'
           ? 'Матрица РМЗ — Синхронизация'
-          : tab === 'reports'
-            ? 'Матрица РМЗ — Отчёты'
-            : tab === 'admin'
-              ? 'Матрица РМЗ — Справочники'
+        : tab === 'settings'
+          ? 'Матрица РМЗ — Настройки'
+        : tab === 'reports'
+          ? 'Матрица РМЗ — Отчёты'
+          : tab === 'admin'
+            ? 'Матрица РМЗ — Справочники'
           : 'Матрица РМЗ — Журнал';
 
   function formatSyncStatus(s: SyncStatus | null): string {
@@ -225,7 +229,11 @@ export function App() {
         )}
 
         {tab === 'requests' && (
-          <SupplyRequestsPage onOpen={openRequest} canCreate={caps.canCreateSupplyRequests} />
+          <SupplyRequestsPage
+            onOpen={openRequest}
+            canCreate={caps.canCreateSupplyRequests}
+            canDelete={caps.canEditSupplyRequests}
+          />
         )}
 
         {tab === 'engine' && selectedEngineId && engineDetails && (
@@ -290,6 +298,8 @@ export function App() {
         )}
 
         {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
+
+        {tab === 'settings' && <SettingsPage />}
 
         {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
 

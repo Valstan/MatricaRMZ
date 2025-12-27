@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld('matrica', {
     get: async (id: string) => ipcRenderer.invoke('supplyRequests:get', id),
     create: async () => ipcRenderer.invoke('supplyRequests:create'),
     update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('supplyRequests:update', args),
+    delete: async (id: string) => ipcRenderer.invoke('supplyRequests:delete', id),
     transition: async (args: { id: string; action: string; note?: string | null }) => ipcRenderer.invoke('supplyRequests:transition', args),
   },
   parts: {
@@ -116,6 +117,10 @@ contextBridge.exposeInMainWorld('matrica', {
     delete: async (args: { fileId: string }) => ipcRenderer.invoke('files:delete', args),
     downloadDirGet: async () => ipcRenderer.invoke('files:downloadDir:get'),
     downloadDirPick: async () => ipcRenderer.invoke('files:downloadDir:pick'),
+  },
+  logging: {
+    getEnabled: async () => ipcRenderer.invoke('logging:getEnabled'),
+    setEnabled: async (enabled: boolean) => ipcRenderer.invoke('logging:setEnabled', enabled),
   },
 });
 

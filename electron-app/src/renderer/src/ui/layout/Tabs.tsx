@@ -3,11 +3,11 @@ import React from 'react';
 import { Button } from '../components/Button.js';
 import { tabAccent, theme } from '../theme.js';
 
-export type TabId = 'engines' | 'engine' | 'requests' | 'request' | 'parts' | 'part' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit';
+export type TabId = 'engines' | 'engine' | 'requests' | 'request' | 'parts' | 'part' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit' | 'settings';
 
 export function Tabs(props: {
   tab: TabId;
-  onTab: (t: Exclude<TabId, 'engine' | 'request'>) => void;
+  onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part'>) => void;
       visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[];
   right?: React.ReactNode;
 }) {
@@ -52,6 +52,7 @@ export function Tabs(props: {
       <span style={{ flex: 1 }} />
       {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}
       {props.visibleTabs.includes('sync') && tabButton('sync', 'Синхронизация')}
+      {tabButton('settings', 'Настройки')}
       {tabButton('auth', 'Вход')}
       {props.right}
     </div>

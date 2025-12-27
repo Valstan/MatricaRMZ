@@ -250,6 +250,32 @@ export async function createSupplyRequest(
   }
 }
 
+export async function deleteSupplyRequest(db: BetterSQLite3Database, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const ts = nowMs();
+    const rows = await db
+      .select()
+      .from(operations)
+      .where(
+        and(
+          eq(operations.id, id),
+          eq(operations.engineEntityId, SUPPLY_REQUESTS_CONTAINER_ID),
+          eq(operations.operationType, SUPPLY_REQUESTS_OPERATION_TYPE),
+          isNull(operations.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!rows[0]) return { ok: false, error: 'Заявка не найдена' };
+    await db
+      .update(operations)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
+      .where(eq(operations.id, id));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function updateSupplyRequest(
   db: BetterSQLite3Database,
   args: { id: string; payload: SupplyRequestPayload; actor: string },
