@@ -18,7 +18,7 @@ async function fetchAuthedJson(
   const method = init.method ?? 'GET';
   const headers = new Headers(init.headers ?? {});
   headers.set('Authorization', `Bearer ${session.accessToken}`);
-  const fetchOptions: RequestInit = { ...init, headers, method };
+  const fetchOptions: RequestInit = { method, headers, body: init.body, signal: init.signal };
   const r1 = await net.fetch(url, fetchOptions);
   if (r1.status === 401 || r1.status === 403) {
     if (session.refreshToken) {
@@ -29,7 +29,7 @@ async function fetchAuthedJson(
       }
       const headers2 = new Headers(init.headers ?? {});
       headers2.set('Authorization', `Bearer ${refreshed.accessToken}`);
-      const fetchOptions2: RequestInit = { ...init, headers: headers2, method };
+      const fetchOptions2: RequestInit = { method, headers: headers2, body: init.body, signal: init.signal };
       const r2 = await net.fetch(url, fetchOptions2);
       return { ok: r2.ok, status: r2.status, json: await r2.json().catch(() => null), text: await r2.text().catch(() => '') };
     }
