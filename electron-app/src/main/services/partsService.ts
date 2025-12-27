@@ -122,7 +122,11 @@ export async function partsCreate(
       body: JSON.stringify({ attributes: args?.attributes }),
     });
     if (!r.ok) return { ok: false, error: `create HTTP ${r.status}: ${r.text ?? ''}`.trim() };
-    if (!r.json?.ok) return { ok: false, error: 'bad create response' };
+    if (!r.json) return { ok: false, error: `create response missing json: ${r.text ?? ''}`.trim() };
+    if (!r.json.ok) return { ok: false, error: r.json.error ?? 'bad create response' };
+    if (!r.json.part || !r.json.part.id) {
+      return { ok: false, error: `create response missing part.id: ${JSON.stringify(r.json)}` };
+    }
     return r.json as any;
   } catch (e) {
     return { ok: false, error: String(e) };

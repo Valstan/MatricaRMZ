@@ -61,10 +61,7 @@ export function PartsPage(props: {
                   setStatus(`Ошибка: ${r.error}`);
                   return;
                 }
-                if (!r.part || !r.part.id) {
-                  setStatus('Ошибка: некорректный ответ от сервера');
-                  return;
-                }
+                // Проверка уже выполнена в partsService
                 setStatus('');
                 await props.onOpen(r.part.id);
               } catch (e) {
