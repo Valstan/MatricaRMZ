@@ -13,6 +13,8 @@ import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
 import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
+import { PartsPage } from './pages/PartsPage.js';
+import { PartDetailsPage } from './pages/PartDetailsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 export function App() {
@@ -60,9 +62,10 @@ export function App() {
   }, [authStatus.loggedIn]);
 
   const caps = deriveUiCaps(authStatus.permissions ?? null);
-  const visibleTabs: Exclude<TabId, 'engine' | 'request'>[] = [
+  const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[] = [
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
+    ...(caps.canViewParts ? (['parts'] as const) : []),
     'auth',
     ...(caps.canUseSync ? (['sync'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
@@ -78,7 +81,7 @@ export function App() {
 
   // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
   useEffect(() => {
-    if (tab === 'engine' || tab === 'request') return;
+    if (tab === 'engine' || tab === 'request' || tab === 'part') return;
     if (visibleTabs.includes(tab)) return;
     setTab(visibleTabs[0] ?? 'auth');
   }, [tab, visibleTabsKey]);
@@ -143,6 +146,10 @@ export function App() {
           ? 'Матрица РМЗ — Заявки'
           : tab === 'request'
             ? 'Матрица РМЗ — Заявка'
+          : tab === 'parts'
+            ? 'Матрица РМЗ — Детали'
+            : tab === 'part'
+              ? 'Матрица РМЗ — Карточка детали'
         : tab === 'auth'
           ? 'Матрица РМЗ — Вход'
         : tab === 'sync'
@@ -262,6 +269,25 @@ export function App() {
           />
         )}
 
+        {tab === 'parts' && (
+          <PartsPage
+            onOpen={(id) => {
+              setSelectedPartId(id);
+              setTab('part');
+            }}
+            canCreate={caps.canCreateParts}
+          />
+        )}
+
+        {tab === 'part' && selectedPartId && (
+          <PartDetailsPage
+            partId={selectedPartId}
+            canEdit={caps.canEditParts}
+            canDelete={caps.canDeleteParts}
+            onBack={() => setTab('parts')}
+          />
+        )}
+
         {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
 
         {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
@@ -291,6 +317,10 @@ export function App() {
 
         {tab === 'request' && !selectedRequestId && (
           <div style={{ color: '#6b7280' }}>Выберите заявку из списка.</div>
+        )}
+
+        {tab === 'part' && !selectedPartId && (
+          <div style={{ color: '#6b7280' }}>Выберите деталь из списка.</div>
         )}
     </div>
     </Page>

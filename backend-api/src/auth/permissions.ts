@@ -44,6 +44,14 @@ export const PermissionCode = {
   // files
   FilesView: 'files.view',
   FilesUpload: 'files.upload',
+
+  // parts (детали)
+  PartsView: 'parts.view',
+  PartsCreate: 'parts.create',
+  PartsEdit: 'parts.edit',
+  PartsDelete: 'parts.delete',
+  PartsFilesUpload: 'parts.files.upload',
+  PartsFilesDelete: 'parts.files.delete',
 } as const;
 
 export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
@@ -90,6 +98,14 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
       // files
       [PermissionCode.FilesView]: true,
       [PermissionCode.FilesUpload]: true,
+
+      // parts
+      [PermissionCode.PartsView]: true,
+      [PermissionCode.PartsCreate]: true,
+      [PermissionCode.PartsEdit]: true,
+      [PermissionCode.PartsDelete]: true,
+      [PermissionCode.PartsFilesUpload]: true,
+      [PermissionCode.PartsFilesDelete]: true,
     };
   }
 
@@ -103,6 +119,9 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
 
     // files (просмотр/скачивание по ссылке)
     [PermissionCode.FilesView]: true,
+
+    // parts (только просмотр)
+    [PermissionCode.PartsView]: true,
   };
 }
 

@@ -99,6 +99,15 @@ contextBridge.exposeInMainWorld('matrica', {
     update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('supplyRequests:update', args),
     transition: async (args: { id: string; action: string; note?: string | null }) => ipcRenderer.invoke('supplyRequests:transition', args),
   },
+  parts: {
+    list: async (args?: { q?: string; limit?: number }) => ipcRenderer.invoke('parts:list', args),
+    get: async (partId: string) => ipcRenderer.invoke('parts:get', partId),
+    create: async (args?: { attributes?: Record<string, unknown> }) => ipcRenderer.invoke('parts:create', args),
+    updateAttribute: async (args: { partId: string; attributeCode: string; value: unknown }) =>
+      ipcRenderer.invoke('parts:updateAttribute', args),
+    delete: async (partId: string) => ipcRenderer.invoke('parts:delete', partId),
+    getFiles: async (partId: string) => ipcRenderer.invoke('parts:getFiles', partId),
+  },
   files: {
     upload: async (args: { path: string }) => ipcRenderer.invoke('files:upload', args),
     download: async (args: { fileId: string }) => ipcRenderer.invoke('files:download', args),

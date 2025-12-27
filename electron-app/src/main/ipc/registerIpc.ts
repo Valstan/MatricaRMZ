@@ -17,6 +17,7 @@ import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute,
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 import { createSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
 import { filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
+import { partsCreate, partsDelete, partsGet, partsGetFiles, partsList, partsUpdateAttribute } from '../services/partsService.js';
 import {
   adminCreateUser,
   adminGetUserPermissions,
@@ -319,6 +320,44 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
 
     const actor = await currentActor();
     return transitionSupplyRequest(db, { id: args.id, action: action as any, actor, note: args.note ?? null });
+  });
+
+  // Parts (Детали)
+  // -----------------------------
+  ipcMain.handle('parts:list', async (_e, args?: { q?: string; limit?: number }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'parts.view')) return { ok: false, error: 'permission denied: parts.view' };
+    return partsList(db, mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('parts:get', async (_e, partId: string) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'parts.view')) return { ok: false, error: 'permission denied: parts.view' };
+    return partsGet(db, mgr.getApiBaseUrl(), { partId });
+  });
+
+  ipcMain.handle('parts:create', async (_e, args?: { attributes?: Record<string, unknown> }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'parts.create')) return { ok: false, error: 'permission denied: parts.create' };
+    return partsCreate(db, mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('parts:updateAttribute', async (_e, args: { partId: string; attributeCode: string; value: unknown }) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'parts.edit')) return { ok: false, error: 'permission denied: parts.edit' };
+    return partsUpdateAttribute(db, mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('parts:delete', async (_e, partId: string) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'parts.delete')) return { ok: false, error: 'permission denied: parts.delete' };
+    return partsDelete(db, mgr.getApiBaseUrl(), { partId });
+  });
+
+  ipcMain.handle('parts:getFiles', async (_e, partId: string) => {
+    const perms = await currentPermissions();
+    if (!hasPerm(perms, 'parts.view')) return { ok: false, error: 'permission denied: parts.view' };
+    return partsGetFiles(db, mgr.getApiBaseUrl(), { partId });
   });
 }
 

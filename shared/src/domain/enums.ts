@@ -11,6 +11,7 @@ export const EntityTypeCode = {
   Department: 'department',
   Product: 'product',
   Employee: 'employee',
+  Part: 'part',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];

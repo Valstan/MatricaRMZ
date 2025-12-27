@@ -100,10 +100,13 @@ export async function filesUpload(db: BetterSQLite3Database, apiBaseUrl: string,
       const file: FileRef = json.file as FileRef;
 
       if (uploadUrl) {
-        const rs = createReadStream(filePath);
-        // Node fetch stream requires duplex in some runtimes; TS may not know it.
-        const r = await fetch(uploadUrl, { method: 'PUT', body: rs as any, duplex: 'half' as any });
-        if (!r.ok) return { ok: false, error: `yandex PUT HTTP ${r.status}` };
+        // Read file into buffer and use net.fetch() for external URL (required in Electron)
+        const fileBuffer = await fsp.readFile(filePath);
+        const r = await net.fetch(uploadUrl, { method: 'PUT', body: fileBuffer });
+        if (!r.ok) {
+          const errorText = await r.text().catch(() => '');
+          return { ok: false, error: `yandex PUT HTTP ${r.status}: ${errorText}`.trim() };
+        }
       }
 
       return { ok: true, file };
@@ -178,7 +181,8 @@ export async function filesDownload(
     const directUrl = urlRes.json?.url as string | null | undefined;
 
     if (directUrl) {
-      const r = await fetch(directUrl);
+      // Use net.fetch() for external URL (required in Electron)
+      const r = await net.fetch(directUrl);
       if (!r.ok) return { ok: false, error: `download HTTP ${r.status}` };
       const ab = await r.arrayBuffer();
       await fsp.writeFile(target, Buffer.from(ab));

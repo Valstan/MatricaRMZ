@@ -28,6 +28,10 @@ export type UiCaps = {
 
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  canViewParts: boolean;
+  canCreateParts: boolean;
+  canEditParts: boolean;
+  canDeleteParts: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -48,6 +52,11 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canFulfillSupplyRequests = has(perms, 'supply_requests.fulfill');
   const canPrintSupplyRequests = has(perms, 'supply_requests.print');
 
+  const canViewParts = has(perms, 'parts.view');
+  const canCreateParts = has(perms, 'parts.create');
+  const canEditParts = has(perms, 'parts.edit');
+  const canDeleteParts = has(perms, 'parts.delete');
+
   const canViewEngines = has(perms, 'engines.view');
   const canEditEngines = has(perms, 'engines.edit');
 
@@ -61,6 +70,11 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
 
   const canViewFiles = has(perms, 'files.view');
   const canUploadFiles = has(perms, 'files.upload');
+
+  const canViewParts = has(perms, 'parts.view');
+  const canCreateParts = has(perms, 'parts.create');
+  const canEditParts = has(perms, 'parts.edit');
+  const canDeleteParts = has(perms, 'parts.delete');
 
   return {
     canViewEngines,
@@ -86,6 +100,10 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
 
     canViewFiles,
     canUploadFiles,
+    canViewParts,
+    canCreateParts,
+    canEditParts,
+    canDeleteParts,
   };
 }
 

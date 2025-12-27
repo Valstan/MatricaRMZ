@@ -4,6 +4,7 @@ export * from './domain/enums.js';
 export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/supplyRequest.js';
+export * from './domain/part.js';
 export * from './ipc/types.js';
 
 
