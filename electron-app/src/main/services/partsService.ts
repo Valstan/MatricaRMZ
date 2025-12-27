@@ -25,7 +25,9 @@ async function fetchAuthedJson(
     body: init.body,
     signal: init.signal,
   };
+  console.log('[partsService] fetchAuthedJson: url=', url, 'method=', method, 'hasBody=', !!init.body);
   const r1 = await net.fetch(url, fetchOptions);
+  console.log('[partsService] fetchAuthedJson: response status=', r1.status, 'ok=', r1.ok);
   if (r1.status === 401 || r1.status === 403) {
     if (session.refreshToken) {
       const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
