@@ -3,6 +3,7 @@
 Дата обновления: 2025-12-26
 
 ## Последний релиз клиента
+- `v0.0.37` (выпущено) — исправлена загрузка файлов на Yandex.Disk + модуль учета деталей.
 - `v0.0.36` (выпущено) — добавлены вложения (файловое хранилище) + права `files.*`.
 
 ## Файловое хранилище (VPS)
@@ -57,6 +58,14 @@ sudo systemctl restart matricarmz-backend.service
 ### B) `push HTTP 500 FK operations_engine_entity_id...`
 - причина: для заявок используется контейнерный `engine_entity_id=00000000-0000-0000-0000-000000000001`, которого не было в `entities`.
 - фикс: backend `applyPushBatch.ts` создаёт system container entity/type при приходе `supply_request`.
+
+### 3) Модуль учета деталей
+- Backend API: `/parts` (CRUD), `/parts/:id/attributes`, `/parts/:id/files`.
+- EAV система: детали хранятся как `entities` типа `part`, атрибуты через `attribute_values`.
+- UI: вкладка "Детали", список деталей, карта детали с редактированием атрибутов.
+- Права: `parts.view`, `parts.create`, `parts.edit`, `parts.delete`.
+- Связи с двигателями: через атрибуты типа `link` в EAV.
+- Исправление файлового хранилища: загрузка больших файлов (>10MB) на Yandex.Disk через `net.fetch()` в Electron.
 
 
 
