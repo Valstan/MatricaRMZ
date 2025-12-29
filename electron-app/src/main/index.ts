@@ -174,4 +174,8 @@ ipcMain.handle('app:ping', async () => {
   return { ok: true, ts: Date.now() };
 });
 
+ipcMain.handle('app:version', async () => {
+  return { ok: true, version: app.getVersion() };
+});
+
 

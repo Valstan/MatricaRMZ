@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/shared",
-  "version": "0.0.1",
+  "version": "0.1.53",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -17,5 +17,3 @@
     "typescript": "^5.7.2"
   }
 }
-
-

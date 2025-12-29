@@ -8,13 +8,34 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
   const [diag, setDiag] = useState<string>('');
   const [apiBaseUrl, setApiBaseUrl] = useState<string>('');
   const [apiSaveStatus, setApiSaveStatus] = useState<string>('');
+  const [clientVersion, setClientVersion] = useState<string>('');
+  const [serverInfo, setServerInfo] = useState<
+    | { ok: true; url: string; serverOk: boolean; version: string | null; buildDate: string | null }
+    | { ok: false; url: string; error: string }
+    | null
+  >(null);
+  const [serverStatus, setServerStatus] = useState<string>('');
 
   useEffect(() => {
     void (async () => {
       const r = await window.matrica.sync.configGet().catch(() => null);
       if (r?.ok && r.apiBaseUrl) setApiBaseUrl(r.apiBaseUrl);
+
+      const v = await window.matrica.app.version().catch(() => null);
+      if (v?.ok && v.version) setClientVersion(v.version);
+
+      await refreshServerHealth();
     })();
   }, []);
+
+  async function refreshServerHealth() {
+    setServerStatus('Проверяю сервер...');
+    const r = await window.matrica.server.health().catch((e) => ({ ok: false as const, url: (apiBaseUrl || '').trim(), error: String(e) }));
+    setServerInfo(r);
+    setServerStatus(r.ok ? '' : `Ошибка: ${r.error}`);
+  }
+
+  const mismatch = serverInfo?.ok && serverInfo.version && clientVersion && serverInfo.version !== clientVersion;
 
   return (
     <div>
@@ -29,12 +50,38 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
               setApiSaveStatus('Сохраняю...');
               const r = await window.matrica.sync.configSet({ apiBaseUrl });
               setApiSaveStatus(r.ok ? 'Сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
+              if (r.ok) await refreshServerHealth();
             }}
           >
             Сохранить
           </Button>
+          <Button variant="ghost" onClick={() => void refreshServerHealth()}>
+            Проверить сервер
+          </Button>
           <span style={{ color: '#6b7280', fontSize: 12 }}>{apiSaveStatus}</span>
         </div>
+
+        <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
+          Клиент: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{clientVersion || '—'}</span>
+          {'  '}| Сервер:{' '}
+          <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+            {serverInfo?.ok ? serverInfo.version ?? '—' : '—'}
+          </span>
+          {serverInfo?.ok && serverInfo.buildDate && (
+            <>
+              {' '}
+              | build: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{serverInfo.buildDate}</span>
+            </>
+          )}
+        </div>
+
+        {mismatch && (
+          <div style={{ marginTop: 8, padding: 10, borderRadius: 10, background: '#fee2e2', color: '#991b1b' }}>
+            Несовпадение версий: клиент <strong>{clientVersion}</strong>, сервер <strong>{serverInfo?.ok ? serverInfo.version : '—'}</strong>. Рекомендуется обновить клиент или сервер.
+          </div>
+        )}
+
+        {serverStatus && <div style={{ marginTop: 8, color: serverStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{serverStatus}</div>}
       </div>
       <div style={{ color: '#6b7280', marginBottom: 8 }}>
         {syncStatus || 'Состояние синхронизации отображается в шапке. Здесь — ручной запуск и обновления.'}

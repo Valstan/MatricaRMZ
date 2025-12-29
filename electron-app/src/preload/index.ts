@@ -3,6 +3,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 // API, доступный в renderer. Дальше будем расширять CRUD и синхронизацию.
 contextBridge.exposeInMainWorld('matrica', {
   ping: async () => ipcRenderer.invoke('app:ping'),
+  app: {
+    version: async () => ipcRenderer.invoke('app:version'),
+  },
   log: {
     send: async (level: 'debug' | 'info' | 'warn' | 'error', message: string) =>
       ipcRenderer.invoke('log:send', { level, message }),
@@ -35,6 +38,9 @@ contextBridge.exposeInMainWorld('matrica', {
     configGet: async () => ipcRenderer.invoke('sync:config:get'),
     configSet: async (args: { apiBaseUrl: string }) => ipcRenderer.invoke('sync:config:set', args),
   },
+  server: {
+    health: async () => ipcRenderer.invoke('server:health'),
+  },
   reports: {
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
@@ -63,6 +69,8 @@ contextBridge.exposeInMainWorld('matrica', {
       create: async (entityTypeId: string) => ipcRenderer.invoke('admin:entities:create', entityTypeId),
       get: async (id: string) => ipcRenderer.invoke('admin:entities:get', id),
       setAttr: async (entityId: string, code: string, value: unknown) => ipcRenderer.invoke('admin:entities:setAttr', entityId, code, value),
+      deleteInfo: async (entityId: string) => ipcRenderer.invoke('admin:entities:deleteInfo', entityId),
+      detachLinksAndDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:detachLinksAndDelete', entityId),
       softDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:softDelete', entityId),
     },
     users: {

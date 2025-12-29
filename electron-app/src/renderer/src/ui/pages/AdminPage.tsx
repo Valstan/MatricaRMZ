@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import type { IncomingLinkInfo } from '@matricarmz/shared';
+
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 
@@ -29,11 +31,31 @@ export function AdminPage(props: {
 
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
+  const [typeQuery, setTypeQuery] = useState<string>('');
   const [defs, setDefs] = useState<AttrDefRow[]>([]);
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
+  const [entityQuery, setEntityQuery] = useState<string>('');
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   const [status, setStatus] = useState<string>('');
+
+  const [deleteDialog, setDeleteDialog] = useState<
+    | {
+        open: true;
+        entityId: string;
+        entityLabel: string;
+        loading: boolean;
+        error: string | null;
+        links: IncomingLinkInfo[] | null;
+      }
+    | { open: false }
+  >({ open: false });
+
+  const [incomingLinks, setIncomingLinks] = useState<{ loading: boolean; error: string | null; links: IncomingLinkInfo[] }>({
+    loading: false,
+    error: null,
+    links: [],
+  });
 
   // Users admin state
   const [users, setUsers] = useState<{ id: string; username: string; role: string; isActive: boolean }[]>([]);
@@ -69,6 +91,21 @@ export function AdminPage(props: {
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
 
+  const filteredTypes = useMemo(() => {
+    const q = typeQuery.trim().toLowerCase();
+    if (!q) return types;
+    return types.filter((t) => `${t.name} ${t.code}`.toLowerCase().includes(q));
+  }, [types, typeQuery]);
+
+  const filteredEntities = useMemo(() => {
+    const q = entityQuery.trim().toLowerCase();
+    if (!q) return entities;
+    return entities.filter((e) => {
+      const label = (e.displayName ? `${e.displayName} ` : '') + e.id;
+      return label.toLowerCase().includes(q);
+    });
+  }, [entities, entityQuery]);
+
   const linkTargetByCode: Record<string, string> = {
     customer_id: 'customer',
     contract_id: 'contract',
@@ -77,7 +114,52 @@ export function AdminPage(props: {
     section_id: 'section',
   };
 
+  function safeParseMetaJson(metaJson: string | null): any | null {
+    if (!metaJson) return null;
+    try {
+      return JSON.parse(metaJson);
+    } catch {
+      return null;
+    }
+  }
+
+  function getLinkTargetTypeCode(def: AttrDefRow): string | null {
+    const meta = safeParseMetaJson(def.metaJson);
+    const fromMeta = meta?.linkTargetTypeCode;
+    if (typeof fromMeta === 'string' && fromMeta.trim()) return fromMeta.trim();
+    return linkTargetByCode[def.code] ?? null;
+  }
+
+  function formatDefDataType(def: AttrDefRow): string {
+    if (def.dataType !== 'link') return def.dataType;
+    const targetCode = getLinkTargetTypeCode(def);
+    if (!targetCode) return 'link';
+    const t = types.find((x) => x.code === targetCode);
+    return `link → ${t ? t.name : targetCode}`;
+  }
+
   const [linkOptions, setLinkOptions] = useState<Record<string, { id: string; label: string }[]>>({});
+
+  const outgoingLinks = useMemo(() => {
+    const linkDefs = defs.filter((d) => d.dataType === 'link');
+    return linkDefs.map((d) => {
+      const targetTypeCode = getLinkTargetTypeCode(d);
+      const targetType = targetTypeCode ? types.find((t) => t.code === targetTypeCode) ?? null : null;
+      const targetTypeName = targetType?.name ?? (targetTypeCode ?? '—');
+      const raw = entityAttrs[d.code];
+      const targetEntityId = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+      const opt = targetEntityId ? (linkOptions[d.code] ?? []).find((x) => x.id === targetEntityId) ?? null : null;
+      return {
+        defId: d.id,
+        attributeCode: d.code,
+        attributeName: d.name,
+        targetTypeId: targetType?.id ?? null,
+        targetTypeName,
+        targetEntityId,
+        targetEntityLabel: opt?.label ?? null,
+      };
+    });
+  }, [defs, entityAttrs, linkOptions, types]);
 
   async function refreshTypes() {
     const rows = await window.matrica.admin.entityTypes.list();
@@ -90,16 +172,86 @@ export function AdminPage(props: {
     setDefs(rows);
   }
 
-  async function refreshEntities(typeId: string) {
+  async function refreshEntities(typeId: string, opts?: { selectId?: string }) {
     const rows = await window.matrica.admin.entities.listByEntityType(typeId);
     setEntities(rows as any);
-    if (!rows.find((r) => r.id === selectedEntityId)) setSelectedEntityId(rows[0]?.id ?? '');
+    const desired = opts?.selectId ?? selectedEntityId;
+    if (desired && rows.find((r) => r.id === desired)) setSelectedEntityId(desired);
+    else setSelectedEntityId(rows[0]?.id ?? '');
   }
 
-  async function openEntity(id: string) {
-    setSelectedEntityId(id);
+  function closeDeleteDialog() {
+    setDeleteDialog({ open: false });
+  }
+
+  async function openDeleteDialog(entityId: string) {
+    const label =
+      entities.find((e) => e.id === entityId)?.displayName ??
+      (entityId ? entityId.slice(0, 8) : '');
+
+    setDeleteDialog({ open: true, entityId, entityLabel: label, loading: true, error: null, links: null });
+    const r = await window.matrica.admin.entities.deleteInfo(entityId).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setDeleteDialog({ open: true, entityId, entityLabel: label, loading: false, error: r.error ?? 'unknown', links: [] });
+      return;
+    }
+    setDeleteDialog({ open: true, entityId, entityLabel: label, loading: false, error: null, links: r.links ?? [] });
+  }
+
+  async function doSoftDelete(entityId: string) {
+    setDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
+    setStatus('Удаление...');
+    const r = await window.matrica.admin.entities.softDelete(entityId);
+    if (!r.ok) {
+      setDeleteDialog((p) => (p.open ? { ...p, error: r.error ?? 'unknown' } : p));
+      setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      setDeleteDialog((p) => (p.open ? { ...p, loading: false } : p));
+      return;
+    }
+    setStatus('Удалено');
+    if (selectedTypeId) await refreshEntities(selectedTypeId);
+    setSelectedEntityId('');
+    setEntityAttrs({});
+    closeDeleteDialog();
+  }
+
+  async function doDetachAndDelete(entityId: string) {
+    setDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
+    setStatus('Удаление (отвязываем связи)...');
+    const r = await window.matrica.admin.entities.detachLinksAndDelete(entityId);
+    if (!r.ok) {
+      setDeleteDialog((p) => (p.open ? { ...p, error: r.error ?? 'unknown' } : p));
+      setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      setDeleteDialog((p) => (p.open ? { ...p, loading: false } : p));
+      return;
+    }
+    setStatus(`Удалено (отвязано: ${r.detached ?? 0})`);
+    if (selectedTypeId) await refreshEntities(selectedTypeId);
+    setSelectedEntityId('');
+    setEntityAttrs({});
+    closeDeleteDialog();
+  }
+
+  async function loadEntity(id: string) {
     const d = await window.matrica.admin.entities.get(id);
     setEntityAttrs(d.attributes ?? {});
+  }
+
+  async function refreshIncomingLinks(entityId: string) {
+    setIncomingLinks((p) => ({ ...p, loading: true, error: null }));
+    const r = await window.matrica.admin.entities.deleteInfo(entityId).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setIncomingLinks({ loading: false, error: r.error ?? 'unknown', links: [] });
+      return;
+    }
+    setIncomingLinks({ loading: false, error: null, links: r.links ?? [] });
+  }
+
+  async function jumpToEntity(typeId: string, entityId: string) {
+    setSelectedTypeId(typeId);
+    await refreshDefs(typeId);
+    await refreshEntities(typeId, { selectId: entityId });
+    setSelectedEntityId(entityId);
   }
 
   async function refreshLinkOptions(defsForType: AttrDefRow[]) {
@@ -107,7 +259,7 @@ export function AdminPage(props: {
     const map: Record<string, { id: string; label: string }[]> = {};
     for (const d of defsForType) {
       if (d.dataType !== 'link') continue;
-      const targetCode = linkTargetByCode[d.code];
+      const targetCode = getLinkTargetTypeCode(d);
       if (!targetCode) continue;
       const targetType = types.find((t) => t.code === targetCode);
       if (!targetType) continue;
@@ -131,7 +283,8 @@ export function AdminPage(props: {
 
   useEffect(() => {
     if (!selectedEntityId) return;
-    void openEntity(selectedEntityId);
+    void loadEntity(selectedEntityId);
+    void refreshIncomingLinks(selectedEntityId);
   }, [selectedEntityId]);
 
   useEffect(() => {
@@ -179,7 +332,7 @@ export function AdminPage(props: {
       <h2 style={{ margin: '8px 0' }}>Справочники (MVP)</h2>
       <div style={{ color: '#6b7280', marginBottom: 12 }}>
         {props.canViewMasterData
-          ? 'Здесь можно создавать типы сущностей и атрибуты (для модульного расширения без миграций).'
+          ? 'Здесь можно создавать типы сущностей и свойства (для модульного расширения без миграций).'
           : 'У вас нет доступа к мастер-данным. Доступен только раздел управления пользователями/правами (если есть права).'}
       </div>
 
@@ -195,18 +348,42 @@ export function AdminPage(props: {
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <select
-              value={selectedTypeId}
-              onChange={(e) => setSelectedTypeId(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            <Input value={typeQuery} onChange={(e) => setTypeQuery(e.target.value)} placeholder="Поиск типов…" />
+
+            <div
+              style={{
+                marginTop: 8,
+                border: '1px solid #f3f4f6',
+                borderRadius: 12,
+                overflow: 'hidden',
+              }}
             >
-              {types.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code} — {t.name}
-                </option>
-              ))}
-              {types.length === 0 && <option value="">(пусто)</option>}
-            </select>
+              <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                {filteredTypes.map((t) => {
+                  const active = t.id === selectedTypeId;
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTypeId(t.id)}
+                      style={{
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #f3f4f6',
+                        background: active ? '#eef2ff' : '#fff',
+                      }}
+                      title={t.code}
+                    >
+                      <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{t.name}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                        {t.code}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredTypes.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
+              </div>
+            </div>
           </div>
 
           {props.canEditMasterData && (
@@ -228,7 +405,7 @@ export function AdminPage(props: {
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Атрибуты</strong>
+            <strong>Свойства</strong>
             <span style={{ color: '#6b7280' }}>{selectedType ? `для ${selectedType.code}` : ''}</span>
             <span style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => selectedTypeId && void refreshDefs(selectedTypeId)}>
@@ -242,10 +419,11 @@ export function AdminPage(props: {
                 {props.canEditMasterData && (
                 <NewAttrDefForm
                   entityTypeId={selectedTypeId}
+                  types={types}
                   onSubmit={async (payload) => {
-                    setStatus('Сохранение атрибута...');
+                    setStatus('Сохранение свойства...');
                     const r = await window.matrica.admin.attributeDefs.upsert(payload);
-                    setStatus(r.ok ? 'Атрибут сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                    setStatus(r.ok ? 'Свойство сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
                     await refreshDefs(selectedTypeId);
                   }}
                 />
@@ -254,10 +432,10 @@ export function AdminPage(props: {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: 'linear-gradient(135deg, #db2777 0%, #9d174d 120%)', color: '#fff' }}>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>code</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>name</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>type</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>required</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Код</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Название</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Обяз.</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -265,14 +443,14 @@ export function AdminPage(props: {
                         <tr key={d.id}>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.code}</td>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.name}</td>
-                          <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.dataType}</td>
+                          <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatDefDataType(d)}</td>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.isRequired ? 'да' : 'нет'}</td>
                         </tr>
                       ))}
                       {defs.length === 0 && (
                         <tr>
                           <td style={{ padding: 12, color: '#6b7280' }} colSpan={4}>
-                            Атрибутов нет
+                            Свойств нет
                           </td>
                         </tr>
                       )}
@@ -327,12 +505,7 @@ export function AdminPage(props: {
                   variant="ghost"
                   onClick={async () => {
                     if (!selectedEntityId) return;
-                    setStatus('Удаление...');
-                    const r = await window.matrica.admin.entities.softDelete(selectedEntityId);
-                    setStatus(r.ok ? 'Удалено' : `Ошибка: ${r.error ?? 'unknown'}`);
-                    await refreshEntities(selectedTypeId);
-                    setSelectedEntityId('');
-                    setEntityAttrs({});
+                    await openDeleteDialog(selectedEntityId);
                   }}
                 >
                   Удалить
@@ -340,24 +513,50 @@ export function AdminPage(props: {
                   </>
                 )}
                 <span style={{ flex: 1 }} />
-                <select
-                  value={selectedEntityId}
-                  onChange={(e) => setSelectedEntityId(e.target.value)}
-                  style={{ maxWidth: 260, padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-                >
-                  {entities.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {(e.displayName ? `${e.displayName} — ` : '') + e.id.slice(0, 8)}
-                    </option>
-                  ))}
-                  {entities.length === 0 && <option value="">(пусто)</option>}
-                </select>
+                <div style={{ color: '#6b7280', fontSize: 12 }}>
+                  {selectedEntity ? 'Выбрано' : 'Всего'}: {selectedEntity ? selectedEntity.displayName ?? selectedEntity.id.slice(0, 8) : entities.length}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск сущностей…" />
+
+                <div style={{ marginTop: 8, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                    {filteredEntities.map((e) => {
+                      const active = e.id === selectedEntityId;
+                      return (
+                        <div
+                          key={e.id}
+                          onClick={() => setSelectedEntityId(e.id)}
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid #f3f4f6',
+                            background: active ? '#ecfeff' : '#fff',
+                          }}
+                          title={e.id}
+                        >
+                          <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>
+                            {e.displayName ?? e.id.slice(0, 8)}
+                          </div>
+                          <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>
+                            <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.id.slice(0, 8)}</span>
+                            {'  '}| sync: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.syncStatus}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {filteredEntities.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
+                  </div>
+                </div>
               </div>
 
               {selectedEntity ? (
                 <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                   <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
-                    {props.canEditMasterData ? 'Редактирование атрибутов' : 'Атрибуты (только просмотр)'}
+                    {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
@@ -379,6 +578,97 @@ export function AdminPage(props: {
                         />
                       </React.Fragment>
                     ))}
+                  </div>
+
+                  <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <strong>Связи</strong>
+                      <span style={{ flex: 1 }} />
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          if (selectedEntityId) void refreshIncomingLinks(selectedEntityId);
+                        }}
+                      >
+                        Обновить
+                      </Button>
+                    </div>
+
+                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
+                        {outgoingLinks.length === 0 ? (
+                          <div style={{ color: '#6b7280' }}>В этом типе нет link‑свойств.</div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                            {outgoingLinks.map((l) => (
+                              <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
+                                  <div style={{ fontSize: 12, color: '#6b7280' }}>
+                                    → {l.targetTypeName}
+                                    {l.targetEntityId ? (
+                                      <>
+                                        {' '}
+                                        | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>
+                                        {l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}
+                                      </>
+                                    ) : (
+                                      ' | (не выбрано)'
+                                    )}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  disabled={!l.targetTypeId || !l.targetEntityId}
+                                  onClick={() => {
+                                    if (!l.targetTypeId || !l.targetEntityId) return;
+                                    void jumpToEntity(l.targetTypeId, l.targetEntityId);
+                                  }}
+                                >
+                                  Перейти
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Входящие</div>
+                        {incomingLinks.loading ? (
+                          <div style={{ color: '#6b7280' }}>Загрузка…</div>
+                        ) : incomingLinks.error ? (
+                          <div style={{ color: '#b91c1c' }}>Ошибка: {incomingLinks.error}</div>
+                        ) : incomingLinks.links.length === 0 ? (
+                          <div style={{ color: '#6b7280' }}>Никто не ссылается на эту сущность.</div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                            {incomingLinks.links.map((l, idx) => (
+                              <div key={`${l.fromEntityId}:${l.attributeDefId}:${idx}`} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 700, color: '#111827' }}>
+                                    {l.fromEntityTypeName}: {l.fromEntityDisplayName ?? l.fromEntityId.slice(0, 8)}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: '#6b7280' }}>
+                                    по свойству “{l.attributeName}” |{' '}
+                                    <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.fromEntityId.slice(0, 8)}</span>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => {
+                                    void jumpToEntity(l.fromEntityTypeId, l.fromEntityId);
+                                  }}
+                                >
+                                  Перейти
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -617,15 +907,23 @@ export function AdminPage(props: {
                               setStatus('Ошибка: укажите дату окончания');
                               return;
                             }
-                            const [y, m, d] = newDelegation.endsAt.split('-').map((x) => Number(x));
-                            const endMs = new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999).getTime();
+                            const [ys, ms, ds] = newDelegation.endsAt.split('-');
+                            const y = Number(ys);
+                            const m = Number(ms);
+                            const d = Number(ds);
+                            if (!y || !m || !d) {
+                              setStatus('Ошибка: некорректная дата окончания');
+                              return;
+                            }
+                            const endMs = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
                             setStatus('Создание делегирования...');
+                            const note = newDelegation.note.trim();
                             const r = await window.matrica.admin.users.delegationCreate({
                               fromUserId: newDelegation.fromUserId,
                               toUserId: selectedUserId,
                               permCode: newDelegation.permCode.trim(),
                               endsAt: endMs,
-                              note: newDelegation.note.trim() ? newDelegation.note.trim() : undefined,
+                              ...(note ? { note } : {}),
                             });
                             setStatus(r.ok ? 'Делегирование создано' : `Ошибка: ${r.error ?? 'unknown'}`);
                             if (r.ok) {
@@ -708,6 +1006,125 @@ export function AdminPage(props: {
         </div>
       )}
 
+      {deleteDialog.open && (
+        <div
+          onClick={() => {
+            if (!deleteDialog.loading) closeDeleteDialog();
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 9999,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 760,
+              maxWidth: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              background: '#fff',
+              borderRadius: 16,
+              border: '1px solid rgba(255,255,255,0.25)',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              padding: 16,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить сущность</div>
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>
+                Закрыть
+              </Button>
+            </div>
+
+            <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
+              Сущность: <span style={{ fontWeight: 700, color: '#111827' }}>{deleteDialog.entityLabel}</span>{' '}
+              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>({deleteDialog.entityId.slice(0, 8)})</span>
+            </div>
+
+            {deleteDialog.loading ? (
+              <div style={{ marginTop: 12, color: '#6b7280' }}>Проверяем связи…</div>
+            ) : (
+              <>
+                {deleteDialog.links && deleteDialog.links.length > 0 ? (
+                  <>
+                    <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fff7ed', color: '#9a3412' }}>
+                      Нельзя удалить без действий: сущность связана с другими. Можно <strong>отвязать связи</strong> и удалить.
+                    </div>
+
+                    <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ background: 'linear-gradient(135deg, #f97316 0%, #ea580c 120%)', color: '#fff' }}>
+                            <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Тип</th>
+                            <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Сущность</th>
+                            <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Свойство</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deleteDialog.links.map((l, idx) => (
+                            <tr key={`${l.fromEntityId}:${l.attributeDefId}:${idx}`}>
+                              <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{l.fromEntityTypeName}</td>
+                              <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                                <div style={{ fontWeight: 700, color: '#111827' }}>{l.fromEntityDisplayName ?? l.fromEntityId.slice(0, 8)}</div>
+                                <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                                  {l.fromEntityId.slice(0, 8)}
+                                </div>
+                              </td>
+                              <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{l.attributeName}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
+                    Связей не найдено. Можно удалить сущность.
+                  </div>
+                )}
+
+                {deleteDialog.error && (
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>
+                    Ошибка: {deleteDialog.error}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>
+                    Отмена
+                  </Button>
+                  {deleteDialog.links && deleteDialog.links.length > 0 ? (
+                    <Button
+                      onClick={() => void doDetachAndDelete(deleteDialog.entityId)}
+                      disabled={deleteDialog.loading}
+                      style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
+                    >
+                      Отвязать и удалить
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => void doSoftDelete(deleteDialog.entityId)}
+                      disabled={deleteDialog.loading}
+                      style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
+                    >
+                      Удалить
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {status && <div style={{ marginTop: 12, color: '#6b7280' }}>{status}</div>}
     </div>
   );
@@ -738,6 +1155,7 @@ function NewEntityTypeForm(props: { onSubmit: (code: string, name: string) => Pr
 
 function NewAttrDefForm(props: {
   entityTypeId: string;
+  types: EntityTypeRow[];
   onSubmit: (payload: {
     entityTypeId: string;
     code: string;
@@ -754,10 +1172,15 @@ function NewAttrDefForm(props: {
   const [isRequired, setIsRequired] = useState(false);
   const [sortOrder, setSortOrder] = useState('0');
   const [metaJson, setMetaJson] = useState('');
+  const [linkTargetTypeCode, setLinkTargetTypeCode] = useState('');
+
+  useEffect(() => {
+    if (dataType !== 'link') setLinkTargetTypeCode('');
+  }, [dataType]);
 
   return (
     <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить атрибут</div>
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить свойство</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="code (например: passport_details)" />
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="название (например: Паспорт)" />
@@ -774,15 +1197,36 @@ function NewAttrDefForm(props: {
           <option value="link">link</option>
         </select>
         <Input value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} placeholder="sortOrder" />
+        {dataType === 'link' && (
+          <select
+            value={linkTargetTypeCode}
+            onChange={(e) => setLinkTargetTypeCode(e.target.value)}
+            style={{ gridColumn: '1 / -1', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="">связь с (тип сущности)…</option>
+            {props.types.map((t) => (
+              <option key={t.id} value={t.code}>
+                {t.name} ({t.code})
+              </option>
+            ))}
+          </select>
+        )}
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
           <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
           обязательное
         </label>
-        <Input value={metaJson} onChange={(e) => setMetaJson(e.target.value)} placeholder="metaJson (опц., JSON строка)" />
+        {dataType === 'link' ? (
+          <div style={{ display: 'flex', alignItems: 'center', color: '#6b7280', fontSize: 12 }}>
+            target будет сохранён в metaJson как <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{`{"linkTargetTypeCode":"${linkTargetTypeCode || '...'}"}`}</span>
+          </div>
+        ) : (
+          <Input value={metaJson} onChange={(e) => setMetaJson(e.target.value)} placeholder="metaJson (опц., JSON строка)" />
+        )}
         <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}>
           <Button
             onClick={() => {
               if (!code.trim() || !name.trim()) return;
+              if (dataType === 'link' && !linkTargetTypeCode) return;
               void props.onSubmit({
                 entityTypeId: props.entityTypeId,
                 code,
@@ -790,11 +1234,12 @@ function NewAttrDefForm(props: {
                 dataType,
                 isRequired,
                 sortOrder: Number(sortOrder) || 0,
-                metaJson: metaJson.trim() ? metaJson : null,
+                metaJson: dataType === 'link' ? JSON.stringify({ linkTargetTypeCode }) : metaJson.trim() ? metaJson : null,
               });
               setCode('');
               setName('');
               setMetaJson('');
+              setLinkTargetTypeCode('');
             }}
           >
             Добавить

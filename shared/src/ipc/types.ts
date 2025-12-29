@@ -86,6 +86,27 @@ export type UpdateCheckResult =
 
 export type UpdateResult = { ok: boolean; error?: string };
 
+export type AppVersionResult = { ok: true; version: string } | { ok: false; error: string };
+
+export type ServerHealthResult =
+  | { ok: true; url: string; serverOk: boolean; version: string | null; buildDate: string | null }
+  | { ok: false; url: string; error: string };
+
+export type IncomingLinkInfo = {
+  fromEntityId: string;
+  fromEntityTypeId: string;
+  fromEntityTypeCode: string;
+  fromEntityTypeName: string;
+  attributeDefId: string;
+  attributeCode: string;
+  attributeName: string;
+  fromEntityDisplayName: string | null;
+};
+
+export type EntityDeleteInfoResult = { ok: true; links: IncomingLinkInfo[] } | { ok: false; error: string };
+
+export type EntityDetachLinksAndDeleteResult = { ok: true; detached: number } | { ok: false; error: string };
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type AuthUserInfo = {
@@ -112,6 +133,9 @@ import type { FileRef } from '../domain/fileStorage.js';
 
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
+  app: {
+    version: () => Promise<AppVersionResult>;
+  };
   log: {
     send: (level: LogLevel, message: string) => Promise<void>;
   };
@@ -144,6 +168,9 @@ export type MatricaApi = {
     status: () => Promise<SyncStatus>;
     configGet: () => Promise<{ ok: boolean; apiBaseUrl?: string; error?: string }>;
     configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
+  };
+  server: {
+    health: () => Promise<ServerHealthResult>;
   };
   reports: {
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
@@ -189,6 +216,8 @@ export type MatricaApi = {
       create: (entityTypeId: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       get: (id: string) => Promise<EntityDetails>;
       setAttr: (entityId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
+      deleteInfo: (entityId: string) => Promise<EntityDeleteInfoResult>;
+      detachLinksAndDelete: (entityId: string) => Promise<EntityDetachLinksAndDeleteResult>;
       softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
     };
     users: {

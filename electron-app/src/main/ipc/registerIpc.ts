@@ -1,9 +1,8 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, net, app } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { app } from 'electron';
 
 import { createEngine, getEngineDetails, listEngines, setEngineAttribute } from '../services/engineService.js';
 import { addOperation, listOperations } from '../services/operationService.js';
@@ -13,7 +12,15 @@ import { listAttributeDefsByEntityType, listEntityTypes, upsertAttributeDef, ups
 import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../services/reportService.js';
 import { checkForUpdates } from '../services/updateService.js';
 import { authLogin, authLogout, authStatus, authSync, getSession } from '../services/authService.js';
-import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../services/entityService.js';
+import {
+  createEntity,
+  detachIncomingLinksAndSoftDeleteEntity,
+  getEntityDetails,
+  getIncomingLinksForEntity,
+  listEntitiesByType,
+  setEntityAttribute,
+  softDeleteEntity,
+} from '../services/entityService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 import { createSupplyRequest, deleteSupplyRequest, getSupplyRequest, listSupplyRequests, transitionSupplyRequest, updateSupplyRequest } from '../services/supplyRequestService.js';
 import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../services/fileService.js';
@@ -32,6 +39,12 @@ import { logMessage, logMessageGetEnabled, logMessageSetEnabled, startLogSender 
 import { syncState } from '../database/schema.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
+  function joinUrl(base: string, path: string) {
+    const b = String(base ?? '').trim().replace(/\/+$/, '');
+    const p = String(path ?? '').trim().replace(/^\/+/, '');
+    return `${b}/${p}`;
+  }
+
   function logToFile(message: string) {
     try {
       const dir = app.getPath('userData');
@@ -140,6 +153,33 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     }
   });
 
+  // Backend health (version compatibility check)
+  ipcMain.handle('server:health', async () => {
+    const base = mgr.getApiBaseUrl();
+    const url = joinUrl(base, '/health');
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(new Error('timeout')), 10_000);
+    try {
+      const r = await net.fetch(url, { method: 'GET', signal: ac.signal as any });
+      if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        return { ok: false as const, url, error: `health HTTP ${r.status}: ${text || 'no body'}` };
+      }
+      const json = (await r.json().catch(() => ({}))) as any;
+      return {
+        ok: true as const,
+        url,
+        serverOk: json?.ok === true,
+        version: typeof json?.version === 'string' ? json.version : null,
+        buildDate: typeof json?.buildDate === 'string' ? json.buildDate : null,
+      };
+    } catch (e) {
+      return { ok: false as const, url, error: String(e) };
+    } finally {
+      clearTimeout(t);
+    }
+  });
+
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) =>
     buildPeriodStagesCsv(db, args),
   );
@@ -177,6 +217,8 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   ipcMain.handle('admin:entities:setAttr', async (_e, entityId: string, code: string, value: unknown) =>
     setEntityAttribute(db, entityId, code, value),
   );
+  ipcMain.handle('admin:entities:deleteInfo', async (_e, entityId: string) => getIncomingLinksForEntity(db, entityId));
+  ipcMain.handle('admin:entities:detachLinksAndDelete', async (_e, entityId: string) => detachIncomingLinksAndSoftDeleteEntity(db, entityId));
   ipcMain.handle('admin:entities:softDelete', async (_e, entityId: string) => softDeleteEntity(db, entityId));
 
   ipcMain.handle('admin:users:list', async () => adminListUsers(db, mgr.getApiBaseUrl()));
