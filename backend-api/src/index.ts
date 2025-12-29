@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
+import { db } from './database/db.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { syncRouter } from './routes/sync.js';
@@ -11,6 +12,7 @@ import { partsRouter } from './routes/parts.js';
 import { logsRouter } from './routes/logs.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
+import { permissions } from './database/schema.js';
 
 const app = express();
 // За reverse-proxy (nginx / панель провайдера) важно корректно понимать X-Forwarded-* заголовки.
@@ -32,8 +34,26 @@ const port = Number(process.env.PORT ?? 3001);
 // Для отладки можно выставить HOST=0.0.0.0 (но лучше не делать в проде).
 const host = process.env.HOST ?? '127.0.0.1';
 
-app.listen(port, host, () => {
-  console.log(`[backend-api] listening on ${host}:${port}`);
-});
+async function ensurePermissionsSeeded() {
+  const ts = Date.now();
+  const codes = Object.values(PermissionCode);
+  if (codes.length === 0) return;
+  await db
+    .insert(permissions)
+    .values(codes.map((code) => ({ code, description: code, createdAt: ts })))
+    .onConflictDoNothing();
+}
+
+async function bootstrap() {
+  await ensurePermissionsSeeded().catch((e) => {
+    console.error('[backend-api] permissions seed failed', e);
+  });
+
+  app.listen(port, host, () => {
+    console.log(`[backend-api] listening on ${host}:${port}`);
+  });
+}
+
+void bootstrap();
 
 

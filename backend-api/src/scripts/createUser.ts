@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
 import { users } from '../database/schema.js';
@@ -43,28 +43,23 @@ async function main() {
   const username = usernameRaw.toLowerCase();
   const ts = nowMs();
 
-  const existing = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.username, username), isNull(users.deletedAt)))
-    .limit(1);
+  const passwordHash = await hashPassword(password);
+  const existing = await db.select({ id: users.id, deletedAt: users.deletedAt }).from(users).where(eq(users.username, username)).limit(1);
   if (existing[0]) {
+    if (existing[0].deletedAt != null) {
+      await db
+        .update(users)
+        .set({ passwordHash, role, isActive: true, deletedAt: null, updatedAt: ts })
+        .where(eq(users.id, existing[0].id));
+      console.log(`Restored user: ${username} (id=${existing[0].id}, role=${role})`);
+      return;
+    }
     console.error(`User already exists: ${username}`);
     process.exit(1);
   }
 
-  const passwordHash = await hashPassword(password);
   const id = randomUUID();
-  await db.insert(users).values({
-    id,
-    username,
-    passwordHash,
-    role,
-    isActive: true,
-    createdAt: ts,
-    updatedAt: ts,
-    deletedAt: null,
-  });
+  await db.insert(users).values({ id, username, passwordHash, role, isActive: true, createdAt: ts, updatedAt: ts, deletedAt: null });
 
   console.log(`Created user: ${username} (id=${id}, role=${role})`);
 }

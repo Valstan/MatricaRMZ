@@ -3,6 +3,19 @@ import { net } from 'electron';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
+function formatHttpError(r: { status: number; json?: any; text?: string }): string {
+  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
+  const msg =
+    typeof jsonErr === 'string'
+      ? jsonErr
+      : jsonErr != null
+        ? JSON.stringify(jsonErr)
+        : typeof r.text === 'string' && r.text.trim()
+          ? r.text.trim()
+          : '';
+  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
+}
+
 async function fetchAuthed(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -40,7 +53,7 @@ async function fetchAuthed(
 
 export async function adminListUsers(db: BetterSQLite3Database, apiBaseUrl: string) {
   const r = await fetchAuthed(db, apiBaseUrl, '/admin/users', { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -50,7 +63,7 @@ export async function adminCreateUser(db: BetterSQLite3Database, apiBaseUrl: str
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -65,13 +78,13 @@ export async function adminUpdateUser(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
 export async function adminGetUserPermissions(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
   const r = await fetchAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/permissions`, { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -81,13 +94,13 @@ export async function adminSetUserPermissions(db: BetterSQLite3Database, apiBase
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ set }),
   });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
 export async function adminListUserDelegations(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
   const r = await fetchAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/delegations`, { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -101,7 +114,7 @@ export async function adminCreateDelegation(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -111,7 +124,7 @@ export async function adminRevokeDelegation(db: BetterSQLite3Database, apiBaseUr
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ note: note ?? undefined }),
   });
-  if (!r.ok) return { ok: false as const, error: `HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 

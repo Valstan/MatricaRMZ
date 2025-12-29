@@ -49,11 +49,29 @@ adminUsersRouter.post('/users', async (req, res) => {
     const role = parsed.data.role.trim().toLowerCase();
     const ts = Date.now();
 
-    const existing = await db.select({ id: users.id }).from(users).where(and(eq(users.username, username), isNull(users.deletedAt))).limit(1);
-    if (existing[0]) return res.status(409).json({ ok: false, error: 'username already exists' });
+    // В БД username уникален глобально (включая soft-deleted записи),
+    // поэтому при попытке создать "удалённого" пользователя нужно либо восстановить запись,
+    // либо изменить индекс. Здесь делаем восстановление (без риска ошибки UNIQUE).
+    const existing = await db
+      .select({ id: users.id, deletedAt: users.deletedAt })
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+
+    const passwordHash = await hashPassword(parsed.data.password);
+
+    if (existing[0]) {
+      if (existing[0].deletedAt != null) {
+        await db
+          .update(users)
+          .set({ passwordHash, role, isActive: true, deletedAt: null, updatedAt: ts })
+          .where(eq(users.id, existing[0].id));
+        return res.json({ ok: true, id: existing[0].id, restored: true });
+      }
+      return res.status(409).json({ ok: false, error: 'username already exists' });
+    }
 
     const id = randomUUID();
-    const passwordHash = await hashPassword(parsed.data.password);
     await db.insert(users).values({
       id,
       username,
@@ -64,7 +82,7 @@ adminUsersRouter.post('/users', async (req, res) => {
       updatedAt: ts,
       deletedAt: null,
     });
-    return res.json({ ok: true, id });
+    return res.json({ ok: true, id, restored: false });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

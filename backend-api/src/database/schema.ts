@@ -148,7 +148,9 @@ export const users = pgTable(
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
-    usernameUq: uniqueIndex('users_username_uq').on(t.username),
+    // Логин должен быть уникален только среди "живых" записей, чтобы можно было
+    // восстановить/создать пользователя заново после soft-delete.
+    usernameUq: uniqueIndex('users_username_uq').on(t.username).where(sql`${t.deletedAt} is null`),
   }),
 );
 
