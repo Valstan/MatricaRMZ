@@ -115,6 +115,10 @@ export type MatricaApi = {
   log: {
     send: (level: LogLevel, message: string) => Promise<void>;
   };
+  logging: {
+    getEnabled: () => Promise<boolean>;
+    setEnabled: (enabled: boolean) => Promise<void>;
+  };
   auth: {
     status: () => Promise<AuthStatus>;
     // Обновляет permissions по данным сервера (/auth/me) и сохраняет в локальную сессию.
@@ -284,19 +288,81 @@ export type MatricaApi = {
     get: (id: string) => Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }>;
     create: () => Promise<{ ok: true; id: string; payload: SupplyRequestPayload } | { ok: false; error: string }>;
     update: (args: { id: string; payload: SupplyRequestPayload }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     transition: (args: { id: string; action: string; note?: string | null }) => Promise<
       | { ok: true; payload: SupplyRequestPayload }
       | { ok: false; error: string }
     >;
   };
 
+  parts: {
+    list: (args?: { q?: string; limit?: number }) => Promise<
+      | {
+          ok: true;
+          parts: Array<{
+            id: string;
+            name?: string;
+            article?: string;
+            updatedAt: number;
+            createdAt: number;
+          }>;
+        }
+      | { ok: false; error: string }
+    >;
+    get: (partId: string) => Promise<
+      | {
+          ok: true;
+          part: {
+            id: string;
+            createdAt: number;
+            updatedAt: number;
+            attributes: Array<{
+              id: string;
+              code: string;
+              name: string;
+              dataType: string;
+              value: unknown;
+              isRequired: boolean;
+              sortOrder: number;
+              metaJson?: unknown;
+            }>;
+          };
+        }
+      | { ok: false; error: string }
+    >;
+    create: (args?: { attributes?: Record<string, unknown> }) => Promise<
+      | {
+          ok: true;
+          part: { id: string; createdAt: number; updatedAt: number };
+        }
+      | { ok: false; error: string }
+    >;
+    createAttributeDef: (args: {
+      code: string;
+      name: string;
+      dataType: 'text' | 'number' | 'boolean' | 'date' | 'json' | 'link';
+      isRequired?: boolean;
+      sortOrder?: number;
+      metaJson?: string | null;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    updateAttribute: (args: { partId: string; attributeCode: string; value: unknown }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    delete: (partId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    getFiles: (partId: string) => Promise<{ ok: true; files: unknown[] } | { ok: false; error: string }>;
+  };
+
   files: {
     // Загружает файл на сервер (сервер сам решает: локально или Яндекс.Диск).
-    upload: (args: { path: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
+    upload: (args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<
+      { ok: true; file: FileRef } | { ok: false; error: string }
+    >;
+    // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).
+    pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Скачивает файл в локальную папку кеша (или выбранную пользователем) и возвращает путь.
     download: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
     // Открывает файл (скачивает при необходимости) средствами ОС.
     open: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
+    // Удаляет файл на сервере (soft delete + удаление физического файла/объекта).
+    delete: (args: { fileId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     // Папка скачивания/кеша.
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;

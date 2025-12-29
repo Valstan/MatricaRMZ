@@ -57,6 +57,13 @@
       "when": 1766831938174,
       "tag": "0007_watery_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1766985521548,
+      "tag": "0008_dusty_doorman",
+      "breakpoints": true
     }
   ]
 }

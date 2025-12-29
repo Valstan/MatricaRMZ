@@ -8,6 +8,7 @@ import {
   bigserial,
   bigint,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // Временные поля храним как Unix-time в миллисекундах (bigint),
 // чтобы одинаково жить в SQLite и PostgreSQL и проще сравниваться при синхронизации.
@@ -269,7 +270,8 @@ export const fileAssets = pgTable(
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
-    shaUq: uniqueIndex('file_assets_sha256_uq').on(t.sha256),
+    // Unique only for "alive" rows. Soft-deleted files must not block re-upload.
+    shaUq: uniqueIndex('file_assets_sha256_uq').on(t.sha256).where(sql`${t.deletedAt} is null`),
   }),
 );
 

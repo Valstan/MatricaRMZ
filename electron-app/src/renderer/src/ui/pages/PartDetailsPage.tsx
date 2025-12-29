@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -129,7 +129,7 @@ export function PartDetailsPage(props: {
       const sortOrder = Number(newFieldSortOrder) || 0;
       const metaJson = newFieldMetaJson.trim() ? newFieldMetaJson.trim() : null;
 
-      const r = await (window.matrica.parts as any).createAttributeDef({
+      const r = await window.matrica.parts.createAttributeDef({
         code,
         name,
         dataType: newFieldDataType,
@@ -283,23 +283,14 @@ export function PartDetailsPage(props: {
   const coreCodes = new Set(['name', 'article', 'description', 'purchase_date', 'supplier']);
   const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code));
 
-  const attrByCode = useMemo(() => {
-    const m = new Map<string, Attribute>();
-    for (const a of part.attributes) m.set(a.code, a);
-    return m;
-  }, [part.attributes]);
+  const attrByCode = new Map<string, Attribute>();
+  for (const a of part.attributes) attrByCode.set(a.code, a);
 
-  const engineBrandLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const o of engineBrandOptions) map.set(o.id, o.label);
-    return map;
-  }, [engineBrandOptions]);
+  const engineBrandLabelById = new Map<string, string>();
+  for (const o of engineBrandOptions) engineBrandLabelById.set(o.id, o.label);
 
-  const filteredBrandOptions = useMemo(() => {
-    const q = engineBrandQuery.trim().toLowerCase();
-    if (!q) return engineBrandOptions;
-    return engineBrandOptions.filter((o) => o.label.toLowerCase().includes(q));
-  }, [engineBrandOptions, engineBrandQuery]);
+  const brandQuery = engineBrandQuery.trim().toLowerCase();
+  const filteredBrandOptions = brandQuery ? engineBrandOptions.filter((o) => o.label.toLowerCase().includes(brandQuery)) : engineBrandOptions;
 
   return (
     <div>
