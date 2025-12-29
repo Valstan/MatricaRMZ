@@ -255,7 +255,7 @@ export function AdminPage(props: {
   }
 
   async function refreshLinkOptions(defsForType: AttrDefRow[]) {
-    // Для link полей подгружаем списки сущностей целевого типа.
+    // Для link полей подгружаем списки записей целевого типа.
     const map: Record<string, { id: string; label: string }[]> = {};
     for (const d of defsForType) {
       if (d.dataType !== 'link') continue;
@@ -329,10 +329,10 @@ export function AdminPage(props: {
 
   return (
     <div>
-      <h2 style={{ margin: '8px 0' }}>Справочники (MVP)</h2>
+      <h2 style={{ margin: '8px 0' }}>Справочники</h2>
       <div style={{ color: '#6b7280', marginBottom: 12 }}>
         {props.canViewMasterData
-          ? 'Здесь можно создавать типы сущностей и свойства (для модульного расширения без миграций).'
+          ? 'Здесь можно настраивать номенклатуру и свойства (для расширения системы без миграций).'
           : 'У вас нет доступа к мастер-данным. Доступен только раздел управления пользователями/правами (если есть права).'}
       </div>
 
@@ -340,7 +340,7 @@ export function AdminPage(props: {
       <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Типы сущностей</strong>
+            <strong>Номенклатура</strong>
             <span style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => void refreshTypes()}>
               Обновить
@@ -348,7 +348,7 @@ export function AdminPage(props: {
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <Input value={typeQuery} onChange={(e) => setTypeQuery(e.target.value)} placeholder="Поиск типов…" />
+            <Input value={typeQuery} onChange={(e) => setTypeQuery(e.target.value)} placeholder="Поиск номенклатуры…" />
 
             <div
               style={{
@@ -373,10 +373,7 @@ export function AdminPage(props: {
                       }}
                       title={t.code}
                     >
-                      <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{t.name}</div>
-                      <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                        {t.code}
-                      </div>
+                      <div style={{ fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>{t.name}</div>
                     </div>
                   );
                 })}
@@ -388,14 +385,16 @@ export function AdminPage(props: {
 
           {props.canEditMasterData && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить тип</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить раздел</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
               <NewEntityTypeForm
+                existingCodes={types.map((t) => t.code)}
                 onSubmit={async (code, name) => {
-                  setStatus('Сохранение типа...');
+                  setStatus('Сохранение раздела...');
                   const r = await window.matrica.admin.entityTypes.upsert({ code, name });
-                  setStatus(r.ok ? 'Тип сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                  setStatus(r.ok ? 'Раздел сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
                   await refreshTypes();
+                  if (r.ok && r.id) setSelectedTypeId(String(r.id));
                 }}
               />
             </div>
@@ -405,8 +404,7 @@ export function AdminPage(props: {
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Свойства</strong>
-            <span style={{ color: '#6b7280' }}>{selectedType ? `для ${selectedType.code}` : ''}</span>
+            <strong>{selectedType ? `Свойства ${selectedType.name}` : 'Свойства'}</strong>
             <span style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => selectedTypeId && void refreshDefs(selectedTypeId)}>
               Обновить
@@ -459,15 +457,14 @@ export function AdminPage(props: {
                 </div>
               </>
             ) : (
-              <div style={{ color: '#6b7280' }}>Выберите тип сущности</div>
+              <div style={{ color: '#6b7280' }}>Выберите раздел номенклатуры</div>
             )}
           </div>
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Сущности</strong>
-            <span style={{ color: '#6b7280' }}>{selectedType ? `для ${selectedType.code}` : ''}</span>
+            <strong>{selectedType ? `Список ${selectedType.name}` : 'Список'}</strong>
             <span style={{ flex: 1 }} />
             <Button
               variant="ghost"
@@ -480,7 +477,7 @@ export function AdminPage(props: {
           </div>
 
           {!selectedTypeId ? (
-            <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите тип сущности</div>
+            <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите раздел номенклатуры</div>
           ) : (
             <>
               <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -488,13 +485,13 @@ export function AdminPage(props: {
                   <>
                 <Button
                   onClick={async () => {
-                    setStatus('Создание сущности...');
+                    setStatus('Создание записи...');
                     const r = await window.matrica.admin.entities.create(selectedTypeId);
                     if (!r.ok) {
                       setStatus(`Ошибка: ${r.error}`);
                       return;
                     }
-                    setStatus('Сущность создана');
+                    setStatus('Запись создана');
                     await refreshEntities(selectedTypeId);
                     setSelectedEntityId(r.id);
                   }}
@@ -519,7 +516,7 @@ export function AdminPage(props: {
               </div>
 
               <div style={{ marginTop: 10 }}>
-                <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск сущностей…" />
+                <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск записей…" />
 
                 <div style={{ marginTop: 8, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                   <div style={{ maxHeight: 220, overflowY: 'auto' }}>
@@ -598,7 +595,7 @@ export function AdminPage(props: {
                       <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                         <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
                         {outgoingLinks.length === 0 ? (
-                          <div style={{ color: '#6b7280' }}>В этом типе нет link‑свойств.</div>
+                          <div style={{ color: '#6b7280' }}>В этом разделе нет связанных полей.</div>
                         ) : (
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
                             {outgoingLinks.map((l) => (
@@ -641,7 +638,7 @@ export function AdminPage(props: {
                         ) : incomingLinks.error ? (
                           <div style={{ color: '#b91c1c' }}>Ошибка: {incomingLinks.error}</div>
                         ) : incomingLinks.links.length === 0 ? (
-                          <div style={{ color: '#6b7280' }}>Никто не ссылается на эту сущность.</div>
+                          <div style={{ color: '#6b7280' }}>Никто не ссылается на эту запись.</div>
                         ) : (
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
                             {incomingLinks.links.map((l, idx) => (
@@ -672,7 +669,7 @@ export function AdminPage(props: {
                   </div>
                 </div>
               ) : (
-                <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите сущность</div>
+                <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите запись</div>
               )}
             </>
           )}
@@ -1037,7 +1034,7 @@ export function AdminPage(props: {
             }}
           >
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить сущность</div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить запись</div>
               <span style={{ flex: 1 }} />
               <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>
                 Закрыть
@@ -1045,7 +1042,7 @@ export function AdminPage(props: {
             </div>
 
             <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
-              Сущность: <span style={{ fontWeight: 700, color: '#111827' }}>{deleteDialog.entityLabel}</span>{' '}
+              Запись: <span style={{ fontWeight: 700, color: '#111827' }}>{deleteDialog.entityLabel}</span>{' '}
               <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>({deleteDialog.entityId.slice(0, 8)})</span>
             </div>
 
@@ -1056,7 +1053,7 @@ export function AdminPage(props: {
                 {deleteDialog.links && deleteDialog.links.length > 0 ? (
                   <>
                     <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fff7ed', color: '#9a3412' }}>
-                      Нельзя удалить без действий: сущность связана с другими. Можно <strong>отвязать связи</strong> и удалить.
+                      Нельзя удалить без действий: запись связана с другими. Можно <strong>отвязать связи</strong> и удалить.
                     </div>
 
                     <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
@@ -1064,7 +1061,7 @@ export function AdminPage(props: {
                         <thead>
                           <tr style={{ background: 'linear-gradient(135deg, #f97316 0%, #ea580c 120%)', color: '#fff' }}>
                             <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Тип</th>
-                            <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Сущность</th>
+                            <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Запись</th>
                             <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Свойство</th>
                           </tr>
                         </thead>
@@ -1087,7 +1084,7 @@ export function AdminPage(props: {
                   </>
                 ) : (
                   <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
-                    Связей не найдено. Можно удалить сущность.
+                    Связей не найдено. Можно удалить запись.
                   </div>
                 )}
 
@@ -1130,19 +1127,104 @@ export function AdminPage(props: {
   );
 }
 
-function NewEntityTypeForm(props: { onSubmit: (code: string, name: string) => Promise<void> }) {
-  const [code, setCode] = useState('');
+function NewEntityTypeForm(props: { existingCodes: string[]; onSubmit: (code: string, name: string) => Promise<void> }) {
   const [name, setName] = useState('');
+
+  function normalizeForMatch(s: string) {
+    return String(s ?? '').trim().toLowerCase();
+  }
+
+  function translitRuToLat(s: string): string {
+    const map: Record<string, string> = {
+      а: 'a',
+      б: 'b',
+      в: 'v',
+      г: 'g',
+      д: 'd',
+      е: 'e',
+      ё: 'e',
+      ж: 'zh',
+      з: 'z',
+      и: 'i',
+      й: 'y',
+      к: 'k',
+      л: 'l',
+      м: 'm',
+      н: 'n',
+      о: 'o',
+      п: 'p',
+      р: 'r',
+      с: 's',
+      т: 't',
+      у: 'u',
+      ф: 'f',
+      х: 'h',
+      ц: 'ts',
+      ч: 'ch',
+      ш: 'sh',
+      щ: 'sch',
+      ъ: '',
+      ы: 'y',
+      ь: '',
+      э: 'e',
+      ю: 'yu',
+      я: 'ya',
+    };
+    const src = normalizeForMatch(s);
+    let out = '';
+    for (const ch of src) out += map[ch] ?? ch;
+    return out;
+  }
+
+  function slugifyCode(s: string): string {
+    let out = translitRuToLat(s);
+    out = out.replace(/&/g, ' and ');
+    out = out.replace(/[^a-z0-9]+/g, '_');
+    out = out.replace(/_+/g, '_').replace(/^_+/, '').replace(/_+$/, '');
+    if (!out) out = 'type';
+    if (/^[0-9]/.test(out)) out = `t_${out}`;
+    return out;
+  }
+
+  function suggestCode(name: string): string {
+    const dict: Record<string, string> = {
+      услуга: 'service',
+      услуги: 'services',
+      товар: 'product',
+      товары: 'products',
+      деталь: 'part',
+      детали: 'parts',
+      заказчик: 'customer',
+      заказчики: 'customers',
+    };
+    const key = normalizeForMatch(name);
+    const base = dict[key] ?? slugifyCode(name);
+    const taken = new Set(props.existingCodes.map((c) => normalizeForMatch(c)));
+    if (!taken.has(base)) return base;
+    let i = 2;
+    while (taken.has(`${base}_${i}`)) i += 1;
+    return `${base}_${i}`;
+  }
+
+  const computedCode = useMemo(() => (name.trim() ? suggestCode(name) : ''), [name, props.existingCodes.join('|')]);
   return (
     <>
-      <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="code (например: engine)" />
-      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="название (например: Двигатель)" />
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="название (например: Услуга)" />
+      <div style={{ gridColumn: '1 / -1', fontSize: 12, color: '#6b7280' }}>
+        {computedCode ? (
+          <>
+            Код будет создан автоматически: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{computedCode}</span>
+          </>
+        ) : (
+          'Код будет создан автоматически.'
+        )}
+      </div>
       <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}>
         <Button
           onClick={() => {
-            if (!code.trim() || !name.trim()) return;
-            void props.onSubmit(code, name);
-            setCode('');
+            if (!name.trim()) return;
+            const code = suggestCode(name);
+            void props.onSubmit(code, name.trim());
             setName('');
           }}
         >
@@ -1203,10 +1285,10 @@ function NewAttrDefForm(props: {
             onChange={(e) => setLinkTargetTypeCode(e.target.value)}
             style={{ gridColumn: '1 / -1', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
           >
-            <option value="">связь с (тип сущности)…</option>
+            <option value="">связь с (раздел)…</option>
             {props.types.map((t) => (
               <option key={t.id} value={t.code}>
-                {t.name} ({t.code})
+                {t.name}
               </option>
             ))}
           </select>
