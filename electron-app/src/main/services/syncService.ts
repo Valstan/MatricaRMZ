@@ -1,4 +1,4 @@
-import { SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
+import { EntityTypeCode, SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
 import { app, net } from 'electron';
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -407,114 +407,113 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     }
   }
 
-  // IMPORTANT: better-sqlite3 transactions are synchronous.
-  // The callback MUST NOT be async / return a Promise (otherwise better-sqlite3 throws:
-  // "Transaction function cannot return a promise").
-  db.transaction((tx) => {
-    if (groups.entity_types.length > 0) {
-      tx
-        .insert(entityTypes)
-        .values(groups.entity_types)
-        .onConflictDoUpdate({
-          target: entityTypes.id,
-          set: {
-            code: sql`excluded.code`,
-            name: sql`excluded.name`,
-            updatedAt: sql`excluded.updated_at`,
-            deletedAt: sql`excluded.deleted_at`,
-            syncStatus: 'synced',
-          },
-        });
-    }
-    if (groups.entities.length > 0) {
-      tx
-        .insert(entities)
-        .values(groups.entities)
-        .onConflictDoUpdate({
-          target: entities.id,
-          set: {
-            typeId: sql`excluded.type_id`,
-            updatedAt: sql`excluded.updated_at`,
-            deletedAt: sql`excluded.deleted_at`,
-            syncStatus: 'synced',
-          },
-        });
-    }
-    if (groups.attribute_defs.length > 0) {
-      tx
-        .insert(attributeDefs)
-        .values(groups.attribute_defs)
-        .onConflictDoUpdate({
-          target: attributeDefs.id,
-          set: {
-            entityTypeId: sql`excluded.entity_type_id`,
-            code: sql`excluded.code`,
-            name: sql`excluded.name`,
-            dataType: sql`excluded.data_type`,
-            isRequired: sql`excluded.is_required`,
-            sortOrder: sql`excluded.sort_order`,
-            metaJson: sql`excluded.meta_json`,
-            updatedAt: sql`excluded.updated_at`,
-            deletedAt: sql`excluded.deleted_at`,
-            syncStatus: 'synced',
-          },
-        });
-    }
-    if (groups.attribute_values.length > 0) {
-      tx
-        .insert(attributeValues)
-        .values(groups.attribute_values)
-        .onConflictDoUpdate({
-          target: attributeValues.id,
-          set: {
-            entityId: sql`excluded.entity_id`,
-            attributeDefId: sql`excluded.attribute_def_id`,
-            valueJson: sql`excluded.value_json`,
-            updatedAt: sql`excluded.updated_at`,
-            deletedAt: sql`excluded.deleted_at`,
-            syncStatus: 'synced',
-          },
-        });
-    }
-    if (groups.operations.length > 0) {
-      tx
-        .insert(operations)
-        .values(groups.operations)
-        .onConflictDoUpdate({
-          target: operations.id,
-          set: {
-            engineEntityId: sql`excluded.engine_entity_id`,
-            operationType: sql`excluded.operation_type`,
-            status: sql`excluded.status`,
-            note: sql`excluded.note`,
-            performedAt: sql`excluded.performed_at`,
-            performedBy: sql`excluded.performed_by`,
-            metaJson: sql`excluded.meta_json`,
-            updatedAt: sql`excluded.updated_at`,
-            deletedAt: sql`excluded.deleted_at`,
-            syncStatus: 'synced',
-          },
-        });
-    }
-    if (groups.audit_log.length > 0) {
-      tx
-        .insert(auditLog)
-        .values(groups.audit_log)
-        .onConflictDoUpdate({
-          target: auditLog.id,
-          set: {
-            actor: sql`excluded.actor`,
-            action: sql`excluded.action`,
-            entityId: sql`excluded.entity_id`,
-            tableName: sql`excluded.table_name`,
-            payloadJson: sql`excluded.payload_json`,
-            updatedAt: sql`excluded.updated_at`,
-            deletedAt: sql`excluded.deleted_at`,
-            syncStatus: 'synced',
-          },
-        });
-    }
-  });
+  // IMPORTANT:
+  // Drizzle (better-sqlite3) uses async query API. Running it inside better-sqlite3's native transaction
+  // callback (which MUST be synchronous) is unsafe.
+  // For correctness we apply pulled rows sequentially without wrapping them in a SQLite transaction.
+  if (groups.entity_types.length > 0) {
+    await db
+      .insert(entityTypes)
+      .values(groups.entity_types)
+      .onConflictDoUpdate({
+        target: entityTypes.id,
+        set: {
+          code: sql`excluded.code`,
+          name: sql`excluded.name`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+  if (groups.entities.length > 0) {
+    await db
+      .insert(entities)
+      .values(groups.entities)
+      .onConflictDoUpdate({
+        target: entities.id,
+        set: {
+          typeId: sql`excluded.type_id`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+  if (groups.attribute_defs.length > 0) {
+    await db
+      .insert(attributeDefs)
+      .values(groups.attribute_defs)
+      .onConflictDoUpdate({
+        target: attributeDefs.id,
+        set: {
+          entityTypeId: sql`excluded.entity_type_id`,
+          code: sql`excluded.code`,
+          name: sql`excluded.name`,
+          dataType: sql`excluded.data_type`,
+          isRequired: sql`excluded.is_required`,
+          sortOrder: sql`excluded.sort_order`,
+          metaJson: sql`excluded.meta_json`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+  if (groups.attribute_values.length > 0) {
+    await db
+      .insert(attributeValues)
+      .values(groups.attribute_values)
+      .onConflictDoUpdate({
+        target: attributeValues.id,
+        set: {
+          entityId: sql`excluded.entity_id`,
+          attributeDefId: sql`excluded.attribute_def_id`,
+          valueJson: sql`excluded.value_json`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+  if (groups.operations.length > 0) {
+    await db
+      .insert(operations)
+      .values(groups.operations)
+      .onConflictDoUpdate({
+        target: operations.id,
+        set: {
+          engineEntityId: sql`excluded.engine_entity_id`,
+          operationType: sql`excluded.operation_type`,
+          status: sql`excluded.status`,
+          note: sql`excluded.note`,
+          performedAt: sql`excluded.performed_at`,
+          performedBy: sql`excluded.performed_by`,
+          metaJson: sql`excluded.meta_json`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+  if (groups.audit_log.length > 0) {
+    await db
+      .insert(auditLog)
+      .values(groups.audit_log)
+      .onConflictDoUpdate({
+        target: auditLog.id,
+        set: {
+          actor: sql`excluded.actor`,
+          action: sql`excluded.action`,
+          entityId: sql`excluded.entity_id`,
+          tableName: sql`excluded.table_name`,
+          payloadJson: sql`excluded.payload_json`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
 
   // Обновим время локального состояния (для диагностики) один раз на пачку.
   await setSyncStateNumber(db, SettingsKey.LastAppliedAt, ts);
@@ -561,7 +560,17 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       }
     }
 
-    const since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
+    let since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
+    // Self-heal: if cursor is advanced but local DB looks empty/corrupted, force a full pull.
+    // This can happen if a previous client version updated cursor but failed to apply pulled rows.
+    if (since > 0) {
+      const haveEngineType = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.code, EntityTypeCode.Engine)).limit(1);
+      if (!haveEngineType[0]?.id) {
+        logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.Engine}' while since=${since}`);
+        since = 0;
+      }
+    }
+
     const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
     const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
     if (!pull.ok) {
