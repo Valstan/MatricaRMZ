@@ -300,6 +300,12 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     // We remap incoming entity_type IDs to the server's existing IDs by matching `code`,
     // and then apply this remap to dependent tables (entities.type_id, attribute_defs.entity_type_id).
     const entityTypeIdRemap = new Map<string, string>(); // clientId -> serverId
+    // Important: (attribute_defs.entity_type_id, attribute_defs.code) is unique on server.
+    // Clients may generate attribute_defs with different UUIDs but same (entity_type_id, code),
+    // which would break sync with unique constraint violations.
+    // We remap incoming attribute_def IDs to the server's existing IDs by matching (entity_type_id, code),
+    // and then apply this remap to dependent rows (attribute_values.attribute_def_id).
+    const attributeDefIdRemap = new Map<string, string>(); // clientId -> serverId
 
     // EntityTypes
     {
@@ -520,11 +526,43 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.AttributeDefs) ?? [];
       const parsed = raw.map((x) => attributeDefRowSchema.parse(x));
-      const remapped = parsed.map((r) => {
+      const withTypeRemap = parsed.map((r) => {
         const mappedTypeId = entityTypeIdRemap.get(String(r.entity_type_id));
         return mappedTypeId ? { ...r, entity_type_id: mappedTypeId } : r;
       });
-      const rows = await filterStaleByUpdatedAt(attributeDefs, remapped);
+
+      // Remap by (entity_type_id, code) -> existing server ID (if any).
+      const typeIds = Array.from(new Set(withTypeRemap.map((r) => String(r.entity_type_id))));
+      const codes = Array.from(new Set(withTypeRemap.map((r) => String(r.code))));
+      if (typeIds.length > 0 && codes.length > 0) {
+        const existingByKey = await tx
+          .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+          .from(attributeDefs)
+          .where(and(inArray(attributeDefs.entityTypeId, typeIds as any), inArray(attributeDefs.code, codes as any), isNull(attributeDefs.deletedAt)))
+          .limit(50_000);
+        const keyToId = new Map<string, string>();
+        for (const r of existingByKey as any[]) {
+          keyToId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
+        }
+        for (const r of withTypeRemap) {
+          const serverId = keyToId.get(`${String(r.entity_type_id)}::${String(r.code)}`);
+          if (serverId && serverId !== String(r.id)) attributeDefIdRemap.set(String(r.id), serverId);
+        }
+      }
+
+      // Apply ID remap and de-duplicate by ID (keep the newest updated_at).
+      const idRemapped = withTypeRemap.map((r) => {
+        const mappedId = attributeDefIdRemap.get(String(r.id));
+        return mappedId ? { ...r, id: mappedId } : r;
+      });
+      const dedupMap = new Map<string, (typeof idRemapped)[number]>();
+      for (const r of idRemapped) {
+        const prev = dedupMap.get(String(r.id));
+        if (!prev || prev.updated_at < r.updated_at) dedupMap.set(String(r.id), r);
+      }
+      const deduped = Array.from(dedupMap.values());
+
+      const rows = await filterStaleByUpdatedAt(attributeDefs, deduped);
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.AttributeDefs, ids);
       const existing = await tx
@@ -618,7 +656,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.AttributeValues) ?? [];
       const parsed = raw.map((x) => attributeValueRowSchema.parse(x));
-      const rows = await filterStaleByUpdatedAt(attributeValues, parsed);
+      const remapped = parsed.map((r) => {
+        const mappedDefId = attributeDefIdRemap.get(String(r.attribute_def_id));
+        return mappedDefId ? { ...r, attribute_def_id: mappedDefId } : r;
+      });
+      const rows = await filterStaleByUpdatedAt(attributeValues, remapped);
       const ids = rows.map((r) => r.id);
       const entityIds = rows.map((r) => r.entity_id);
       const entityOwners = await getOwnersMap(SyncTableName.Entities, entityIds);
