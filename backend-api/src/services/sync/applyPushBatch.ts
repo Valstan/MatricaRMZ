@@ -294,11 +294,49 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       grouped.set(upsert.table, arr);
     }
 
+    // Important: `entity_types.code` is globally unique on server.
+    // Some clients might have generated entity_type rows with different UUIDs but the same `code`,
+    // which would break sync on insert with a unique constraint violation.
+    // We remap incoming entity_type IDs to the server's existing IDs by matching `code`,
+    // and then apply this remap to dependent tables (entities.type_id, attribute_defs.entity_type_id).
+    const entityTypeIdRemap = new Map<string, string>(); // clientId -> serverId
+
     // EntityTypes
     {
       const raw = grouped.get(SyncTableName.EntityTypes) ?? [];
       const parsed = raw.map((x) => entityTypeRowSchema.parse(x));
-      const rows = await filterStaleByUpdatedAt(entityTypes, parsed);
+
+      // Build remap by code -> existing server ID (if any).
+      const codes = Array.from(new Set(parsed.map((r) => String(r.code))));
+      if (codes.length > 0) {
+        const existingByCode = await tx
+          .select({ id: entityTypes.id, code: entityTypes.code })
+          .from(entityTypes)
+          .where(inArray(entityTypes.code, codes as any))
+          .limit(50_000);
+        const byCode = new Map<string, string>();
+        for (const r of existingByCode as any[]) {
+          byCode.set(String(r.code), String(r.id));
+        }
+        for (const r of parsed) {
+          const serverId = byCode.get(String(r.code));
+          if (serverId && serverId !== String(r.id)) entityTypeIdRemap.set(String(r.id), serverId);
+        }
+      }
+
+      // Apply remap and de-duplicate by ID (keep the newest updated_at).
+      const mapped = parsed.map((r) => {
+        const mappedId = entityTypeIdRemap.get(String(r.id));
+        return mappedId ? { ...r, id: mappedId } : r;
+      });
+      const dedupMap = new Map<string, (typeof mapped)[number]>();
+      for (const r of mapped) {
+        const prev = dedupMap.get(String(r.id));
+        if (!prev || prev.updated_at < r.updated_at) dedupMap.set(String(r.id), r);
+      }
+      const deduped = Array.from(dedupMap.values());
+
+      const rows = await filterStaleByUpdatedAt(entityTypes, deduped);
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.EntityTypes, ids);
       const existing = await tx
@@ -382,7 +420,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.Entities) ?? [];
       const parsed = raw.map((x) => entityRowSchema.parse(x));
-      const rows = await filterStaleByUpdatedAt(entities, parsed);
+      const remapped = parsed.map((r) => {
+        const mappedTypeId = entityTypeIdRemap.get(String(r.type_id));
+        return mappedTypeId ? { ...r, type_id: mappedTypeId } : r;
+      });
+      const rows = await filterStaleByUpdatedAt(entities, remapped);
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.Entities, ids);
       const existing = await tx
@@ -478,7 +520,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.AttributeDefs) ?? [];
       const parsed = raw.map((x) => attributeDefRowSchema.parse(x));
-      const rows = await filterStaleByUpdatedAt(attributeDefs, parsed);
+      const remapped = parsed.map((r) => {
+        const mappedTypeId = entityTypeIdRemap.get(String(r.entity_type_id));
+        return mappedTypeId ? { ...r, entity_type_id: mappedTypeId } : r;
+      });
+      const rows = await filterStaleByUpdatedAt(attributeDefs, remapped);
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.AttributeDefs, ids);
       const existing = await tx
