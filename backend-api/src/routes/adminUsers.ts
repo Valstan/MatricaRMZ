@@ -126,6 +126,7 @@ adminUsersRouter.get('/users/:id/permissions', async (req, res) => {
       .limit(1);
     if (!userRow[0]) return res.status(404).json({ ok: false, error: 'user not found' });
 
+    const allCodes = Object.values(PermissionCode);
     const effective = await getEffectivePermissionsForUser(id);
     const base = defaultPermissionsForRole(userRow[0].role);
 
@@ -138,7 +139,7 @@ adminUsersRouter.get('/users/:id/permissions', async (req, res) => {
     const overridesMap: Record<string, boolean> = {};
     for (const o of overrides) overridesMap[o.permCode] = !!o.allowed;
 
-    return res.json({ ok: true, user: userRow[0], base, overrides: overridesMap, effective });
+    return res.json({ ok: true, user: userRow[0], allCodes, base, overrides: overridesMap, effective });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -155,6 +156,19 @@ adminUsersRouter.put('/users/:id/permissions', async (req, res) => {
 
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    // policy: `admin.users.manage` только для role=admin
+    if (Object.prototype.hasOwnProperty.call(parsed.data.set, PermissionCode.AdminUsersManage)) {
+      const target = await db
+        .select({ role: users.role })
+        .from(users)
+        .where(and(eq(users.id, id), isNull(users.deletedAt)))
+        .limit(1);
+      const role = String(target[0]?.role ?? '').toLowerCase();
+      if (role !== 'admin' && parsed.data.set[PermissionCode.AdminUsersManage] === true) {
+        return res.status(400).json({ ok: false, error: 'admin.users.manage is allowed only for role=admin' });
+      }
+    }
 
     // safety: admin не может сам себе отрубить admin.users.manage
     const actor = (req as unknown as AuthenticatedRequest).user;

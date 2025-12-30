@@ -5,6 +5,7 @@ import type { IncomingLinkInfo } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { permAdminOnly, permGroupRu, permTitleRu } from '../auth/permissionCatalog.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -89,9 +90,14 @@ export function AdminPage(props: {
   // Users admin state
   const [users, setUsers] = useState<{ id: string; username: string; role: string; isActive: boolean }[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
-  const [userPerms, setUserPerms] = useState<{ base: Record<string, boolean>; overrides: Record<string, boolean>; effective: Record<string, boolean> } | null>(
-    null,
-  );
+  const [userPerms, setUserPerms] = useState<{
+    user: { id: string; username: string; role: string };
+    allCodes: string[];
+    base: Record<string, boolean>;
+    overrides: Record<string, boolean>;
+    effective: Record<string, boolean>;
+  } | null>(null);
+  const [permQuery, setPermQuery] = useState<string>('');
   const [delegations, setDelegations] = useState<
     {
       id: string;
@@ -461,7 +467,13 @@ export function AdminPage(props: {
       setUserPerms(null);
       return;
     }
-    setUserPerms({ base: r.base, overrides: r.overrides, effective: r.effective });
+    setUserPerms({
+      user: r.user,
+      allCodes: Array.isArray(r.allCodes) ? r.allCodes : Object.keys(r.effective ?? {}),
+      base: r.base ?? {},
+      overrides: r.overrides ?? {},
+      effective: r.effective ?? {},
+    });
 
     const d = await window.matrica.admin.users.delegationsList(userId);
     if (d.ok) setDelegations(d.delegations);
@@ -987,38 +999,97 @@ export function AdminPage(props: {
               {!userPerms ? (
                 <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите пользователя</div>
               ) : (
-                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10, alignItems: 'center' }}>
-                  {Object.keys(userPerms.effective)
-                    .sort()
-                    .map((code) => {
-                      const effective = userPerms.effective[code] === true;
-                      const override = code in userPerms.overrides ? userPerms.overrides[code] : null;
-                      return (
-                        <React.Fragment key={code}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>{code}</span>
-                            {override !== null && (
-                              <span style={{ fontSize: 12, color: '#6b7280' }}>(override)</span>
-                            )}
+                <>
+                  <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <Input value={permQuery} onChange={(e) => setPermQuery(e.target.value)} placeholder="Поиск прав…" />
+                    <div style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>
+                      Пользователь: <span style={{ fontWeight: 800, color: '#111827' }}>{userPerms.user.username}</span> ({userPerms.user.role})
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                    <div style={{ maxHeight: 520, overflowY: 'auto', padding: 12 }}>
+                      {Object.entries(
+                        (userPerms.allCodes ?? [])
+                          .slice()
+                          .sort((a, b) => (permGroupRu(a) + permTitleRu(a)).localeCompare(permGroupRu(b) + permTitleRu(b), 'ru'))
+                          .reduce((acc: Record<string, string[]>, code: string) => {
+                            const q = permQuery.trim().toLowerCase();
+                            const hay = `${permGroupRu(code)} ${permTitleRu(code)} ${code}`.toLowerCase();
+                            if (q && !hay.includes(q)) return acc;
+                            const g = permGroupRu(code);
+                            if (!acc[g]) acc[g] = [];
+                            acc[g].push(code);
+                            return acc;
+                          }, {}),
+                      ).map(([group, codes]) => (
+                        <div key={group} style={{ marginBottom: 14 }}>
+                          <div style={{ fontWeight: 900, color: '#111827', marginBottom: 8 }}>{group}</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                            {codes.map((code) => {
+                              const effective = userPerms.effective?.[code] === true;
+                              const override = code in (userPerms.overrides ?? {}) ? userPerms.overrides[code] : null;
+                              const adminOnly = permAdminOnly(code);
+                              const selectedIsAdmin = String(userPerms.user.role ?? '').toLowerCase() === 'admin';
+                              const disabled = adminOnly && !selectedIsAdmin;
+
+                              return (
+                                <div
+                                  key={code}
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 140px',
+                                    gap: 10,
+                                    alignItems: 'center',
+                                    border: '1px solid #f3f4f6',
+                                    borderRadius: 12,
+                                    padding: 10,
+                                    background: disabled ? '#f9fafb' : '#fff',
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>
+                                      {permTitleRu(code)}
+                                      {adminOnly && (
+                                        <span style={{ marginLeft: 8, fontSize: 12, color: '#b91c1c', fontWeight: 800 }}>
+                                          только admin
+                                        </span>
+                                      )}
+                                      {override !== null && (
+                                        <span style={{ marginLeft: 8, fontSize: 12, color: '#6b7280' }}>(настроено вручную)</span>
+                                      )}
+                                    </div>
+                                    <div style={{ marginTop: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#6b7280' }}>
+                                      {code}
+                                    </div>
+                                  </div>
+
+                                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={disabled ? false : effective}
+                                      disabled={disabled}
+                                      onChange={async (e) => {
+                                        const next = e.target.checked;
+                                        setStatus('Сохранение права...');
+                                        const r = await window.matrica.admin.users.permissionsSet(selectedUserId, { [code]: next });
+                                        setStatus(r.ok ? 'Сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                        await openUser(selectedUserId);
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 12, color: '#6b7280' }}>{(disabled ? false : effective) ? 'вкл' : 'выкл'}</span>
+                                  </label>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <label style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-                            <input
-                              type="checkbox"
-                              checked={effective}
-                              onChange={async (e) => {
-                                const next = e.target.checked;
-                                setStatus('Сохранение права...');
-                                const r = await window.matrica.admin.users.permissionsSet(selectedUserId, { [code]: next });
-                                setStatus(r.ok ? 'Сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
-                                await openUser(selectedUserId);
-                              }}
-                            />
-                            <span style={{ fontSize: 12, color: '#6b7280' }}>{effective ? 'on' : 'off'}</span>
-                          </label>
-                        </React.Fragment>
-                      );
-                    })}
-                </div>
+                        </div>
+                      ))}
+
+                      {userPerms.allCodes.length === 0 && <div style={{ color: '#6b7280' }}>(права не загружены)</div>}
+                    </div>
+                  </div>
+                </>
               )}
 
               {selectedUserId && (

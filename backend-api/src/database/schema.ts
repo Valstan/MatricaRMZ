@@ -114,6 +114,61 @@ export const auditLog = pgTable('audit_log', {
   syncStatus: text('sync_status').notNull().default('synced'),
 });
 
+// -----------------------------
+// Ownership & Change Requests (server-side only)
+// -----------------------------
+// Tracks record "author"/owner on server-side for pre-approval workflow.
+export const rowOwners = pgTable(
+  'row_owners',
+  {
+    id: uuid('id').primaryKey(),
+    tableName: text('table_name').notNull(),
+    rowId: uuid('row_id').notNull(),
+    ownerUserId: uuid('owner_user_id').references(() => users.id),
+    ownerUsername: text('owner_username'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    tableRowUq: uniqueIndex('row_owners_table_row_uq').on(t.tableName, t.rowId),
+  }),
+);
+
+export const changeRequests = pgTable(
+  'change_requests',
+  {
+    id: uuid('id').primaryKey(),
+
+    status: text('status').notNull().default('pending'), // pending/applied/rejected
+
+    tableName: text('table_name').notNull(),
+    rowId: uuid('row_id').notNull(),
+
+    // Optional "root" object (for grouping in UI later).
+    rootEntityId: uuid('root_entity_id'),
+
+    beforeJson: text('before_json'),
+    afterJson: text('after_json').notNull(),
+
+    recordOwnerUserId: uuid('record_owner_user_id').references(() => users.id),
+    recordOwnerUsername: text('record_owner_username'),
+
+    changeAuthorUserId: uuid('change_author_user_id')
+      .notNull()
+      .references(() => users.id),
+    changeAuthorUsername: text('change_author_username').notNull(),
+
+    note: text('note'),
+
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    decidedAt: bigint('decided_at', { mode: 'number' }),
+    decidedByUserId: uuid('decided_by_user_id').references(() => users.id),
+    decidedByUsername: text('decided_by_username'),
+  },
+  (t) => ({
+    statusIdx: uniqueIndex('change_requests_status_id').on(t.status, t.id),
+  }),
+);
+
 // Служебная таблица для инкрементальной синхронизации: монотонный server_seq.
 export const changeLog = pgTable('change_log', {
   serverSeq: bigserial('server_seq', { mode: 'number' }).primaryKey(),

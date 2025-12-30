@@ -58,7 +58,7 @@ partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req,
     }
 
     const result = await createPart({
-      actor: actor.username,
+      actor,
       ...(parsed.data.attributes !== undefined && { attributes: parsed.data.attributes }),
     });
     if (!result.ok) {
@@ -94,7 +94,7 @@ partsRouter.post('/attribute-defs', requirePermission(PermissionCode.PartsEdit),
     }
 
     const result = await createPartAttributeDef({
-      actor: actor.username,
+      actor,
       code: parsed.data.code,
       name: parsed.data.name,
       dataType: parsed.data.dataType,
@@ -133,7 +133,7 @@ partsRouter.put('/:id/attributes/:code', requirePermission(PermissionCode.PartsE
       partId: id,
       attributeCode: code,
       value: parsed.data.value,
-      actor: actor.username,
+      actor,
     });
     if (!result.ok) {
       return res.status(result.error === 'part not found' || result.error === 'attribute not found' ? 404 : 500).json(result);
@@ -150,7 +150,7 @@ partsRouter.delete('/:id', requirePermission(PermissionCode.PartsDelete), async 
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const result = await deletePart({ partId: id, actor: actor.username });
+    const result = await deletePart({ partId: id, actor });
     if (!result.ok) {
       return res.status(500).json(result);
     }

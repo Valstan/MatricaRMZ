@@ -18,6 +18,7 @@ export type UiCaps = {
   canFulfillSupplyRequests: boolean;
   canPrintSupplyRequests: boolean;
   canUseSync: boolean;
+  canUseUpdates: boolean;
   canViewReports: boolean;
   canExportReports: boolean;
   canPrintReports: boolean;
@@ -59,6 +60,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canEditOperations = has(perms, 'operations.edit');
 
   const canUseSync = has(perms, 'sync.use');
+  const canUseUpdates = has(perms, 'updates.use');
 
   // По плану: вкладка "Журнал" = админская диагностика (без новых permissions).
   const canViewAudit = canManageUsers;
@@ -85,6 +87,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canFulfillSupplyRequests,
     canPrintSupplyRequests,
     canUseSync,
+    canUseUpdates,
     canViewReports,
     canExportReports,
     canPrintReports,

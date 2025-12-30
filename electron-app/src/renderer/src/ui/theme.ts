@@ -23,6 +23,7 @@ export const theme = {
     requests: { bg: '#a21caf', border: '#701a75', text: '#ffffff' },
     admin: { bg: '#db2777', border: '#9d174d', text: '#ffffff' },
     audit: { bg: '#0891b2', border: '#0e7490', text: '#ffffff' },
+    changes: { bg: '#16a34a', border: '#15803d', text: '#ffffff' },
     neutral: { bg: '#0f172a', border: '#0b1220', text: '#ffffff' },
   },
 } as const;
@@ -37,6 +38,7 @@ export function tabAccent(tab: string): AccentKey {
   if (tab === 'requests' || tab === 'request') return 'requests';
   if (tab === 'admin') return 'admin';
   if (tab === 'audit') return 'audit';
+  if (tab === 'changes') return 'changes';
   return 'neutral';
 }
 

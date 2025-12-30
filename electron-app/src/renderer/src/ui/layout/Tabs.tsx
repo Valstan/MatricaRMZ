@@ -3,7 +3,20 @@ import React from 'react';
 import { Button } from '../components/Button.js';
 import { tabAccent, theme } from '../theme.js';
 
-export type TabId = 'engines' | 'engine' | 'requests' | 'request' | 'parts' | 'part' | 'auth' | 'sync' | 'reports' | 'admin' | 'audit' | 'settings';
+export type TabId =
+  | 'engines'
+  | 'engine'
+  | 'requests'
+  | 'request'
+  | 'parts'
+  | 'part'
+  | 'changes'
+  | 'auth'
+  | 'sync'
+  | 'reports'
+  | 'admin'
+  | 'audit'
+  | 'settings';
 
 export function Tabs(props: {
   tab: TabId;
@@ -45,6 +58,7 @@ export function Tabs(props: {
       {props.visibleTabs.includes('admin') && (
         tabButton('admin', 'Справочники')
       )}
+      {props.visibleTabs.includes('changes') && tabButton('changes', 'Изменения')}
       {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
       {props.visibleTabs.includes('requests') && tabButton('requests', 'Заявки')}
       {props.visibleTabs.includes('parts') && tabButton('parts', 'Детали')}

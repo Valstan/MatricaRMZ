@@ -4,7 +4,9 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
+import { changeRequests, rowOwners, attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
+import type { AuthUser } from '../auth/jwt.js';
+import { SyncTableName } from '@matricarmz/shared';
 
 function nowMs() {
   return Date.now();
@@ -107,7 +109,7 @@ async function ensurePartEntityType(): Promise<string> {
 }
 
 export async function createPartAttributeDef(args: {
-  actor: string;
+  actor: AuthUser;
   code: string;
   name: string;
   dataType: string;
@@ -163,7 +165,7 @@ export async function createPartAttributeDef(args: {
 
     await db.insert(auditLog).values({
       id: randomUUID(),
-      actor: args.actor,
+      actor: args.actor.username,
       action: 'part.attribute_def.create',
       entityId: null,
       tableName: 'attribute_defs',
@@ -173,6 +175,18 @@ export async function createPartAttributeDef(args: {
       deletedAt: null,
       syncStatus: 'pending',
     });
+
+    await db
+      .insert(rowOwners)
+      .values({
+        id: randomUUID(),
+        tableName: SyncTableName.AttributeDefs,
+        rowId: id,
+        ownerUserId: args.actor.id,
+        ownerUsername: args.actor.username,
+        createdAt: ts,
+      })
+      .onConflictDoNothing();
 
     return { ok: true, id };
   } catch (e) {
@@ -384,7 +398,7 @@ export async function getPart(args: { partId: string }): Promise<
   }
 }
 
-export async function createPart(args: { actor: string; attributes?: Record<string, unknown> }): Promise<
+export async function createPart(args: { actor: AuthUser; attributes?: Record<string, unknown> }): Promise<
   | {
       ok: true;
       part: { id: string; createdAt: number; updatedAt: number };
@@ -441,7 +455,7 @@ export async function createPart(args: { actor: string; attributes?: Record<stri
 
     await db.insert(auditLog).values({
       id: randomUUID(),
-      actor: args.actor,
+      actor: args.actor.username,
       action: 'part.create',
       entityId: id,
       tableName: 'entities',
@@ -451,6 +465,18 @@ export async function createPart(args: { actor: string; attributes?: Record<stri
       deletedAt: null,
       syncStatus: 'pending',
     });
+
+    await db
+      .insert(rowOwners)
+      .values({
+        id: randomUUID(),
+        tableName: SyncTableName.Entities,
+        rowId: id,
+        ownerUserId: args.actor.id,
+        ownerUsername: args.actor.username,
+        createdAt: ts,
+      })
+      .onConflictDoNothing();
 
     return { ok: true, part: { id, createdAt: ts, updatedAt: ts } };
   } catch (e) {
@@ -462,7 +488,7 @@ export async function updatePartAttribute(args: {
   partId: string;
   attributeCode: string;
   value: unknown;
-  actor: string;
+  actor: AuthUser;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const typeId = await ensurePartEntityType();
@@ -491,15 +517,80 @@ export async function updatePartAttribute(args: {
     if (!attrDef) return { ok: false, error: 'attribute not found' };
     const ts = nowMs();
 
+    const actorIsAdmin = String(args.actor.role || '').toLowerCase() === 'admin';
+    const owner = await db
+      .select({ ownerUserId: rowOwners.ownerUserId, ownerUsername: rowOwners.ownerUsername })
+      .from(rowOwners)
+      .where(and(eq(rowOwners.tableName, SyncTableName.Entities), eq(rowOwners.rowId, partId as any)))
+      .limit(1);
+    const ownerUserId = owner[0]?.ownerUserId ? String(owner[0].ownerUserId) : null;
+    const ownerUsername = owner[0]?.ownerUsername ? String(owner[0].ownerUsername) : null;
+
     // Обновляем или создаем значение атрибута
+    const existing = await db
+      .select()
+      .from(attributeValues)
+      .where(and(eq(attributeValues.entityId, partId), eq(attributeValues.attributeDefId, attrDef.id), isNull(attributeValues.deletedAt)))
+      .limit(1);
+    const existingRow = existing[0] as any;
+    const existingId = existingRow?.id ? String(existingRow.id) : null;
+
+    if (!actorIsAdmin && (!ownerUserId || ownerUserId !== args.actor.id)) {
+      const rowId = existingId ?? randomUUID();
+      const before = existingRow
+        ? {
+            id: String(existingRow.id),
+            entity_id: String(existingRow.entityId),
+            attribute_def_id: String(existingRow.attributeDefId),
+            value_json: existingRow.valueJson == null ? null : String(existingRow.valueJson),
+            created_at: Number(existingRow.createdAt),
+            updated_at: Number(existingRow.updatedAt),
+            deleted_at: existingRow.deletedAt == null ? null : Number(existingRow.deletedAt),
+            sync_status: String(existingRow.syncStatus ?? 'synced'),
+          }
+        : null;
+      const after = {
+        id: rowId,
+        entity_id: partId,
+        attribute_def_id: String(attrDef.id),
+        value_json: JSON.stringify(args.value),
+        created_at: existingRow ? Number(existingRow.createdAt) : ts,
+        updated_at: ts,
+        deleted_at: null,
+        sync_status: 'pending',
+      };
+
+      await db.insert(changeRequests).values({
+        id: randomUUID(),
+        status: 'pending',
+        tableName: SyncTableName.AttributeValues,
+        rowId: rowId as any,
+        rootEntityId: partId as any,
+        beforeJson: before ? JSON.stringify(before) : null,
+        afterJson: JSON.stringify(after),
+        recordOwnerUserId: ownerUserId ? (ownerUserId as any) : null,
+        recordOwnerUsername: ownerUsername ?? null,
+        changeAuthorUserId: args.actor.id as any,
+        changeAuthorUsername: args.actor.username,
+        note: `part.update_attribute:${attrCode}`,
+        createdAt: ts,
+        decidedAt: null,
+        decidedByUserId: null,
+        decidedByUsername: null,
+      });
+
+      // Не применяем изменение (pre-approval).
+      return { ok: true };
+    }
+
     await db
       .insert(attributeValues)
       .values({
-        id: randomUUID(),
+        id: existingId ?? randomUUID(),
         entityId: partId,
         attributeDefId: attrDef.id,
         valueJson: JSON.stringify(args.value),
-        createdAt: ts,
+        createdAt: existingRow ? Number(existingRow.createdAt) : ts,
         updatedAt: ts,
         deletedAt: null,
         syncStatus: 'pending',
@@ -518,7 +609,7 @@ export async function updatePartAttribute(args: {
 
     await db.insert(auditLog).values({
       id: randomUUID(),
-      actor: args.actor,
+      actor: args.actor.username,
       action: 'part.update_attribute',
       entityId: partId,
       tableName: 'attribute_values',
@@ -535,13 +626,66 @@ export async function updatePartAttribute(args: {
   }
 }
 
-export async function deletePart(args: { partId: string; actor: string }): Promise<
-  { ok: true } | { ok: false; error: string }
-> {
+export async function deletePart(args: { partId: string; actor: AuthUser }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await ensurePartEntityType();
     const partId = String(args.partId || '');
     const ts = nowMs();
+
+    const actorIsAdmin = String(args.actor.role || '').toLowerCase() === 'admin';
+    const owner = await db
+      .select({ ownerUserId: rowOwners.ownerUserId, ownerUsername: rowOwners.ownerUsername })
+      .from(rowOwners)
+      .where(and(eq(rowOwners.tableName, SyncTableName.Entities), eq(rowOwners.rowId, partId as any)))
+      .limit(1);
+    const ownerUserId = owner[0]?.ownerUserId ? String(owner[0].ownerUserId) : null;
+    const ownerUsername = owner[0]?.ownerUsername ? String(owner[0].ownerUsername) : null;
+
+    if (!actorIsAdmin && (!ownerUserId || ownerUserId !== args.actor.id)) {
+      const cur = await db.select().from(entities).where(eq(entities.id, partId)).limit(1);
+      const e = cur[0] as any;
+      const before = e
+        ? {
+            id: String(e.id),
+            type_id: String(e.typeId),
+            created_at: Number(e.createdAt),
+            updated_at: Number(e.updatedAt),
+            deleted_at: e.deletedAt == null ? null : Number(e.deletedAt),
+            sync_status: String(e.syncStatus ?? 'synced'),
+          }
+        : null;
+      const after = before
+        ? { ...before, deleted_at: ts, updated_at: ts, sync_status: 'pending' }
+        : {
+            id: partId,
+            type_id: '', // unknown; best-effort
+            created_at: ts,
+            updated_at: ts,
+            deleted_at: ts,
+            sync_status: 'pending',
+          };
+
+      await db.insert(changeRequests).values({
+        id: randomUUID(),
+        status: 'pending',
+        tableName: SyncTableName.Entities,
+        rowId: partId as any,
+        rootEntityId: partId as any,
+        beforeJson: before ? JSON.stringify(before) : null,
+        afterJson: JSON.stringify(after),
+        recordOwnerUserId: ownerUserId ? (ownerUserId as any) : null,
+        recordOwnerUsername: ownerUsername ?? null,
+        changeAuthorUserId: args.actor.id as any,
+        changeAuthorUsername: args.actor.username,
+        note: 'part.delete',
+        createdAt: ts,
+        decidedAt: null,
+        decidedByUserId: null,
+        decidedByUsername: null,
+      });
+
+      return { ok: true };
+    }
 
     // Мягкое удаление: помечаем deleted_at
     await db.update(entities).set({ deletedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, partId));
@@ -552,7 +696,7 @@ export async function deletePart(args: { partId: string; actor: string }): Promi
 
     await db.insert(auditLog).values({
       id: randomUUID(),
-      actor: args.actor,
+      actor: args.actor.username,
       action: 'part.delete',
       entityId: partId,
       tableName: 'entities',

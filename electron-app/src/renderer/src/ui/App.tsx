@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, OperationItem, SyncStatus } from '@matricarmz/shared';
 
@@ -6,6 +6,7 @@ import { Page } from './layout/Page.js';
 import { Tabs, type TabId } from './layout/Tabs.js';
 import { EnginesPage } from './pages/EnginesPage.js';
 import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
+import { ChangesPage } from './pages/ChangesPage.js';
 import { SyncPage } from './pages/SyncPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
@@ -23,6 +24,8 @@ export function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
   const [tab, setTab] = useState<TabId>('engines');
+  const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
+  const prevLoggedIn = useRef<boolean>(false);
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
@@ -42,6 +45,32 @@ export function App() {
     void refreshEngines();
     void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
   }, []);
+
+  // After successful login: run one sync so the user immediately sees shared data (e.g. engines created by admins).
+  useEffect(() => {
+    const was = prevLoggedIn.current;
+    const now = authStatus.loggedIn === true;
+    prevLoggedIn.current = now;
+    if (now && !was) {
+      setPostLoginSyncMsg('После входа выполняю синхронизацию…');
+      void (async () => {
+        try {
+          const r = await window.matrica.sync.run();
+          if (r.ok) {
+            await refreshEngines();
+            setPostLoginSyncMsg(`Синхронизация выполнена: push=${r.pushed}, pull=${r.pulled}.`);
+          } else {
+            setPostLoginSyncMsg(`Не удалось синхронизироваться автоматически: ${r.error ?? 'unknown'}. Откройте вкладку «Синхронизация».`);
+          }
+        } catch (e) {
+          setPostLoginSyncMsg(`Не удалось синхронизироваться автоматически: ${String(e)}. Откройте вкладку «Синхронизация».`);
+        } finally {
+          // keep message visible a bit, then hide
+          setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+        }
+      })();
+    }
+  }, [authStatus.loggedIn]);
 
   // Periodically sync auth permissions from server (important for delegated permissions).
   useEffect(() => {
@@ -68,6 +97,7 @@ export function App() {
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
+    ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(caps.canUseSync ? (['sync'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...((caps.canViewMasterData || caps.canManageUsers) ? (['admin'] as const) : []),
@@ -145,6 +175,8 @@ export function App() {
       ? 'Матрица РМЗ — Двигатели'
       : tab === 'engine'
         ? 'Матрица РМЗ — Карточка двигателя'
+        : tab === 'changes'
+          ? 'Матрица РМЗ — Изменения'
         : tab === 'requests'
           ? 'Матрица РМЗ — Заявки'
           : tab === 'request'
@@ -208,6 +240,11 @@ export function App() {
       />
 
       <div style={{ marginTop: 14 }}>
+        {postLoginSyncMsg && (
+          <div style={{ marginBottom: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
+            {postLoginSyncMsg}
+          </div>
+        )}
         {!authStatus.loggedIn && tab !== 'auth' && (
           <div style={{ color: '#6b7280' }}>Требуется вход.</div>
         )}
@@ -301,6 +338,10 @@ export function App() {
         )}
 
         {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
+
+        {tab === 'changes' && authStatus.loggedIn && authStatus.user && (
+          <ChangesPage me={authStatus.user} canDecideAsAdmin={String(authStatus.user.role ?? '').toLowerCase() === 'admin'} />
+        )}
 
         {tab === 'settings' && <SettingsPage />}
 

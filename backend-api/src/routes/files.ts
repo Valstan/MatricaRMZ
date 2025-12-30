@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { db } from '../database/db.js';
-import { fileAssets } from '../database/schema.js';
+import { changeRequests, fileAssets, users } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -465,9 +465,43 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
     if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+
+    const actorIsAdmin = String(actor.role || '').toLowerCase() === 'admin';
+    const ownerUserId = row.createdByUserId ? String(row.createdByUserId) : null;
+    if (!actorIsAdmin && ownerUserId && ownerUserId !== actor.id) {
+      const ts = nowMs();
+      const ownerUser = ownerUserId
+        ? await db.select({ username: users.username }).from(users).where(and(eq(users.id, ownerUserId as any), isNull(users.deletedAt))).limit(1)
+        : [];
+      const ownerUsername = ownerUser[0]?.username ? String(ownerUser[0].username) : null;
+
+      await db.insert(changeRequests).values({
+        id: randomUUID(),
+        status: 'pending',
+        tableName: 'file_assets',
+        rowId: id as any,
+        rootEntityId: null,
+        beforeJson: JSON.stringify({ id, deleted_at: null }),
+        afterJson: JSON.stringify({ id, deleted_at: ts }),
+        recordOwnerUserId: ownerUserId as any,
+        recordOwnerUsername: ownerUsername,
+        changeAuthorUserId: actor.id as any,
+        changeAuthorUsername: actor.username,
+        note: 'files.delete',
+        createdAt: ts,
+        decidedAt: null,
+        decidedByUserId: null,
+        decidedByUsername: null,
+      });
+
+      return res.json({ ok: true, queued: true });
+    }
 
     // Удаляем физический файл
     if (row.storageKind === 'local') {

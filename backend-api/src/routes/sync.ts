@@ -10,14 +10,19 @@ export const syncRouter = Router();
 
 syncRouter.post('/push', async (req, res) => {
   try {
-    const actor = (req as AuthenticatedRequest).user?.username ?? 'unknown';
+    const user = (req as AuthenticatedRequest).user;
+    const actor = user?.username ?? 'unknown';
     const parsed = syncPushRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ ok: false, error: parsed.error.flatten() });
     }
 
     console.log(`[sync/push] user=${actor} client_id=${parsed.data.client_id} packs=${parsed.data.upserts.length}`);
-    const result = await applyPushBatch(parsed.data);
+    const result = await applyPushBatch(parsed.data, {
+      id: user?.id ?? '',
+      username: actor,
+      role: user?.role ?? '',
+    });
     return res.json({ ok: true, ...result });
   } catch (e) {
     console.error('[sync/push] failed', e);

@@ -11,6 +11,7 @@ import type { IpcContext } from './ipcContext.js';
 import { registerAdminIpc } from './register/admin.js';
 import { registerAuthAndSyncIpc } from './register/authAndSync.js';
 import { registerChecklistsIpc } from './register/checklists.js';
+import { registerChangesIpc } from './register/changes.js';
 import { registerEnginesOpsAuditIpc } from './register/enginesOpsAudit.js';
 import { registerFilesIpc } from './register/files.js';
 import { registerLoggingIpc } from './register/logging.js';
@@ -63,6 +64,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // Register IPC domains
   registerLoggingIpc(ctx);
   registerAuthAndSyncIpc(ctx);
+  registerChangesIpc(ctx);
   registerEnginesOpsAuditIpc(ctx);
   registerAdminIpc(ctx);
   registerReportsIpc(ctx);

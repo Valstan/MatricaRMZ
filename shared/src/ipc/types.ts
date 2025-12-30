@@ -139,6 +139,28 @@ export type AuthLoginResult =
 
 export type AuthLogoutResult = { ok: boolean; error?: string };
 
+export type ChangeRequestRow = {
+  id: string;
+  status: string;
+  tableName: string;
+  rowId: string;
+  rootEntityId: string | null;
+  beforeJson: string | null;
+  afterJson: string;
+  recordOwnerUserId: string | null;
+  recordOwnerUsername: string | null;
+  changeAuthorUserId: string;
+  changeAuthorUsername: string;
+  note: string | null;
+  createdAt: number;
+  decidedAt: number | null;
+  decidedByUserId: string | null;
+  decidedByUsername: string | null;
+};
+
+export type ChangesListResult = { ok: true; changes: ChangeRequestRow[] } | { ok: false; error: string };
+export type ChangeDecisionResult = { ok: true } | { ok: false; error: string };
+
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
 import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
 import type { FileRef } from '../domain/fileStorage.js';
@@ -180,6 +202,11 @@ export type MatricaApi = {
     status: () => Promise<SyncStatus>;
     configGet: () => Promise<{ ok: boolean; apiBaseUrl?: string; error?: string }>;
     configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
+  };
+  changes: {
+    list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;
+    apply: (args: { id: string }) => Promise<ChangeDecisionResult>;
+    reject: (args: { id: string }) => Promise<ChangeDecisionResult>;
   };
   server: {
     health: () => Promise<ServerHealthResult>;
@@ -249,6 +276,7 @@ export type MatricaApi = {
         | {
             ok: true;
             user: { id: string; username: string; role: string };
+            allCodes?: string[];
             base: Record<string, boolean>;
             overrides: Record<string, boolean>;
             effective: Record<string, boolean>;

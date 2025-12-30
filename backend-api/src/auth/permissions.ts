@@ -67,48 +67,14 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     return all;
   }
 
-  // user: редактирование актов/справочников + sync + updates (по запросу)
+  // user: по новой политике — все права включены по умолчанию,
+  // а админ уже отключает лишнее. Исключение: управление пользователями
+  // доступно только role=admin.
   if (r === 'user') {
-    return {
-      [PermissionCode.MasterDataView]: true,
-      [PermissionCode.MasterDataEdit]: true,
-
-      [PermissionCode.SupplyRequestsView]: true,
-      [PermissionCode.SupplyRequestsCreate]: true,
-      [PermissionCode.SupplyRequestsEdit]: true,
-      [PermissionCode.SupplyRequestsSign]: true,
-      [PermissionCode.SupplyRequestsPrint]: true,
-
-      [PermissionCode.EnginesView]: true,
-      [PermissionCode.EnginesEdit]: true,
-
-      [PermissionCode.OperationsView]: true,
-      [PermissionCode.OperationsEdit]: true,
-
-      [PermissionCode.DefectActView]: true,
-      [PermissionCode.DefectActEdit]: true,
-      [PermissionCode.DefectActPrint]: true,
-
-      [PermissionCode.ReportsView]: true,
-      [PermissionCode.ReportsExport]: true,
-      [PermissionCode.ReportsPrint]: true,
-
-      [PermissionCode.SyncUse]: true,
-      [PermissionCode.UpdatesUse]: true,
-
-      // files
-      [PermissionCode.FilesView]: true,
-      [PermissionCode.FilesUpload]: true,
-      [PermissionCode.FilesDelete]: true,
-
-      // parts
-      [PermissionCode.PartsView]: true,
-      [PermissionCode.PartsCreate]: true,
-      [PermissionCode.PartsEdit]: true,
-      [PermissionCode.PartsDelete]: true,
-      [PermissionCode.PartsFilesUpload]: true,
-      [PermissionCode.PartsFilesDelete]: true,
-    };
+    const all: Record<string, boolean> = {};
+    for (const code of Object.values(PermissionCode)) all[code] = true;
+    all[PermissionCode.AdminUsersManage] = false;
+    return all;
   }
 
   // default: только просмотр + sync
@@ -161,6 +127,10 @@ export async function getEffectivePermissionsForUser(userId: string): Promise<Re
     )
     .limit(10_000);
   for (const d of delegations) base[d.permCode] = true;
+
+  // Политика безопасности: `admin.users.manage` не может быть включено ни override-ом,
+  // ни делегированием, если роль не admin.
+  if (String(u.role || '').toLowerCase() !== 'admin') base[PermissionCode.AdminUsersManage] = false;
 
   return base;
 }

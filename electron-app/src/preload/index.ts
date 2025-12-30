@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld('matrica', {
     configGet: async () => ipcRenderer.invoke('sync:config:get'),
     configSet: async (args: { apiBaseUrl: string }) => ipcRenderer.invoke('sync:config:set', args),
   },
+  changes: {
+    list: async (args?: { status?: string; limit?: number }) => ipcRenderer.invoke('changes:list', args),
+    apply: async (args: { id: string }) => ipcRenderer.invoke('changes:apply', args),
+    reject: async (args: { id: string }) => ipcRenderer.invoke('changes:reject', args),
+  },
   server: {
     health: async () => ipcRenderer.invoke('server:health'),
   },
