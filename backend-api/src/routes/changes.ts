@@ -35,12 +35,17 @@ changesRouter.get('/', async (req, res) => {
       .object({
         status: z.string().optional(),
         limit: z.coerce.number().int().positive().max(5000).optional(),
+        includeNoise: z
+          .union([z.literal('1'), z.literal('true'), z.literal('yes'), z.literal('on'), z.literal('0'), z.literal('false'), z.literal('no'), z.literal('off')])
+          .optional(),
       })
       .safeParse(req.query);
     if (!q.success) return res.status(400).json({ ok: false, error: q.error.flatten() });
 
     const status = (q.data.status ?? 'pending').trim();
     const limit = q.data.limit ?? 2000;
+    const includeNoise =
+      q.data.includeNoise === '1' || q.data.includeNoise === 'true' || q.data.includeNoise === 'yes' || q.data.includeNoise === 'on';
 
     const rows = await db
       .select()
@@ -49,7 +54,44 @@ changesRouter.get('/', async (req, res) => {
       .orderBy(desc(changeRequests.createdAt))
       .limit(limit);
 
-    return res.json({ ok: true, changes: rows });
+    function meaningfulChange(tableName: string, beforeJson: string | null, afterJson: string): boolean {
+      // If we can't parse — better show it.
+      try {
+        const afterObj = JSON.parse(afterJson);
+        const beforeObj = beforeJson ? JSON.parse(beforeJson) : null;
+
+        // For some tables we want to hide "touch-only" noise (timestamp/sync_status churn).
+        if (tableName === SyncTableName.EntityTypes) {
+          const a = entityTypeRowSchema.parse(afterObj);
+          const b = beforeObj ? entityTypeRowSchema.parse(beforeObj) : null;
+          if (!b) return true;
+          return !(a.code === b.code && a.name === b.name && (a.deleted_at ?? null) === (b.deleted_at ?? null));
+        }
+        if (tableName === SyncTableName.AttributeDefs) {
+          const a = attributeDefRowSchema.parse(afterObj);
+          const b = beforeObj ? attributeDefRowSchema.parse(beforeObj) : null;
+          if (!b) return true;
+          return !(
+            a.entity_type_id === b.entity_type_id &&
+            a.code === b.code &&
+            a.name === b.name &&
+            a.data_type === b.data_type &&
+            !!a.is_required === !!b.is_required &&
+            Number(a.sort_order ?? 0) === Number(b.sort_order ?? 0) &&
+            (a.meta_json ?? null) === (b.meta_json ?? null) &&
+            (a.deleted_at ?? null) === (b.deleted_at ?? null)
+          );
+        }
+
+        return true;
+      } catch {
+        return true;
+      }
+    }
+
+    const filtered = includeNoise ? rows : rows.filter((r: any) => meaningfulChange(String(r.tableName), r.beforeJson ?? null, String(r.afterJson)));
+
+    return res.json({ ok: true, changes: filtered });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

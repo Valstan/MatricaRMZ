@@ -360,6 +360,17 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           allowed.push(r);
           continue;
         }
+        // Ignore "touch-only" updates that don't change the meaning of the row.
+        // Some clients may "re-save" entity_types locally (updated_at/created_at/sync_status churn),
+        // and we don't want to flood change_requests with noise.
+        const curDeleted = cur.deletedAt == null ? null : Number(cur.deletedAt);
+        const touchOnly =
+          String(cur.code) === String(r.code) &&
+          String(cur.name) === String(r.name) &&
+          curDeleted === (r.deleted_at ?? null);
+        if (touchOnly) {
+          continue;
+        }
         if (actorIsAdmin) {
           allowed.push(r);
           continue;
@@ -578,6 +589,21 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const cur = existingMap.get(String(r.id));
         if (!cur) {
           allowed.push(r);
+          continue;
+        }
+        // Ignore "touch-only" updates that don't change the meaning of the row.
+        // This prevents "noise" change_requests when a client re-saves attribute_defs locally.
+        const curDeleted = cur.deletedAt == null ? null : Number(cur.deletedAt);
+        const touchOnly =
+          String(cur.entityTypeId) === String(r.entity_type_id) &&
+          String(cur.code) === String(r.code) &&
+          String(cur.name) === String(r.name) &&
+          String(cur.dataType) === String(r.data_type) &&
+          !!cur.isRequired === !!r.is_required &&
+          Number(cur.sortOrder ?? 0) === Number(r.sort_order ?? 0) &&
+          (cur.metaJson == null ? null : String(cur.metaJson)) === (r.meta_json ?? null) &&
+          curDeleted === (r.deleted_at ?? null);
+        if (touchOnly) {
           continue;
         }
         if (actorIsAdmin) {

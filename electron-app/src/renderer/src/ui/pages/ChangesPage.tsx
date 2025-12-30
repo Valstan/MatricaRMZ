@@ -5,16 +5,79 @@ import type { AuthUserInfo, ChangeRequestRow } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 
-function safePreviewJson(s: string | null | undefined): string {
+function tryParseJson(s: string | null | undefined): unknown | null {
   const raw = String(s ?? '');
-  if (!raw.trim()) return '—';
+  if (!raw.trim()) return null;
   try {
-    const obj = JSON.parse(raw);
-    const pretty = JSON.stringify(obj, null, 2);
-    return pretty.length > 800 ? pretty.slice(0, 800) + '\n…' : pretty;
+    return JSON.parse(raw);
   } catch {
-    return raw.length > 800 ? raw.slice(0, 800) + '…' : raw;
+    return raw;
   }
+}
+
+function stableStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2);
+  } catch {
+    return String(v);
+  }
+}
+
+function keyRu(k: string): string {
+  switch (k) {
+    case 'code':
+      return 'Код';
+    case 'name':
+      return 'Название';
+    case 'data_type':
+      return 'Тип данных';
+    case 'is_required':
+      return 'Обязательное';
+    case 'sort_order':
+      return 'Порядок';
+    case 'meta_json':
+      return 'Параметры';
+    case 'deleted_at':
+      return 'Удалено';
+    case 'entity_type_id':
+      return 'Тип сущности';
+    case 'entity_id':
+      return 'Сущность';
+    case 'attribute_def_id':
+      return 'Атрибут';
+    case 'value_json':
+      return 'Значение';
+    default:
+      return k;
+  }
+}
+
+function isTechnicalKey(k: string): boolean {
+  return k === 'id' || k === 'created_at' || k === 'updated_at' || k === 'sync_status';
+}
+
+function diffLines(before: unknown, after: unknown): string[] {
+  if (!before || !after) return [];
+  if (typeof before !== 'object' || typeof after !== 'object') return [];
+  if (Array.isArray(before) || Array.isArray(after)) return [];
+
+  const b = before as any;
+  const a = after as any;
+  const keys = new Set<string>([...Object.keys(b), ...Object.keys(a)]);
+  const out: string[] = [];
+
+  for (const k of Array.from(keys).sort()) {
+    if (isTechnicalKey(k)) continue;
+    const bv = b[k];
+    const av = a[k];
+    // Treat nested json string fields
+    const showB = k.endsWith('_json') && typeof bv === 'string' ? tryParseJson(bv) : bv;
+    const showA = k.endsWith('_json') && typeof av === 'string' ? tryParseJson(av) : av;
+    const same = stableStringify(showB) === stableStringify(showA);
+    if (same) continue;
+    out.push(`${keyRu(k)}: ${stableStringify(showB)} → ${stableStringify(showA)}`);
+  }
+  return out;
 }
 
 export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean }) {
@@ -100,21 +163,42 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
               const allow = canDecide(c);
               const owner = c.recordOwnerUsername ?? '—';
               const changer = c.changeAuthorUsername ?? '—';
+              const before = tryParseJson(c.beforeJson);
+              const after = tryParseJson(c.afterJson);
+              const diffs = diffLines(before, after);
               return (
                 <tr key={c.id}>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
                     <div style={{ fontWeight: 800, color: '#111827' }}>{c.tableName}</div>
+                    {c.note && <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{c.note}</div>}
                     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#6b7280' }}>
                       {c.rootEntityId ? `root=${c.rootEntityId.slice(0, 8)} ` : ''}
                       id={c.rowId.slice(0, 8)}
                     </div>
                   </td>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }}>
-                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, color: '#334155' }}>{safePreviewJson(c.beforeJson)}</pre>
+                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, color: '#334155' }}>
+                      {before == null ? '—' : stableStringify(before).slice(0, 900)}
+                      {before != null && stableStringify(before).length > 900 ? '\n…' : ''}
+                    </pre>
                   </td>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{owner}</td>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }}>
-                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, color: '#0f172a' }}>{safePreviewJson(c.afterJson)}</pre>
+                    {diffs.length > 0 ? (
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        {diffs.slice(0, 12).map((line, idx) => (
+                          <div key={idx} style={{ fontSize: 12, color: '#0f172a', whiteSpace: 'pre-wrap' }}>
+                            {line}
+                          </div>
+                        ))}
+                        {diffs.length > 12 && <div style={{ fontSize: 12, color: '#64748b' }}>… и ещё {diffs.length - 12}</div>}
+                      </div>
+                    ) : (
+                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, color: '#0f172a' }}>
+                        {after == null ? '—' : stableStringify(after).slice(0, 900)}
+                        {after != null && stableStringify(after).length > 900 ? '\n…' : ''}
+                      </pre>
+                    )}
                   </td>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{changer}</td>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
