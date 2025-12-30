@@ -12,7 +12,9 @@ export function SearchSelect(props: {
   const disabled = props.disabled === true;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [activeIdx, setActiveIdx] = useState<number>(-1);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const selected = useMemo(() => {
     if (!props.value) return null;
@@ -25,6 +27,48 @@ export function SearchSelect(props: {
     return props.options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
   }, [props.options, query]);
 
+  // When opening, initialize active item to current selection if possible.
+  useEffect(() => {
+    if (!open) return;
+    if (!filtered.length) {
+      setActiveIdx(-1);
+      return;
+    }
+    const idx = props.value ? filtered.findIndex((o) => o.id === props.value) : -1;
+    setActiveIdx(idx >= 0 ? idx : 0);
+  }, [open, props.value, filtered]);
+
+  // Keep active index valid when filtering changes.
+  useEffect(() => {
+    if (!open) return;
+    if (!filtered.length) {
+      setActiveIdx(-1);
+      return;
+    }
+    setActiveIdx((prev) => {
+      if (prev < 0) return 0;
+      if (prev >= filtered.length) return filtered.length - 1;
+      return prev;
+    });
+  }, [filtered, open]);
+
+  // Ensure active item is visible (scroll into view) when navigating.
+  useEffect(() => {
+    if (!open) return;
+    if (activeIdx < 0) return;
+    const host = listRef.current;
+    if (!host) return;
+    const el = host.querySelector(`[data-idx="${activeIdx}"]`) as HTMLElement | null;
+    if (!el) return;
+    // Minimal scroll-into-view for containers.
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    const viewTop = host.scrollTop;
+    const viewBottom = viewTop + host.clientHeight;
+    if (top < viewTop) host.scrollTop = top;
+    else if (bottom > viewBottom) host.scrollTop = bottom - host.clientHeight;
+  }, [activeIdx, open]);
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
@@ -33,18 +77,56 @@ export function SearchSelect(props: {
       if (e.target && el.contains(e.target as any)) return;
       setOpen(false);
       setQuery('');
+      setActiveIdx(-1);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
+  function close() {
+    setOpen(false);
+    setQuery('');
+    setActiveIdx(-1);
+  }
+
+  function openOrToggle() {
+    if (disabled) return;
+    setOpen((v) => {
+      const next = !v;
+      if (!next) {
+        setQuery('');
+        setActiveIdx(-1);
+      }
+      return next;
+    });
+  }
+
+  function pickByIndex(idx: number) {
+    const o = filtered[idx];
+    if (!o) return;
+    props.onChange(o.id);
+    close();
+  }
+
   return (
     <div ref={rootRef} style={{ position: 'relative' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <div
-          onClick={() => {
+          role="button"
+          tabIndex={disabled ? -1 : 0}
+          onClick={openOrToggle}
+          onKeyDown={(e) => {
             if (disabled) return;
-            setOpen((v) => !v);
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openOrToggle();
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setOpen(true);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              close();
+            }
           }}
           style={{
             flex: 1,
@@ -72,8 +154,7 @@ export function SearchSelect(props: {
             type="button"
             onClick={() => {
               props.onChange(null);
-              setOpen(false);
-              setQuery('');
+              close();
             }}
             style={{
               padding: '8px 10px',
@@ -110,6 +191,35 @@ export function SearchSelect(props: {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  close();
+                  return;
+                }
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  if (!filtered.length) return;
+                  setActiveIdx((p) => {
+                    const next = p < 0 ? 0 : Math.min(filtered.length - 1, p + 1);
+                    return next;
+                  });
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  if (!filtered.length) return;
+                  setActiveIdx((p) => {
+                    const next = p <= 0 ? 0 : p - 1;
+                    return next;
+                  });
+                  return;
+                }
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (activeIdx >= 0) pickByIndex(activeIdx);
+                }
+              }}
               placeholder="Поиск…"
               style={{
                 width: '100%',
@@ -121,23 +231,27 @@ export function SearchSelect(props: {
               autoFocus
             />
           </div>
-          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+          <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
             {filtered.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>Ничего не найдено</div>}
-            {filtered.map((o) => {
+            {filtered.map((o, idx) => {
               const active = props.value === o.id;
+              const focused = activeIdx === idx;
               return (
                 <div
                   key={o.id}
+                  data-idx={idx}
                   onClick={() => {
                     props.onChange(o.id);
-                    setOpen(false);
-                    setQuery('');
+                    close();
+                  }}
+                  onMouseEnter={() => {
+                    setActiveIdx(idx);
                   }}
                   style={{
                     padding: '10px 12px',
                     cursor: 'pointer',
                     borderBottom: '1px solid #f3f4f6',
-                    background: active ? '#eef2ff' : '#fff',
+                    background: focused ? '#e0f2fe' : active ? '#eef2ff' : '#fff',
                   }}
                 >
                   <div style={{ fontWeight: 700, color: '#111827' }}>{o.label}</div>
