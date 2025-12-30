@@ -156,4 +156,32 @@ Electron:
 - Backend должен гарантировать наличие контейнерной сущности перед upsert операций `supply_request`.
 - Фикс внесён в `backend-api/src/services/sync/applyPushBatch.ts`: авто-создание system container entity/type при получении `supply_request`.
 
+---
+
+## 6) Клиентские логи: отправка на сервер (remote logging)
+
+В MatricaRMZ есть механизм для диагностики: **клиент (Electron) может отправлять свои логи на сервер**.
+
+### 6.1) Куда клиент отправляет логи
+- **Endpoint на сервере**: `POST /logs/client`
+  - Реализация: `backend-api/src/routes/logs.ts`
+  - Роут подключён в `backend-api/src/index.ts` как `app.use('/logs', logsRouter);`
+  - Доступ: требуется авторизация (`requireAuth`), в лог-строку пишется `actor.username`.
+
+### 6.2) Куда сервер складывает эти логи
+- По умолчанию: директория **`logs/`** (относительно `WorkingDirectory` backend процесса).
+- Файл по дням: **`logs/client-YYYY-MM-DD.log`**
+- Папку можно переопределить переменной окружения: **`MATRICA_LOGS_DIR`**
+
+### 6.3) Как это работает на клиенте
+- Клиент буферизует записи и отправляет пачкой раз в ~5 секунд.
+  - Код: `electron-app/src/main/services/logService.ts` (`LOG_SEND_INTERVAL_MS = 5000`)
+- Управляется настройкой `logging.enabled` (IPC `logging:setEnabled`).
+  - IPC: `electron-app/src/main/ipc/register/logging.ts`
+  - Инициализация фоновой отправки: `electron-app/src/main/ipc/registerIpc.ts` (`startLogSender(...)`)
+
+### 6.4) Локальный файл лога клиента (на ПК пользователя)
+Клиент также пишет локальный файл **`matricarmz.log`** в `app.getPath('userData')`.
+Код: `electron-app/src/main/ipc/registerIpc.ts`, `electron-app/src/main/services/syncService.ts`.
+
 
