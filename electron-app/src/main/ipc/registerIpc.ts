@@ -8,7 +8,16 @@ import { createEngine, getEngineDetails, listEngines, setEngineAttribute } from 
 import { addOperation, listOperations } from '../services/operationService.js';
 import { listAudit } from '../services/auditService.js';
 import { SyncManager } from '../services/syncManager.js';
-import { listAttributeDefsByEntityType, listEntityTypes, upsertAttributeDef, upsertEntityType } from '../services/adminService.js';
+import {
+  deleteAttributeDef,
+  deleteEntityType,
+  getAttributeDefDeleteInfo,
+  getEntityTypeDeleteInfo,
+  listAttributeDefsByEntityType,
+  listEntityTypes,
+  upsertAttributeDef,
+  upsertEntityType,
+} from '../services/adminService.js';
 import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../services/reportService.js';
 import { checkForUpdates } from '../services/updateService.js';
 import { authLogin, authLogout, authStatus, authSync, getSession } from '../services/authService.js';
@@ -191,6 +200,12 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   ipcMain.handle('admin:entityTypes:upsert', async (_e, args: { id?: string; code: string; name: string }) =>
     upsertEntityType(db, args),
   );
+  ipcMain.handle('admin:entityTypes:deleteInfo', async (_e, entityTypeId: string) => getEntityTypeDeleteInfo(db, entityTypeId));
+  ipcMain.handle(
+    'admin:entityTypes:delete',
+    async (_e, args: { entityTypeId: string; deleteEntities: boolean; deleteDefs: boolean }) =>
+      deleteEntityType(db, args.entityTypeId, { deleteEntities: !!args.deleteEntities, deleteDefs: !!args.deleteDefs }),
+  );
   ipcMain.handle('admin:attributeDefs:listByEntityType', async (_e, entityTypeId: string) =>
     listAttributeDefsByEntityType(db, entityTypeId),
   );
@@ -209,6 +224,12 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
         metaJson?: string | null;
       },
     ) => upsertAttributeDef(db, args),
+  );
+  ipcMain.handle('admin:attributeDefs:deleteInfo', async (_e, attributeDefId: string) => getAttributeDefDeleteInfo(db, attributeDefId));
+  ipcMain.handle(
+    'admin:attributeDefs:delete',
+    async (_e, args: { attributeDefId: string; deleteValues: boolean }) =>
+      deleteAttributeDef(db, args.attributeDefId, { deleteValues: !!args.deleteValues }),
   );
 
   ipcMain.handle('admin:entities:listByEntityType', async (_e, entityTypeId: string) => listEntitiesByType(db, entityTypeId));

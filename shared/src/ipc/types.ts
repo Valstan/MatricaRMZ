@@ -107,6 +107,18 @@ export type EntityDeleteInfoResult = { ok: true; links: IncomingLinkInfo[] } | {
 
 export type EntityDetachLinksAndDeleteResult = { ok: true; detached: number } | { ok: false; error: string };
 
+export type EntityTypeDeleteInfoResult =
+  | { ok: true; type: { id: string; code: string; name: string }; counts: { entities: number; defs: number } }
+  | { ok: false; error: string };
+
+export type EntityTypeDeleteResult = { ok: true; deletedEntities: number } | { ok: false; error: string };
+
+export type AttributeDefDeleteInfoResult =
+  | { ok: true; def: { id: string; entityTypeId: string; code: string; name: string; dataType: string; metaJson: string | null }; counts: { values: number } }
+  | { ok: false; error: string };
+
+export type AttributeDefDeleteResult = { ok: true } | { ok: false; error: string };
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type AuthUserInfo = {
@@ -184,6 +196,8 @@ export type MatricaApi = {
     entityTypes: {
       list: () => Promise<{ id: string; code: string; name: string; updatedAt: number; deletedAt: number | null }[]>;
       upsert: (args: { id?: string; code: string; name: string }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+      deleteInfo: (entityTypeId: string) => Promise<EntityTypeDeleteInfoResult>;
+      delete: (args: { entityTypeId: string; deleteEntities: boolean; deleteDefs: boolean }) => Promise<EntityTypeDeleteResult>;
     };
     attributeDefs: {
       listByEntityType: (entityTypeId: string) => Promise<
@@ -210,6 +224,8 @@ export type MatricaApi = {
         sortOrder?: number;
         metaJson?: string | null;
       }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+      deleteInfo: (attributeDefId: string) => Promise<AttributeDefDeleteInfoResult>;
+      delete: (args: { attributeDefId: string; deleteValues: boolean }) => Promise<AttributeDefDeleteResult>;
     };
     entities: {
       listByEntityType: (entityTypeId: string) => Promise<EntityListItem[]>;

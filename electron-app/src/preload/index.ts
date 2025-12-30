@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld('matrica', {
     entityTypes: {
       list: async () => ipcRenderer.invoke('admin:entityTypes:list'),
       upsert: async (args: { id?: string; code: string; name: string }) => ipcRenderer.invoke('admin:entityTypes:upsert', args),
+      deleteInfo: async (entityTypeId: string) => ipcRenderer.invoke('admin:entityTypes:deleteInfo', entityTypeId),
+      delete: async (args: { entityTypeId: string; deleteEntities: boolean; deleteDefs: boolean }) =>
+        ipcRenderer.invoke('admin:entityTypes:delete', args),
     },
     attributeDefs: {
       listByEntityType: async (entityTypeId: string) => ipcRenderer.invoke('admin:attributeDefs:listByEntityType', entityTypeId),
@@ -63,6 +66,8 @@ contextBridge.exposeInMainWorld('matrica', {
         sortOrder?: number;
         metaJson?: string | null;
       }) => ipcRenderer.invoke('admin:attributeDefs:upsert', args),
+      deleteInfo: async (attributeDefId: string) => ipcRenderer.invoke('admin:attributeDefs:deleteInfo', attributeDefId),
+      delete: async (args: { attributeDefId: string; deleteValues: boolean }) => ipcRenderer.invoke('admin:attributeDefs:delete', args),
     },
     entities: {
       listByEntityType: async (entityTypeId: string) => ipcRenderer.invoke('admin:entities:listByEntityType', entityTypeId),

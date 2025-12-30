@@ -57,6 +57,34 @@ export function AdminPage(props: {
     links: [],
   });
 
+  const [typeDeleteDialog, setTypeDeleteDialog] = useState<
+    | {
+        open: true;
+        typeId: string;
+        typeName: string;
+        loading: boolean;
+        error: string | null;
+        counts: { entities: number; defs: number } | null;
+        deleteEntities: boolean;
+        deleteDefs: boolean;
+      }
+    | { open: false }
+  >({ open: false });
+
+  const [defDeleteDialog, setDefDeleteDialog] = useState<
+    | {
+        open: true;
+        defId: string;
+        defName: string;
+        defDataType: string;
+        loading: boolean;
+        error: string | null;
+        counts: { values: number } | null;
+        deleteValues: boolean;
+      }
+    | { open: false }
+  >({ open: false });
+
   // Users admin state
   const [users, setUsers] = useState<{ id: string; username: string; role: string; isActive: boolean }[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
@@ -184,6 +212,128 @@ export function AdminPage(props: {
     setDeleteDialog({ open: false });
   }
 
+  function closeTypeDeleteDialog() {
+    setTypeDeleteDialog({ open: false });
+  }
+
+  async function openTypeDeleteDialog(typeId: string) {
+    const name = types.find((t) => t.id === typeId)?.name ?? '';
+    setTypeDeleteDialog({
+      open: true,
+      typeId,
+      typeName: name || '—',
+      loading: true,
+      error: null,
+      counts: null,
+      deleteEntities: false,
+      deleteDefs: false,
+    });
+    const r = await window.matrica.admin.entityTypes.deleteInfo(typeId).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setTypeDeleteDialog({
+        open: true,
+        typeId,
+        typeName: name || '—',
+        loading: false,
+        error: r.error ?? 'unknown',
+        counts: { entities: 0, defs: 0 },
+        deleteEntities: false,
+        deleteDefs: false,
+      });
+      return;
+    }
+    setTypeDeleteDialog((p) =>
+      p.open
+        ? {
+            ...p,
+            loading: false,
+            error: null,
+            typeName: r.type?.name ?? p.typeName,
+            counts: r.counts ?? { entities: 0, defs: 0 },
+          }
+        : p,
+    );
+  }
+
+  async function doDeleteType() {
+    if (!typeDeleteDialog.open) return;
+    setTypeDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
+    const args = {
+      entityTypeId: typeDeleteDialog.typeId,
+      deleteEntities: !!typeDeleteDialog.deleteEntities,
+      deleteDefs: !!typeDeleteDialog.deleteDefs,
+    };
+    setStatus('Удаление раздела...');
+    const r = await window.matrica.admin.entityTypes.delete(args).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setTypeDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown' } : p));
+      setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      return;
+    }
+    setStatus(`Раздел удалён (записей удалено: ${r.deletedEntities ?? 0})`);
+    await refreshTypes();
+    setSelectedTypeId('');
+    setSelectedEntityId('');
+    setDefs([]);
+    setEntities([]);
+    setEntityAttrs({});
+    closeTypeDeleteDialog();
+  }
+
+  function closeDefDeleteDialog() {
+    setDefDeleteDialog({ open: false });
+  }
+
+  async function openDefDeleteDialog(def: AttrDefRow) {
+    setDefDeleteDialog({
+      open: true,
+      defId: def.id,
+      defName: def.name,
+      defDataType: formatDefDataType(def),
+      loading: true,
+      error: null,
+      counts: null,
+      deleteValues: false,
+    });
+    const r = await window.matrica.admin.attributeDefs.deleteInfo(def.id).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setDefDeleteDialog({
+        open: true,
+        defId: def.id,
+        defName: def.name,
+        defDataType: formatDefDataType(def),
+        loading: false,
+        error: r.error ?? 'unknown',
+        counts: { values: 0 },
+        deleteValues: false,
+      });
+      return;
+    }
+    setDefDeleteDialog((p) => (p.open ? { ...p, loading: false, error: null, counts: r.counts ?? { values: 0 } } : p));
+  }
+
+  async function doDeleteDef() {
+    if (!defDeleteDialog.open) return;
+    setDefDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
+    setStatus('Удаление свойства...');
+    const r = await window.matrica.admin.attributeDefs
+      .delete({ attributeDefId: defDeleteDialog.defId, deleteValues: !!defDeleteDialog.deleteValues })
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setDefDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown' } : p));
+      setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      return;
+    }
+    setStatus(defDeleteDialog.deleteValues ? 'Свойство и значения удалены' : 'Свойство удалено');
+    if (selectedTypeId) await refreshDefs(selectedTypeId);
+    // Перезагрузим карточку записи (если открыта), чтобы исчезло поле.
+    if (selectedEntityId) {
+      await loadEntity(selectedEntityId);
+      await refreshIncomingLinks(selectedEntityId);
+    }
+    closeDefDeleteDialog();
+  }
+
   async function openDeleteDialog(entityId: string) {
     const label =
       entities.find((e) => e.id === entityId)?.displayName ??
@@ -252,6 +402,116 @@ export function AdminPage(props: {
     await refreshDefs(typeId);
     await refreshEntities(typeId, { selectId: entityId });
     setSelectedEntityId(entityId);
+  }
+
+  function closeTypeDeleteDialog() {
+    setTypeDeleteDialog({ open: false });
+  }
+
+  async function openTypeDeleteDialog(typeId: string) {
+    const t = types.find((x) => x.id === typeId) ?? null;
+    const typeName = t?.name ?? '';
+    setTypeDeleteDialog({
+      open: true,
+      typeId,
+      typeName,
+      loading: true,
+      error: null,
+      counts: null,
+      deleteEntities: false,
+      deleteDefs: false,
+    });
+
+    const r = await window.matrica.admin.entityTypes.deleteInfo(typeId).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setTypeDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown', counts: { entities: 0, defs: 0 } } : p));
+      return;
+    }
+
+    setTypeDeleteDialog((p) =>
+      p.open
+        ? {
+            ...p,
+            loading: false,
+            error: null,
+            typeName: r.type?.name ?? p.typeName,
+            counts: r.counts ?? { entities: 0, defs: 0 },
+          }
+        : p,
+    );
+  }
+
+  async function doDeleteType() {
+    if (!typeDeleteDialog.open) return;
+    setTypeDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
+    const r = await window.matrica.admin.entityTypes.delete({
+      entityTypeId: typeDeleteDialog.typeId,
+      deleteEntities: typeDeleteDialog.deleteEntities,
+      deleteDefs: typeDeleteDialog.deleteDefs,
+    });
+    if (!r.ok) {
+      setTypeDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown' } : p));
+      return;
+    }
+
+    setStatus(`Раздел удалён${typeDeleteDialog.deleteEntities ? ` (удалено записей: ${r.deletedEntities ?? 0})` : ''}`);
+    await refreshTypes();
+    setSelectedTypeId('');
+    setDefs([]);
+    setEntities([]);
+    setSelectedEntityId('');
+    setEntityAttrs({});
+    closeTypeDeleteDialog();
+  }
+
+  function closeDefDeleteDialog() {
+    setDefDeleteDialog({ open: false });
+  }
+
+  async function openDefDeleteDialog(defId: string) {
+    const d = defs.find((x) => x.id === defId) ?? null;
+    setDefDeleteDialog({
+      open: true,
+      defId,
+      defName: d?.name ?? 'Свойство',
+      defDataType: d ? formatDefDataType(d) : '',
+      loading: true,
+      error: null,
+      valuesCount: null,
+      deleteValues: false,
+    });
+
+    const r = await window.matrica.admin.attributeDefs.deleteInfo(defId).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setDefDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown', valuesCount: 0 } : p));
+      return;
+    }
+
+    setDefDeleteDialog((p) =>
+      p.open
+        ? {
+            ...p,
+            loading: false,
+            error: null,
+            defName: r.def?.name ?? p.defName,
+            defDataType: r.def ? (r.def.dataType === 'link' ? formatDefDataType({ ...(d as any), metaJson: r.def.metaJson } as any) : r.def.dataType) : p.defDataType,
+            valuesCount: r.counts?.values ?? 0,
+          }
+        : p,
+    );
+  }
+
+  async function doDeleteDef() {
+    if (!defDeleteDialog.open) return;
+    setDefDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
+    const r = await window.matrica.admin.attributeDefs.delete({ attributeDefId: defDeleteDialog.defId, deleteValues: defDeleteDialog.deleteValues });
+    if (!r.ok) {
+      setDefDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown' } : p));
+      return;
+    }
+    setStatus('Свойство удалено');
+    if (selectedTypeId) await refreshDefs(selectedTypeId);
+    closeDefDeleteDialog();
   }
 
   async function refreshLinkOptions(defsForType: AttrDefRow[]) {
@@ -345,6 +605,19 @@ export function AdminPage(props: {
             <Button variant="ghost" onClick={() => void refreshTypes()}>
               Обновить
             </Button>
+            {props.canEditMasterData && (
+              <Button
+                variant="ghost"
+                disabled={!selectedTypeId}
+                onClick={() => {
+                  if (!selectedTypeId) return;
+                  void openTypeDeleteDialog(selectedTypeId);
+                }}
+                style={{ color: '#b91c1c' }}
+              >
+                Удалить раздел
+              </Button>
+            )}
           </div>
 
           <div style={{ marginTop: 10 }}>
@@ -434,6 +707,11 @@ export function AdminPage(props: {
                         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Название</th>
                         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
                         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Обяз.</th>
+                        {props.canEditMasterData && (
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>
+                            Действия
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -443,11 +721,24 @@ export function AdminPage(props: {
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.name}</td>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatDefDataType(d)}</td>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.isRequired ? 'да' : 'нет'}</td>
+                          {props.canEditMasterData && (
+                            <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }} onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="ghost"
+                                style={{ color: '#b91c1c' }}
+                                onClick={() => {
+                                  void openDefDeleteDialog(d);
+                                }}
+                              >
+                                Удалить
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                       {defs.length === 0 && (
                         <tr>
-                          <td style={{ padding: 12, color: '#6b7280' }} colSpan={4}>
+                          <td style={{ padding: 12, color: '#6b7280' }} colSpan={props.canEditMasterData ? 5 : 4}>
                             Свойств нет
                           </td>
                         </tr>
@@ -1003,6 +1294,113 @@ export function AdminPage(props: {
         </div>
       )}
 
+      {typeDeleteDialog.open && (
+        <div
+          onClick={() => {
+            if (!typeDeleteDialog.loading) closeTypeDeleteDialog();
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 9998,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 720,
+              maxWidth: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              background: '#fff',
+              borderRadius: 16,
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              padding: 16,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить раздел номенклатуры</div>
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>
+                Закрыть
+              </Button>
+            </div>
+
+            <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
+              Раздел: <span style={{ fontWeight: 800, color: '#111827' }}>{typeDeleteDialog.typeName || '—'}</span>
+            </div>
+
+            {typeDeleteDialog.loading ? (
+              <div style={{ marginTop: 12, color: '#6b7280' }}>Проверяем содержимое…</div>
+            ) : (
+              <>
+                <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                  <div style={{ display: 'flex', gap: 16, color: '#111827' }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>Записей</div>
+                      <div style={{ fontWeight: 900, fontSize: 18 }}>{typeDeleteDialog.counts?.entities ?? 0}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>Свойств</div>
+                      <div style={{ fontWeight: 900, fontSize: 18 }}>{typeDeleteDialog.counts?.defs ?? 0}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
+                    Если удалить только раздел, а записи/свойства не удалять — они будут «в архиве» (скрыты из интерфейса), но останутся в базе.
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
+                    <input
+                      type="checkbox"
+                      checked={typeDeleteDialog.deleteEntities}
+                      disabled={typeDeleteDialog.loading}
+                      onChange={(e) => setTypeDeleteDialog((p) => (p.open ? { ...p, deleteEntities: e.target.checked } : p))}
+                    />
+                    Удалить записи этого раздела (умно: с отвязкой входящих связей)
+                  </label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
+                    <input
+                      type="checkbox"
+                      checked={typeDeleteDialog.deleteDefs}
+                      disabled={typeDeleteDialog.loading}
+                      onChange={(e) => setTypeDeleteDialog((p) => (p.open ? { ...p, deleteDefs: e.target.checked } : p))}
+                    />
+                    Удалить свойства этого раздела
+                  </label>
+                </div>
+
+                {typeDeleteDialog.error && (
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>
+                    Ошибка: {typeDeleteDialog.error}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={() => void doDeleteType()}
+                    disabled={typeDeleteDialog.loading}
+                    style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
+                  >
+                    Удалить раздел
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {deleteDialog.open && (
         <div
           onClick={() => {
@@ -1115,6 +1513,98 @@ export function AdminPage(props: {
                       Удалить
                     </Button>
                   )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {defDeleteDialog.open && (
+        <div
+          onClick={() => {
+            if (!defDeleteDialog.loading) closeDefDeleteDialog();
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 9997,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 720,
+              maxWidth: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              background: '#fff',
+              borderRadius: 16,
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              padding: 16,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить свойство</div>
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>
+                Закрыть
+              </Button>
+            </div>
+
+            <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
+              Свойство: <span style={{ fontWeight: 800, color: '#111827' }}>{defDeleteDialog.defName}</span>
+            </div>
+            {defDeleteDialog.defDataType && (
+              <div style={{ marginTop: 4, color: '#6b7280', fontSize: 12 }}>Тип: {defDeleteDialog.defDataType}</div>
+            )}
+
+            {defDeleteDialog.loading ? (
+              <div style={{ marginTop: 12, color: '#6b7280' }}>Проверяем использование…</div>
+            ) : (
+              <>
+                <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280' }}>Значений у этого свойства</div>
+                  <div style={{ fontWeight: 900, fontSize: 18, color: '#111827' }}>{defDeleteDialog.counts?.values ?? 0}</div>
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+                    Можно удалить только свойство (значения останутся в базе, но будут скрыты), либо удалить и значения.
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
+                    <input
+                      type="checkbox"
+                      checked={defDeleteDialog.deleteValues}
+                      disabled={defDeleteDialog.loading || (defDeleteDialog.counts?.values ?? 0) === 0}
+                      onChange={(e) => setDefDeleteDialog((p) => (p.open ? { ...p, deleteValues: e.target.checked } : p))}
+                    />
+                    Удалить также значения этого свойства
+                  </label>
+                </div>
+
+                {defDeleteDialog.error && (
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>
+                    Ошибка: {defDeleteDialog.error}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={() => void doDeleteDef()}
+                    disabled={defDeleteDialog.loading}
+                    style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
+                  >
+                    Удалить свойство
+                  </Button>
                 </div>
               </>
             )}
