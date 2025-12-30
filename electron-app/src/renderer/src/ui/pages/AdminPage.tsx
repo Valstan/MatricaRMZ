@@ -4,6 +4,7 @@ import type { IncomingLinkInfo } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -402,116 +403,6 @@ export function AdminPage(props: {
     await refreshDefs(typeId);
     await refreshEntities(typeId, { selectId: entityId });
     setSelectedEntityId(entityId);
-  }
-
-  function closeTypeDeleteDialog() {
-    setTypeDeleteDialog({ open: false });
-  }
-
-  async function openTypeDeleteDialog(typeId: string) {
-    const t = types.find((x) => x.id === typeId) ?? null;
-    const typeName = t?.name ?? '';
-    setTypeDeleteDialog({
-      open: true,
-      typeId,
-      typeName,
-      loading: true,
-      error: null,
-      counts: null,
-      deleteEntities: false,
-      deleteDefs: false,
-    });
-
-    const r = await window.matrica.admin.entityTypes.deleteInfo(typeId).catch((e) => ({ ok: false as const, error: String(e) }));
-    if (!r.ok) {
-      setTypeDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown', counts: { entities: 0, defs: 0 } } : p));
-      return;
-    }
-
-    setTypeDeleteDialog((p) =>
-      p.open
-        ? {
-            ...p,
-            loading: false,
-            error: null,
-            typeName: r.type?.name ?? p.typeName,
-            counts: r.counts ?? { entities: 0, defs: 0 },
-          }
-        : p,
-    );
-  }
-
-  async function doDeleteType() {
-    if (!typeDeleteDialog.open) return;
-    setTypeDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
-    const r = await window.matrica.admin.entityTypes.delete({
-      entityTypeId: typeDeleteDialog.typeId,
-      deleteEntities: typeDeleteDialog.deleteEntities,
-      deleteDefs: typeDeleteDialog.deleteDefs,
-    });
-    if (!r.ok) {
-      setTypeDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown' } : p));
-      return;
-    }
-
-    setStatus(`Раздел удалён${typeDeleteDialog.deleteEntities ? ` (удалено записей: ${r.deletedEntities ?? 0})` : ''}`);
-    await refreshTypes();
-    setSelectedTypeId('');
-    setDefs([]);
-    setEntities([]);
-    setSelectedEntityId('');
-    setEntityAttrs({});
-    closeTypeDeleteDialog();
-  }
-
-  function closeDefDeleteDialog() {
-    setDefDeleteDialog({ open: false });
-  }
-
-  async function openDefDeleteDialog(defId: string) {
-    const d = defs.find((x) => x.id === defId) ?? null;
-    setDefDeleteDialog({
-      open: true,
-      defId,
-      defName: d?.name ?? 'Свойство',
-      defDataType: d ? formatDefDataType(d) : '',
-      loading: true,
-      error: null,
-      valuesCount: null,
-      deleteValues: false,
-    });
-
-    const r = await window.matrica.admin.attributeDefs.deleteInfo(defId).catch((e) => ({ ok: false as const, error: String(e) }));
-    if (!r.ok) {
-      setDefDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown', valuesCount: 0 } : p));
-      return;
-    }
-
-    setDefDeleteDialog((p) =>
-      p.open
-        ? {
-            ...p,
-            loading: false,
-            error: null,
-            defName: r.def?.name ?? p.defName,
-            defDataType: r.def ? (r.def.dataType === 'link' ? formatDefDataType({ ...(d as any), metaJson: r.def.metaJson } as any) : r.def.dataType) : p.defDataType,
-            valuesCount: r.counts?.values ?? 0,
-          }
-        : p,
-    );
-  }
-
-  async function doDeleteDef() {
-    if (!defDeleteDialog.open) return;
-    setDefDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
-    const r = await window.matrica.admin.attributeDefs.delete({ attributeDefId: defDeleteDialog.defId, deleteValues: defDeleteDialog.deleteValues });
-    if (!r.ok) {
-      setDefDeleteDialog((p) => (p.open ? { ...p, loading: false, error: r.error ?? 'unknown' } : p));
-      return;
-    }
-    setStatus('Свойство удалено');
-    if (selectedTypeId) await refreshDefs(selectedTypeId);
-    closeDefDeleteDialog();
   }
 
   async function refreshLinkOptions(defsForType: AttrDefRow[]) {
@@ -1929,26 +1820,19 @@ function FieldEditor(props: {
   }
 
   if (dt === 'link') {
-    const current = typeof props.value === 'string' ? props.value : '';
+    const current = typeof props.value === 'string' ? props.value : null;
     return (
-      <select
+      <SearchSelect
         value={current}
         disabled={!props.canEdit}
-        onChange={(e) => {
+        options={props.linkOptions}
+        placeholder="(не выбрано)"
+        onChange={(next) => {
           if (!props.canEdit) return;
-          const v = e.target.value || null;
-          props.onChange(v);
-          void props.onSave(v);
+          props.onChange(next);
+          void props.onSave(next);
         }}
-        style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-      >
-        <option value="">(не выбрано)</option>
-        {props.linkOptions.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      />
     );
   }
 
