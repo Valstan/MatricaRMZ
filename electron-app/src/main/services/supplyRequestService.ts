@@ -3,11 +3,12 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { SupplyRequestPayload, SupplyRequestStatus } from '@matricarmz/shared';
+import { SystemIds } from '@matricarmz/shared';
 
 import { auditLog, operations } from '../database/schema.js';
 
 // Важно: engine_entity_id в sync контракте — UUID. Для заявок используем фиксированный UUID “контейнера”.
-const SUPPLY_REQUESTS_CONTAINER_ID = '00000000-0000-0000-0000-000000000001';
+const SUPPLY_REQUESTS_CONTAINER_ID = SystemIds.SupplyRequestsContainerEntityId;
 const SUPPLY_REQUESTS_OPERATION_TYPE = 'supply_request';
 
 function nowMs() {

@@ -1,55 +1,18 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { net } from 'electron';
 
-import { getSession } from './authService.js';
-import { authRefresh, clearSession } from './authService.js';
+import { httpAuthed } from './httpClient.js';
 
-// Локальная функция fetchAuthedJson (аналогичная fileService, но без циклических зависимостей)
-async function fetchAuthedJson(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  path: string,
-  init: RequestInit,
-): Promise<{ ok: boolean; status: number; json?: any; text?: string }> {
-  const url = `${apiBaseUrl}${path}`;
-  const session = await getSession(db).catch(() => null);
-  if (!session?.accessToken) return { ok: false, status: 401, text: 'auth required' };
-
-  const method = init.method ?? 'GET';
-  const headers = new Headers(init.headers ?? {});
-  headers.set('Authorization', `Bearer ${session.accessToken}`);
-  // Явно указываем все поля, чтобы метод не потерялся
-  const fetchOptions: RequestInit = {
-    method: method,
-    headers: headers,
-    body: init.body,
-    signal: init.signal,
-  };
-  console.log('[partsService] fetchAuthedJson: url=', url, 'method=', method, 'hasBody=', !!init.body);
-  const r1 = await net.fetch(url, fetchOptions);
-  console.log('[partsService] fetchAuthedJson: response status=', r1.status, 'ok=', r1.ok);
-  if (r1.status === 401 || r1.status === 403) {
-    if (session.refreshToken) {
-      const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
-      if (!refreshed.ok) {
-        await clearSession(db).catch(() => {});
-        return { ok: false, status: r1.status, text: 'auth refresh failed' };
-      }
-      const headers2 = new Headers(init.headers ?? {});
-      headers2.set('Authorization', `Bearer ${refreshed.accessToken}`);
-      // При рефреше токена также явно сохраняем метод
-      const fetchOptions2: RequestInit = {
-        method: method,
-        headers: headers2,
-        body: init.body,
-        signal: init.signal,
-      };
-      const r2 = await net.fetch(url, fetchOptions2);
-      return { ok: r2.ok, status: r2.status, json: await r2.json().catch(() => null), text: await r2.text().catch(() => '') };
-    }
-    await clearSession(db).catch(() => {});
-  }
-  return { ok: r1.ok, status: r1.status, json: await r1.json().catch(() => null), text: await r1.text().catch(() => '') };
+function formatHttpError(r: { status: number; json?: any; text?: string }): string {
+  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
+  const msg =
+    typeof jsonErr === 'string'
+      ? jsonErr
+      : jsonErr != null
+        ? JSON.stringify(jsonErr)
+        : typeof r.text === 'string' && r.text.trim()
+          ? r.text.trim()
+          : '';
+  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
 }
 
 export async function partsList(
@@ -76,8 +39,8 @@ export async function partsList(
 
     // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
     const url = `/parts/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const r = await fetchAuthedJson(db, apiBaseUrl, url, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `list HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    const r = await httpAuthed(db, apiBaseUrl, url, { method: 'GET' });
+    if (!r.ok) return { ok: false, error: `list ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad list response' };
     return r.json as any;
   } catch (e) {
@@ -114,8 +77,8 @@ export async function partsGet(
     const partId = String(args.partId || '');
     if (!partId) return { ok: false, error: 'partId is empty' };
 
-    const r = await fetchAuthedJson(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}`, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `get HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}`, { method: 'GET' });
+    if (!r.ok) return { ok: false, error: `get ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad get response' };
     return r.json as any;
   } catch (e) {
@@ -138,13 +101,13 @@ export async function partsCreate(
     const body = JSON.stringify({ attributes: args?.attributes });
     console.log('[partsService] partsCreate: sending POST to', `${apiBaseUrl}/parts`, 'body:', body);
     // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
-    const r = await fetchAuthedJson(db, apiBaseUrl, '/parts/', {
+    const r = await httpAuthed(db, apiBaseUrl, '/parts/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
     });
     console.log('[partsService] partsCreate: response status=', r.status, 'json=', r.json);
-    if (!r.ok) return { ok: false, error: `create HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    if (!r.ok) return { ok: false, error: `create ${formatHttpError(r)}` };
     if (!r.json) return { ok: false, error: `create response missing json: ${r.text ?? ''}`.trim() };
     if (!r.json.ok) return { ok: false, error: r.json.error ?? 'bad create response' };
     // Проверяем, что это ответ от POST, а не от GET (который возвращает parts вместо part)
@@ -170,12 +133,12 @@ export async function partsUpdateAttribute(
     const attrCode = String(args.attributeCode || '');
     if (!partId || !attrCode) return { ok: false, error: 'partId or attributeCode is empty' };
 
-    const r = await fetchAuthedJson(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/attributes/${encodeURIComponent(attrCode)}`, {
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/attributes/${encodeURIComponent(attrCode)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: args.value }),
     });
-    if (!r.ok) return { ok: false, error: `update HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    if (!r.ok) return { ok: false, error: `update ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad update response' };
     return { ok: true };
   } catch (e) {
@@ -192,8 +155,8 @@ export async function partsDelete(
     const partId = String(args.partId || '');
     if (!partId) return { ok: false, error: 'partId is empty' };
 
-    const r = await fetchAuthedJson(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}`, { method: 'DELETE' });
-    if (!r.ok) return { ok: false, error: `delete HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}`, { method: 'DELETE' });
+    if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
     return { ok: true };
   } catch (e) {
@@ -216,8 +179,8 @@ export async function partsGetFiles(
     const partId = String(args.partId || '');
     if (!partId) return { ok: false, error: 'partId is empty' };
 
-    const r = await fetchAuthedJson(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/files`, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `getFiles HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/files`, { method: 'GET' });
+    if (!r.ok) return { ok: false, error: `getFiles ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad getFiles response' };
     return r.json as any;
   } catch (e) {
@@ -252,12 +215,12 @@ export async function partsCreateAttributeDef(
     if (args.sortOrder !== undefined) payload.sortOrder = args.sortOrder;
     if (args.metaJson !== undefined) payload.metaJson = args.metaJson;
 
-    const r = await fetchAuthedJson(db, apiBaseUrl, '/parts/attribute-defs', {
+    const r = await httpAuthed(db, apiBaseUrl, '/parts/attribute-defs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!r.ok) return { ok: false, error: `attributeDefCreate HTTP ${r.status}: ${r.text ?? ''}`.trim() };
+    if (!r.ok) return { ok: false, error: `attributeDefCreate ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: r.json?.error ? String(r.json.error) : 'bad attributeDefCreate response' };
     const id = String(r.json?.id ?? '');
     if (!id) return { ok: false, error: 'attributeDefCreate response missing id' };

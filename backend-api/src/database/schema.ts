@@ -127,7 +127,7 @@ export const changeLog = pgTable('change_log', {
 // Состояние синхронизации по рабочему месту (client_id).
 export const syncState = pgTable('sync_state', {
   clientId: text('client_id').primaryKey(),
-  lastPulledServerSeq: integer('last_pulled_server_seq').notNull().default(0),
+  lastPulledServerSeq: bigint('last_pulled_server_seq', { mode: 'number' }).notNull().default(0),
   lastPushedAt: bigint('last_pushed_at', { mode: 'number' }),
   lastPulledAt: bigint('last_pulled_at', { mode: 'number' }),
 });

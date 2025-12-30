@@ -1,13 +1,14 @@
 import { SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
 import { app, net } from 'electron';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations, syncState } from '../database/schema.js';
+import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
+import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
 
 const PUSH_TIMEOUT_MS = 120_000;
 const PULL_TIMEOUT_MS = 30_000;
@@ -118,19 +119,12 @@ async function fetchAuthed(
   return first;
 }
 
-async function getSyncStateNumber(db: BetterSQLite3Database, key: string, fallback: number) {
-  const row = await db.select().from(syncState).where(eq(syncState.key, key)).limit(1);
-  if (!row[0]) return fallback;
-  const n = Number(row[0].value);
-  return Number.isFinite(n) ? n : fallback;
+async function getSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, fallback: number) {
+  return await settingsGetNumber(db, key, fallback);
 }
 
-async function setSyncState(db: BetterSQLite3Database, key: string, value: string) {
-  const ts = nowMs();
-  await db
-    .insert(syncState)
-    .values({ key, value, updatedAt: ts })
-    .onConflictDoUpdate({ target: syncState.key, set: { value, updatedAt: ts } });
+async function setSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, value: number) {
+  await settingsSetNumber(db, key, value);
 }
 
 async function collectPending(db: BetterSQLite3Database) {
@@ -287,45 +281,52 @@ function toSyncRow(table: SyncTableName, row: any): any {
 
 async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, ids: string[]) {
   if (ids.length === 0) return;
-  const ts = nowMs();
-
-  // Упрощенно: обновляем по одному (MVP). Позже оптимизируем IN().
-  for (const id of ids) {
+  // Важно: не трогаем updatedAt при простом подтверждении синка,
+  // чтобы не создавать “ложных обновлений” в UI и не плодить лишний churn.
+  const chunkSize = 400; // SQLite variable limit safety
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
     switch (table) {
       case SyncTableName.EntityTypes:
-        await db.update(entityTypes).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(entityTypes.id, id));
+        await db.update(entityTypes).set({ syncStatus: 'synced' }).where(inArray(entityTypes.id, chunk));
         break;
       case SyncTableName.Entities:
-        await db.update(entities).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(entities.id, id));
+        await db.update(entities).set({ syncStatus: 'synced' }).where(inArray(entities.id, chunk));
         break;
       case SyncTableName.AttributeDefs:
-        await db.update(attributeDefs).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(attributeDefs.id, id));
+        await db.update(attributeDefs).set({ syncStatus: 'synced' }).where(inArray(attributeDefs.id, chunk));
         break;
       case SyncTableName.AttributeValues:
-        await db.update(attributeValues).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(attributeValues.id, id));
+        await db.update(attributeValues).set({ syncStatus: 'synced' }).where(inArray(attributeValues.id, chunk));
         break;
       case SyncTableName.Operations:
-        await db.update(operations).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(operations.id, id));
+        await db.update(operations).set({ syncStatus: 'synced' }).where(inArray(operations.id, chunk));
         break;
       case SyncTableName.AuditLog:
-        await db.update(auditLog).set({ syncStatus: 'synced', updatedAt: ts }).where(eq(auditLog.id, id));
+        await db.update(auditLog).set({ syncStatus: 'synced' }).where(inArray(auditLog.id, chunk));
         break;
     }
   }
 }
 
-async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResponse['changes'][number]) {
+async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullResponse['changes']) {
+  if (changes.length === 0) return;
   const ts = nowMs();
-  const payload = JSON.parse(change.payload_json) as any;
 
-  // payload содержит поля snake_case, как в shared DTO.
-  // Мы храним их в колонках camelCase, но drizzle mapping делает это на уровне названий колонок.
-  // Поэтому здесь мы явно маппим на структуру sqlite схемы.
-  switch (change.table) {
-    case SyncTableName.EntityTypes:
-      await db
-        .insert(entityTypes)
-        .values({
+  const groups: Record<SyncTableName, any[]> = {
+    [SyncTableName.EntityTypes]: [],
+    [SyncTableName.Entities]: [],
+    [SyncTableName.AttributeDefs]: [],
+    [SyncTableName.AttributeValues]: [],
+    [SyncTableName.Operations]: [],
+    [SyncTableName.AuditLog]: [],
+  };
+
+  for (const ch of changes) {
+    const payload = JSON.parse(ch.payload_json) as any;
+    switch (ch.table) {
+      case SyncTableName.EntityTypes:
+        groups.entity_types.push({
           id: payload.id,
           code: payload.code,
           name: payload.name,
@@ -333,43 +334,20 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
           syncStatus: 'synced',
-        })
-        .onConflictDoUpdate({
-          target: entityTypes.id,
-          set: {
-            code: payload.code,
-            name: payload.name,
-            updatedAt: payload.updated_at,
-            deletedAt: payload.deleted_at ?? null,
-            syncStatus: 'synced',
-          },
         });
-      break;
-    case SyncTableName.Entities:
-      await db
-        .insert(entities)
-        .values({
+        break;
+      case SyncTableName.Entities:
+        groups.entities.push({
           id: payload.id,
           typeId: payload.type_id,
           createdAt: payload.created_at,
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
           syncStatus: 'synced',
-        })
-        .onConflictDoUpdate({
-          target: entities.id,
-          set: {
-            typeId: payload.type_id,
-            updatedAt: payload.updated_at,
-            deletedAt: payload.deleted_at ?? null,
-            syncStatus: 'synced',
-          },
         });
-      break;
-    case SyncTableName.AttributeDefs:
-      await db
-        .insert(attributeDefs)
-        .values({
+        break;
+      case SyncTableName.AttributeDefs:
+        groups.attribute_defs.push({
           id: payload.id,
           entityTypeId: payload.entity_type_id,
           code: payload.code,
@@ -382,27 +360,10 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
           syncStatus: 'synced',
-        })
-        .onConflictDoUpdate({
-          target: attributeDefs.id,
-          set: {
-            entityTypeId: payload.entity_type_id,
-            code: payload.code,
-            name: payload.name,
-            dataType: payload.data_type,
-            isRequired: !!payload.is_required,
-            sortOrder: payload.sort_order ?? 0,
-            metaJson: payload.meta_json ?? null,
-            updatedAt: payload.updated_at,
-            deletedAt: payload.deleted_at ?? null,
-            syncStatus: 'synced',
-          },
         });
-      break;
-    case SyncTableName.AttributeValues:
-      await db
-        .insert(attributeValues)
-        .values({
+        break;
+      case SyncTableName.AttributeValues:
+        groups.attribute_values.push({
           id: payload.id,
           entityId: payload.entity_id,
           attributeDefId: payload.attribute_def_id,
@@ -411,23 +372,10 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
           syncStatus: 'synced',
-        })
-        .onConflictDoUpdate({
-          target: attributeValues.id,
-          set: {
-            entityId: payload.entity_id,
-            attributeDefId: payload.attribute_def_id,
-            valueJson: payload.value_json ?? null,
-            updatedAt: payload.updated_at,
-            deletedAt: payload.deleted_at ?? null,
-            syncStatus: 'synced',
-          },
         });
-      break;
-    case SyncTableName.Operations:
-      await db
-        .insert(operations)
-        .values({
+        break;
+      case SyncTableName.Operations:
+        groups.operations.push({
           id: payload.id,
           engineEntityId: payload.engine_entity_id,
           operationType: payload.operation_type,
@@ -440,27 +388,10 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
           syncStatus: 'synced',
-        })
-        .onConflictDoUpdate({
-          target: operations.id,
-          set: {
-            engineEntityId: payload.engine_entity_id,
-            operationType: payload.operation_type,
-            status: payload.status,
-            note: payload.note ?? null,
-            performedAt: payload.performed_at ?? null,
-            performedBy: payload.performed_by ?? null,
-            metaJson: payload.meta_json ?? null,
-            updatedAt: payload.updated_at,
-            deletedAt: payload.deleted_at ?? null,
-            syncStatus: 'synced',
-          },
         });
-      break;
-    case SyncTableName.AuditLog:
-      await db
-        .insert(auditLog)
-        .values({
+        break;
+      case SyncTableName.AuditLog:
+        groups.audit_log.push({
           id: payload.id,
           actor: payload.actor,
           action: payload.action,
@@ -471,25 +402,119 @@ async function applyPulledChange(db: BetterSQLite3Database, change: SyncPullResp
           updatedAt: payload.updated_at,
           deletedAt: payload.deleted_at ?? null,
           syncStatus: 'synced',
-        })
+        });
+        break;
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    if (groups.entity_types.length > 0) {
+      await tx
+        .insert(entityTypes)
+        .values(groups.entity_types)
         .onConflictDoUpdate({
-          target: auditLog.id,
+          target: entityTypes.id,
           set: {
-            actor: payload.actor,
-            action: payload.action,
-            entityId: payload.entity_id ?? null,
-            tableName: payload.table_name ?? null,
-            payloadJson: payload.payload_json ?? null,
-            updatedAt: payload.updated_at,
-            deletedAt: payload.deleted_at ?? null,
+            code: sql`excluded.code`,
+            name: sql`excluded.name`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
             syncStatus: 'synced',
           },
         });
-      break;
-  }
+    }
+    if (groups.entities.length > 0) {
+      await tx
+        .insert(entities)
+        .values(groups.entities)
+        .onConflictDoUpdate({
+          target: entities.id,
+          set: {
+            typeId: sql`excluded.type_id`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
+            syncStatus: 'synced',
+          },
+        });
+    }
+    if (groups.attribute_defs.length > 0) {
+      await tx
+        .insert(attributeDefs)
+        .values(groups.attribute_defs)
+        .onConflictDoUpdate({
+          target: attributeDefs.id,
+          set: {
+            entityTypeId: sql`excluded.entity_type_id`,
+            code: sql`excluded.code`,
+            name: sql`excluded.name`,
+            dataType: sql`excluded.data_type`,
+            isRequired: sql`excluded.is_required`,
+            sortOrder: sql`excluded.sort_order`,
+            metaJson: sql`excluded.meta_json`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
+            syncStatus: 'synced',
+          },
+        });
+    }
+    if (groups.attribute_values.length > 0) {
+      await tx
+        .insert(attributeValues)
+        .values(groups.attribute_values)
+        .onConflictDoUpdate({
+          target: attributeValues.id,
+          set: {
+            entityId: sql`excluded.entity_id`,
+            attributeDefId: sql`excluded.attribute_def_id`,
+            valueJson: sql`excluded.value_json`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
+            syncStatus: 'synced',
+          },
+        });
+    }
+    if (groups.operations.length > 0) {
+      await tx
+        .insert(operations)
+        .values(groups.operations)
+        .onConflictDoUpdate({
+          target: operations.id,
+          set: {
+            engineEntityId: sql`excluded.engine_entity_id`,
+            operationType: sql`excluded.operation_type`,
+            status: sql`excluded.status`,
+            note: sql`excluded.note`,
+            performedAt: sql`excluded.performed_at`,
+            performedBy: sql`excluded.performed_by`,
+            metaJson: sql`excluded.meta_json`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
+            syncStatus: 'synced',
+          },
+        });
+    }
+    if (groups.audit_log.length > 0) {
+      await tx
+        .insert(auditLog)
+        .values(groups.audit_log)
+        .onConflictDoUpdate({
+          target: auditLog.id,
+          set: {
+            actor: sql`excluded.actor`,
+            action: sql`excluded.action`,
+            entityId: sql`excluded.entity_id`,
+            tableName: sql`excluded.table_name`,
+            payloadJson: sql`excluded.payload_json`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
+            syncStatus: 'synced',
+          },
+        });
+    }
+  });
 
-  // Обновим время локального состояния (для диагностики).
-  await setSyncState(db, 'lastAppliedAt', String(ts));
+  // Обновим время локального состояния (для диагностики) один раз на пачку.
+  await setSyncStateNumber(db, SettingsKey.LastAppliedAt, ts);
 }
 
 export async function runSync(db: BetterSQLite3Database, clientId: string, apiBaseUrl: string): Promise<SyncRunResult> {
@@ -533,7 +558,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       }
     }
 
-    const since = await getSyncStateNumber(db, 'lastPulledServerSeq', 0);
+    const since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
     const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
     const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
     if (!pull.ok) {
@@ -544,15 +569,12 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     }
     const pullJson = (await pull.json()) as SyncPullResponse;
 
-    let pulled = 0;
-    for (const ch of pullJson.changes) {
-      // Если сервер прислал delete — у нас это soft delete через deleted_at в payload, поэтому обрабатываем как upsert.
-      await applyPulledChange(db, ch);
-      pulled += 1;
-    }
+    const pulled = pullJson.changes.length;
+    // Если сервер прислал delete — у нас это soft delete через deleted_at в payload, поэтому обрабатываем как upsert.
+    await applyPulledChanges(db, pullJson.changes);
 
-    await setSyncState(db, 'lastPulledServerSeq', String(pullJson.server_cursor));
-    await setSyncState(db, 'lastSyncAt', String(startedAt));
+    await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
+    await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
 
     logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
     return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };

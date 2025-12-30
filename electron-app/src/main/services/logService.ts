@@ -1,10 +1,8 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { net } from 'electron';
-import { eq } from 'drizzle-orm';
 
-import { syncState } from '../database/schema.js';
 import { getSession } from './authService.js';
-import { authRefresh, clearSession } from './authService.js';
+import { SettingsKey, settingsGetBoolean, settingsSetBoolean } from './settingsStore.js';
+import { httpAuthed } from './httpClient.js';
 
 const LOG_BUFFER_MAX = 100;
 const LOG_SEND_INTERVAL_MS = 5000; // 5 секунд
@@ -22,19 +20,14 @@ let currentApiBaseUrl: string | null = null;
 
 async function getLoggingEnabled(db: BetterSQLite3Database): Promise<boolean> {
   try {
-    const row = await db.select().from(syncState).where(eq(syncState.key, 'logging.enabled')).limit(1);
-    return row[0]?.value === 'true';
+    return await settingsGetBoolean(db, SettingsKey.LoggingEnabled, false);
   } catch {
     return false;
   }
 }
 
 async function setLoggingEnabled(db: BetterSQLite3Database, enabled: boolean): Promise<void> {
-  const ts = Date.now();
-  await db
-    .insert(syncState)
-    .values({ key: 'logging.enabled', value: enabled ? 'true' : 'false', updatedAt: ts })
-    .onConflictDoUpdate({ target: syncState.key, set: { value: enabled ? 'true' : 'false', updatedAt: ts } });
+  await settingsSetBoolean(db, SettingsKey.LoggingEnabled, enabled);
 }
 
 async function sendLogs(db: BetterSQLite3Database, apiBaseUrl: string): Promise<void> {
@@ -55,37 +48,24 @@ async function sendLogs(db: BetterSQLite3Database, apiBaseUrl: string): Promise<
   logBuffer = [];
 
   try {
-    const url = `${apiBaseUrl}/logs/client`;
-    const headers = new Headers({ 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}` });
-    const response = await net.fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        logs: logsToSend,
-      }),
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      if (session.refreshToken) {
-        const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
-        if (refreshed.ok && refreshed.accessToken) {
-          const headers2 = new Headers({ 'Content-Type': 'application/json', Authorization: `Bearer ${refreshed.accessToken}` });
-          await net.fetch(url, {
-            method: 'POST',
-            headers: headers2,
-            body: JSON.stringify({
-              logs: logsToSend,
-            }),
-          });
-        } else {
-          await clearSession(db).catch(() => {});
-        }
-      } else {
-        await clearSession(db).catch(() => {});
-      }
+    const r = await httpAuthed(
+      db,
+      apiBaseUrl,
+      '/logs/client',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logs: logsToSend }),
+      },
+      { timeoutMs: 10_000 },
+    );
+    // Если отправка не удалась — вернём логи в буфер (с лимитом), чтобы попробовать позже.
+    if (!r.ok) {
+      logBuffer = [...logsToSend, ...logBuffer].slice(-LOG_BUFFER_MAX);
     }
-  } catch (e) {
+  } catch {
     // Игнорируем ошибки отправки логов, чтобы не мешать работе приложения
+    logBuffer = [...logsToSend, ...logBuffer].slice(-LOG_BUFFER_MAX);
   }
 }
 

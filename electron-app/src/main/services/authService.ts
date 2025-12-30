@@ -1,11 +1,8 @@
 import { net, safeStorage } from 'electron';
-import { eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { AuthLoginResult, AuthStatus, AuthUserInfo, AuthLogoutResult } from '@matricarmz/shared';
-import { syncState } from '../database/schema.js';
-
-const KEY_SESSION = 'auth.session';
+import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 
 type StoredSession = {
   enc: boolean;
@@ -42,18 +39,8 @@ function decryptToJson(stored: StoredSession): string | null {
   }
 }
 
-async function setSyncState(db: BetterSQLite3Database, key: string, value: string) {
-  const ts = nowMs();
-  await db.insert(syncState).values({ key, value, updatedAt: ts }).onConflictDoUpdate({ target: syncState.key, set: { value, updatedAt: ts } });
-}
-
-async function getSyncState(db: BetterSQLite3Database, key: string): Promise<string | null> {
-  const row = await db.select().from(syncState).where(eq(syncState.key, key)).limit(1);
-  return row[0]?.value ? String(row[0].value) : null;
-}
-
 export async function getSession(db: BetterSQLite3Database): Promise<SessionPayload | null> {
-  const raw = await getSyncState(db, KEY_SESSION).catch(() => null);
+  const raw = await settingsGetString(db, SettingsKey.AuthSession).catch(() => null);
   if (!raw) return null;
   const stored = safeJsonParse(raw) as StoredSession | null;
   if (!stored || typeof stored !== 'object' || typeof (stored as any).data !== 'string') return null;
@@ -69,7 +56,7 @@ export async function getSession(db: BetterSQLite3Database): Promise<SessionPayl
 }
 
 export async function clearSession(db: BetterSQLite3Database) {
-  await setSyncState(db, KEY_SESSION, '');
+  await settingsSetString(db, SettingsKey.AuthSession, '');
 }
 
 export async function authStatus(db: BetterSQLite3Database): Promise<AuthStatus> {
@@ -142,7 +129,7 @@ export async function authLogin(
       savedAt: nowMs(),
     };
     const stored = encryptJson(JSON.stringify(payload));
-    await setSyncState(db, KEY_SESSION, JSON.stringify(stored));
+    await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
     return {
       ok: true,
       accessToken: payload.accessToken,
@@ -180,7 +167,7 @@ export async function authRefresh(
       savedAt: nowMs(),
     };
     const stored = encryptJson(JSON.stringify(payload));
-    await setSyncState(db, KEY_SESSION, JSON.stringify(stored));
+    await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
     return { ok: true, accessToken: payload.accessToken, refreshToken: payload.refreshToken, user: payload.user };
   } catch (e) {
     return { ok: false, error: String(e) };

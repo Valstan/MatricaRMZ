@@ -71,6 +71,13 @@
       "when": 1767030000000,
       "tag": "0009_users_username_partial_uq",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1767090276756,
+      "tag": "0010_abandoned_rogue",
+      "breakpoints": true
     }
   ]
 }

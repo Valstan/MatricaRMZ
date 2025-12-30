@@ -539,7 +539,7 @@ export async function deletePart(args: { partId: string; actor: string }): Promi
   { ok: true } | { ok: false; error: string }
 > {
   try {
-    const typeId = await ensurePartEntityType();
+    await ensurePartEntityType();
     const partId = String(args.partId || '');
     const ts = nowMs();
 

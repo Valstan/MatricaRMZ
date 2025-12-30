@@ -13,6 +13,7 @@ import { logsRouter } from './routes/logs.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
+import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
 // За reverse-proxy (nginx / панель провайдера) важно корректно понимать X-Forwarded-* заголовки.
@@ -28,6 +29,9 @@ app.use('/admin', adminUsersRouter);
 app.use('/files', filesRouter);
 app.use('/parts', partsRouter);
 app.use('/logs', logsRouter);
+
+// Must be last: centralized error handler.
+app.use(errorHandler);
 
 const port = Number(process.env.PORT ?? 3001);
 // По умолчанию слушаем только localhost и открываем наружу через nginx.

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Временные поля храним как Unix-time в миллисекундах (int),
 // чтобы одинаково жить в SQLite и PostgreSQL.
@@ -16,17 +16,24 @@ export const entityTypes = sqliteTable(
   },
   (t) => ({
     codeIdx: uniqueIndex('entity_types_code_uq').on(t.code),
+    syncStatusIdx: index('entity_types_sync_status_idx').on(t.syncStatus),
   }),
 );
 
-export const entities = sqliteTable('entities', {
-  id: text('id').primaryKey(), // uuid
-  typeId: text('type_id').notNull(), // uuid
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  deletedAt: integer('deleted_at'),
-  syncStatus: text('sync_status').notNull().default('synced'),
-});
+export const entities = sqliteTable(
+  'entities',
+  {
+    id: text('id').primaryKey(), // uuid
+    typeId: text('type_id').notNull(), // uuid
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('entities_sync_status_idx').on(t.syncStatus),
+  }),
+);
 
 export const attributeDefs = sqliteTable(
   'attribute_defs',
@@ -46,6 +53,7 @@ export const attributeDefs = sqliteTable(
   },
   (t) => ({
     codePerTypeIdx: uniqueIndex('attribute_defs_type_code_uq').on(t.entityTypeId, t.code),
+    syncStatusIdx: index('attribute_defs_sync_status_idx').on(t.syncStatus),
   }),
 );
 
@@ -63,36 +71,49 @@ export const attributeValues = sqliteTable(
   },
   (t) => ({
     perEntityAttrIdx: uniqueIndex('attribute_values_entity_attr_uq').on(t.entityId, t.attributeDefId),
+    syncStatusIdx: index('attribute_values_sync_status_idx').on(t.syncStatus),
   }),
 );
 
-export const operations = sqliteTable('operations', {
-  id: text('id').primaryKey(), // uuid
-  engineEntityId: text('engine_entity_id').notNull(), // uuid
-  operationType: text('operation_type').notNull(),
-  status: text('status').notNull(),
-  note: text('note'),
-  performedAt: integer('performed_at'),
-  performedBy: text('performed_by'),
-  metaJson: text('meta_json'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  deletedAt: integer('deleted_at'),
-  syncStatus: text('sync_status').notNull().default('synced'),
-});
+export const operations = sqliteTable(
+  'operations',
+  {
+    id: text('id').primaryKey(), // uuid
+    engineEntityId: text('engine_entity_id').notNull(), // uuid
+    operationType: text('operation_type').notNull(),
+    status: text('status').notNull(),
+    note: text('note'),
+    performedAt: integer('performed_at'),
+    performedBy: text('performed_by'),
+    metaJson: text('meta_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('operations_sync_status_idx').on(t.syncStatus),
+  }),
+);
 
-export const auditLog = sqliteTable('audit_log', {
-  id: text('id').primaryKey(), // uuid
-  actor: text('actor').notNull(),
-  action: text('action').notNull(),
-  entityId: text('entity_id'),
-  tableName: text('table_name'),
-  payloadJson: text('payload_json'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  deletedAt: integer('deleted_at'),
-  syncStatus: text('sync_status').notNull().default('synced'),
-});
+export const auditLog = sqliteTable(
+  'audit_log',
+  {
+    id: text('id').primaryKey(), // uuid
+    actor: text('actor').notNull(),
+    action: text('action').notNull(),
+    entityId: text('entity_id'),
+    tableName: text('table_name'),
+    payloadJson: text('payload_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('audit_log_sync_status_idx').on(t.syncStatus),
+  }),
+);
 
 export const syncState = sqliteTable('sync_state', {
   key: text('key').primaryKey(),

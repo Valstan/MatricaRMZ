@@ -1,10 +1,9 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { eq } from 'drizzle-orm';
 
 import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
 
 import { runSync } from './syncService.js';
-import { syncState } from '../database/schema.js';
+import { SettingsKey, settingsGetString } from './settingsStore.js';
 
 function nowMs() {
   return Date.now();
@@ -35,8 +34,7 @@ export class SyncManager {
 
   private async refreshApiBaseUrlFromDb() {
     try {
-      const row = await this.db.select().from(syncState).where(eq(syncState.key, 'apiBaseUrl')).limit(1);
-      const next = row[0]?.value ? String(row[0].value).trim() : '';
+      const next = (await settingsGetString(this.db, SettingsKey.ApiBaseUrl))?.trim() ?? '';
       if (next) this.apiBaseUrl = next;
     } catch {
       // ignore

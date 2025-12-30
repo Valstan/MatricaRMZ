@@ -104,9 +104,6 @@ app.whenReady().then(() => {
   // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
   createWindow();
 
-  // Технический client_id для синхронизации (MVP).
-  // Позже: хранить/обновлять через sync_state таблицу.
-  const clientId = `${process.env.COMPUTERNAME ?? 'pc'}-${randomUUID()}`;
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
   // В проде обычно ходим через reverse-proxy (nginx) на 80/443, поэтому порт 3001 не указываем.
@@ -121,6 +118,7 @@ app.whenReady().then(() => {
       const { migrateSqlite } = await import('./database/migrate.js');
       const { seedIfNeeded } = await import('./database/seed.js');
       const { registerIpc } = await import('./ipc/registerIpc.js');
+      const { SettingsKey, settingsGetString, settingsSetString } = await import('./services/settingsStore.js');
 
       const userData = app.getPath('userData');
       mkdirSync(userData, { recursive: true });
@@ -146,7 +144,17 @@ app.whenReady().then(() => {
         return;
       }
 
-      registerIpc(db, { clientId, apiBaseUrl });
+      // Стабильный clientId (один раз на рабочее место): нужен для корректного sync_state на сервере и диагностики.
+      let stableClientId = (await settingsGetString(db, SettingsKey.ClientId).catch(() => null)) ?? '';
+      stableClientId = String(stableClientId).trim();
+      if (!stableClientId) {
+        const prefix = String(process.env.COMPUTERNAME ?? 'pc').trim() || 'pc';
+        stableClientId = `${prefix}-${randomUUID()}`;
+        await settingsSetString(db, SettingsKey.ClientId, stableClientId).catch(() => {});
+        logToFile(`generated stable clientId=${stableClientId}`);
+      }
+
+      registerIpc(db, { clientId: stableClientId, apiBaseUrl });
       logToFile('IPC registered, SQLite ready');
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);

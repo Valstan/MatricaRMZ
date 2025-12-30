@@ -15,6 +15,13 @@
       "when": 1766412000000,
       "tag": "0001_add_ops_meta_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1767090347266,
+      "tag": "0002_mixed_wrecking_crew",
+      "breakpoints": true
     }
   ]
 }
