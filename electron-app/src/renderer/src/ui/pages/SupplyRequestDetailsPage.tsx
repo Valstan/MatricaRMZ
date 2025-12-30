@@ -932,6 +932,7 @@ export function SupplyRequestDetailsPage(props: {
         onChange={async (next) => {
           scheduleSave({ ...payload, attachments: next });
           await saveNow({ ...payload, attachments: next });
+          return { ok: true as const };
         }}
       />
     </div>

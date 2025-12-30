@@ -127,7 +127,7 @@ export async function partsUpdateAttribute(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   args: { partId: string; attributeCode: string; value: unknown },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; queued?: boolean; changeRequestId?: string } | { ok: false; error: string }> {
   try {
     const partId = String(args.partId || '');
     const attrCode = String(args.attributeCode || '');
@@ -140,7 +140,7 @@ export async function partsUpdateAttribute(
     });
     if (!r.ok) return { ok: false, error: `update ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad update response' };
-    return { ok: true };
+    return r.json as any;
   } catch (e) {
     return { ok: false, error: String(e) };
   }

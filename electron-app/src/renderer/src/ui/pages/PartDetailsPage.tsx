@@ -225,20 +225,28 @@ export function PartDetailsPage(props: {
     setEngineBrandIds(Array.isArray(vBrands) ? vBrands.filter((x): x is string => typeof x === 'string') : []);
   }, [part?.id, part?.updatedAt]);
 
-  async function saveAttribute(code: string, value: unknown) {
-    if (!props.canEdit) return;
+  async function saveAttribute(code: string, value: unknown): Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }> {
+    if (!props.canEdit) return { ok: false, error: 'no permission' };
     try {
       setStatus('Сохранение…');
       const r = await window.matrica.parts.updateAttribute({ partId: props.partId, attributeCode: code, value });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
-        return;
+        return r;
       }
-      setStatus('Сохранено');
-      setTimeout(() => setStatus(''), 2000);
+      if ((r as any).queued) {
+        setStatus('Отправлено на утверждение (см. «Изменения»)');
+        setTimeout(() => setStatus(''), 2500);
+      } else {
+        setStatus('Сохранено');
+        setTimeout(() => setStatus(''), 2000);
+      }
       void load();
+      return r as any;
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      const err = String(e);
+      setStatus(`Ошибка: ${err}`);
+      return { ok: false, error: err };
     }
   }
 

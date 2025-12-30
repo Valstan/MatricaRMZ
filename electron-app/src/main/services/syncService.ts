@@ -407,9 +407,12 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     }
   }
 
-  await db.transaction(async (tx) => {
+  // IMPORTANT: better-sqlite3 transactions are synchronous.
+  // The callback MUST NOT be async / return a Promise (otherwise better-sqlite3 throws:
+  // "Transaction function cannot return a promise").
+  db.transaction((tx) => {
     if (groups.entity_types.length > 0) {
-      await tx
+      tx
         .insert(entityTypes)
         .values(groups.entity_types)
         .onConflictDoUpdate({
@@ -424,7 +427,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         });
     }
     if (groups.entities.length > 0) {
-      await tx
+      tx
         .insert(entities)
         .values(groups.entities)
         .onConflictDoUpdate({
@@ -438,7 +441,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         });
     }
     if (groups.attribute_defs.length > 0) {
-      await tx
+      tx
         .insert(attributeDefs)
         .values(groups.attribute_defs)
         .onConflictDoUpdate({
@@ -458,7 +461,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         });
     }
     if (groups.attribute_values.length > 0) {
-      await tx
+      tx
         .insert(attributeValues)
         .values(groups.attribute_values)
         .onConflictDoUpdate({
@@ -474,7 +477,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         });
     }
     if (groups.operations.length > 0) {
-      await tx
+      tx
         .insert(operations)
         .values(groups.operations)
         .onConflictDoUpdate({
@@ -494,7 +497,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         });
     }
     if (groups.audit_log.length > 0) {
-      await tx
+      tx
         .insert(auditLog)
         .values(groups.audit_log)
         .onConflictDoUpdate({

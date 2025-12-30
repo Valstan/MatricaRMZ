@@ -489,7 +489,7 @@ export async function updatePartAttribute(args: {
   attributeCode: string;
   value: unknown;
   actor: AuthUser;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ ok: true; queued?: boolean; changeRequestId?: string } | { ok: false; error: string }> {
   try {
     const typeId = await ensurePartEntityType();
     const partId = String(args.partId || '');
@@ -560,8 +560,9 @@ export async function updatePartAttribute(args: {
         sync_status: 'pending',
       };
 
+      const changeRequestId = randomUUID();
       await db.insert(changeRequests).values({
-        id: randomUUID(),
+        id: changeRequestId,
         status: 'pending',
         tableName: SyncTableName.AttributeValues,
         rowId: rowId as any,
@@ -580,7 +581,7 @@ export async function updatePartAttribute(args: {
       });
 
       // Не применяем изменение (pre-approval).
-      return { ok: true };
+      return { ok: true, queued: true, changeRequestId };
     }
 
     await db

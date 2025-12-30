@@ -27,7 +27,7 @@ export function AttachmentsPanel(props: {
   canView: boolean;
   canUpload: boolean;
   scope?: { ownerType: string; ownerId: string; category: string };
-  onChange: (next: FileRef[]) => Promise<void> | void;
+  onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
 }) {
   const [busy, setBusy] = useState<string>('');
 
@@ -49,7 +49,17 @@ export function AttachmentsPanel(props: {
       for (const f of added) {
         if (!merged.find((x) => x.id === f.id)) merged.push(f);
       }
-      await props.onChange(merged);
+      const r = await props.onChange(merged);
+      if (!r.ok) {
+        setBusy(`Ошибка: ${r.error}`);
+        setTimeout(() => setBusy(''), 3000);
+        return;
+      }
+      if (r.queued) {
+        setBusy('Отправлено на утверждение (см. «Изменения»)');
+        setTimeout(() => setBusy(''), 1600);
+        return;
+      }
       setBusy('Готово');
       setTimeout(() => setBusy(''), 700);
     } catch (e) {
@@ -140,15 +150,35 @@ export function AttachmentsPanel(props: {
                         variant="ghost"
                         onClick={async () => {
                           try {
-                            setBusy('Удаление файла...');
-                            const deleteResult = await window.matrica.files.delete({ fileId: f.id });
-                            if (!deleteResult.ok) {
-                              setBusy(`Ошибка: ${deleteResult.error}`);
+                            const next = list.filter((x) => x.id !== f.id);
+                            setBusy('Удаление из списка...');
+                            const upd = await props.onChange(next);
+                            if (!upd.ok) {
+                              setBusy(`Ошибка: ${upd.error}`);
                               setTimeout(() => setBusy(''), 3000);
                               return;
                             }
-                            const next = list.filter((x) => x.id !== f.id);
-                            await props.onChange(next);
+                            if (upd.queued) {
+                              // Важно: pre-approval — запись не поменялась, поэтому файл нельзя удалять физически.
+                              setBusy('Отправлено на утверждение (см. «Изменения»)');
+                              setTimeout(() => setBusy(''), 2000);
+                              return;
+                            }
+
+                            // После того как ссылка из записи убрана — можно попытаться удалить файл физически.
+                            // Если файл используется где-то ещё, soft-delete может быть нежелательным, но пока оставляем как есть.
+                            setBusy('Удаление файла...');
+                            const deleteResult = await window.matrica.files.delete({ fileId: f.id });
+                            if (!deleteResult.ok) {
+                              setBusy(`Файл убран из списка, но удалить на сервере не удалось: ${deleteResult.error}`);
+                              setTimeout(() => setBusy(''), 3500);
+                              return;
+                            }
+                            if ((deleteResult as any).queued) {
+                              setBusy('Удаление файла отправлено на утверждение (см. «Изменения»)');
+                              setTimeout(() => setBusy(''), 2000);
+                              return;
+                            }
                             setBusy('Файл удален');
                             setTimeout(() => setBusy(''), 700);
                           } catch (e) {

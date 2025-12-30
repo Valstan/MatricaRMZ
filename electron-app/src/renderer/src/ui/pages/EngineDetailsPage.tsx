@@ -177,7 +177,12 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveAttachments(next: any[]) {
-    await saveAttr('attachments', next);
+    try {
+      await saveAttr('attachments', next);
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
   }
 
   async function loadLinkLists() {

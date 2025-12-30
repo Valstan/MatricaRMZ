@@ -418,7 +418,9 @@ export type MatricaApi = {
       sortOrder?: number;
       metaJson?: string | null;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-    updateAttribute: (args: { partId: string; attributeCode: string; value: unknown }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    updateAttribute: (args: { partId: string; attributeCode: string; value: unknown }) => Promise<
+      { ok: true; queued?: boolean; changeRequestId?: string } | { ok: false; error: string }
+    >;
     delete: (partId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     getFiles: (partId: string) => Promise<{ ok: true; files: unknown[] } | { ok: false; error: string }>;
   };
@@ -435,7 +437,7 @@ export type MatricaApi = {
     // Открывает файл (скачивает при необходимости) средствами ОС.
     open: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
     // Удаляет файл на сервере (soft delete + удаление физического файла/объекта).
-    delete: (args: { fileId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    delete: (args: { fileId: string }) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
     // Папка скачивания/кеша.
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;

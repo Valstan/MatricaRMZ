@@ -224,7 +224,7 @@ export async function filesDelete(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   args: { fileId: string },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }> {
   try {
     const fileId = String(args.fileId || '').trim();
     if (!fileId) return { ok: false, error: 'fileId is empty' };
@@ -232,7 +232,7 @@ export async function filesDelete(
     const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
     if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
-    return { ok: true };
+    return r.json as any;
   } catch (e) {
     return { ok: false, error: String(e) };
   }

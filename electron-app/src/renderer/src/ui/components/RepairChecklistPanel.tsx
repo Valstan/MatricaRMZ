@@ -458,12 +458,13 @@ export function RepairChecklistPanel(props: {
           });
           if (!r.ok) {
             setStatus(`Ошибка: ${r.error}`);
-            return;
+            return { ok: false as const, error: r.error };
           }
           setOperationId(r.operationId);
           setPayload((prev) => (prev ? ({ ...prev, attachments: next } as RepairChecklistPayload) : prev));
           setStatus('Сохранено');
           setTimeout(() => setStatus(''), 700);
+          return { ok: true as const };
         }}
       />
     </div>
