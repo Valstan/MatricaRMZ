@@ -1,6 +1,6 @@
 import { db } from '../database/db.js';
 import { changeLog, entityTypes } from '../database/schema.js';
-import { and, eq, isNull, like, or } from 'drizzle-orm';
+import { and, eq, like, or } from 'drizzle-orm';
 
 function nowMs() {
   return Date.now();
@@ -15,25 +15,33 @@ export async function cleanupBulkEntityTypes(): Promise<{ ok: true; affected: nu
       .select()
       .from(entityTypes)
       .where(
-        and(
-          isNull(entityTypes.deletedAt),
-          or(like(entityTypes.code, 't_bulk_%'), like(entityTypes.name, 'Type Bulk %')),
-        ),
+        or(like(entityTypes.code, 't_bulk_%'), like(entityTypes.name, 'Type Bulk %')),
       )
       .limit(50_000);
 
     if (rows.length === 0) return { ok: true, affected: 0 };
 
-    // Soft delete + write change_log so clients remove/hide them on next pull.
+    // Soft delete (if not already) + ALWAYS write a fresh delete event to change_log
+    // so existing clients (who may have skipped older events due to server-side filtering)
+    // will receive cleanup on next pull.
     for (const r of rows as any[]) {
-      await db.update(entityTypes).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' }).where(eq(entityTypes.id, r.id));
+      const alreadyDeletedAt = r.deletedAt == null ? null : Number(r.deletedAt);
+      const nextDeletedAt = alreadyDeletedAt ?? ts;
+      const nextUpdatedAt = Math.max(Number(r.updatedAt ?? 0) || 0, nextDeletedAt, ts);
+
+      if (alreadyDeletedAt == null) {
+        await db
+          .update(entityTypes)
+          .set({ deletedAt: nextDeletedAt, updatedAt: nextUpdatedAt, syncStatus: 'synced' })
+          .where(eq(entityTypes.id, r.id));
+      }
       const payload = {
         id: String(r.id),
         code: String(r.code),
         name: String(r.name),
         created_at: Number(r.createdAt),
-        updated_at: ts,
-        deleted_at: ts,
+        updated_at: nextUpdatedAt,
+        deleted_at: nextDeletedAt,
         sync_status: 'synced',
       };
       await db.insert(changeLog).values({

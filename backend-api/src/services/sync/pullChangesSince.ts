@@ -19,7 +19,7 @@ export async function pullChangesSince(since: number): Promise<SyncPullResponse>
     .limit(5000);
 
   // Filter out test/bulk artifacts (historical bench data) so new clients don't pull them.
-  // We keep this logic server-side to protect all clients uniformly.
+  // IMPORTANT: we MUST still allow delete events through, otherwise clients can't get rid of them.
   function isBulkEntityTypePayload(payloadJson: string): boolean {
     try {
       const p = JSON.parse(payloadJson) as any;
@@ -35,6 +35,8 @@ export async function pullChangesSince(since: number): Promise<SyncPullResponse>
 
   const filtered = rows.filter((r) => {
     if (String(r.table) !== 'entity_types') return true;
+    // Always allow delete operations (they are needed to clean up client caches).
+    if (String(r.op) === 'delete') return true;
     return !isBulkEntityTypePayload(String(r.payloadJson ?? ''));
   });
 
