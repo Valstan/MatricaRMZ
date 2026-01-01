@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -22,6 +22,7 @@ export function PartsPage(props: {
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
+  const queryTimer = useRef<number | null>(null);
 
   async function refresh() {
     try {
@@ -41,6 +42,18 @@ export function PartsPage(props: {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    if (queryTimer.current) {
+      window.clearTimeout(queryTimer.current);
+    }
+    queryTimer.current = window.setTimeout(() => {
+      void refresh();
+    }, 300);
+    return () => {
+      if (queryTimer.current) window.clearTimeout(queryTimer.current);
+    };
+  }, [query]);
 
   const sorted = useMemo(() => {
     return [...rows].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
@@ -100,12 +113,6 @@ export function PartsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/артикулу…" />
-        </div>
-        <Button variant="ghost" onClick={() => void refresh()}>
-          Поиск
-        </Button>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -127,6 +134,9 @@ export function PartsPage(props: {
             Создать деталь
           </Button>
         )}
+        <div style={{ flex: 1 }}>
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/артикулу…" />
+        </div>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}

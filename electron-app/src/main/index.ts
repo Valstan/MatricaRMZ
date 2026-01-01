@@ -12,7 +12,7 @@ import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
 
 let mainWindow: BrowserWindow | null = null;
-const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
+const APP_TITLE = () => `Матрица РМЗ`;
 
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);
@@ -38,7 +38,7 @@ function createWindow(): void {
     },
   });
 
-  // Не даём web-странице менять title — версия должна быть видна всегда в шапке окна.
+  // Не даём web-странице менять title — фиксируем заголовок окна.
   mainWindow.on('page-title-updated', (e) => {
     e.preventDefault();
     mainWindow?.setTitle(APP_TITLE());

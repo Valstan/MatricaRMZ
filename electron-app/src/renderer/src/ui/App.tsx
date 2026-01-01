@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, OperationItem, SyncStatus } from '@matricarmz/shared';
+import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, OperationItem, ServerHealthResult, SyncStatus } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type TabId } from './layout/Tabs.js';
 import { EnginesPage } from './pages/EnginesPage.js';
 import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
-import { SyncPage } from './pages/SyncPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { AuditPage } from './pages/AuditPage.js';
@@ -18,14 +17,16 @@ import { PartsPage } from './pages/PartsPage.js';
 import { PartDetailsPage } from './pages/PartDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
+import { Button } from './components/Button.js';
 
 export function App() {
-  const [ping, setPing] = useState<string>('...');
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
   const [tab, setTab] = useState<TabId>('engines');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const prevLoggedIn = useRef<boolean>(false);
+  const [clientVersion, setClientVersion] = useState<string>('');
+  const [serverInfo, setServerInfo] = useState<ServerHealthResult | null>(null);
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
@@ -37,14 +38,52 @@ export function App() {
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
 
   useEffect(() => {
-    window.matrica
-      .ping()
-      .then((r) => setPing(`ok=${r.ok}, ts=${new Date(r.ts).toLocaleString('ru-RU')}`))
-      .catch((e) => setPing(`ошибка: ${String(e)}`));
-
     void refreshEngines();
     void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
+    void window.matrica.app.version().then((r) => (r.ok ? setClientVersion(r.version) : setClientVersion(''))).catch(() => {});
+    void refreshServerHealth();
   }, []);
+
+  async function refreshServerHealth() {
+    const r = await window.matrica.server.health().catch(() => null);
+    if (r) setServerInfo(r);
+  }
+
+  // Update backend version occasionally (it can change after deploy).
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await window.matrica.server.health();
+        if (!alive) return;
+        setServerInfo(r);
+      } catch {
+        // ignore
+      }
+    };
+    const id = setInterval(() => void poll(), 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  async function runSyncNow(opts?: { showStatusMessage?: boolean }) {
+    try {
+      if (opts?.showStatusMessage) setPostLoginSyncMsg('Синхронизация…');
+      const r = await window.matrica.sync.run();
+      if (r.ok) {
+        await refreshEngines();
+        if (opts?.showStatusMessage) setPostLoginSyncMsg(`Синхронизация выполнена: push=${r.pushed}, pull=${r.pulled}.`);
+      } else {
+        if (opts?.showStatusMessage) setPostLoginSyncMsg(`Не удалось синхронизироваться: ${r.error ?? 'unknown'}.`);
+      }
+    } catch (e) {
+      if (opts?.showStatusMessage) setPostLoginSyncMsg(`Не удалось синхронизироваться: ${String(e)}.`);
+    } finally {
+      if (opts?.showStatusMessage) setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+    }
+  }
 
   // After successful login: run one sync so the user immediately sees shared data (e.g. engines created by admins).
   useEffect(() => {
@@ -53,22 +92,7 @@ export function App() {
     prevLoggedIn.current = now;
     if (now && !was) {
       setPostLoginSyncMsg('После входа выполняю синхронизацию…');
-      void (async () => {
-        try {
-          const r = await window.matrica.sync.run();
-          if (r.ok) {
-            await refreshEngines();
-            setPostLoginSyncMsg(`Синхронизация выполнена: push=${r.pushed}, pull=${r.pulled}.`);
-          } else {
-            setPostLoginSyncMsg(`Не удалось синхронизироваться автоматически: ${r.error ?? 'unknown'}. Откройте вкладку «Синхронизация».`);
-          }
-        } catch (e) {
-          setPostLoginSyncMsg(`Не удалось синхронизироваться автоматически: ${String(e)}. Откройте вкладку «Синхронизация».`);
-        } finally {
-          // keep message visible a bit, then hide
-          setTimeout(() => setPostLoginSyncMsg(''), 12_000);
-        }
-      })();
+      void runSyncNow({ showStatusMessage: true });
     }
   }, [authStatus.loggedIn]);
 
@@ -98,7 +122,6 @@ export function App() {
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
-    ...(caps.canUseSync ? (['sync'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...((caps.canViewMasterData || caps.canManageUsers) ? (['admin'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
@@ -187,8 +210,6 @@ export function App() {
               ? 'Матрица РМЗ — Карточка детали'
         : tab === 'auth'
           ? 'Матрица РМЗ — Вход'
-        : tab === 'sync'
-          ? 'Матрица РМЗ — Синхронизация'
         : tab === 'settings'
           ? 'Матрица РМЗ — Настройки'
         : tab === 'reports'
@@ -197,32 +218,64 @@ export function App() {
             ? 'Матрица РМЗ — Справочники'
           : 'Матрица РМЗ — Журнал';
 
-  function formatSyncStatus(s: SyncStatus | null): string {
-    if (!s) return 'SYNC: ...';
-    const stateLabel = s.state === 'idle' ? 'OK' : s.state === 'syncing' ? 'SYNC' : 'ERR';
-    const last = s.lastSyncAt ? new Date(s.lastSyncAt).toLocaleTimeString('ru-RU') : '-';
+  function formatSyncStatusRu(s: SyncStatus | null): { text: string; isError: boolean } {
+    if (!s) return { text: 'Синхр: … | последн.: — | следующий через —', isError: false };
+    const stateLabel = s.state === 'idle' ? 'OK' : s.state === 'syncing' ? 'СИНХР' : 'ОШИБКА';
+    const last = s.lastSyncAt ? new Date(s.lastSyncAt).toLocaleTimeString('ru-RU') : '—';
     const next =
       s.nextAutoSyncInMs == null
-        ? '-'
+        ? '—'
         : s.nextAutoSyncInMs >= 60_000
-          ? `${Math.ceil(s.nextAutoSyncInMs / 60_000)}м`
-          : `${Math.ceil(s.nextAutoSyncInMs / 1000)}с`;
-    return `SYNC: ${stateLabel} | last ${last} | next ${next}`;
+          ? `${Math.ceil(s.nextAutoSyncInMs / 60_000)} мин.`
+          : `${Math.ceil(s.nextAutoSyncInMs / 1000)} сек.`;
+    return {
+      text: `Синхр: ${stateLabel} | последн.: ${last} | следующий через ${next}`,
+      isError: s.state === 'error',
+    };
   }
 
   return (
     <Page
       title={pageTitle}
       right={
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-          <div style={{ color: '#6b7280', fontSize: 12 }}>IPC: {ping}</div>
-          <div style={{ color: '#6b7280', fontSize: 12 }}>
-            AUTH: {authStatus.loggedIn ? authStatus.user?.username ?? 'ok' : 'no'}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+          {authStatus.loggedIn && caps.canUseSync && (
+            <Button
+              variant="ghost"
+              onClick={() => void runSyncNow({ showStatusMessage: true })}
+              disabled={syncStatus?.state === 'syncing'}
+              title="Запустить синхронизацию вручную"
+            >
+              Синхронизировать сейчас
+            </Button>
+          )}
+          <div
+            style={{
+              color: formatSyncStatusRu(syncStatus).isError ? '#b91c1c' : '#6b7280',
+              fontSize: 12,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              alignItems: 'center',
+              maxWidth: 700,
+              justifyContent: 'flex-end',
+            }}
+          >
+            <span>
+              Клиент:{' '}
+              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{clientVersion || '—'}</span>
+            </span>
+            <span>|</span>
+            <span>
+              Сервер:{' '}
+              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                {serverInfo?.ok ? serverInfo.version ?? '—' : '—'}
+              </span>
+            </span>
+            <span>|</span>
+            <span>{formatSyncStatusRu(syncStatus).text}</span>
           </div>
-          <div style={{ color: syncStatus?.state === 'error' ? '#b91c1c' : '#6b7280', fontSize: 12 }}>
-            {formatSyncStatus(syncStatus)}
-          </div>
-          </div>
+        </div>
       }
     >
       <Tabs
@@ -237,6 +290,7 @@ export function App() {
           if (t === 'audit') void refreshAudit();
         }}
         visibleTabs={visibleTabs}
+        authLabel={authStatus.loggedIn ? authStatus.user?.username ?? 'Вход' : 'Войти'}
       />
 
       <div style={{ marginTop: 14 }}>
@@ -336,8 +390,6 @@ export function App() {
             onBack={() => setTab('parts')}
           />
         )}
-
-        {tab === 'sync' && <SyncPage onAfterSync={refreshEngines} />}
 
         {tab === 'changes' && authStatus.loggedIn && authStatus.user && (
           <ChangesPage me={authStatus.user} canDecideAsAdmin={String(authStatus.user.role ?? '').toLowerCase() === 'admin'} />

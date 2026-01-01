@@ -111,13 +111,10 @@ export function EnginesPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру или марке…" />
         </div>
-        {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
-        <Button variant="ghost" onClick={props.onRefresh}>
-          Обновить
-        </Button>
       </div>
 
       <div style={{ marginTop: 8 }}>

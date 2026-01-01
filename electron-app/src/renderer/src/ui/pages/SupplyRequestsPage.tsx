@@ -171,15 +171,6 @@ export function SupplyRequestsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/тексту/товарам…" />
-        </div>
-        <div style={{ width: 180 }}>
-          <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
-        </div>
-        <Button variant="ghost" onClick={() => void refresh()}>
-          Поиск
-        </Button>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -194,6 +185,15 @@ export function SupplyRequestsPage(props: {
             Создать заявку
           </Button>
         )}
+        <div style={{ width: '50%', minWidth: 260 }}>
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/тексту/товарам…" />
+        </div>
+        <div style={{ width: 180 }}>
+          <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        </div>
+        <Button variant="ghost" onClick={() => void refresh()}>
+          Поиск
+        </Button>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}

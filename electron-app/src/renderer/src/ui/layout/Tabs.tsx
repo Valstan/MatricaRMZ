@@ -12,7 +12,6 @@ export type TabId =
   | 'part'
   | 'changes'
   | 'auth'
-  | 'sync'
   | 'reports'
   | 'admin'
   | 'audit'
@@ -21,7 +20,8 @@ export type TabId =
 export function Tabs(props: {
   tab: TabId;
   onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part'>) => void;
-      visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[];
+  visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[];
+  authLabel?: string;
   right?: React.ReactNode;
 }) {
   function tabButton(id: Exclude<TabId, 'engine' | 'request' | 'part'>, label: string) {
@@ -55,9 +55,7 @@ export function Tabs(props: {
 
   return (
     <div style={{ display: 'flex', gap: 6, rowGap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-      {props.visibleTabs.includes('admin') && (
-        tabButton('admin', 'Справочники')
-      )}
+      {props.visibleTabs.includes('admin') && tabButton('admin', 'Справочники')}
       {props.visibleTabs.includes('changes') && tabButton('changes', 'Изменения')}
       {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
       {props.visibleTabs.includes('requests') && tabButton('requests', 'Заявки')}
@@ -65,9 +63,8 @@ export function Tabs(props: {
       {props.visibleTabs.includes('reports') && tabButton('reports', 'Отчёты')}
       <span style={{ flex: 1 }} />
       {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}
-      {props.visibleTabs.includes('sync') && tabButton('sync', 'Синхронизация')}
       {tabButton('settings', 'Настройки')}
-      {tabButton('auth', 'Вход')}
+      {tabButton('auth', props.authLabel?.trim() ? props.authLabel.trim() : 'Вход')}
       {props.right}
     </div>
   );

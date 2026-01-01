@@ -33,7 +33,6 @@ export type AccentKey = keyof typeof theme.accents;
 export function tabAccent(tab: string): AccentKey {
   if (tab === 'engines' || tab === 'engine') return 'engines';
   if (tab === 'auth') return 'auth';
-  if (tab === 'sync') return 'sync';
   if (tab === 'reports') return 'reports';
   if (tab === 'requests' || tab === 'request') return 'requests';
   if (tab === 'admin') return 'admin';
