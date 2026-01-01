@@ -54,6 +54,12 @@ function safeActor(a: SyncActor): SyncActor {
   };
 }
 
+function isBulkEntityTypeRow(r: { code?: unknown; name?: unknown }): boolean {
+  const code = String(r?.code ?? '');
+  const name = String(r?.name ?? '');
+  return code.startsWith('t_bulk_') || name.startsWith('Type Bulk ');
+}
+
 export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor): Promise<{ applied: number }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
@@ -310,7 +316,10 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     // EntityTypes
     {
       const raw = grouped.get(SyncTableName.EntityTypes) ?? [];
-      const parsed = raw.map((x) => entityTypeRowSchema.parse(x));
+      // Parse + filter out historical bulk/test artifacts so they never pollute production again.
+      // These were created by bench/debug clients (e.g. "bulkbench") and should not sync.
+      const parsedAll = raw.map((x) => entityTypeRowSchema.parse(x));
+      const parsed = parsedAll.filter((r) => !isBulkEntityTypeRow(r));
 
       // Build remap by code -> existing server ID (if any).
       const codes = Array.from(new Set(parsed.map((r) => String(r.code))));
