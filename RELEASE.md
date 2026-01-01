@@ -49,10 +49,20 @@
 
 Если нужно обновить backend (VPS/прод) — делаем это отдельной процедурой, без требования совпадения версий:
 
+### Версия Backend API (как считается)
+
+Backend использует тот же формат `MAJOR.MINOR.RELEASE`, но:
+
+- `MAJOR.MINOR` — “ветка” (beta/minor/major) и повышается вручную при крупных изменениях.
+- `RELEASE` — **количество всех изменений backend**, считаемое как число git‑коммитов, которые затрагивали `backend-api/**`:
+  - `git rev-list --count HEAD -- backend-api`
+
+Из-за этого при переходе на новую схему версия backend могла **визуально “уменьшиться”** (например, `0.3.63 → 0.3.32`) — это **не откат**, а переопределение смыслов разряда `RELEASE`.
+
 1) (Опционально) поднять версию backend:
-- `pnpm version:backend:bump` (patch)
-- `pnpm version:backend:bump:minor`
-- `pnpm version:backend:bump:major`
+- `pnpm version:backend:bump` (установит `RELEASE` по git‑счётчику)
+- `pnpm version:backend:bump:minor` (MINOR+1, RELEASE по git‑счётчику)
+- `pnpm version:backend:bump:major` (MAJOR+1, MINOR=0, RELEASE по git‑счётчику)
 
 2) Деплой/перезапуск:
 - обновить код (обычно `git pull`)
