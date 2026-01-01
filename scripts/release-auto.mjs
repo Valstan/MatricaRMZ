@@ -43,7 +43,8 @@ function hasDiffSince(ref, paths) {
 function lastBackendReleaseCommit() {
   try {
     // We treat "release(backend): vX.Y.Z" commits as backend release anchors.
-    return out('git log -1 --format=%H --grep="^release\\(backend\\): v"');
+    const h = out('git log -1 --format=%H --grep="^release\\(backend\\): v"');
+    return h ? h : null;
   } catch {
     return null;
   }
