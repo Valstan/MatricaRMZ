@@ -40,6 +40,15 @@ function hasDiffSince(ref, paths) {
   return !!list.trim();
 }
 
+function lastBackendReleaseCommit() {
+  try {
+    // We treat "release(backend): vX.Y.Z" commits as backend release anchors.
+    return out('git log -1 --format=%H --grep="^release\\(backend\\): v"');
+  } catch {
+    return null;
+  }
+}
+
 function tagExists(tag) {
   try {
     out(`git rev-parse -q --verify "refs/tags/${tag}"`);
@@ -74,76 +83,82 @@ async function main() {
     }
   })();
 
-  // Decide if client needs a release/tag:
-  // - if there are code changes since last client tag (electron-app/shared), OR
-  // - if current VERSION has no corresponding vX.Y.Z tag yet.
+  // Decide updates independently:
+  // - Client: any changes in electron-app/** or shared/** since the last client tag.
+  // - Backend: any changes in backend-api/** or shared/** since the last backend release commit.
   const clientPaths = ['electron-app', 'shared'];
-  const clientHadChanges = hasDiffSince(lastClientTag, clientPaths);
+  const backendPaths = ['backend-api', 'shared'];
+  const clientHasUpdates = hasDiffSince(lastClientTag, clientPaths);
+  const backendAnchor = lastBackendReleaseCommit();
+  const backendHasUpdates = hasDiffSince(backendAnchor, backendPaths);
 
-  // 1) Align versions (non-destructive if already up-to-date)
-  run('pnpm version:bump');
-  run('pnpm version:backend:bump');
-
-  // After bump, re-read versions and detect whether tag exists
-  const clientVersion = await readClientVersion();
-  const backendVersion = await readBackendVersion();
-  const clientTag = `v${clientVersion}`;
-
-  const clientTagMissing = !tagExists(clientTag);
-  const clientShouldTag = clientHadChanges || clientTagMissing;
-
-  // Backend "release needed" if backend-api/package.json changed by bump script,
-  // OR if there are backendPaths changes since the commit that set backend version last time.
-  // We use a pragmatic check: if derived count differs, bump script will modify package.json,
-  // so we can detect by git status after running bumps.
-  const changedFiles = out('git status --porcelain=v1');
-  const backendNeedsCommit = changedFiles.split('\n').some((l) => l.includes('backend-api/package.json'));
-  const clientNeedsCommit = changedFiles.split('\n').some((l) => l.includes('VERSION') || l.includes('electron-app/package.json'));
-
-  if (!clientNeedsCommit && !backendNeedsCommit && !clientShouldTag) {
+  if (!clientHasUpdates && !backendHasUpdates) {
     // eslint-disable-next-line no-console
-    console.log('Nothing to release: versions up-to-date, no tag needed.');
+    console.log('Nothing to release: no client/backend updates detected.');
     return;
   }
 
-  // 2) Commit version alignments (separately, so backend deploy can be tied to backend version)
-  if (backendNeedsCommit) {
-    run('git add backend-api/package.json');
-    run(`git commit -m "release(backend): v${backendVersion}"`);
-  }
-  if (clientNeedsCommit) {
-    run('git add VERSION electron-app/package.json');
-    run(`git commit -m "release(client): v${clientVersion}"`);
-  }
+  // 1) Release backend only if it has updates
+  let backendReleased = false;
+  let backendVersion = await readBackendVersion();
+  if (backendHasUpdates) {
+    run('pnpm version:backend:bump');
+    const changed = out('git status --porcelain=v1');
+    const backendNeedsCommit = changed.split('\n').some((l) => l.includes('backend-api/package.json'));
+    backendVersion = await readBackendVersion();
+    if (backendNeedsCommit) {
+      run('git add backend-api/package.json');
+      run(`git commit -m "release(backend): v${backendVersion}"`);
+      backendReleased = true;
+    }
+    // Deploy/restart only if backend release happened.
+    if (backendReleased) {
+      run('pnpm -C shared build');
+      run('pnpm -C backend-api build');
 
-  // 3) If backend released, build + restart BEFORE pushing (per your rule)
-  if (backendNeedsCommit) {
-    run('pnpm -C shared build');
-    run('pnpm -C backend-api build');
-
-    const customRestart = process.env.MATRICA_BACKEND_RESTART_CMD?.trim();
-    if (customRestart) {
-      run(customRestart);
-    } else {
-      const svc = (process.env.MATRICA_BACKEND_SYSTEMD_SERVICE ?? 'matricarmz-backend.service').trim();
-      if (svc && detectSystemdService(svc)) {
-        // -n: non-interactive (fail fast if sudo password is required)
-        run(`sudo -n systemctl restart "${svc}"`);
+      const customRestart = process.env.MATRICA_BACKEND_RESTART_CMD?.trim();
+      if (customRestart) {
+        run(customRestart);
       } else {
-        // eslint-disable-next-line no-console
-        console.log(
-          `Backend restart skipped: set MATRICA_BACKEND_RESTART_CMD or MATRICA_BACKEND_SYSTEMD_SERVICE. Tried: ${svc}`,
-        );
+        const svc = (process.env.MATRICA_BACKEND_SYSTEMD_SERVICE ?? 'matricarmz-backend.service').trim();
+        if (svc && detectSystemdService(svc)) {
+          run(`sudo -n systemctl restart "${svc}"`);
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(
+            `Backend restart skipped: set MATRICA_BACKEND_RESTART_CMD or MATRICA_BACKEND_SYSTEMD_SERVICE. Tried: ${svc}`,
+          );
+        }
       }
     }
   }
 
-  // 4) Tag client (needed for GitHub Actions Windows release)
-  if (clientShouldTag) {
-    if (!tagExists(clientTag)) run(`git tag "${clientTag}"`);
+  // 2) Release client only if it has updates
+  let clientReleased = false;
+  let clientVersion = await readClientVersion();
+  let clientTag = `v${clientVersion}`;
+  if (clientHasUpdates) {
+    run('pnpm version:bump');
+    const changed = out('git status --porcelain=v1');
+    const clientNeedsCommit = changed.split('\n').some((l) => l.includes('VERSION') || l.includes('electron-app/package.json'));
+    clientVersion = await readClientVersion();
+    clientTag = `v${clientVersion}`;
+    if (clientNeedsCommit) {
+      run('git add VERSION electron-app/package.json');
+      run(`git commit -m "release(client): v${clientVersion}"`);
+      clientReleased = true;
+    }
+    // Tag only when client release happened (required for GitHub Actions Electron release).
+    if (clientReleased && !tagExists(clientTag)) run(`git tag "${clientTag}"`);
   }
 
-  // 5) Push everything
+  if (!clientReleased && !backendReleased) {
+    // eslint-disable-next-line no-console
+    console.log('Updates detected, but no version files changed; nothing to push.');
+    return;
+  }
+
+  // 3) Push only what was released
   run('git push origin main --tags');
 }
 
