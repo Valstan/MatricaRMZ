@@ -289,7 +289,9 @@ export function PartDetailsPage(props: {
 
   const sortedAttrs = [...part.attributes].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
   const coreCodes = new Set(['name', 'article', 'description', 'purchase_date', 'supplier']);
-  const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code));
+  // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
+  const hiddenFromExtra = new Set(['engine_brand_ids', 'drawings', 'tech_docs', 'attachments']);
+  const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code) && !hiddenFromExtra.has(a.code));
 
   const attrByCode = new Map<string, Attribute>();
   for (const a of part.attributes) attrByCode.set(a.code, a);
