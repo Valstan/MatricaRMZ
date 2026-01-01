@@ -438,6 +438,8 @@ export type MatricaApi = {
     open: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
     // Удаляет файл на сервере (soft delete + удаление физического файла/объекта).
     delete: (args: { fileId: string }) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
+    // Возвращает data: URL превью (thumbnail) либо null (если превью нет).
+    previewGet: (args: { fileId: string }) => Promise<{ ok: true; dataUrl: string | null } | { ok: false; error: string }>;
     // Папка скачивания/кеша.
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;

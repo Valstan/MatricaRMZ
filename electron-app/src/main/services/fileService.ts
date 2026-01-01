@@ -1,8 +1,9 @@
-import { net, shell } from 'electron';
+import { BrowserWindow, nativeImage, net, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, promises as fsp } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import JSZip from 'jszip';
 
 import type { FileRef } from '@matricarmz/shared';
 import { getSession } from './authService.js';
@@ -10,6 +11,11 @@ import { SettingsKey, settingsGetString, settingsSetString } from './settingsSto
 import { httpAuthed } from './httpClient.js';
 
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
+const PREVIEW_PNG_MAX_SIDE = 256;
+const PREVIEW_PDF_RENDER_MS = 900;
+const PREVIEW_TEXT_MAX_BYTES = 220 * 1024;
+const PREVIEW_TEXT_MAX_LINES = 32;
+const PREVIEW_TEXT_MAX_CHARS = 2400;
 
 export type UploadScope = { ownerType: string; ownerId: string; category: string };
 
@@ -48,6 +54,223 @@ async function sha256OfFile(filePath: string): Promise<string> {
     rs.on('end', () => resolve());
   });
   return hash.digest('hex');
+}
+
+function extLower(p: string): string {
+  const b = basename(p).toLowerCase();
+  const idx = b.lastIndexOf('.');
+  return idx >= 0 ? b.slice(idx + 1) : '';
+}
+
+function escapeHtml(s: string) {
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function isTextPreviewExt(ext: string): boolean {
+  const e = String(ext || '').toLowerCase();
+  // CNC / G-code
+  if (['nc', 'cnc', 'tap', 'gcode', 'ngc', 'mpf', 'spf', 'h', 'hxx'].includes(e)) return true;
+  // Common engineering/programming/text formats
+  if (
+    [
+      'txt',
+      'csv',
+      'tsv',
+      'json',
+      'xml',
+      'yaml',
+      'yml',
+      'ini',
+      'cfg',
+      'conf',
+      'log',
+      'md',
+      'py',
+      'js',
+      'ts',
+      'tsx',
+      'jsx',
+      'c',
+      'cpp',
+      'cc',
+      'h',
+      'hpp',
+      'java',
+      'go',
+      'rs',
+      'sql',
+      'sh',
+      'bat',
+      'ps1',
+      // DXF is text-based; we only preview small ones
+      'dxf',
+    ].includes(e)
+  )
+    return true;
+  return false;
+}
+
+async function renderHtmlToPng(args: { html: string; width: number; height: number; waitMs?: number }): Promise<Buffer | null> {
+  const win = new BrowserWindow({
+    width: Math.max(320, Math.min(1200, Math.floor(args.width))),
+    height: Math.max(240, Math.min(1200, Math.floor(args.height))),
+    show: false,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      sandbox: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+  try {
+    const url = `data:text/html;charset=utf-8,${encodeURIComponent(args.html)}`;
+    await win.loadURL(url);
+    await new Promise((r) => setTimeout(r, args.waitMs ?? 180));
+    const image = await win.webContents.capturePage();
+    const resized = image.resize({ width: PREVIEW_PNG_MAX_SIDE, height: PREVIEW_PNG_MAX_SIDE, quality: 'good' });
+    const png = resized.toPNG();
+    return png.length ? Buffer.from(png) : null;
+  } catch {
+    return null;
+  } finally {
+    win.destroy();
+  }
+}
+
+async function tryGeneratePreviewPngBytes(filePath: string): Promise<Buffer | null> {
+  try {
+    const ext = extLower(filePath);
+
+    // Images (best-effort: nativeImage can decode common formats)
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'ico'].includes(ext)) {
+      const img = nativeImage.createFromPath(filePath);
+      if (img.isEmpty()) return null;
+      const resized = img.resize({ width: PREVIEW_PNG_MAX_SIDE, height: PREVIEW_PNG_MAX_SIDE, quality: 'good' });
+      const png = resized.toPNG();
+      return png.length ? Buffer.from(png) : null;
+    }
+
+    // SVG: render directly to bitmap.
+    if (ext === 'svg') {
+      const raw = await fsp.readFile(filePath, 'utf8').catch(() => '');
+      const svg = String(raw || '').trim();
+      if (!svg) return null;
+      const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const img = nativeImage.createFromDataURL(dataUrl);
+      if (!img || img.isEmpty()) {
+        // Fallback: HTML render
+        const html = `<!doctype html><html><head><meta charset="utf-8"/></head><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#fff;"><div style="width:90vw;height:90vh;">${svg}</div></body></html>`;
+        return await renderHtmlToPng({ html, width: PREVIEW_PNG_MAX_SIDE * 3, height: PREVIEW_PNG_MAX_SIDE * 3, waitMs: 220 });
+      }
+      const resized = img.resize({ width: PREVIEW_PNG_MAX_SIDE, height: PREVIEW_PNG_MAX_SIDE, quality: 'good' });
+      const png = resized.toPNG();
+      return png.length ? Buffer.from(png) : null;
+    }
+
+    // PDF: render first page in hidden window and capture.
+    if (ext === 'pdf' || ext === 'ai') {
+      const win = new BrowserWindow({
+        width: PREVIEW_PNG_MAX_SIDE * 3,
+        height: PREVIEW_PNG_MAX_SIDE * 3,
+        show: false,
+        webPreferences: {
+          sandbox: false,
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+      try {
+        // Fragment params help the built-in PDF viewer focus on the first page.
+        await win.loadURL(`file://${encodeURI(filePath)}#page=1&toolbar=0&navpanes=0&scrollbar=0`);
+        await new Promise((r) => setTimeout(r, PREVIEW_PDF_RENDER_MS));
+        const image = await win.webContents.capturePage();
+        const resized = image.resize({ width: PREVIEW_PNG_MAX_SIDE, height: PREVIEW_PNG_MAX_SIDE, quality: 'good' });
+        const png = resized.toPNG();
+        return png.length ? Buffer.from(png) : null;
+      } finally {
+        win.destroy();
+      }
+    }
+
+    // Office (docx/xlsx/pptx): extract embedded thumbnail if present.
+    if (ext === 'docx' || ext === 'xlsx' || ext === 'pptx') {
+      const buf = await fsp.readFile(filePath);
+      const zip = await JSZip.loadAsync(buf);
+      const thumbEntry =
+        zip.file('docProps/thumbnail.png') ?? zip.file('docProps/thumbnail.jpeg') ?? zip.file('docProps/thumbnail.jpg') ?? null;
+      if (!thumbEntry) return null;
+      const thumbBytes = Buffer.from(await thumbEntry.async('nodebuffer'));
+      const img = nativeImage.createFromBuffer(thumbBytes);
+      if (img.isEmpty()) return null;
+      const resized = img.resize({ width: PREVIEW_PNG_MAX_SIDE, height: PREVIEW_PNG_MAX_SIDE, quality: 'good' });
+      const png = resized.toPNG();
+      return png.length ? Buffer.from(png) : null;
+    }
+
+    // Text-like files (including CNC programs): render a snippet as an image.
+    if (isTextPreviewExt(ext)) {
+      const st = await fsp.stat(filePath).catch(() => null);
+      const size = st?.isFile() ? Number(st.size) : 0;
+      if (!size || size > PREVIEW_TEXT_MAX_BYTES) return null;
+      const raw = await fsp.readFile(filePath, 'utf8').catch(() => '');
+      const text = String(raw || '').replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+      if (!text.trim()) return null;
+      const lines = text.split('\n').slice(0, PREVIEW_TEXT_MAX_LINES);
+      let snippet = lines.join('\n');
+      if (snippet.length > PREVIEW_TEXT_MAX_CHARS) snippet = `${snippet.slice(0, PREVIEW_TEXT_MAX_CHARS)}\n…`;
+      const badge = ext ? `.${ext}` : 'text';
+      const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    body { margin: 0; background: #ffffff; }
+    .wrap { padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .tag { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; border: 1px solid rgba(15,23,42,0.10); }
+    pre { margin:0; padding: 10px 12px; border-radius: 12px; background: #0b1220; color: #e5e7eb; font-size: 11px; line-height: 1.35; border: 1px solid rgba(15,23,42,0.18); white-space: pre-wrap; word-break: break-word; }
+  </style>
+  </head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="tag">${escapeHtml(badge)}</div>
+      <div style="font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size:11px; color:#64748b;">preview</div>
+    </div>
+    <pre>${escapeHtml(snippet)}</pre>
+  </div>
+</body>
+</html>`;
+      return await renderHtmlToPng({ html, width: PREVIEW_PNG_MAX_SIDE * 3, height: PREVIEW_PNG_MAX_SIDE * 3, waitMs: 200 });
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function uploadPreview(db: BetterSQLite3Database, apiBaseUrl: string, args: { fileId: string; pngBytes: Buffer }): Promise<void> {
+  const fileId = String(args.fileId || '').trim();
+  if (!fileId) return;
+  if (!args.pngBytes?.length) return;
+
+  await httpAuthed(
+    db,
+    apiBaseUrl,
+    `/files/${encodeURIComponent(fileId)}/preview`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mime: 'image/png', dataBase64: args.pngBytes.toString('base64') }),
+    },
+    { timeoutMs: 30_000 },
+  ).catch(() => {});
 }
 
 export async function filesUpload(
@@ -101,6 +324,12 @@ export async function filesUpload(
         }
       }
 
+      // Best-effort thumbnail upload (do not fail main upload flow).
+      void (async () => {
+        const png = await tryGeneratePreviewPngBytes(filePath);
+        if (png) await uploadPreview(db, apiBaseUrl, { fileId: file.id, pngBytes: png });
+      })();
+
       return { ok: true, file };
     }
 
@@ -125,7 +354,15 @@ export async function filesUpload(
     );
     if (!r.ok) return { ok: false, error: `upload ${formatHttpError(r)}` };
     if (!r.json?.ok || !r.json?.file) return { ok: false, error: 'bad upload response' };
-    return { ok: true, file: r.json.file as FileRef };
+    const file = r.json.file as FileRef;
+
+    // Best-effort thumbnail upload (do not fail main upload flow).
+    void (async () => {
+      const png = await tryGeneratePreviewPngBytes(filePath);
+      if (png) await uploadPreview(db, apiBaseUrl, { fileId: file.id, pngBytes: png });
+    })();
+
+    return { ok: true, file };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -233,6 +470,30 @@ export async function filesDelete(
     if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
     return r.json as any;
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function filesPreviewGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fileId: string },
+): Promise<{ ok: true; dataUrl: string | null } | { ok: false; error: string }> {
+  try {
+    const fileId = String(args.fileId || '').trim();
+    if (!fileId) return { ok: false, error: 'fileId is empty' };
+
+    const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/preview`, { method: 'GET' }, { timeoutMs: 30_000 });
+    if (!r.ok) return { ok: false, error: `preview ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad preview response' };
+
+    const p = (r.json as any).preview as { mime: string; dataBase64: string } | null | undefined;
+    if (!p || !p.dataBase64) return { ok: true, dataUrl: null };
+    const mime = String((p as any).mime || 'image/png');
+    const dataBase64 = String((p as any).dataBase64 || '');
+    if (!dataBase64) return { ok: true, dataUrl: null };
+    return { ok: true, dataUrl: `data:${mime};base64,${dataBase64}` };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

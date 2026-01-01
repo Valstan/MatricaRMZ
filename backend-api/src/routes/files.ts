@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync, createWriteStream, createReadStream } from 'node:fs';
+import { readFile as readFileAsync, unlink as unlinkAsync, writeFile as writeFileAsync } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
@@ -18,12 +19,20 @@ filesRouter.use(requireAuth);
 
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 250 * 1024 * 1024; // hard safety cap
+const MAX_PREVIEW_BYTES = 3 * 1024 * 1024; // base64 upload size cap for thumbnail payload (decoded bytes)
 
 type UploadScope = { ownerType: string; ownerId: string; category: string };
 
 function uploadsDir(): string {
   // default under backend-api/uploads (systemd WorkingDirectory points to backend-api)
   return process.env.MATRICA_UPLOADS_DIR?.trim() || 'uploads';
+}
+
+function previewRelPathForFile(args: { fileId: string; mime: string }): string {
+  const id = String(args.fileId || '').trim();
+  const mime = String(args.mime || '').trim().toLowerCase();
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+  return join('previews', `${id}.${ext}`);
 }
 
 function nowMs() {
@@ -146,6 +155,80 @@ filesRouter.get('/:id/meta', requirePermission(PermissionCode.FilesView), async 
         createdAt: Number(row.createdAt),
       },
     });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.get('/:id/preview', requirePermission(PermissionCode.FilesView), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+
+    const rel = row.previewLocalRelPath ? String(row.previewLocalRelPath) : '';
+    if (!rel) return res.json({ ok: true, preview: null });
+
+    const abs = join(uploadsDir(), rel);
+    try {
+      const bytes = await readFileAsync(abs);
+      const mime = row.previewMime ? String(row.previewMime) : 'image/png';
+      return res.json({
+        ok: true,
+        preview: { mime, size: bytes.length, dataBase64: bytes.toString('base64') },
+      });
+    } catch {
+      // If file is missing/unreadable - treat as no preview (best-effort).
+      return res.json({ ok: true, preview: null });
+    }
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.post('/:id/preview', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const schema = z.object({
+      mime: z.string().min(1).max(200),
+      dataBase64: z.string().min(1),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const mime = String(parsed.data.mime || '').trim().toLowerCase();
+    if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp') {
+      return res.status(400).json({ ok: false, error: `unsupported preview mime: ${mime}` });
+    }
+
+    const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
+    if (!bytes.length) return res.status(400).json({ ok: false, error: 'empty preview' });
+    if (bytes.length > MAX_PREVIEW_BYTES) return res.status(400).json({ ok: false, error: `preview too large (>${MAX_PREVIEW_BYTES} bytes)` });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+
+    const rel = previewRelPathForFile({ fileId: id, mime });
+    const abs = join(uploadsDir(), rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    await writeFileAsync(abs, bytes);
+
+    await db
+      .update(fileAssets)
+      .set({
+        previewMime: mime,
+        previewSize: bytes.length,
+        previewLocalRelPath: rel,
+      })
+      .where(eq(fileAssets.id, id as any));
+
+    return res.json({ ok: true, preview: { mime, size: bytes.length } });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -503,14 +586,22 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
       return res.json({ ok: true, queued: true });
     }
 
+    // Удаляем превью (best-effort, хранится локально на сервере)
+    const previewRel = String(row.previewLocalRelPath || '');
+    if (previewRel) {
+      const previewAbs = join(uploadsDir(), previewRel);
+      await unlinkAsync(previewAbs).catch(() => {
+        // ignore
+      });
+    }
+
     // Удаляем физический файл
     if (row.storageKind === 'local') {
       const rel = String(row.localRelPath || '');
       if (rel) {
         const abs = join(uploadsDir(), rel);
         try {
-          const { unlink } = await import('node:fs/promises');
-          await unlink(abs).catch(() => {
+          await unlinkAsync(abs).catch(() => {
             // Игнорируем ошибки если файл уже удален
           });
         } catch {

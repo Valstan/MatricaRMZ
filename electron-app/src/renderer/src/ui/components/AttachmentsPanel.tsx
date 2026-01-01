@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { FileRef } from '@matricarmz/shared';
 
@@ -21,6 +21,46 @@ function formatBytes(n: number): string {
   return `${(v / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function fileExt(name: string): string {
+  const s = String(name || '');
+  const dot = s.lastIndexOf('.');
+  if (dot < 0) return '';
+  return s.slice(dot + 1).trim().toLowerCase();
+}
+
+function extBadgeStyle(ext: string): { label: string; bg: string; fg: string } {
+  const e = ext.toLowerCase();
+  if (e === 'pdf') return { label: 'PDF', bg: '#fee2e2', fg: '#991b1b' };
+  if (e === 'doc' || e === 'docx') return { label: 'Word', bg: '#dbeafe', fg: '#1d4ed8' };
+  if (e === 'xls' || e === 'xlsx') return { label: 'Excel', bg: '#dcfce7', fg: '#166534' };
+  if (e === 'ppt' || e === 'pptx') return { label: 'PPT', bg: '#ffedd5', fg: '#9a3412' };
+  if (e === 'zip' || e === 'rar' || e === '7z') return { label: e.toUpperCase(), bg: '#ede9fe', fg: '#5b21b6' };
+  // CAD/CAM & drawings
+  if (e === 'dwg' || e === 'dxf' || e === 'dwf' || e === 'stp' || e === 'step' || e === 'igs' || e === 'iges') {
+    return { label: e.toUpperCase(), bg: '#e0f2fe', fg: '#075985' };
+  }
+  // Kompas-3D (common extensions)
+  if (e === 'cdw' || e === 'frw' || e === 'm3d' || e === 'a3d' || e === 'k3d') return { label: 'KOMPAS', bg: '#ecfeff', fg: '#155e75' };
+  // SolidWorks / Inventor / CATIA / NX (icons only)
+  if (e === 'sldprt' || e === 'sldasm' || e === 'slddrw') return { label: 'SW', bg: '#ffe4e6', fg: '#9f1239' };
+  if (e === 'ipt' || e === 'iam' || e === 'idw' || e === 'ipn') return { label: 'INV', bg: '#ffedd5', fg: '#9a3412' };
+  if (e === 'catpart' || e === 'catproduct' || e === 'catdrawing') return { label: 'CAT', bg: '#ede9fe', fg: '#5b21b6' };
+  if (e === 'prt' || e === 'asm') return { label: 'NX', bg: '#e0e7ff', fg: '#3730a3' };
+  // Raster/graphics
+  if (e === 'psd') return { label: 'PSD', bg: '#0b1220', fg: '#93c5fd' };
+  if (e === 'ai') return { label: 'AI', bg: '#ffedd5', fg: '#9a3412' };
+  if (e === 'cdr') return { label: 'CDR', bg: '#dcfce7', fg: '#166534' };
+  if (e === 'svg') return { label: 'SVG', bg: '#fef3c7', fg: '#92400e' };
+  // CAM / CNC programs (often text)
+  if (e === 'nc' || e === 'cnc' || e === 'tap' || e === 'gcode' || e === 'ngc' || e === 'mpf' || e === 'spf') {
+    return { label: 'NC', bg: '#0f172a', fg: '#e2e8f0' };
+  }
+  if (e === 'exe' || e === 'msi') return { label: e.toUpperCase(), bg: '#e5e7eb', fg: '#111827' };
+  if (e === 'png' || e === 'jpg' || e === 'jpeg' || e === 'webp' || e === 'gif') return { label: 'IMG', bg: '#e0e7ff', fg: '#3730a3' };
+  if (e === 'txt' || e === 'log' || e === 'md') return { label: e.toUpperCase(), bg: '#f1f5f9', fg: '#0f172a' };
+  return { label: (e || 'FILE').slice(0, 6).toUpperCase(), bg: '#f3f4f6', fg: '#374151' };
+}
+
 export function AttachmentsPanel(props: {
   title?: string;
   value: unknown; // FileRef[] in JSON
@@ -30,8 +70,41 @@ export function AttachmentsPanel(props: {
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
 }) {
   const [busy, setBusy] = useState<string>('');
+  const [thumbs, setThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
+  const thumbsRef = useRef(thumbs);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
+  const listKey = useMemo(() => list.map((x) => x.id).join('|'), [list]);
+
+  useEffect(() => {
+    thumbsRef.current = thumbs;
+  }, [thumbs]);
+
+  useEffect(() => {
+    if (!props.canView) return;
+    let alive = true;
+    const run = async () => {
+      for (const f of list) {
+        if (!alive) return;
+        const cur = thumbsRef.current[f.id];
+        if (cur && (cur.status === 'loading' || cur.status === 'done' || cur.status === 'error')) continue;
+        setThumbs((p) => ({ ...p, [f.id]: { dataUrl: null, status: 'loading' } }));
+        try {
+          const r = await window.matrica.files.previewGet({ fileId: f.id });
+          if (!alive) return;
+          if (r.ok) setThumbs((p) => ({ ...p, [f.id]: { dataUrl: r.dataUrl ?? null, status: 'done' } }));
+          else setThumbs((p) => ({ ...p, [f.id]: { dataUrl: null, status: 'error' } }));
+        } catch {
+          if (!alive) return;
+          setThumbs((p) => ({ ...p, [f.id]: { dataUrl: null, status: 'error' } }));
+        }
+      }
+    };
+    void run();
+    return () => {
+      alive = false;
+    };
+  }, [props.canView, listKey, list]);
 
   async function addFromPaths(paths: string[]) {
     if (!props.canUpload) return;
@@ -132,7 +205,46 @@ export function AttachmentsPanel(props: {
           <tbody>
             {list.map((f) => (
               <tr key={f.id}>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{f.name}</td>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    {(() => {
+                      const t = thumbs[f.id];
+                      const dataUrl = t?.dataUrl ?? null;
+                      const ext = fileExt(f.name);
+                      const badge = extBadgeStyle(ext);
+                      return dataUrl ? (
+                        <img
+                          src={dataUrl}
+                          alt=""
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(15, 23, 42, 0.12)' }}
+                        />
+                      ) : (
+                        <div
+                          title={ext ? `.${ext}` : 'файл'}
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 10,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: badge.bg,
+                            color: badge.fg,
+                            border: '1px solid rgba(15, 23, 42, 0.12)',
+                          }}
+                        >
+                          {badge.label}
+                        </div>
+                      );
+                    })()}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ fontSize: 14, color: '#0b1220' }}>{f.name}</div>
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>{f.mime ? String(f.mime) : ''}</div>
+                    </div>
+                  </div>
+                </td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatBytes(Number(f.size) || 0)}</td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
                   <div style={{ display: 'flex', gap: 8 }}>

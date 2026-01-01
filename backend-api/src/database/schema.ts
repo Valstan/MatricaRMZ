@@ -323,7 +323,12 @@ export const fileAssets = pgTable(
     localRelPath: text('local_rel_path'),
     // For Yandex: full disk path (as used in API calls)
     yandexDiskPath: text('yandex_disk_path'),
-    
+
+    // Preview (thumbnail) stored locally on server (so all clients can fetch it).
+    previewMime: text('preview_mime'),
+    previewSize: bigint('preview_size', { mode: 'number' }),
+    previewLocalRelPath: text('preview_local_rel_path'),
+
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({

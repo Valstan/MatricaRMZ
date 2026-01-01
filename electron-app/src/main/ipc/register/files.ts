@@ -3,7 +3,7 @@ import { ipcMain, dialog, app } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
 
-import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesUpload } from '../../services/fileService.js';
+import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesPreviewGet, filesUpload } from '../../services/fileService.js';
 
 export function registerFilesIpc(ctx: IpcContext) {
   ipcMain.handle('files:upload', async (_e, args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => {
@@ -70,6 +70,12 @@ export function registerFilesIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'files.delete');
     if (!gate.ok) return gate;
     return filesDelete(ctx.db, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId });
+  });
+
+  ipcMain.handle('files:preview:get', async (_e, args: { fileId: string }) => {
+    const gate = await requirePermOrResult(ctx, 'files.view');
+    if (!gate.ok) return gate;
+    return filesPreviewGet(ctx.db, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId });
   });
 }
 
