@@ -35,8 +35,6 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
     setServerStatus(r.ok ? '' : `Ошибка: ${r.error}`);
   }
 
-  const mismatch = serverInfo?.ok && serverInfo.version && clientVersion && serverInfo.version !== clientVersion;
-
   return (
     <div>
       <h2 style={{ margin: '8px 0' }}>Синхронизация</h2>
@@ -75,11 +73,9 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
           )}
         </div>
 
-        {mismatch && (
-          <div style={{ marginTop: 8, padding: 10, borderRadius: 10, background: '#fee2e2', color: '#991b1b' }}>
-            Несовпадение версий: клиент <strong>{clientVersion}</strong>, сервер <strong>{serverInfo?.ok ? serverInfo.version : '—'}</strong>. Рекомендуется обновить клиент или сервер.
-          </div>
-        )}
+        <div style={{ marginTop: 6, color: '#6b7280', fontSize: 12 }}>
+          Версии клиента и сервера независимы (несовпадение не блокирует синхронизацию).
+        </div>
 
         {serverStatus && <div style={{ marginTop: 8, color: serverStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{serverStatus}</div>}
       </div>

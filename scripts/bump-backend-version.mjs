@@ -4,7 +4,7 @@ import { join } from 'node:path';
 function usage() {
   // eslint-disable-next-line no-console
   console.log(`Usage:
-  node scripts/bump-version.mjs [--major|--minor] [--set X.Y.Z]
+  node scripts/bump-backend-version.mjs [--major|--minor] [--set X.Y.Z]
 
 Rules:
   - Version format: MAJOR.MINOR.RELEASE (3 numeric parts)
@@ -57,7 +57,7 @@ async function main() {
   }
 
   const root = process.cwd();
-  const versionPath = join(root, 'VERSION');
+  const pkgPath = join(root, 'backend-api', 'package.json');
 
   const setTo = getArg('--set');
   const isMajor = getFlag('--major');
@@ -65,8 +65,8 @@ async function main() {
   if (setTo && (isMajor || isMinor)) throw new Error('Use either --set or --major/--minor');
   if (isMajor && isMinor) throw new Error('Use only one of --major or --minor');
 
-  const currentRaw = await readFile(versionPath, 'utf8').catch(() => '');
-  const current = parseVersion(currentRaw || '0.0.0');
+  const pkg = await readJson(pkgPath);
+  const current = parseVersion(pkg?.version ?? '0.0.0');
 
   let next;
   if (setTo) {
@@ -80,15 +80,10 @@ async function main() {
   }
 
   const nextStr = formatVersion(next);
-
-  // Client release version (source of truth for Electron releases / tags)
-  await writeFile(versionPath, `${nextStr}\n`, 'utf8');
-
-  // Keep Electron app version consistent with client release version.
-  await updatePackageVersion(join(root, 'electron-app', 'package.json'), nextStr);
+  await updatePackageVersion(pkgPath, nextStr);
 
   // eslint-disable-next-line no-console
-  console.log(`Client version bumped: ${formatVersion(current)} -> ${nextStr}`);
+  console.log(`Backend version bumped: ${formatVersion(current)} -> ${nextStr}`);
 }
 
 main().catch((e) => {

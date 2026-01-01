@@ -1,6 +1,6 @@
-# Релизы MatricaRMZ (единая версия клиента + бэкенда)
+# Релизы MatricaRMZ (независимые версии клиента и бэкенда)
 
-## Формат версии
+## Формат версий
 
 Версия хранится в формате **MAJOR.MINOR.RELEASE**.
 
@@ -8,11 +8,15 @@
 - **MINOR** повышаем при заметных функциональных/UX-изменениях без «ломания» совместимости.
 - **MAJOR** повышаем при несовместимых изменениях (когда нужен обязательный апдейт).
 
-Источник истины: файл `VERSION` в корне репозитория.
+### Клиент (Electron)
+Источник истины: файл `VERSION` в корне репозитория + `electron-app/package.json` (они должны совпадать).
 
-## Как выпускаем новую версию
+### Backend API
+Источник истины: `backend-api/package.json`.
 
-1. Поднимаем версию через скрипт (он обновит `VERSION` и версии во всех пакетах):
+## Как выпускаем новую версию клиента (Electron)
+
+1. Поднимаем версию через скрипт (он обновит `VERSION` и версию `electron-app`):
    - обычный релиз: `pnpm version:bump`
    - минорный релиз: `pnpm version:bump:minor`
    - мажорный релиз: `pnpm version:bump:major`
@@ -20,7 +24,9 @@
 3. Создаем тег вида `vX.Y.Z` (например `v0.1.53`) и пушим его в GitHub.
 4. GitHub Actions соберёт Windows установщик и загрузит файлы в GitHub Releases.
 
-## Правило: команда “выпусти новый релиз”
+Важно: **клиент и бэкенд могут быть разных версий** — это нормально. Клиент обновляется при запуске, а совместимость обеспечивается API/миграциями.
+
+## Правило: команда “выпусти новый релиз” (клиент)
 
 Если в задаче/чате написано **«выпусти новый релиз»**, выполняем чек‑лист:
 
@@ -32,22 +38,31 @@
      - `pnpm version:bump:major`
    - сделать commit, где в сообщении есть версия (`v$(cat VERSION)`).
 
-2. **Обновить и перезапустить бэкенд (VPS/прод)**
-   - обновить код (обычно `git pull`)
-   - `pnpm install`
-   - `pnpm -C shared build`
-   - `pnpm -C backend-api build`
-   - перезапустить backend (зависит от того, чем управляем процессом):
-     - systemd: `sudo systemctl restart <service-name>`
-     - pm2: `pm2 restart <name>`
-     - вручную: остановить старый процесс и запустить `pnpm -C backend-api start`
-
-3. **Выпустить новый релиз клиента**
+2. **Выпустить новый релиз клиента**
    - создать тег `vX.Y.Z` (равный `VERSION`) и запушить его
    - дождаться GitHub Actions (Release Electron) — он опубликует релиз и обновления (включая Яндекс.Диск).
 
-4. **Запушить на GitHub**
+3. **Запушить на GitHub**
    - `git push origin main --tags`
+
+## Обновление Backend API (независимо от релиза клиента)
+
+Если нужно обновить backend (VPS/прод) — делаем это отдельной процедурой, без требования совпадения версий:
+
+1) (Опционально) поднять версию backend:
+- `pnpm version:backend:bump` (patch)
+- `pnpm version:backend:bump:minor`
+- `pnpm version:backend:bump:major`
+
+2) Деплой/перезапуск:
+- обновить код (обычно `git pull`)
+- `pnpm install`
+- `pnpm -C shared build`
+- `pnpm -C backend-api build`
+- перезапустить backend:
+  - systemd: `sudo systemctl restart <service-name>`
+  - pm2: `pm2 restart <name>`
+  - вручную: остановить старый процесс и запустить `pnpm -C backend-api start`
 
 ## Команды
 
@@ -57,7 +72,7 @@ cd /home/valstan/MatricaRMZ
 # пример: минорный релиз (MINOR+1, RELEASE+1)
 pnpm version:bump:minor
 
-git add VERSION electron-app/package.json backend-api/package.json shared/package.json
+git add VERSION electron-app/package.json
 git commit -m "release: v$(cat VERSION)"
 
 git tag "v$(cat VERSION)"
