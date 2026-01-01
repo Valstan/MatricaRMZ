@@ -313,6 +313,85 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   if (changes.length === 0) return;
   const ts = nowMs();
 
+  // Client-side ID remap (important for UNIQUE constraints):
+  // - SQLite enforces unique(entity_types.code)
+  // - Some older clients could have created local entity_types/attribute_defs with different UUIDs,
+  //   but the same logical unique keys (code / (entity_type_id, code)).
+  // When pulling from server we may receive rows with "server IDs" that conflict with local unique keys.
+  // We remap incoming IDs to already-existing local IDs by matching unique keys, and apply this remap
+  // to dependent rows in the same pull batch.
+  const entityTypeIdRemap = new Map<string, string>(); // serverId -> localId
+  const attributeDefIdRemap = new Map<string, string>(); // serverId -> localId
+
+  // 1) Pre-scan incoming payloads to build remap maps (by unique keys).
+  // We do it before grouping/inserting so we can rewrite IDs consistently across tables.
+  const incomingEntityTypes: Array<{ id: string; code: string }> = [];
+  const incomingAttrDefs: Array<{ id: string; entity_type_id: string; code: string }> = [];
+
+  for (const ch of changes) {
+    let payload: any;
+    try {
+      payload = JSON.parse(ch.payload_json);
+    } catch {
+      continue;
+    }
+    if (ch.table === SyncTableName.EntityTypes) {
+      if (payload?.id && payload?.code) incomingEntityTypes.push({ id: String(payload.id), code: String(payload.code) });
+    } else if (ch.table === SyncTableName.AttributeDefs) {
+      if (payload?.id && payload?.entity_type_id && payload?.code) {
+        incomingAttrDefs.push({
+          id: String(payload.id),
+          entity_type_id: String(payload.entity_type_id),
+          code: String(payload.code),
+        });
+      }
+    }
+  }
+
+  // EntityTypes: match by code -> existing local id
+  {
+    const codes = Array.from(new Set(incomingEntityTypes.map((x) => x.code)));
+    if (codes.length > 0) {
+      const existing = await db
+        .select({ id: entityTypes.id, code: entityTypes.code })
+        .from(entityTypes)
+        .where(inArray(entityTypes.code, codes))
+        .limit(50_000);
+      const byCode = new Map<string, string>();
+      for (const r of existing) byCode.set(String(r.code), String(r.id));
+      for (const inc of incomingEntityTypes) {
+        const localId = byCode.get(inc.code);
+        if (localId && localId !== inc.id) entityTypeIdRemap.set(inc.id, localId);
+      }
+    }
+  }
+
+  // AttributeDefs: match by (entity_type_id, code) -> existing local id
+  // Note: incoming attribute_defs may reference server entity_type IDs; apply entityTypeIdRemap first.
+  {
+    const normalized = incomingAttrDefs.map((r) => {
+      const mappedTypeId = entityTypeIdRemap.get(r.entity_type_id);
+      return mappedTypeId ? { ...r, entity_type_id: mappedTypeId } : r;
+    });
+    const typeIds = Array.from(new Set(normalized.map((x) => x.entity_type_id)));
+    const codes = Array.from(new Set(normalized.map((x) => x.code)));
+    if (typeIds.length > 0 && codes.length > 0) {
+      const existing = await db
+        .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+        .from(attributeDefs)
+        .where(inArray(attributeDefs.entityTypeId, typeIds))
+        .limit(50_000);
+      const keyToId = new Map<string, string>();
+      for (const r of existing) {
+        keyToId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
+      }
+      for (const inc of normalized) {
+        const localId = keyToId.get(`${inc.entity_type_id}::${inc.code}`);
+        if (localId && localId !== inc.id) attributeDefIdRemap.set(inc.id, localId);
+      }
+    }
+  }
+
   const groups: Record<SyncTableName, any[]> = {
     [SyncTableName.EntityTypes]: [],
     [SyncTableName.Entities]: [],
@@ -323,89 +402,133 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   };
 
   for (const ch of changes) {
-    const payload = JSON.parse(ch.payload_json) as any;
+    const payloadRaw = JSON.parse(ch.payload_json) as any;
     switch (ch.table) {
       case SyncTableName.EntityTypes:
-        groups.entity_types.push({
-          id: payload.id,
-          code: payload.code,
-          name: payload.name,
-          createdAt: payload.created_at,
-          updatedAt: payload.updated_at,
-          deletedAt: payload.deleted_at ?? null,
-          syncStatus: 'synced',
-        });
+        {
+          const mappedId = entityTypeIdRemap.get(String(payloadRaw.id));
+          const payload = mappedId ? { ...payloadRaw, id: mappedId } : payloadRaw;
+          groups.entity_types.push({
+            id: payload.id,
+            code: payload.code,
+            name: payload.name,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
         break;
       case SyncTableName.Entities:
-        groups.entities.push({
-          id: payload.id,
-          typeId: payload.type_id,
-          createdAt: payload.created_at,
-          updatedAt: payload.updated_at,
-          deletedAt: payload.deleted_at ?? null,
-          syncStatus: 'synced',
-        });
+        {
+          const mappedTypeId = entityTypeIdRemap.get(String(payloadRaw.type_id));
+          const payload = mappedTypeId ? { ...payloadRaw, type_id: mappedTypeId } : payloadRaw;
+          groups.entities.push({
+            id: payload.id,
+            typeId: payload.type_id,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
         break;
       case SyncTableName.AttributeDefs:
-        groups.attribute_defs.push({
-          id: payload.id,
-          entityTypeId: payload.entity_type_id,
-          code: payload.code,
-          name: payload.name,
-          dataType: payload.data_type,
-          isRequired: !!payload.is_required,
-          sortOrder: payload.sort_order ?? 0,
-          metaJson: payload.meta_json ?? null,
-          createdAt: payload.created_at,
-          updatedAt: payload.updated_at,
-          deletedAt: payload.deleted_at ?? null,
-          syncStatus: 'synced',
-        });
+        {
+          const mappedTypeId = entityTypeIdRemap.get(String(payloadRaw.entity_type_id));
+          const afterType = mappedTypeId ? { ...payloadRaw, entity_type_id: mappedTypeId } : payloadRaw;
+          const mappedId = attributeDefIdRemap.get(String(afterType.id));
+          const payload = mappedId ? { ...afterType, id: mappedId } : afterType;
+          groups.attribute_defs.push({
+            id: payload.id,
+            entityTypeId: payload.entity_type_id,
+            code: payload.code,
+            name: payload.name,
+            dataType: payload.data_type,
+            isRequired: !!payload.is_required,
+            sortOrder: payload.sort_order ?? 0,
+            metaJson: payload.meta_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
         break;
       case SyncTableName.AttributeValues:
-        groups.attribute_values.push({
-          id: payload.id,
-          entityId: payload.entity_id,
-          attributeDefId: payload.attribute_def_id,
-          valueJson: payload.value_json ?? null,
-          createdAt: payload.created_at,
-          updatedAt: payload.updated_at,
-          deletedAt: payload.deleted_at ?? null,
-          syncStatus: 'synced',
-        });
+        {
+          const mappedDefId = attributeDefIdRemap.get(String(payloadRaw.attribute_def_id));
+          const payload = mappedDefId ? { ...payloadRaw, attribute_def_id: mappedDefId } : payloadRaw;
+          groups.attribute_values.push({
+            id: payload.id,
+            entityId: payload.entity_id,
+            attributeDefId: payload.attribute_def_id,
+            valueJson: payload.value_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
         break;
       case SyncTableName.Operations:
-        groups.operations.push({
-          id: payload.id,
-          engineEntityId: payload.engine_entity_id,
-          operationType: payload.operation_type,
-          status: payload.status,
-          note: payload.note ?? null,
-          performedAt: payload.performed_at ?? null,
-          performedBy: payload.performed_by ?? null,
-          metaJson: payload.meta_json ?? null,
-          createdAt: payload.created_at,
-          updatedAt: payload.updated_at,
-          deletedAt: payload.deleted_at ?? null,
-          syncStatus: 'synced',
-        });
+        {
+          const payload = payloadRaw;
+          groups.operations.push({
+            id: payload.id,
+            engineEntityId: payload.engine_entity_id,
+            operationType: payload.operation_type,
+            status: payload.status,
+            note: payload.note ?? null,
+            performedAt: payload.performed_at ?? null,
+            performedBy: payload.performed_by ?? null,
+            metaJson: payload.meta_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
         break;
       case SyncTableName.AuditLog:
-        groups.audit_log.push({
-          id: payload.id,
-          actor: payload.actor,
-          action: payload.action,
-          entityId: payload.entity_id ?? null,
-          tableName: payload.table_name ?? null,
-          payloadJson: payload.payload_json ?? null,
-          createdAt: payload.created_at,
-          updatedAt: payload.updated_at,
-          deletedAt: payload.deleted_at ?? null,
-          syncStatus: 'synced',
-        });
+        {
+          const payload = payloadRaw;
+          groups.audit_log.push({
+            id: payload.id,
+            actor: payload.actor,
+            action: payload.action,
+            entityId: payload.entity_id ?? null,
+            tableName: payload.table_name ?? null,
+            payloadJson: payload.payload_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
         break;
     }
   }
+
+  // De-duplicate within this pull batch by primary key (keep the newest updatedAt),
+  // to avoid SQLite unique issues when the server returns multiple changes for the same row.
+  function dedupById(arr: any[]) {
+    if (arr.length <= 1) return arr;
+    const m = new Map<string, any>();
+    for (const r of arr) {
+      const id = String(r.id ?? '');
+      if (!id) continue;
+      const prev = m.get(id);
+      if (!prev || Number(prev.updatedAt ?? 0) < Number(r.updatedAt ?? 0)) m.set(id, r);
+    }
+    return Array.from(m.values());
+  }
+  groups.entity_types = dedupById(groups.entity_types);
+  groups.entities = dedupById(groups.entities);
+  groups.attribute_defs = dedupById(groups.attribute_defs);
+  groups.attribute_values = dedupById(groups.attribute_values);
+  groups.operations = dedupById(groups.operations);
+  groups.audit_log = dedupById(groups.audit_log);
 
   // IMPORTANT:
   // Drizzle (better-sqlite3) uses async query API. Running it inside better-sqlite3's native transaction
