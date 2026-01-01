@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 
 function usage() {
   // eslint-disable-next-line no-console
@@ -68,22 +69,33 @@ async function main() {
   const pkg = await readJson(pkgPath);
   const current = parseVersion(pkg?.version ?? '0.0.0');
 
+  // RELEASE = количество всех изменений бэкенда (кол-во git-коммитов, которые затрагивали backend-api/**)
+  let derivedRelease = 0;
+  try {
+    const out = execSync('git rev-list --count HEAD -- backend-api', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString('utf8')
+      .trim();
+    derivedRelease = Number(out) || 0;
+  } catch (e) {
+    throw new Error(`Cannot derive backend release counter from git. Is git available and is this a repo? ${String(e)}`);
+  }
+
   let next;
   if (setTo) {
     next = parseVersion(setTo);
   } else if (isMajor) {
-    next = { major: current.major + 1, minor: 0, release: current.release + 1 };
+    next = { major: current.major + 1, minor: 0, release: derivedRelease };
   } else if (isMinor) {
-    next = { major: current.major, minor: current.minor + 1, release: current.release + 1 };
+    next = { major: current.major, minor: current.minor + 1, release: derivedRelease };
   } else {
-    next = { major: current.major, minor: current.minor, release: current.release + 1 };
+    next = { major: current.major, minor: current.minor, release: derivedRelease };
   }
 
   const nextStr = formatVersion(next);
   await updatePackageVersion(pkgPath, nextStr);
 
   // eslint-disable-next-line no-console
-  console.log(`Backend version bumped: ${formatVersion(current)} -> ${nextStr}`);
+  console.log(`Backend version set: ${formatVersion(current)} -> ${nextStr} (derived RELEASE=${derivedRelease})`);
 }
 
 main().catch((e) => {
