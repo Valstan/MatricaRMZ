@@ -54,7 +54,7 @@ export function Tabs(props: {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+    <div style={{ display: 'flex', gap: 6, rowGap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
       {props.visibleTabs.includes('admin') && (
         tabButton('admin', 'Справочники')
       )}

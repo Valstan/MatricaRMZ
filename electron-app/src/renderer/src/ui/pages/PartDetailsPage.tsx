@@ -318,7 +318,7 @@ export function PartDetailsPage(props: {
 
       {status && <div style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         {/* Core */}
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
@@ -331,7 +331,7 @@ export function PartDetailsPage(props: {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10, alignItems: 'center' }}>
             <div style={{ color: '#6b7280' }}>Название</div>
             <Input
               value={name}
@@ -507,7 +507,7 @@ export function PartDetailsPage(props: {
           {addFieldOpen && props.canEdit && (
             <div style={{ marginBottom: 14, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Новое поле для деталей (появится в карточке у всех деталей).</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8, alignItems: 'center' }}>
                 <Input value={newFieldCode} onChange={(e) => setNewFieldCode(e.target.value)} placeholder="code (например: material)" />
                 <Input value={newFieldName} onChange={(e) => setNewFieldName(e.target.value)} placeholder="название (например: Материал)" />
 

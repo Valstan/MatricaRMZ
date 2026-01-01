@@ -388,7 +388,7 @@ export function SupplyRequestDetailsPage(props: {
       </div>
 
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 200px) 1fr', gap: 10 }}>
           <div style={{ color: '#6b7280' }}>Номер заявки</div>
           <div style={{ fontWeight: 700 }}>{payload.requestNumber}</div>
 

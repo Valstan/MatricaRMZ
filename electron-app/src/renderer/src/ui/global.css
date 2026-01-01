@@ -1,0 +1,52 @@
+/* Global strict UI baseline for MatricaRMZ (Electron renderer). */
+
+/* Basic reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #0b1220;
+  font-size: 14px; /* medium-ish, readable for accounting UI */
+  line-height: 1.35;
+  background: #0b1024; /* fallback behind gradient */
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Strict look: no rounding anywhere */
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+/* Improve numeric readability */
+code,
+pre,
+kbd,
+samp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tables: crisper look by default */
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+

@@ -500,7 +500,7 @@ export function AdminPage(props: {
       </div>
 
       {props.canViewMasterData && (
-      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <strong>Номенклатура</strong>
@@ -881,7 +881,7 @@ export function AdminPage(props: {
             </Button>
           </div>
 
-          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '360px 1fr', gap: 12 }}>
+          <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
             <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Создать пользователя</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

@@ -225,7 +225,7 @@ export function EngineDetailsPage(props: {
       </div>
 
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10 }}>
           <div style={{ color: '#6b7280' }}>Номер двигателя</div>
           <Input
             value={engineNumber}

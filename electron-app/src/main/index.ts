@@ -12,6 +12,7 @@ import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
 
 let mainWindow: BrowserWindow | null = null;
+const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
 
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);
@@ -26,7 +27,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: `Матрица РМЗ v${app.getVersion()}`,
+    title: APP_TITLE(),
     show: false,
     webPreferences: {
       preload: preloadPath,
@@ -35,6 +36,12 @@ function createWindow(): void {
       sandbox: false,
       nodeIntegration: false,
     },
+  });
+
+  // Не даём web-странице менять title — версия должна быть видна всегда в шапке окна.
+  mainWindow.on('page-title-updated', (e) => {
+    e.preventDefault();
+    mainWindow?.setTitle(APP_TITLE());
   });
 
   // electron-vite выставляет переменную VITE_DEV_SERVER_URL в dev режиме.
@@ -74,6 +81,8 @@ function createWindow(): void {
   });
 
   mainWindow.once('ready-to-show', () => {
+    // Стартуем развёрнутым на весь экран (но не fullscreen).
+    mainWindow?.maximize();
     mainWindow?.show();
   });
 
