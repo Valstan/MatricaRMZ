@@ -69,10 +69,10 @@ async function main() {
   const pkg = await readJson(pkgPath);
   const current = parseVersion(pkg?.version ?? '0.0.0');
 
-  // RELEASE = количество всех изменений бэкенда (кол-во git-коммитов, которые затрагивали backend-api/**)
+  // RELEASE = количество всех изменений backend (коммиты, которые затрагивали backend-api/** или shared/**)
   let derivedRelease = 0;
   try {
-    const out = execSync('git rev-list --count HEAD -- backend-api', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
+    const out = execSync('git rev-list --count HEAD -- backend-api shared', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
       .toString('utf8')
       .trim();
     derivedRelease = Number(out) || 0;
@@ -92,6 +92,11 @@ async function main() {
   }
 
   const nextStr = formatVersion(next);
+  if (nextStr === formatVersion(current)) {
+    // eslint-disable-next-line no-console
+    console.log(`Backend version already up-to-date: ${nextStr} (derived RELEASE=${derivedRelease})`);
+    return;
+  }
   await updatePackageVersion(pkgPath, nextStr);
 
   // eslint-disable-next-line no-console

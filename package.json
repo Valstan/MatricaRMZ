@@ -21,7 +21,8 @@
     "version:bump:major": "node scripts/bump-version.mjs --major",
     "version:backend:bump": "node scripts/bump-backend-version.mjs",
     "version:backend:bump:minor": "node scripts/bump-backend-version.mjs --minor",
-    "version:backend:bump:major": "node scripts/bump-backend-version.mjs --major"
+    "version:backend:bump:major": "node scripts/bump-backend-version.mjs --major",
+    "release:auto": "node scripts/release-auto.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

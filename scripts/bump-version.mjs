@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 
 function usage() {
   // eslint-disable-next-line no-console
@@ -8,9 +9,10 @@ function usage() {
 
 Rules:
   - Version format: MAJOR.MINOR.RELEASE (3 numeric parts)
-  - RELEASE is a monotonic release counter and is incremented on every bump
-  - --minor increments MINOR (+1) and RELEASE (+1)
-  - --major increments MAJOR (+1), resets MINOR to 0, and increments RELEASE (+1)
+  - MAJOR = major release, MINOR = beta branch (resets to 0 on MAJOR bump)
+  - RELEASE = number of git commits that touched client code (electron-app/** or shared/**)
+  - --minor increments MINOR (+1) and sets RELEASE by git counter
+  - --major increments MAJOR (+1), resets MINOR to 0, and sets RELEASE by git counter
   - --set sets version exactly (no auto-increment)`);
 }
 
@@ -68,18 +70,35 @@ async function main() {
   const currentRaw = await readFile(versionPath, 'utf8').catch(() => '');
   const current = parseVersion(currentRaw || '0.0.0');
 
+  // RELEASE = количество всех изменений клиента (коммиты, которые затрагивали electron-app/** или shared/**)
+  let derivedRelease = 0;
+  try {
+    const out = execSync('git rev-list --count HEAD -- electron-app shared', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString('utf8')
+      .trim();
+    derivedRelease = Number(out) || 0;
+  } catch (e) {
+    throw new Error(`Cannot derive client release counter from git. Is git available and is this a repo? ${String(e)}`);
+  }
+
   let next;
   if (setTo) {
     next = parseVersion(setTo);
   } else if (isMajor) {
-    next = { major: current.major + 1, minor: 0, release: current.release + 1 };
+    next = { major: current.major + 1, minor: 0, release: derivedRelease };
   } else if (isMinor) {
-    next = { major: current.major, minor: current.minor + 1, release: current.release + 1 };
+    next = { major: current.major, minor: current.minor + 1, release: derivedRelease };
   } else {
-    next = { major: current.major, minor: current.minor, release: current.release + 1 };
+    next = { major: current.major, minor: current.minor, release: derivedRelease };
   }
 
   const nextStr = formatVersion(next);
+
+  if (nextStr === formatVersion(current)) {
+    // eslint-disable-next-line no-console
+    console.log(`Client version already up-to-date: ${nextStr} (derived RELEASE=${derivedRelease})`);
+    return;
+  }
 
   // Client release version (source of truth for Electron releases / tags)
   await writeFile(versionPath, `${nextStr}\n`, 'utf8');
@@ -88,7 +107,7 @@ async function main() {
   await updatePackageVersion(join(root, 'electron-app', 'package.json'), nextStr);
 
   // eslint-disable-next-line no-console
-  console.log(`Client version bumped: ${formatVersion(current)} -> ${nextStr}`);
+  console.log(`Client version set: ${formatVersion(current)} -> ${nextStr} (derived RELEASE=${derivedRelease})`);
 }
 
 main().catch((e) => {
