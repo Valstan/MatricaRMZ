@@ -78,7 +78,6 @@ export function PartDetailsPage(props: {
   canDelete: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
-  onBack: () => void;
 }) {
   const [part, setPart] = useState<Part | null>(null);
   const [status, setStatus] = useState<string>('');
@@ -270,7 +269,7 @@ export function PartDetailsPage(props: {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
-      props.onBack();
+      // No dedicated "back" in UI: user can switch sections via tabs.
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -279,9 +278,6 @@ export function PartDetailsPage(props: {
   if (!part) {
     return (
       <div>
-        <Button variant="ghost" onClick={props.onBack}>
-          ← Назад
-        </Button>
         {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       </div>
     );
@@ -305,9 +301,6 @@ export function PartDetailsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
-        <Button variant="ghost" onClick={props.onBack}>
-          ← Назад
-        </Button>
         <h2 style={{ margin: 0, flex: 1 }}>Карточка детали</h2>
         {props.canDelete && (
           <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>

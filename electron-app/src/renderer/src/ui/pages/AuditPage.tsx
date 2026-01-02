@@ -62,11 +62,12 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
   }
 
   function actionRu(a: AuditItem): string {
+    const p = parsePayload(a);
     switch (String(a.action ?? '')) {
       case 'ui.supply_request.edit_done':
-        return 'Завершил редактирование заявки';
+        return p?.summaryRu ? `Завершил редактирование заявки. ${String(p.summaryRu)}` : 'Завершил редактирование заявки';
       case 'ui.engine.edit_done':
-        return 'Завершил редактирование двигателя';
+        return p?.summaryRu ? `Завершил редактирование двигателя. ${String(p.summaryRu)}` : 'Завершил редактирование двигателя';
       case 'engine.create':
         return 'Создал двигатель';
       case 'supply_request.create':
@@ -74,7 +75,9 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
       case 'supply_request.delete':
         return 'Удалил заявку';
       case 'supply_request.transition':
-        return 'Изменил статус заявки';
+        return p?.fromStatus && p?.toStatus
+          ? `Изменил статус заявки: ${String(p.fromStatus)} → ${String(p.toStatus)}`
+          : 'Изменил статус заявки';
       case 'part.create':
         return 'Создал деталь';
       case 'part.update_attribute':

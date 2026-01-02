@@ -21,7 +21,7 @@ import { Button } from './components/Button.js';
 
 export function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
+  const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
   const [tab, setTab] = useState<TabId>('engines');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const prevLoggedIn = useRef<boolean>(false);
@@ -330,10 +330,10 @@ export function App() {
 
         {tab === 'engine' && selectedEngineId && engineDetails && (
           <EngineDetailsPage
+            key={selectedEngineId}
             engineId={selectedEngineId}
             engine={engineDetails}
             ops={ops}
-            onBack={() => setTab('engines')}
             onReload={reloadEngine}
             onEngineUpdated={async () => {
               await refreshEngines();
@@ -356,8 +356,8 @@ export function App() {
 
         {tab === 'request' && selectedRequestId && (
           <SupplyRequestDetailsPage
+            key={selectedRequestId}
             id={selectedRequestId}
-            onBack={() => setTab('requests')}
             canEdit={caps.canEditSupplyRequests}
             canSign={caps.canSignSupplyRequests}
             canApprove={caps.canApproveSupplyRequests}
@@ -372,7 +372,7 @@ export function App() {
 
         {tab === 'parts' && (
           <PartsPage
-            onOpen={(id) => {
+            onOpen={async (id) => {
               setSelectedPartId(id);
               setTab('part');
             }}
@@ -382,12 +382,12 @@ export function App() {
 
         {tab === 'part' && selectedPartId && (
           <PartDetailsPage
+            key={selectedPartId}
             partId={selectedPartId}
             canEdit={caps.canEditParts}
             canDelete={caps.canDeleteParts}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
-            onBack={() => setTab('parts')}
           />
         )}
 

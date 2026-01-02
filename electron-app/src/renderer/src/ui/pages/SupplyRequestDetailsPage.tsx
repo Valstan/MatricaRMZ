@@ -198,7 +198,6 @@ function printSupplyRequest(
 
 export function SupplyRequestDetailsPage(props: {
   id: string;
-  onBack: () => void;
   canEdit: boolean;
   canSign: boolean;
   canApprove: boolean;
@@ -220,6 +219,7 @@ export function SupplyRequestDetailsPage(props: {
   const lastSavedJson = useRef<string>('');
   const initialSessionJson = useRef<string>('');
   const sessionHadChanges = useRef<boolean>(false);
+  const payloadRef = useRef<SupplyRequestPayload | null>(null);
   const activeField = useRef<{ kind: 'item_name'; idx: number } | null>(null);
   const activeEl = useRef<HTMLInputElement | null>(null);
   const dragFromIdx = useRef<number | null>(null);
@@ -258,6 +258,7 @@ export function SupplyRequestDetailsPage(props: {
       return;
     }
     setPayload(r.payload);
+    payloadRef.current = r.payload;
     const json = JSON.stringify(r.payload);
     lastSavedJson.current = json;
     initialSessionJson.current = json;
@@ -322,6 +323,7 @@ export function SupplyRequestDetailsPage(props: {
 
   function scheduleSave(next: SupplyRequestPayload) {
     setPayload(next);
+    payloadRef.current = next;
     if (!props.canEdit) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -332,9 +334,32 @@ export function SupplyRequestDetailsPage(props: {
     }, 450);
   }
 
-  async function auditEditDone(p: SupplyRequestPayload) {
+  function diffSummaryRu(initial: any, cur: any): { fieldsChanged: string[]; summaryRu: string } {
+    const fields: string[] = [];
+    const push = (field: string, ru: string, a: any, b: any) => {
+      const av = a == null ? '' : String(a);
+      const bv = b == null ? '' : String(b);
+      if (av !== bv) fields.push(ru);
+    };
+    push('title', 'Описание', initial?.title, cur?.title);
+    push('status', 'Статус', initial?.status, cur?.status);
+    push('departmentId', 'Подразделение', initial?.departmentId, cur?.departmentId);
+    push('workshopId', 'Цех', initial?.workshopId, cur?.workshopId);
+    push('sectionId', 'Участок', initial?.sectionId, cur?.sectionId);
+    const itemsA = Array.isArray(initial?.items) ? initial.items : [];
+    const itemsB = Array.isArray(cur?.items) ? cur.items : [];
+    if (itemsA.length !== itemsB.length) fields.push('Позиции');
+    const summaryRu = fields.length ? `Изменил: ${fields.join(', ')}` : 'Без изменений';
+    return { fieldsChanged: fields, summaryRu };
+  }
+
+  async function auditEditDone(p: SupplyRequestPayload | null) {
     try {
+      if (!p) return;
       if (!sessionHadChanges.current) return;
+      const initial = initialSessionJson.current ? JSON.parse(initialSessionJson.current) : null;
+      const diff = diffSummaryRu(initial, p);
+      if (!diff.fieldsChanged.length) return;
       await window.matrica.audit.add({
         action: 'ui.supply_request.edit_done',
         entityId: String(p.operationId ?? props.id),
@@ -347,6 +372,8 @@ export function SupplyRequestDetailsPage(props: {
           departmentId: p.departmentId ?? '',
           workshopId: p.workshopId ?? null,
           sectionId: p.sectionId ?? null,
+          fieldsChanged: diff.fieldsChanged,
+          summaryRu: diff.summaryRu,
         },
       });
       sessionHadChanges.current = false;
@@ -355,6 +382,12 @@ export function SupplyRequestDetailsPage(props: {
       // ignore audit failures
     }
   }
+
+  useEffect(() => {
+    return () => {
+      void auditEditDone(payloadRef.current);
+    };
+  }, []);
 
   const departmentLabel = useMemo(() => {
     if (!payload) return '';
@@ -387,15 +420,6 @@ export function SupplyRequestDetailsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            void auditEditDone(payload);
-            props.onBack();
-          }}
-        >
-          ← Назад
-        </Button>
         {props.canPrint && (
           <>
             <Button

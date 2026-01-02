@@ -112,7 +112,6 @@ export function EngineDetailsPage(props: {
   engineId: string;
   engine: EngineDetails;
   ops: OperationItem[];
-  onBack: () => void;
   onReload: () => Promise<void>;
   onEngineUpdated: () => Promise<void>;
   onAddOp: (operationType: string, status: string, note?: string) => Promise<void>;
@@ -142,6 +141,12 @@ export function EngineDetailsPage(props: {
 
   const [saveStatus, setSaveStatus] = useState<string>('');
   const sessionHadChanges = useRef<boolean>(false);
+  const initialSnapshot = useRef<{
+    engineNumber: string;
+    engineBrand: string;
+    workshopId: string;
+    sectionId: string;
+  } | null>(null);
 
   const sortedOps = useMemo(() => {
     return [...props.ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
@@ -157,6 +162,17 @@ export function EngineDetailsPage(props: {
     setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
     setSectionId(String(props.engine.attributes?.section_id ?? ''));
   }, [props.engineId, props.engine.updatedAt]);
+
+  useEffect(() => {
+    // Reset “editing session” baseline on engine switch.
+    initialSnapshot.current = {
+      engineNumber: String(props.engine.attributes?.engine_number ?? ''),
+      engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
+      workshopId: String(props.engine.attributes?.workshop_id ?? ''),
+      sectionId: String(props.engine.attributes?.section_id ?? ''),
+    };
+    sessionHadChanges.current = false;
+  }, [props.engineId]);
 
   async function saveAttr(code: string, value: unknown) {
     if (!props.canEditEngines) return;
@@ -175,6 +191,16 @@ export function EngineDetailsPage(props: {
   async function auditEditDone() {
     try {
       if (!sessionHadChanges.current) return;
+      const base = initialSnapshot.current;
+      const fieldsChanged: string[] = [];
+      const push = (ru: string, a: string, b: string) => {
+        if ((a ?? '') !== (b ?? '')) fieldsChanged.push(ru);
+      };
+      push('Номер', base?.engineNumber ?? '', String(engineNumber ?? ''));
+      push('Марка', base?.engineBrand ?? '', String(engineBrand ?? ''));
+      push('Цех', base?.workshopId ?? '', String(workshopId ?? ''));
+      push('Участок', base?.sectionId ?? '', String(sectionId ?? ''));
+      if (!fieldsChanged.length) return;
       await window.matrica.audit.add({
         action: 'ui.engine.edit_done',
         entityId: props.engineId,
@@ -185,6 +211,8 @@ export function EngineDetailsPage(props: {
           engineBrand: String(engineBrand || '').trim() || null,
           workshopId: String(workshopId || '').trim() || null,
           sectionId: String(sectionId || '').trim() || null,
+          fieldsChanged,
+          summaryRu: `Изменил: ${fieldsChanged.join(', ')}`,
         },
       });
       sessionHadChanges.current = false;
@@ -192,6 +220,12 @@ export function EngineDetailsPage(props: {
       // ignore
     }
   }
+
+  useEffect(() => {
+    return () => {
+      void auditEditDone();
+    };
+  }, []);
 
   async function saveCoreFields() {
     if (!props.canEditEngines) return;
@@ -227,15 +261,6 @@ export function EngineDetailsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            void auditEditDone();
-            props.onBack();
-          }}
-        >
-          ← Назад
-        </Button>
         {props.canPrintEngineCard && (
         <Button
           variant="ghost"
