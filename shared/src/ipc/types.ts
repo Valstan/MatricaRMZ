@@ -64,6 +64,18 @@ export type AuditItem = {
   syncStatus: string;
 };
 
+export type AuditAddArgs = {
+  // Code-like action, e.g. "ui.supply_request.edit_done"
+  action: string;
+  // Optional table/entity pointer (for debugging; UI can also encode these into payload).
+  entityId?: string | null;
+  tableName?: string | null;
+  // Optional JSON payload with context (requestNumber, engineNumber, etc.)
+  payload?: unknown;
+};
+
+export type AuditAddResult = { ok: true } | { ok: false; error: string };
+
 export type SyncRunResult = {
   ok: boolean;
   pushed: number;
@@ -196,6 +208,7 @@ export type MatricaApi = {
   };
   audit: {
     list: () => Promise<AuditItem[]>;
+    add: (args: AuditAddArgs) => Promise<AuditAddResult>;
   };
   sync: {
     run: () => Promise<SyncRunResult>;

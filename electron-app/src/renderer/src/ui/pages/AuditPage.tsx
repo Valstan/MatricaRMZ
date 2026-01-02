@@ -18,6 +18,8 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
 
   function sectionOf(a: AuditItem): string {
     const action = String(a.action ?? '');
+    if (action.startsWith('ui.supply_request.')) return 'Заявки';
+    if (action.startsWith('ui.engine.')) return 'Двигатели';
     if (action.startsWith('engine.')) return 'Двигатели';
     if (action.startsWith('supply_request.')) return 'Заявки';
     if (action.startsWith('part.')) return 'Детали';
@@ -30,16 +32,49 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
     return a.tableName ? String(a.tableName) : 'Прочее';
   }
 
+  function parsePayload(a: AuditItem): any | null {
+    try {
+      if (!a.payloadJson) return null;
+      return JSON.parse(a.payloadJson);
+    } catch {
+      return null;
+    }
+  }
+
+  function contextRu(a: AuditItem): string {
+    const p = parsePayload(a);
+    const section = sectionOf(a);
+    if (section === 'Заявки') {
+      const n = p?.requestNumber ? String(p.requestNumber) : '';
+      return n ? `Заявки / ${n}` : 'Заявки';
+    }
+    if (section === 'Двигатели') {
+      const n = p?.engineNumber ? String(p.engineNumber) : '';
+      return n ? `Двигатели / ${n}` : 'Двигатели';
+    }
+    if (section === 'Детали') {
+      const name = p?.name ? String(p.name) : '';
+      const article = p?.article ? String(p.article) : '';
+      const label = [name, article].filter(Boolean).join(' / ');
+      return label ? `Детали / ${label}` : 'Детали';
+    }
+    return section;
+  }
+
   function actionRu(a: AuditItem): string {
     switch (String(a.action ?? '')) {
+      case 'ui.supply_request.edit_done':
+        return 'Завершил редактирование заявки';
+      case 'ui.engine.edit_done':
+        return 'Завершил редактирование двигателя';
       case 'engine.create':
         return 'Создал двигатель';
-      case 'engine.setAttr':
-        return 'Изменил данные двигателя';
       case 'supply_request.create':
         return 'Создал заявку';
-      case 'supply_request.update':
-        return 'Изменил заявку';
+      case 'supply_request.delete':
+        return 'Удалил заявку';
+      case 'supply_request.transition':
+        return 'Изменил статус заявки';
       case 'part.create':
         return 'Создал деталь';
       case 'part.update_attribute':
@@ -77,6 +112,20 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
       if (toMs != null && createdAt > toMs) return false;
       if (actorFilter && String(a.actor ?? '') !== actorFilter) return false;
       if (sectionFilter && sectionOf(a) !== sectionFilter) return false;
+
+      // Show only high-level events (reduce noise).
+      const action = String(a.action ?? '');
+      const allow =
+        action === 'engine.create' ||
+        action === 'supply_request.create' ||
+        action === 'supply_request.delete' ||
+        action === 'supply_request.transition' ||
+        action === 'ui.supply_request.edit_done' ||
+        action === 'ui.engine.edit_done' ||
+        action === 'part.create' ||
+        action === 'part.delete';
+      if (!allow) return false;
+
       return true;
     });
   }, [props.audit, fromDate, toDate, actorFilter, sectionFilter]);
@@ -118,7 +167,7 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
                 >
                   {actionRu(a)}
                 </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{sectionOf(a)}</td>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{contextRu(a)}</td>
               </tr>
             ))}
             {items.length === 0 && (

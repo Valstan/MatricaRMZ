@@ -5,7 +5,7 @@ import { requirePermOrResult, requirePermOrThrow } from '../ipcContext.js';
 
 import { listEngines, createEngine, getEngineDetails, setEngineAttribute } from '../../services/engineService.js';
 import { listOperations, addOperation } from '../../services/operationService.js';
-import { listAudit } from '../../services/auditService.js';
+import { addAudit, listAudit } from '../../services/auditService.js';
 import { softDeleteEntity } from '../../services/entityService.js';
 
 export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
@@ -48,6 +48,15 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   ipcMain.handle('audit:list', async () => {
     // Audit is currently used mainly for troubleshooting/admin; keep as-is.
     return listAudit(ctx.db);
+  });
+
+  ipcMain.handle('audit:add', async (_e, args: { action: string; entityId?: string | null; tableName?: string | null; payload?: unknown }) => {
+    try {
+      const actor = await ctx.currentActor();
+      return await addAudit(ctx.db, { actor, ...args });
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
   });
 }
 

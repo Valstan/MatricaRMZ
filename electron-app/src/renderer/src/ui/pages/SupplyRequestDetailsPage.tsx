@@ -218,6 +218,8 @@ export function SupplyRequestDetailsPage(props: {
 
   const saveTimer = useRef<any>(null);
   const lastSavedJson = useRef<string>('');
+  const initialSessionJson = useRef<string>('');
+  const sessionHadChanges = useRef<boolean>(false);
   const activeField = useRef<{ kind: 'item_name'; idx: number } | null>(null);
   const activeEl = useRef<HTMLInputElement | null>(null);
   const dragFromIdx = useRef<number | null>(null);
@@ -256,7 +258,10 @@ export function SupplyRequestDetailsPage(props: {
       return;
     }
     setPayload(r.payload);
-    lastSavedJson.current = JSON.stringify(r.payload);
+    const json = JSON.stringify(r.payload);
+    lastSavedJson.current = json;
+    initialSessionJson.current = json;
+    sessionHadChanges.current = false;
     setSaveStatus('');
   }
 
@@ -321,9 +326,34 @@ export function SupplyRequestDetailsPage(props: {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const json = JSON.stringify(next);
+      if (initialSessionJson.current && json !== initialSessionJson.current) sessionHadChanges.current = true;
       if (json === lastSavedJson.current) return;
       void saveNow(next);
     }, 450);
+  }
+
+  async function auditEditDone(p: SupplyRequestPayload) {
+    try {
+      if (!sessionHadChanges.current) return;
+      await window.matrica.audit.add({
+        action: 'ui.supply_request.edit_done',
+        entityId: String(p.operationId ?? props.id),
+        tableName: 'operations',
+        payload: {
+          operationId: String(p.operationId ?? props.id),
+          requestNumber: p.requestNumber,
+          title: p.title ?? '',
+          status: p.status,
+          departmentId: p.departmentId ?? '',
+          workshopId: p.workshopId ?? null,
+          sectionId: p.sectionId ?? null,
+        },
+      });
+      sessionHadChanges.current = false;
+      initialSessionJson.current = JSON.stringify(p);
+    } catch {
+      // ignore audit failures
+    }
   }
 
   const departmentLabel = useMemo(() => {
@@ -357,7 +387,13 @@ export function SupplyRequestDetailsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <Button variant="ghost" onClick={props.onBack}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            void auditEditDone(payload);
+            props.onBack();
+          }}
+        >
           ← Назад
         </Button>
         {props.canPrint && (

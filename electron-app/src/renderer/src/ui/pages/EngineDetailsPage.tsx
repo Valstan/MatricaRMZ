@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, OperationItem } from '@matricarmz/shared';
 
@@ -141,6 +141,7 @@ export function EngineDetailsPage(props: {
   const [newOpNote, setNewOpNote] = useState<string>('');
 
   const [saveStatus, setSaveStatus] = useState<string>('');
+  const sessionHadChanges = useRef<boolean>(false);
 
   const sortedOps = useMemo(() => {
     return [...props.ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
@@ -163,10 +164,32 @@ export function EngineDetailsPage(props: {
       setSaveStatus('Сохраняю...');
       await window.matrica.engines.setAttr(props.engineId, code, value);
       await props.onEngineUpdated();
+      sessionHadChanges.current = true;
       setSaveStatus('Сохранено');
       setTimeout(() => setSaveStatus(''), 700);
     } catch (e) {
       setSaveStatus(`Ошибка сохранения: ${String(e)}`);
+    }
+  }
+
+  async function auditEditDone() {
+    try {
+      if (!sessionHadChanges.current) return;
+      await window.matrica.audit.add({
+        action: 'ui.engine.edit_done',
+        entityId: props.engineId,
+        tableName: 'entities',
+        payload: {
+          engineId: props.engineId,
+          engineNumber: String(engineNumber || '').trim() || null,
+          engineBrand: String(engineBrand || '').trim() || null,
+          workshopId: String(workshopId || '').trim() || null,
+          sectionId: String(sectionId || '').trim() || null,
+        },
+      });
+      sessionHadChanges.current = false;
+    } catch {
+      // ignore
     }
   }
 
@@ -204,7 +227,13 @@ export function EngineDetailsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <Button variant="ghost" onClick={props.onBack}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            void auditEditDone();
+            props.onBack();
+          }}
+        >
           ← Назад
         </Button>
         {props.canPrintEngineCard && (

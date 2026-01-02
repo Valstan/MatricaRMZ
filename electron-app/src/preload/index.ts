@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   audit: {
     list: async () => ipcRenderer.invoke('audit:list'),
+    add: async (args: { action: string; entityId?: string | null; tableName?: string | null; payload?: unknown }) =>
+      ipcRenderer.invoke('audit:add', args),
   },
   sync: {
     run: async () => ipcRenderer.invoke('sync:run'),

@@ -267,10 +267,16 @@ export async function deleteSupplyRequest(db: BetterSQLite3Database, id: string)
       )
       .limit(1);
     if (!rows[0]) return { ok: false, error: 'Заявка не найдена' };
+
+    const parsed = safeJsonParse(String((rows as any[])[0]?.metaJson ?? '')) as any;
+    const actor = String((rows as any[])[0]?.performedBy ?? '').trim() || 'local';
+
     await db
       .update(operations)
       .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
       .where(eq(operations.id, id));
+
+    await audit(db, actor, 'supply_request.delete', parsed && typeof parsed === 'object' ? parsed : { operationId: id });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -311,8 +317,9 @@ export async function updateSupplyRequest(
           isNull(operations.deletedAt),
         ),
       );
-
-    await audit(db, args.actor, 'supply_request.update', payload);
+    // IMPORTANT: do NOT write audit_log on each autosave/update.
+    // SupplyRequestDetailsPage autosaves frequently; high-level audit is recorded
+    // when the user finishes editing / changes status / deletes the request.
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -379,6 +386,18 @@ export async function transitionSupplyRequest(
 
     const upd = await updateSupplyRequest(db, { id: args.id, payload: p, actor: args.actor });
     if (!upd.ok) return upd;
+    await audit(db, args.actor, 'supply_request.transition', {
+      operationId: args.id,
+      requestNumber: p.requestNumber,
+      title: p.title ?? '',
+      fromStatus: cur.payload.status,
+      toStatus: p.status,
+      action: args.action,
+      note: args.note ?? null,
+      departmentId: p.departmentId ?? '',
+      workshopId: p.workshopId ?? null,
+      sectionId: p.sectionId ?? null,
+    });
     return { ok: true as const, payload: p };
   } catch (e) {
     return { ok: false as const, error: String(e) };

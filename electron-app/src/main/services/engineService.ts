@@ -164,19 +164,8 @@ export async function setEngineAttribute(
 
   // Обновляем updated_at у сущности.
   await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, engineId));
-
-  await db.insert(auditLog).values({
-    id: randomUUID(),
-    actor: actor?.trim() ? actor.trim() : 'local',
-    action: 'engine.setAttr',
-    entityId: engineId,
-    tableName: 'attribute_values',
-    payloadJson: JSON.stringify({ engineId, code, value }),
-    createdAt: ts,
-    updatedAt: ts,
-    deletedAt: null,
-    syncStatus: 'pending',
-  });
+  // IMPORTANT: do NOT write audit_log on each attribute change.
+  // EngineDetailsPage saves many fields; high-level audit is recorded when the user finishes editing.
 }
 
 function safeJsonParse(s: string): unknown {
