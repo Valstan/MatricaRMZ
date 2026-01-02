@@ -10,6 +10,7 @@ import { logMessageGetEnabled, startLogSender } from '../services/logService.js'
 import type { IpcContext } from './ipcContext.js';
 import { registerAdminIpc } from './register/admin.js';
 import { registerAuthAndSyncIpc } from './register/authAndSync.js';
+import { registerBackupsIpc } from './register/backups.js';
 import { registerChecklistsIpc } from './register/checklists.js';
 import { registerChangesIpc } from './register/changes.js';
 import { registerEnginesOpsAuditIpc } from './register/enginesOpsAudit.js';
@@ -19,6 +20,7 @@ import { registerPartsIpc } from './register/parts.js';
 import { registerReportsIpc } from './register/reports.js';
 import { registerSupplyRequestsIpc } from './register/supplyRequests.js';
 import { registerUpdateIpc } from './register/update.js';
+import { openSqliteReadonly } from '../database/db.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
   function logToFile(message: string) {
@@ -53,8 +55,25 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     return (s?.permissions ?? {}) as Record<string, boolean>;
   }
 
+  // Live DB also stores settings/auth, so use it as sysDb.
+  const sysDb = db;
+  const AUTO_SYNC_MS = 5 * 60_000;
+  let mode: IpcContext['mode'] = () => ({ mode: 'live' as const });
+  let backupSqlite: any | null = null;
+  let backupDb: BetterSQLite3Database | null = null;
+
+  function dataDb(): BetterSQLite3Database {
+    return backupDb ?? sysDb;
+  }
+
+  function getMode() {
+    return mode();
+  }
+
   const ctx: IpcContext = {
-    db,
+    sysDb,
+    dataDb,
+    mode: getMode,
     mgr,
     logToFile,
     currentActor,
@@ -73,6 +92,59 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   registerChecklistsIpc(ctx);
   registerSupplyRequestsIpc(ctx);
   registerPartsIpc(ctx);
+
+  registerBackupsIpc(ctx, {
+    enterBackup: async (args) => {
+      try {
+        const backupDate = String(args.backupDate || '').trim();
+        const backupPath = String(args.backupPath || '').trim();
+        if (!backupDate || !backupPath) return { ok: false as const, error: 'backupDate/backupPath required' };
+
+        // Close previous backup DB if any.
+        if (backupSqlite) {
+          try {
+            backupSqlite.close();
+          } catch {
+            // ignore
+          }
+        }
+        backupSqlite = null;
+        backupDb = null;
+
+        // Open new snapshot DB in readonly mode.
+        const opened = openSqliteReadonly(backupPath);
+        backupSqlite = opened.sqlite as any;
+        backupDb = opened.db as any;
+
+        mode = () => ({ mode: 'backup' as const, backupDate, backupPath });
+
+        // Stop sync while in view mode.
+        mgr.stopAuto();
+
+        return { ok: true as const };
+      } catch (e) {
+        return { ok: false as const, error: String(e) };
+      }
+    },
+    exitBackup: async () => {
+      try {
+        if (backupSqlite) {
+          try {
+            backupSqlite.close();
+          } catch {
+            // ignore
+          }
+        }
+        backupSqlite = null;
+        backupDb = null;
+        mode = () => ({ mode: 'live' as const });
+        mgr.startAuto(AUTO_SYNC_MS);
+        return { ok: true as const };
+      } catch (e) {
+        return { ok: false as const, error: String(e) };
+      }
+    },
+  });
 }
 
 

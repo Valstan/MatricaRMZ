@@ -27,6 +27,7 @@ export function App() {
   const prevLoggedIn = useRef<boolean>(false);
   const [clientVersion, setClientVersion] = useState<string>('');
   const [serverInfo, setServerInfo] = useState<ServerHealthResult | null>(null);
+  const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
@@ -43,6 +44,39 @@ export function App() {
     void window.matrica.app.version().then((r) => (r.ok ? setClientVersion(r.version) : setClientVersion(''))).catch(() => {});
     void refreshServerHealth();
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await window.matrica.backups.status();
+        if (!alive) return;
+        if (r && (r as any).ok === true) {
+          setBackupMode({ mode: (r as any).mode, backupDate: (r as any).backupDate ?? null });
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  // When switching live <-> backup mode, reload lists from the current DB.
+  useEffect(() => {
+    if (!backupMode) return;
+    void refreshEngines();
+    // Reset opened details when data source changes.
+    setSelectedEngineId(null);
+    setEngineDetails(null);
+    setOps([]);
+    setSelectedRequestId(null);
+    setSelectedPartId(null);
+  }, [backupMode.mode, backupMode.backupDate]);
 
   async function refreshServerHealth() {
     const r = await window.matrica.server.health().catch(() => null);
@@ -70,6 +104,10 @@ export function App() {
 
   async function runSyncNow(opts?: { showStatusMessage?: boolean }) {
     try {
+      if (backupMode?.mode === 'backup') {
+        if (opts?.showStatusMessage) setPostLoginSyncMsg('Режим просмотра резервной копии: синхронизация отключена.');
+        return;
+      }
       if (opts?.showStatusMessage) setPostLoginSyncMsg('Синхронизация…');
       const r = await window.matrica.sync.run();
       if (r.ok) {
@@ -90,11 +128,11 @@ export function App() {
     const was = prevLoggedIn.current;
     const now = authStatus.loggedIn === true;
     prevLoggedIn.current = now;
-    if (now && !was) {
+    if (now && !was && backupMode?.mode !== 'backup') {
       setPostLoginSyncMsg('После входа выполняю синхронизацию…');
       void runSyncNow({ showStatusMessage: true });
     }
-  }, [authStatus.loggedIn]);
+  }, [authStatus.loggedIn, backupMode?.mode]);
 
   // Periodically sync auth permissions from server (important for delegated permissions).
   useEffect(() => {
@@ -116,7 +154,30 @@ export function App() {
     };
   }, [authStatus.loggedIn]);
 
-  const caps = deriveUiCaps(authStatus.permissions ?? null);
+  const capsBase = deriveUiCaps(authStatus.permissions ?? null);
+  const viewMode = backupMode?.mode === 'backup';
+  const caps = viewMode
+    ? {
+        ...capsBase,
+        canUseSync: false,
+        canUseUpdates: false,
+        canEditEngines: false,
+        canEditOperations: false,
+        canCreateSupplyRequests: false,
+        canEditSupplyRequests: false,
+        canSignSupplyRequests: false,
+        canApproveSupplyRequests: false,
+        canAcceptSupplyRequests: false,
+        canFulfillSupplyRequests: false,
+        canUploadFiles: false,
+        canCreateParts: false,
+        canEditParts: false,
+        canDeleteParts: false,
+        canManageUsers: false,
+        canEditMasterData: false,
+        canViewParts: false,
+      }
+    : capsBase;
   const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[] = [
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
@@ -219,6 +280,7 @@ export function App() {
           : 'Матрица РМЗ — Журнал';
 
   function formatSyncStatusRu(s: SyncStatus | null): { text: string; isError: boolean } {
+    if (viewMode) return { text: 'Синхр: ОТКЛ (режим просмотра резервной копии)', isError: true };
     if (!s) return { text: 'Синхр: … | последн.: — | следующий через —', isError: false };
     const stateLabel = s.state === 'idle' ? 'OK' : s.state === 'syncing' ? 'СИНХР' : 'ОШИБКА';
     const last = s.lastSyncAt ? new Date(s.lastSyncAt).toLocaleTimeString('ru-RU') : '—';
@@ -239,7 +301,7 @@ export function App() {
       title={pageTitle}
       right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-          {authStatus.loggedIn && caps.canUseSync && (
+          {authStatus.loggedIn && caps.canUseSync && !viewMode && (
             <Button
               variant="ghost"
               onClick={() => void runSyncNow({ showStatusMessage: true })}
@@ -278,6 +340,11 @@ export function App() {
         </div>
       }
     >
+      {viewMode && (
+        <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', fontWeight: 800 }}>
+          Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
+        </div>
+      )}
       <Tabs
         tab={tab}
         onTab={(t) => {

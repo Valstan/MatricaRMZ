@@ -3,24 +3,28 @@ import { ipcMain, net } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { authLogin, authLogout, authStatus, authSync } from '../../services/authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import { isViewMode } from '../ipcContext.js';
 
 export function registerAuthAndSyncIpc(ctx: IpcContext) {
   // Auth
-  ipcMain.handle('auth:status', async () => authStatus(ctx.db));
-  ipcMain.handle('auth:sync', async () => authSync(ctx.db, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
+  ipcMain.handle('auth:status', async () => authStatus(ctx.sysDb));
+  ipcMain.handle('auth:sync', async () => authSync(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
   ipcMain.handle('auth:login', async (_e, args: { username: string; password: string }) =>
-    authLogin(ctx.db, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), username: args.username, password: args.password }),
+    authLogin(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), username: args.username, password: args.password }),
   );
   ipcMain.handle('auth:logout', async (_e, args: { refreshToken?: string }) =>
-    authLogout(ctx.db, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), refreshToken: args.refreshToken }),
+    authLogout(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), refreshToken: args.refreshToken }),
   );
 
   // Sync
-  ipcMain.handle('sync:run', async () => ctx.mgr.runOnce());
+  ipcMain.handle('sync:run', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, pushed: 0, pulled: 0, serverCursor: 0, error: 'view mode' };
+    return ctx.mgr.runOnce();
+  });
   ipcMain.handle('sync:status', async () => ctx.mgr.getStatus());
   ipcMain.handle('sync:config:get', async () => {
     try {
-      const v = await settingsGetString(ctx.db, SettingsKey.ApiBaseUrl);
+      const v = await settingsGetString(ctx.sysDb, SettingsKey.ApiBaseUrl);
       return { ok: true, apiBaseUrl: v ?? ctx.mgr.getApiBaseUrl() };
     } catch (e) {
       return { ok: false, error: String(e) };
@@ -30,7 +34,7 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     try {
       const v = String(args.apiBaseUrl ?? '').trim();
       if (!v) return { ok: false, error: 'apiBaseUrl is empty' };
-      await settingsSetString(ctx.db, SettingsKey.ApiBaseUrl, v);
+      await settingsSetString(ctx.sysDb, SettingsKey.ApiBaseUrl, v);
       ctx.mgr.setApiBaseUrl(v);
       ctx.logToFile(`sync apiBaseUrl set: ${v}`);
       return { ok: true };

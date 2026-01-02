@@ -46,6 +46,10 @@ export const PermissionCode = {
   FilesUpload: 'files.upload',
   FilesDelete: 'files.delete',
 
+  // backups
+  BackupsView: 'backups.view',
+  BackupsRun: 'backups.run',
+
   // parts (детали)
   PartsView: 'parts.view',
   PartsCreate: 'parts.create',

@@ -152,6 +152,13 @@ contextBridge.exposeInMainWorld('matrica', {
     getEnabled: async () => ipcRenderer.invoke('logging:getEnabled'),
     setEnabled: async (enabled: boolean) => ipcRenderer.invoke('logging:setEnabled', enabled),
   },
+  backups: {
+    status: async () => ipcRenderer.invoke('backups:status'),
+    nightlyList: async () => ipcRenderer.invoke('backups:nightly:list'),
+    nightlyEnter: async (args: { date: string }) => ipcRenderer.invoke('backups:nightly:enter', args),
+    nightlyRunNow: async () => ipcRenderer.invoke('backups:nightly:runNow'),
+    exit: async () => ipcRenderer.invoke('backups:exit'),
+  },
 });
 
 

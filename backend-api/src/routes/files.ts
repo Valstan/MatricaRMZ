@@ -10,6 +10,7 @@ import { changeRequests, fileAssets, users } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { and, eq, isNull } from 'drizzle-orm';
+import { deletePath, ensureFolderDeep, getDownloadHref, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
 
 // Multipart parser (no 3rd party): we accept base64 payload for MVP.
 // NOTE: For large files, Electron will stream later; for now keep it simple.
@@ -60,79 +61,6 @@ function yandexDiskPathForFile(args: { baseYandexPath: string; fileId: string; f
   const ownerId = safePathSegment(args.scope.ownerId, 'id');
   const category = safePathSegment(args.scope.category, 'files');
   return `${base}/${ownerType}/${ownerId}/${category}/${args.fileId}_${args.fileName}`;
-}
-
-async function yandexEnsureFolder(token: string, folderPath: string) {
-  const p = folderPath.replaceAll('\\', '/');
-  if (!p.startsWith('/')) throw new Error(`Invalid yandex folderPath (must start with '/'): ${folderPath}`);
-
-  const url = new URL('https://cloud-api.yandex.net/v1/disk/resources');
-  url.searchParams.set('path', p);
-
-  // Probe (GET). If it fails, try to create (PUT). PUT may return 409 if already exists.
-  const probe = await fetch(url.toString(), { method: 'GET', headers: { Authorization: `OAuth ${token}` } });
-  if (probe.ok) return;
-
-  const mk = await fetch(url.toString(), { method: 'PUT', headers: { Authorization: `OAuth ${token}` } });
-  if (!mk.ok && mk.status !== 409) {
-    throw new Error(`yandex mkdir HTTP ${mk.status}: ${(await mk.text().catch(() => '')) || 'no body'}`);
-  }
-}
-
-async function yandexEnsureFolderDeep(token: string, folderPath: string) {
-  const p = folderPath.replaceAll('\\', '/').replace(/\/+$/, '');
-  if (!p.startsWith('/')) throw new Error(`Invalid yandex folderPath (must start with '/'): ${folderPath}`);
-  if (p === '/') return;
-  const parts = p.split('/').filter(Boolean);
-  let cur = '';
-  for (const part of parts) {
-    cur += `/${part}`;
-    // mkdir is idempotent via yandexEnsureFolder (GET then PUT)
-    await yandexEnsureFolder(token, cur);
-  }
-}
-
-async function yandexUpload(_args: { diskPath: string; bytes: Buffer; mime: string | null }) {
-  const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
-  if (!token) throw new Error('YANDEX_DISK_TOKEN is not configured');
-
-  // Ensure parent folder exists, otherwise Yandex returns 409 on resources/upload.
-  const parent = dirname(_args.diskPath.replaceAll('\\', '/')) || '/';
-  await yandexEnsureFolderDeep(token, parent);
-
-  // 1) get upload href
-  const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
-  q.searchParams.set('path', _args.diskPath);
-  q.searchParams.set('overwrite', 'true');
-  const r1 = await fetch(q.toString(), { headers: { Authorization: `OAuth ${token}` } });
-  if (!r1.ok) throw new Error(`yandex upload href HTTP ${r1.status}: ${(await r1.text().catch(() => '')) || 'no body'}`);
-  const j = (await r1.json().catch(() => null)) as any;
-  const href = String(j?.href ?? '');
-  if (!href) throw new Error('yandex upload href missing');
-
-  // 2) PUT bytes
-  const init: RequestInit = {
-    method: 'PUT',
-    // Buffer не входит в BodyInit по типам TS здесь, поэтому используем Uint8Array.
-    body: new Uint8Array(_args.bytes),
-  };
-  if (_args.mime) init.headers = { 'Content-Type': _args.mime };
-
-  const r2 = await fetch(href, init);
-  if (!r2.ok) throw new Error(`yandex upload PUT HTTP ${r2.status}: ${(await r2.text().catch(() => '')) || 'no body'}`);
-}
-
-async function yandexDownloadUrl(diskPath: string): Promise<string> {
-  const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
-  if (!token) throw new Error('YANDEX_DISK_TOKEN is not configured');
-  const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/download');
-  q.searchParams.set('path', diskPath);
-  const r = await fetch(q.toString(), { headers: { Authorization: `OAuth ${token}` } });
-  if (!r.ok) throw new Error(`yandex download href HTTP ${r.status}: ${(await r.text().catch(() => '')) || 'no body'}`);
-  const j = (await r.json().catch(() => null)) as any;
-  const href = String(j?.href ?? '');
-  if (!href) throw new Error('yandex download href missing');
-  return href;
 }
 
 filesRouter.get('/:id/meta', requirePermission(PermissionCode.FilesView), async (req, res) => {
@@ -263,21 +191,8 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
       // If it already exists as yandex asset, allow re-upload by returning a fresh uploadUrl
       // (important if a previous init happened but the client didn't finish PUT).
       if (row.storageKind === 'yandex' && row.yandexDiskPath) {
-        const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
-        if (!token) return res.status(500).json({ ok: false, error: 'YANDEX_DISK_TOKEN is not configured' });
-
         const diskPath = String(row.yandexDiskPath);
-        const parent = dirname(diskPath.replaceAll('\\', '/')) || '/';
-        await yandexEnsureFolderDeep(token, parent);
-
-        const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
-        q.searchParams.set('path', diskPath);
-        q.searchParams.set('overwrite', 'true');
-        const r1 = await fetch(q.toString(), { headers: { Authorization: `OAuth ${token}` } });
-        if (!r1.ok) return res.status(502).json({ ok: false, error: `yandex upload href HTTP ${r1.status}` });
-        const j = (await r1.json().catch(() => null)) as any;
-        const href = String(j?.href ?? '');
-        if (!href) return res.status(502).json({ ok: false, error: 'yandex upload href missing' });
+        const href = await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
 
         return res.json({
           ok: true,
@@ -325,22 +240,9 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
     });
 
     // Get pre-signed upload URL (href). Client will PUT directly to it.
-    const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
-    if (!token) return res.status(500).json({ ok: false, error: 'YANDEX_DISK_TOKEN is not configured' });
-
     // Ensure base folder exists on Yandex.Disk (mkdir is idempotent).
-    await yandexEnsureFolderDeep(token, baseYandexPath.replace(/\/+$/, '') || '/');
-    // Ensure target folder exists (nested scopes).
-    await yandexEnsureFolderDeep(token, dirname(diskPath.replaceAll('\\', '/')) || '/');
-
-    const q = new URL('https://cloud-api.yandex.net/v1/disk/resources/upload');
-    q.searchParams.set('path', diskPath);
-    q.searchParams.set('overwrite', 'true');
-    const r1 = await fetch(q.toString(), { headers: { Authorization: `OAuth ${token}` } });
-    if (!r1.ok) return res.status(502).json({ ok: false, error: `yandex upload href HTTP ${r1.status}` });
-    const j = (await r1.json().catch(() => null)) as any;
-    const href = String(j?.href ?? '');
-    if (!href) return res.status(502).json({ ok: false, error: 'yandex upload href missing' });
+    await ensureFolderDeep(baseYandexPath.replace(/\/+$/, '') || '/');
+    const href = await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
 
     await db.insert(fileAssets).values({
       id,
@@ -373,7 +275,7 @@ filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (
     if (row.storageKind === 'yandex') {
       const diskPath = String(row.yandexDiskPath || '');
       if (!diskPath) return res.status(500).json({ ok: false, error: 'yandex_disk_path missing' });
-      const href = await yandexDownloadUrl(diskPath);
+      const href = await getDownloadHref(diskPath);
       return res.json({ ok: true, url: href });
     }
 
@@ -474,7 +376,7 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
       fileName: name,
       scope: (parsed.data.scope ?? null) as any,
     });
-    await yandexUpload({ diskPath, bytes, mime });
+    await uploadBytes({ diskPath, bytes, mime });
 
     await db.insert(fileAssets).values({
       id,
@@ -517,7 +419,7 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
     if (row.storageKind === 'yandex') {
       const diskPath = String(row.yandexDiskPath || '');
       if (!diskPath) return res.status(500).json({ ok: false, error: 'yandex_disk_path missing' });
-      const href = await yandexDownloadUrl(diskPath);
+      const href = await getDownloadHref(diskPath);
       const r = await fetch(href);
       if (!r.ok) return res.status(502).json({ ok: false, error: `yandex download HTTP ${r.status}` });
       res.setHeader('Content-Type', row.mime || r.headers.get('content-type') || 'application/octet-stream');
@@ -531,17 +433,6 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
-
-async function yandexDeleteFile(diskPath: string): Promise<void> {
-  const token = (process.env.YANDEX_DISK_TOKEN ?? '').trim();
-  if (!token) throw new Error('YANDEX_DISK_TOKEN is not configured');
-  const q = new URL('https://cloud-api.yandex.net/v1/disk/resources');
-  q.searchParams.set('path', diskPath);
-  const r = await fetch(q.toString(), { method: 'DELETE', headers: { Authorization: `OAuth ${token}` } });
-  if (!r.ok && r.status !== 404) {
-    throw new Error(`yandex delete HTTP ${r.status}: ${(await r.text().catch(() => '')) || 'no body'}`);
-  }
-}
 
 filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async (req, res) => {
   try {
@@ -611,7 +502,7 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
     } else if (row.storageKind === 'yandex') {
       const diskPath = String(row.yandexDiskPath || '');
       if (diskPath) {
-        await yandexDeleteFile(diskPath).catch(() => {
+        await deletePath(diskPath).catch(() => {
           // Игнорируем ошибки удаления файла на Yandex.Disk
         });
       }

@@ -12,10 +12,12 @@
     "db:migrate": "tsx src/database/migrate.ts",
     "user:create": "tsx src/scripts/createUser.ts",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
-    "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts"
+    "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",
+    "backup:nightly": "tsx src/scripts/nightlyBackup.ts"
   },
   "dependencies": {
     "@matricarmz/shared": "workspace:*",
+    "better-sqlite3": "^11.7.2",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.11",

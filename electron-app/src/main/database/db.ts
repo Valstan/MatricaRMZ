@@ -9,4 +9,12 @@ export function openSqlite(dbPath: string) {
   return { sqlite, db };
 }
 
+export function openSqliteReadonly(dbPath: string) {
+  const sqlite = new Database(dbPath, { readonly: true, fileMustExist: true });
+  sqlite.pragma('query_only = ON');
+  sqlite.pragma('foreign_keys = OFF');
+  const db = drizzle(sqlite);
+  return { sqlite, db };
+}
+
 

@@ -9,13 +9,13 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return buildPeriodStagesCsv(ctx.db, args);
+    return buildPeriodStagesCsv(ctx.dataDb(), args);
   });
 
   ipcMain.handle('reports:periodStagesByLinkCsv', async (_e, args: { startMs?: number; endMs: number; linkAttrCode: string }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return buildPeriodStagesCsvByLink(ctx.db, args);
+    return buildPeriodStagesCsvByLink(ctx.dataDb(), args);
   });
 }
 

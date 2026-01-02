@@ -11,6 +11,7 @@ import { filesRouter } from './routes/files.js';
 import { partsRouter } from './routes/parts.js';
 import { logsRouter } from './routes/logs.js';
 import { changesRouter } from './routes/changes.js';
+import { backupsRouter } from './routes/backups.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
@@ -31,6 +32,7 @@ app.use('/changes', changesRouter);
 app.use('/files', filesRouter);
 app.use('/parts', partsRouter);
 app.use('/logs', logsRouter);
+app.use('/backups', backupsRouter);
 
 // Must be last: centralized error handler.
 app.use(errorHandler);

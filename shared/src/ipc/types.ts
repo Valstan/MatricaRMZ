@@ -189,6 +189,16 @@ export type MatricaApi = {
     getEnabled: () => Promise<boolean>;
     setEnabled: (enabled: boolean) => Promise<void>;
   };
+  backups: {
+    status: () => Promise<{ ok: true; mode: 'live' | 'backup'; backupDate: string | null } | { ok: false; error: string }>;
+    nightlyList: () => Promise<
+      | { ok: true; backups: Array<{ date: string; name: string; size: number | null; modified: string | null }> }
+      | { ok: false; error: string }
+    >;
+    nightlyEnter: (args: { date: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    nightlyRunNow: () => Promise<{ ok: true; startedAt: number } | { ok: false; error: string }>;
+    exit: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  };
   auth: {
     status: () => Promise<AuthStatus>;
     // Обновляет permissions по данным сервера (/auth/me) и сохраняет в локальную сессию.

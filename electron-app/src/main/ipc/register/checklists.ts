@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { requirePermOrResult } from '../ipcContext.js';
+import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../../services/checklistService.js';
 
@@ -9,15 +9,15 @@ export function registerChecklistsIpc(ctx: IpcContext) {
   ipcMain.handle('checklists:templates:list', async (_e, args?: { stage?: string }) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as any;
-    return listRepairChecklistTemplates(ctx.db, args?.stage);
+    return listRepairChecklistTemplates(ctx.dataDb(), args?.stage);
   });
 
   ipcMain.handle('checklists:engine:get', async (_e, args: { engineId: string; stage: string }) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as any;
-    const t = await listRepairChecklistTemplates(ctx.db, args.stage);
+    const t = await listRepairChecklistTemplates(ctx.dataDb(), args.stage);
     if (!t.ok) return t;
-    const r = await getRepairChecklistForEngine(ctx.db, args.engineId, args.stage);
+    const r = await getRepairChecklistForEngine(ctx.dataDb(), args.engineId, args.stage);
     if (!r.ok) return r;
     return { ok: true as const, operationId: r.operationId, payload: r.payload, templates: t.templates };
   });
@@ -28,10 +28,11 @@ export function registerChecklistsIpc(ctx: IpcContext) {
       _e,
       args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: any; attachments?: any[] },
     ) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
       const gate = await requirePermOrResult(ctx, 'operations.edit');
       if (!gate.ok) return gate as any;
 
-      const t = await listRepairChecklistTemplates(ctx.db, args.stage);
+      const t = await listRepairChecklistTemplates(ctx.dataDb(), args.stage);
       if (!t.ok) return t;
       const tmpl = t.templates.find((x) => x.id === args.templateId) ?? null;
       if (!tmpl) return { ok: false, error: 'template not found' };
@@ -49,7 +50,7 @@ export function registerChecklistsIpc(ctx: IpcContext) {
         attachments: Array.isArray(args.attachments) ? args.attachments : undefined,
       };
 
-      return saveRepairChecklistForEngine(ctx.db, { engineId: args.engineId, stage: args.stage, operationId: args.operationId, payload, actor });
+      return saveRepairChecklistForEngine(ctx.dataDb(), { engineId: args.engineId, stage: args.stage, operationId: args.operationId, payload, actor });
     },
   );
 }

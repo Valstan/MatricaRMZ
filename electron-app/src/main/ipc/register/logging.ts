@@ -9,12 +9,12 @@ export function registerLoggingIpc(ctx: IpcContext) {
   ipcMain.handle('log:send', async (_e, payload: { level: 'debug' | 'info' | 'warn' | 'error'; message: string }) => {
     ctx.logToFile(`renderer ${payload.level}: ${payload.message}`);
     // If enabled — buffer and send to server
-    await logMessage(ctx.db, ctx.mgr.getApiBaseUrl(), payload.level, payload.message, { source: 'renderer' }).catch(() => {});
+    await logMessage(ctx.sysDb, ctx.mgr.getApiBaseUrl(), payload.level, payload.message, { source: 'renderer' }).catch(() => {});
     return { ok: true };
   });
 
   ipcMain.handle('logging:getEnabled', async () => {
-    return { ok: true, enabled: await logMessageGetEnabled(ctx.db) };
+    return { ok: true, enabled: await logMessageGetEnabled(ctx.sysDb) };
   });
 
   ipcMain.handle('logging:setEnabled', async (_e, enabled: boolean) => {
@@ -22,7 +22,7 @@ export function registerLoggingIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'sync.use');
     if (!gate.ok) return gate;
 
-    await logMessageSetEnabled(ctx.db, enabled, ctx.mgr.getApiBaseUrl());
+    await logMessageSetEnabled(ctx.sysDb, enabled, ctx.mgr.getApiBaseUrl());
     return { ok: true };
   });
 }

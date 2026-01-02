@@ -1,15 +1,16 @@
 import { ipcMain, dialog, app } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { requirePermOrResult } from '../ipcContext.js';
+import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 
 import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesPreviewGet, filesUpload } from '../../services/fileService.js';
 
 export function registerFilesIpc(ctx: IpcContext) {
   ipcMain.handle('files:upload', async (_e, args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'files.upload');
     if (!gate.ok) return gate;
-    return filesUpload(ctx.db, ctx.mgr.getApiBaseUrl(), args);
+    return filesUpload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle('files:pick', async () => {
@@ -30,7 +31,7 @@ export function registerFilesIpc(ctx: IpcContext) {
   });
 
   ipcMain.handle('files:downloadDir:get', async () => {
-    return filesDownloadDirGet(ctx.db, { defaultDir: app.getPath('downloads') });
+    return filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
   });
 
   ipcMain.handle('files:downloadDir:pick', async () => {
@@ -44,7 +45,7 @@ export function registerFilesIpc(ctx: IpcContext) {
       });
       const p = r.filePaths?.[0] ? String(r.filePaths[0]) : '';
       if (!p) return { ok: false, error: 'cancelled' };
-      return await filesDownloadDirSet(ctx.db, p);
+      return await filesDownloadDirSet(ctx.sysDb, p);
     } catch (e) {
       return { ok: false, error: String(e) };
     }
@@ -53,29 +54,30 @@ export function registerFilesIpc(ctx: IpcContext) {
   ipcMain.handle('files:download', async (_e, args: { fileId: string }) => {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
-    const dir = await filesDownloadDirGet(ctx.db, { defaultDir: app.getPath('downloads') });
+    const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
     if (!dir.ok) return dir;
-    return filesDownload(ctx.db, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+    return filesDownload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
   });
 
   ipcMain.handle('files:open', async (_e, args: { fileId: string }) => {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
-    const dir = await filesDownloadDirGet(ctx.db, { defaultDir: app.getPath('downloads') });
+    const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
     if (!dir.ok) return dir;
-    return filesOpen(ctx.db, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+    return filesOpen(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
   });
 
   ipcMain.handle('files:delete', async (_e, args: { fileId: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'files.delete');
     if (!gate.ok) return gate;
-    return filesDelete(ctx.db, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId });
+    return filesDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId });
   });
 
   ipcMain.handle('files:preview:get', async (_e, args: { fileId: string }) => {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
-    return filesPreviewGet(ctx.db, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId });
+    return filesPreviewGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId });
   });
 }
 
