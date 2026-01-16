@@ -76,7 +76,7 @@ export function App() {
     setOps([]);
     setSelectedRequestId(null);
     setSelectedPartId(null);
-  }, [backupMode.mode, backupMode.backupDate]);
+  }, [backupMode?.mode, backupMode?.backupDate]);
 
   async function refreshServerHealth() {
     const r = await window.matrica.server.health().catch(() => null);
