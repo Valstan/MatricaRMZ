@@ -33,7 +33,8 @@ syncRouter.post('/push', async (req, res) => {
 
 syncRouter.get('/pull', async (req, res) => {
   try {
-    const actor = (req as AuthenticatedRequest).user?.username ?? 'unknown';
+    const user = (req as AuthenticatedRequest).user;
+    const actor = user?.username ?? 'unknown';
     const querySchema = z.object({
       since: z.coerce.number().int().nonnegative().default(0),
     });
@@ -44,7 +45,7 @@ syncRouter.get('/pull', async (req, res) => {
     }
 
     logInfo('sync pull', { user: actor, since: parsed.data.since }, { critical: true });
-    const response = await pullChangesSince(parsed.data.since);
+    const response = await pullChangesSince(parsed.data.since, { id: user?.id ?? '', role: user?.role ?? '' });
     return res.json(response);
   } catch (e) {
     logError('sync pull failed', { error: String(e) });

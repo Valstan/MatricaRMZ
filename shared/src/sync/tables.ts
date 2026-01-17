@@ -8,6 +8,9 @@ export const SyncTableName = {
   AttributeValues: 'attribute_values',
   Operations: 'operations',
   AuditLog: 'audit_log',
+  ChatMessages: 'chat_messages',
+  ChatReads: 'chat_reads',
+  UserPresence: 'user_presence',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

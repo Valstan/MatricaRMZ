@@ -57,6 +57,11 @@ function yandexDiskPathForFile(args: { baseYandexPath: string; fileId: string; f
   if (!args.scope) {
     return `${base}/${args.fileId}_${args.fileName}`;
   }
+  // Special scope for chat temporary files: keep them under a single folder `${base}/chat-files`.
+  // This is used by the Chat module to enforce retention cleanup by folder.
+  if (args.scope.ownerType === 'chat' && args.scope.category === 'chat-files') {
+    return `${base}/chat-files/${args.fileId}_${args.fileName}`;
+  }
   const ownerType = safePathSegment(args.scope.ownerType, 'owner');
   const ownerId = safePathSegment(args.scope.ownerId, 'id');
   const category = safePathSegment(args.scope.category, 'files');

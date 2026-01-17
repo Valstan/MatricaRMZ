@@ -337,4 +337,75 @@ export const fileAssets = pgTable(
   }),
 );
 
+// -----------------------------
+// Chat (sync tables)
+// -----------------------------
+export const chatMessages = pgTable(
+  'chat_messages',
+  {
+    id: uuid('id').primaryKey(),
+
+    senderUserId: uuid('sender_user_id')
+      .notNull()
+      .references(() => users.id),
+    senderUsername: text('sender_username').notNull(),
+
+    // null => общий чат
+    recipientUserId: uuid('recipient_user_id').references(() => users.id),
+
+    // text/file/deep_link
+    messageType: text('message_type').notNull(),
+    bodyText: text('body_text'),
+    payloadJson: text('payload_json'),
+
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (_t) => ({}),
+);
+
+export const chatReads = pgTable(
+  'chat_reads',
+  {
+    id: uuid('id').primaryKey(),
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => chatMessages.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    readAt: bigint('read_at', { mode: 'number' }).notNull(),
+
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    msgUserUq: uniqueIndex('chat_reads_message_user_uq').on(t.messageId, t.userId).where(sql`${t.deletedAt} is null`),
+  }),
+);
+
+export const userPresence = pgTable(
+  'user_presence',
+  {
+    // Используем userId как primary key, чтобы на пользователя была ровно одна строка.
+    id: uuid('id')
+      .primaryKey()
+      .references(() => users.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    lastActivityAt: bigint('last_activity_at', { mode: 'number' }).notNull(),
+
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (_t) => ({}),
+);
+
 

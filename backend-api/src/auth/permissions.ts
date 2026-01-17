@@ -57,6 +57,11 @@ export const PermissionCode = {
   PartsDelete: 'parts.delete',
   PartsFilesUpload: 'parts.files.upload',
   PartsFilesDelete: 'parts.files.delete',
+
+  // chat
+  ChatUse: 'chat.use',
+  ChatExport: 'chat.export',
+  ChatAdminView: 'chat.admin.view',
 } as const;
 
 export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
@@ -94,6 +99,9 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
 
     // parts (только просмотр)
     [PermissionCode.PartsView]: true,
+
+    // chat (только пользование)
+    [PermissionCode.ChatUse]: true,
   };
 }
 

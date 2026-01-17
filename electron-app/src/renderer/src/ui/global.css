@@ -49,4 +49,20 @@ table {
   font-variant-numeric: tabular-nums;
 }
 
+@keyframes chatBlink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.chatBlink {
+  animation: chatBlink 1s steps(1, end) infinite;
+}
+
 

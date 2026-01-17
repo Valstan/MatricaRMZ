@@ -4,9 +4,12 @@ import {
   attributeDefRowSchema,
   attributeValueRowSchema,
   auditLogRowSchema,
+  chatMessageRowSchema,
+  chatReadRowSchema,
   entityRowSchema,
   entityTypeRowSchema,
   operationRowSchema,
+  userPresenceRowSchema,
   type SyncPushRequest,
 } from '@matricarmz/shared';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -17,6 +20,8 @@ import {
   attributeDefs,
   attributeValues,
   auditLog,
+  chatMessages,
+  chatReads,
   changeRequests,
   changeLog,
   entities,
@@ -24,6 +29,7 @@ import {
   operations,
   rowOwners,
   syncState,
+  userPresence,
 } from '../../database/schema.js';
 
 // Специальный “контейнер” для операций заявок в снабжение.
@@ -81,6 +87,49 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       });
 
     let applied = 0;
+
+    // Presence heartbeat: treat every push as "user is active now".
+    // We do it server-side (do not trust client-provided presence payloads).
+    if (actor.id) {
+      const presencePayload = {
+        id: actor.id,
+        user_id: actor.id,
+        last_activity_at: appliedAt,
+        created_at: appliedAt,
+        updated_at: appliedAt,
+        deleted_at: null,
+        sync_status: 'synced',
+      };
+      await tx
+        .insert(userPresence)
+        .values({
+          id: actor.id as any,
+          userId: actor.id as any,
+          lastActivityAt: appliedAt,
+          createdAt: appliedAt,
+          updatedAt: appliedAt,
+          deletedAt: null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoUpdate({
+          target: userPresence.id,
+          set: {
+            userId: sql`excluded.user_id`,
+            lastActivityAt: sql`excluded.last_activity_at`,
+            updatedAt: sql`excluded.updated_at`,
+            deletedAt: sql`excluded.deleted_at`,
+            syncStatus: 'synced',
+          },
+        });
+      await tx.insert(changeLog).values({
+        tableName: SyncTableName.UserPresence,
+        rowId: actor.id as any,
+        op: 'upsert',
+        payloadJson: JSON.stringify(presencePayload),
+        createdAt: appliedAt,
+      });
+      applied += 1;
+    }
 
     async function ensureOwner(tableName: string, rowId: string, owner: { userId: string | null; username: string | null }) {
       await tx
@@ -949,6 +998,162 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           })),
         );
         applied += rows.length;
+      }
+    }
+
+    // ChatMessages
+    {
+      const raw = grouped.get(SyncTableName.ChatMessages) ?? [];
+      const parsedAll = raw.map((x) => chatMessageRowSchema.parse(x));
+      if (parsedAll.length > 0 && actor.id) {
+        // Never trust sender fields from client.
+        const parsed = parsedAll.map((r) => ({
+          ...r,
+          sender_user_id: actor.id,
+          sender_username: actor.username,
+        }));
+        const rows = await filterStaleByUpdatedAt(chatMessages, parsed);
+        const ids = rows.map((r) => r.id);
+        const existing = await tx
+          .select()
+          .from(chatMessages)
+          .where(inArray(chatMessages.id, ids as any))
+          .limit(50_000);
+        const existingMap = new Map<string, any>();
+        for (const e of existing as any[]) existingMap.set(String(e.id), e);
+
+        const allowed: typeof rows = [];
+        for (const r of rows) {
+          const cur = existingMap.get(String(r.id));
+          if (!cur) {
+            allowed.push(r);
+            continue;
+          }
+          // Updates/deletes allowed only for admin or original sender.
+          const senderOk = String(cur.senderUserId ?? '') === actor.id;
+          if (actorIsAdmin || senderOk) {
+            allowed.push(r);
+            continue;
+          }
+        }
+
+        if (allowed.length > 0) {
+          await tx
+            .insert(chatMessages)
+            .values(
+              allowed.map((r) => ({
+                id: r.id as any,
+                senderUserId: r.sender_user_id as any,
+                senderUsername: r.sender_username,
+                recipientUserId: r.recipient_user_id ? (r.recipient_user_id as any) : null,
+                messageType: r.message_type,
+                bodyText: r.body_text ?? null,
+                payloadJson: r.payload_json ?? null,
+                createdAt: r.created_at,
+                updatedAt: Math.max(r.updated_at, appliedAt),
+                deletedAt: r.deleted_at ?? null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoUpdate({
+              target: chatMessages.id,
+              set: {
+                senderUserId: sql`excluded.sender_user_id`,
+                senderUsername: sql`excluded.sender_username`,
+                recipientUserId: sql`excluded.recipient_user_id`,
+                messageType: sql`excluded.message_type`,
+                bodyText: sql`excluded.body_text`,
+                payloadJson: sql`excluded.payload_json`,
+                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                deletedAt: sql`excluded.deleted_at`,
+                syncStatus: 'synced',
+              },
+            });
+          await tx.insert(changeLog).values(
+            allowed.map((r) => ({
+              tableName: SyncTableName.ChatMessages,
+              rowId: r.id as any,
+              op: normalizeOpFromRow(r),
+              payloadJson: JSON.stringify(r),
+              createdAt: appliedAt,
+            })),
+          );
+          applied += allowed.length;
+        }
+      }
+    }
+
+    // ChatReads
+    {
+      const raw = grouped.get(SyncTableName.ChatReads) ?? [];
+      const parsedAll = raw.map((x) => chatReadRowSchema.parse(x));
+      if (parsedAll.length > 0 && actor.id) {
+        // Never trust user_id from client (read receipts are personal).
+        const parsed = parsedAll.map((r) => ({
+          ...r,
+          user_id: actor.id,
+        }));
+        const rows = await filterStaleByUpdatedAt(chatReads, parsed);
+        const ids = rows.map((r) => r.id);
+        const existing = await tx
+          .select()
+          .from(chatReads)
+          .where(inArray(chatReads.id, ids as any))
+          .limit(50_000);
+        const existingMap = new Map<string, any>();
+        for (const e of existing as any[]) existingMap.set(String(e.id), e);
+
+        const allowed: typeof rows = [];
+        for (const r of rows) {
+          const cur = existingMap.get(String(r.id));
+          if (!cur) {
+            allowed.push(r);
+            continue;
+          }
+          const userOk = String(cur.userId ?? '') === actor.id;
+          if (actorIsAdmin || userOk) {
+            allowed.push(r);
+            continue;
+          }
+        }
+
+        if (allowed.length > 0) {
+          await tx
+            .insert(chatReads)
+            .values(
+              allowed.map((r) => ({
+                id: r.id as any,
+                messageId: r.message_id as any,
+                userId: r.user_id as any,
+                readAt: r.read_at,
+                createdAt: r.created_at,
+                updatedAt: Math.max(r.updated_at, appliedAt),
+                deletedAt: r.deleted_at ?? null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoUpdate({
+              target: chatReads.id,
+              set: {
+                messageId: sql`excluded.message_id`,
+                userId: sql`excluded.user_id`,
+                readAt: sql`excluded.read_at`,
+                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                deletedAt: sql`excluded.deleted_at`,
+                syncStatus: 'synced',
+              },
+            });
+          await tx.insert(changeLog).values(
+            allowed.map((r) => ({
+              tableName: SyncTableName.ChatReads,
+              rowId: r.id as any,
+              op: normalizeOpFromRow(r),
+              payloadJson: JSON.stringify(r),
+              createdAt: appliedAt,
+            })),
+          );
+          applied += allowed.length;
+        }
       }
     }
 

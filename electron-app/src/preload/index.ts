@@ -148,6 +148,17 @@ contextBridge.exposeInMainWorld('matrica', {
     downloadDirGet: async () => ipcRenderer.invoke('files:downloadDir:get'),
     downloadDirPick: async () => ipcRenderer.invoke('files:downloadDir:pick'),
   },
+  chat: {
+    usersList: async () => ipcRenderer.invoke('chat:usersList'),
+    list: async (args: { mode: 'global' | 'private'; withUserId?: string | null; limit?: number }) => ipcRenderer.invoke('chat:list', args),
+    adminListPair: async (args: { userAId: string; userBId: string; limit?: number }) => ipcRenderer.invoke('chat:adminListPair', args),
+    sendText: async (args: { recipientUserId?: string | null; text: string }) => ipcRenderer.invoke('chat:sendText', args),
+    sendFile: async (args: { recipientUserId?: string | null; path: string }) => ipcRenderer.invoke('chat:sendFile', args),
+    sendDeepLink: async (args: { recipientUserId?: string | null; link: unknown }) => ipcRenderer.invoke('chat:sendDeepLink', args),
+    markRead: async (args: { messageIds: string[] }) => ipcRenderer.invoke('chat:markRead', args),
+    unreadCount: async () => ipcRenderer.invoke('chat:unreadCount'),
+    export: async (args: { startMs: number; endMs: number }) => ipcRenderer.invoke('chat:export', args),
+  },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),
     setEnabled: async (enabled: boolean) => ipcRenderer.invoke('logging:setEnabled', enabled),

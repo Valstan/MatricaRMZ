@@ -5,7 +5,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, auditLog, chatMessages, chatReads, entities, entityTypes, operations, userPresence } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
@@ -21,6 +21,9 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.AttributeValues]: 500,
   [SyncTableName.Operations]: 500,
   [SyncTableName.AuditLog]: 500,
+  [SyncTableName.ChatMessages]: 800,
+  [SyncTableName.ChatReads]: 800,
+  [SyncTableName.UserPresence]: 50,
 };
 
 function nowMs() {
@@ -196,6 +199,18 @@ async function collectPending(db: BetterSQLite3Database) {
     SyncTableName.AuditLog,
     await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)).limit(limitFor(SyncTableName.AuditLog)),
   );
+  await add(
+    SyncTableName.ChatMessages,
+    await db.select().from(chatMessages).where(eq(chatMessages.syncStatus, pending)).limit(limitFor(SyncTableName.ChatMessages)),
+  );
+  await add(
+    SyncTableName.ChatReads,
+    await db.select().from(chatReads).where(eq(chatReads.syncStatus, pending)).limit(limitFor(SyncTableName.ChatReads)),
+  );
+  await add(
+    SyncTableName.UserPresence,
+    await db.select().from(userPresence).where(eq(userPresence.syncStatus, pending)).limit(limitFor(SyncTableName.UserPresence)),
+  );
 
   return packs;
 }
@@ -277,6 +292,41 @@ function toSyncRow(table: SyncTableName, row: any): any {
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
+    case SyncTableName.ChatMessages:
+      return {
+        id: row.id,
+        sender_user_id: row.senderUserId,
+        sender_username: row.senderUsername,
+        recipient_user_id: row.recipientUserId ?? null,
+        message_type: row.messageType,
+        body_text: row.bodyText ?? null,
+        payload_json: row.payloadJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.ChatReads:
+      return {
+        id: row.id,
+        message_id: row.messageId,
+        user_id: row.userId,
+        read_at: row.readAt,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.UserPresence:
+      return {
+        id: row.id,
+        user_id: row.userId,
+        last_activity_at: row.lastActivityAt,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
   }
 }
 
@@ -305,6 +355,15 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
         break;
       case SyncTableName.AuditLog:
         await db.update(auditLog).set({ syncStatus: 'synced' }).where(inArray(auditLog.id, chunk));
+        break;
+      case SyncTableName.ChatMessages:
+        await db.update(chatMessages).set({ syncStatus: 'synced' }).where(inArray(chatMessages.id, chunk));
+        break;
+      case SyncTableName.ChatReads:
+        await db.update(chatReads).set({ syncStatus: 'synced' }).where(inArray(chatReads.id, chunk));
+        break;
+      case SyncTableName.UserPresence:
+        await db.update(userPresence).set({ syncStatus: 'synced' }).where(inArray(userPresence.id, chunk));
         break;
     }
   }
@@ -400,6 +459,9 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     [SyncTableName.AttributeValues]: [],
     [SyncTableName.Operations]: [],
     [SyncTableName.AuditLog]: [],
+    [SyncTableName.ChatMessages]: [],
+    [SyncTableName.ChatReads]: [],
+    [SyncTableName.UserPresence]: [],
   };
 
   for (const ch of changes) {
@@ -508,6 +570,53 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           });
         }
         break;
+      case SyncTableName.ChatMessages:
+        {
+          const payload = payloadRaw;
+          groups.chat_messages.push({
+            id: payload.id,
+            senderUserId: payload.sender_user_id,
+            senderUsername: payload.sender_username,
+            recipientUserId: payload.recipient_user_id ?? null,
+            messageType: payload.message_type,
+            bodyText: payload.body_text ?? null,
+            payloadJson: payload.payload_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ChatReads:
+        {
+          const payload = payloadRaw;
+          groups.chat_reads.push({
+            id: payload.id,
+            messageId: payload.message_id,
+            userId: payload.user_id,
+            readAt: payload.read_at,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.UserPresence:
+        {
+          const payload = payloadRaw;
+          groups.user_presence.push({
+            id: payload.id,
+            userId: payload.user_id,
+            lastActivityAt: payload.last_activity_at,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
     }
   }
 
@@ -530,6 +639,9 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   groups.attribute_values = dedupById(groups.attribute_values);
   groups.operations = dedupById(groups.operations);
   groups.audit_log = dedupById(groups.audit_log);
+  groups.chat_messages = dedupById(groups.chat_messages);
+  groups.chat_reads = dedupById(groups.chat_reads);
+  groups.user_presence = dedupById(groups.user_presence);
 
   // IMPORTANT:
   // Drizzle (better-sqlite3) uses async query API. Running it inside better-sqlite3's native transaction
@@ -632,6 +744,59 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           entityId: sql`excluded.entity_id`,
           tableName: sql`excluded.table_name`,
           payloadJson: sql`excluded.payload_json`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+
+  if (groups.chat_messages.length > 0) {
+    await db
+      .insert(chatMessages)
+      .values(groups.chat_messages)
+      .onConflictDoUpdate({
+        target: chatMessages.id,
+        set: {
+          senderUserId: sql`excluded.sender_user_id`,
+          senderUsername: sql`excluded.sender_username`,
+          recipientUserId: sql`excluded.recipient_user_id`,
+          messageType: sql`excluded.message_type`,
+          bodyText: sql`excluded.body_text`,
+          payloadJson: sql`excluded.payload_json`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+
+  if (groups.chat_reads.length > 0) {
+    await db
+      .insert(chatReads)
+      .values(groups.chat_reads)
+      .onConflictDoUpdate({
+        target: chatReads.id,
+        set: {
+          messageId: sql`excluded.message_id`,
+          userId: sql`excluded.user_id`,
+          readAt: sql`excluded.read_at`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+
+  if (groups.user_presence.length > 0) {
+    await db
+      .insert(userPresence)
+      .values(groups.user_presence)
+      .onConflictDoUpdate({
+        target: userPresence.id,
+        set: {
+          userId: sql`excluded.user_id`,
+          lastActivityAt: sql`excluded.last_activity_at`,
           updatedAt: sql`excluded.updated_at`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',

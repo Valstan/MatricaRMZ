@@ -71,6 +71,29 @@ export const auditLogRowSchema = z.object({
   payload_json: z.string().nullable().optional(),
 });
 
+export const chatMessageRowSchema = z.object({
+  ...baseRowFields,
+  sender_user_id: z.string().uuid(),
+  sender_username: z.string().min(1),
+  recipient_user_id: z.string().uuid().nullable().optional(), // null => общий чат
+  message_type: z.enum(['text', 'file', 'deep_link']),
+  body_text: z.string().nullable().optional(),
+  payload_json: z.string().nullable().optional(), // JSON-строка (FileRef / deep-link payload)
+});
+
+export const chatReadRowSchema = z.object({
+  ...baseRowFields,
+  message_id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  read_at: z.number().int(),
+});
+
+export const userPresenceRowSchema = z.object({
+  ...baseRowFields,
+  user_id: z.string().uuid(),
+  last_activity_at: z.number().int(),
+});
+
 export const syncTableUpsertSchema = z.object({
   table: z.nativeEnum(SyncTableName),
   rows: z.array(z.unknown()),

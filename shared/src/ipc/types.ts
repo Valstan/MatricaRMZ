@@ -145,6 +145,57 @@ export type AuthStatus = {
   permissions: Record<string, boolean> | null;
 };
 
+export type ChatMessageType = 'text' | 'file' | 'deep_link';
+
+export type ChatDeepLinkPayload = {
+  kind: 'app_link';
+  tab:
+    | 'engines'
+    | 'engine'
+    | 'requests'
+    | 'request'
+    | 'parts'
+    | 'part'
+    | 'changes'
+    | 'reports'
+    | 'admin'
+    | 'audit'
+    | 'settings'
+    | 'auth';
+  engineId?: string | null;
+  requestId?: string | null;
+  partId?: string | null;
+};
+
+export type ChatMessageItem = {
+  id: string;
+  senderUserId: string;
+  senderUsername: string;
+  recipientUserId: string | null;
+  messageType: ChatMessageType;
+  bodyText: string | null;
+  payload: unknown | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ChatUserItem = {
+  id: string;
+  username: string;
+  role: string;
+  isActive: boolean;
+  lastActivityAt: number | null;
+  online: boolean;
+};
+
+export type ChatUsersListResult = { ok: true; users: ChatUserItem[] } | { ok: false; error: string };
+export type ChatListResult = { ok: true; messages: ChatMessageItem[] } | { ok: false; error: string };
+export type ChatSendResult = { ok: true; id: string } | { ok: false; error: string };
+export type ChatUnreadCountResult =
+  | { ok: true; total: number; global: number; byUser: Record<string, number> }
+  | { ok: false; error: string };
+export type ChatExportResult = { ok: true; path: string } | { ok: false; error: string };
+
 export type AuthLoginResult =
   | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo; permissions: Record<string, boolean> }
   | { ok: false; error: string };
@@ -467,6 +518,18 @@ export type MatricaApi = {
     // Папка скачивания/кеша.
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+  };
+  chat: {
+    usersList: () => Promise<ChatUsersListResult>;
+    list: (args: { mode: 'global' | 'private'; withUserId?: string | null; limit?: number }) => Promise<ChatListResult>;
+    // Admin-only: list private dialog between any two users.
+    adminListPair: (args: { userAId: string; userBId: string; limit?: number }) => Promise<ChatListResult>;
+    sendText: (args: { recipientUserId?: string | null; text: string }) => Promise<ChatSendResult>;
+    sendFile: (args: { recipientUserId?: string | null; path: string }) => Promise<ChatSendResult>;
+    sendDeepLink: (args: { recipientUserId?: string | null; link: ChatDeepLinkPayload }) => Promise<ChatSendResult>;
+    markRead: (args: { messageIds: string[] }) => Promise<{ ok: true; marked: number } | { ok: false; error: string }>;
+    unreadCount: () => Promise<ChatUnreadCountResult>;
+    export: (args: { startMs: number; endMs: number }) => Promise<ChatExportResult>;
   };
 };
 

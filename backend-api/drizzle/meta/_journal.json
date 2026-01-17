@@ -85,6 +85,13 @@
       "when": 1767301347329,
       "tag": "0011_brainy_gabe_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1768630000000,
+      "tag": "0012_chat_module",
+      "breakpoints": true
     }
   ]
 }

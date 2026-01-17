@@ -115,6 +115,64 @@ export const auditLog = sqliteTable(
   }),
 );
 
+// -----------------------------
+// Chat (sync tables)
+// -----------------------------
+export const chatMessages = sqliteTable(
+  'chat_messages',
+  {
+    id: text('id').primaryKey(), // uuid
+    senderUserId: text('sender_user_id').notNull(), // uuid
+    senderUsername: text('sender_username').notNull(),
+    recipientUserId: text('recipient_user_id'), // uuid | null (общий чат)
+    messageType: text('message_type').notNull(), // text/file/deep_link
+    bodyText: text('body_text'),
+    payloadJson: text('payload_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('chat_messages_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const chatReads = sqliteTable(
+  'chat_reads',
+  {
+    id: text('id').primaryKey(), // uuid
+    messageId: text('message_id').notNull(), // uuid
+    userId: text('user_id').notNull(), // uuid
+    readAt: integer('read_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    msgUserUq: uniqueIndex('chat_reads_message_user_uq').on(t.messageId, t.userId),
+    syncStatusIdx: index('chat_reads_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const userPresence = sqliteTable(
+  'user_presence',
+  {
+    id: text('id').primaryKey(), // uuid (userId)
+    userId: text('user_id').notNull(), // uuid
+    lastActivityAt: integer('last_activity_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    userUq: uniqueIndex('user_presence_user_uq').on(t.userId),
+    syncStatusIdx: index('user_presence_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
 export const syncState = sqliteTable('sync_state', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

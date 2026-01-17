@@ -4,7 +4,10 @@ import { gt, asc } from 'drizzle-orm';
 import { db } from '../../database/db.js';
 import { changeLog } from '../../database/schema.js';
 
-export async function pullChangesSince(since: number): Promise<SyncPullResponse> {
+export async function pullChangesSince(
+  since: number,
+  actor: { id: string; role: string },
+): Promise<SyncPullResponse> {
   const rows = await db
     .select({
       table: changeLog.tableName,
@@ -17,6 +20,9 @@ export async function pullChangesSince(since: number): Promise<SyncPullResponse>
     .where(gt(changeLog.serverSeq, since))
     .orderBy(asc(changeLog.serverSeq))
     .limit(5000);
+
+  const actorId = String(actor?.id ?? '');
+  const actorIsAdmin = String(actor?.role ?? '').toLowerCase() === 'admin';
 
   // Filter out test/bulk artifacts (historical bench data) so new clients don't pull them.
   // IMPORTANT: we MUST still allow delete events through, otherwise clients can't get rid of them.
@@ -34,7 +40,36 @@ export async function pullChangesSince(since: number): Promise<SyncPullResponse>
   }
 
   const filtered = rows.filter((r) => {
-    if (String(r.table) !== 'entity_types') return true;
+    const table = String(r.table);
+
+    // Chat privacy filter:
+    // - chat_messages: private messages are visible only to sender/recipient (or admin)
+    // - chat_reads: visible only to the owning user (or admin)
+    if (table === 'chat_messages') {
+      if (actorIsAdmin) return true;
+      try {
+        const p = JSON.parse(String(r.payloadJson ?? '')) as any;
+        const senderId = String(p?.sender_user_id ?? '');
+        const recipientId = p?.recipient_user_id == null ? null : String(p?.recipient_user_id);
+        if (!recipientId) return true; // общий чат
+        return senderId === actorId || recipientId === actorId;
+      } catch {
+        // If payload is corrupted, be safe and do not leak it.
+        return false;
+      }
+    }
+    if (table === 'chat_reads') {
+      if (actorIsAdmin) return true;
+      try {
+        const p = JSON.parse(String(r.payloadJson ?? '')) as any;
+        const userId = String(p?.user_id ?? '');
+        return userId === actorId;
+      } catch {
+        return false;
+      }
+    }
+
+    if (table !== 'entity_types') return true;
     // Always allow delete operations (they are needed to clean up client caches).
     if (String(r.op) === 'delete') return true;
     return !isBulkEntityTypePayload(String(r.payloadJson ?? ''));

@@ -18,6 +18,7 @@ import { PartDetailsPage } from './pages/PartDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
+import { ChatPanel } from './components/ChatPanel.js';
 
 export function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -37,6 +38,8 @@ export function App() {
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState<boolean>(true);
+  const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
 
   useEffect(() => {
     void refreshEngines();
@@ -156,6 +159,9 @@ export function App() {
 
   const capsBase = deriveUiCaps(authStatus.permissions ?? null);
   const viewMode = backupMode?.mode === 'backup';
+  const canChat = !!authStatus.permissions?.['chat.use'];
+  const canChatExport = !!authStatus.permissions?.['chat.export'];
+  const canChatAdminView = !!authStatus.permissions?.['chat.admin.view'];
   const caps = viewMode
     ? {
         ...capsBase,
@@ -195,6 +201,32 @@ export function App() {
   useEffect(() => {
     if (!authStatus.loggedIn && tab !== 'auth') setTab('auth');
   }, [authStatus.loggedIn, tab]);
+
+  // Gate: chat requires auth + permission.
+  useEffect(() => {
+    if (!authStatus.loggedIn || !canChat) setChatOpen(false);
+  }, [authStatus.loggedIn, canChat]);
+
+  // Poll unread count (for the "Открыть чат" counter).
+  useEffect(() => {
+    if (!authStatus.loggedIn || !canChat || viewMode) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await window.matrica.chat.unreadCount();
+        if (!alive) return;
+        if ((r as any)?.ok) setChatUnreadTotal(Number((r as any).total ?? 0));
+      } catch {
+        // ignore
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [authStatus.loggedIn, canChat, viewMode]);
 
   // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
   useEffect(() => {
@@ -239,6 +271,46 @@ export function App() {
   async function openRequest(id: string) {
     setSelectedRequestId(id);
     setTab('request');
+  }
+
+  async function openPart(id: string) {
+    setSelectedPartId(id);
+    setTab('part');
+  }
+
+  async function navigateDeepLink(link: any) {
+    const tabId = String(link?.tab ?? '') as any;
+    const engineId = link?.engineId ? String(link.engineId) : null;
+    const requestId = link?.requestId ? String(link.requestId) : null;
+    const partId = link?.partId ? String(link.partId) : null;
+
+    // Prefer opening specific entities if IDs are present.
+    if (engineId) {
+      await openEngine(engineId);
+      return;
+    }
+    if (requestId) {
+      await openRequest(requestId);
+      return;
+    }
+    if (partId) {
+      await openPart(partId);
+      return;
+    }
+    setTab(tabId);
+  }
+
+  async function sendCurrentPositionToChat() {
+    if (!authStatus.loggedIn || !canChat) return;
+    const link = {
+      kind: 'app_link',
+      tab,
+      engineId: selectedEngineId ?? null,
+      requestId: selectedRequestId ?? null,
+      partId: selectedPartId ?? null,
+    };
+    const r = await window.matrica.chat.sendDeepLink({ recipientUserId: null, link }).catch(() => null);
+    if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
   }
 
   async function reloadEngine() {
@@ -301,6 +373,25 @@ export function App() {
       title={pageTitle}
       right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+          {authStatus.loggedIn && canChat && !chatOpen && (
+            <Button
+              variant="ghost"
+              onClick={() => setChatOpen(true)}
+              title="Открыть окно чата"
+            >
+              Открыть Чат
+              {chatUnreadTotal > 0 ? (
+                <span style={{ marginLeft: 6, color: '#b91c1c', fontWeight: 900 }}>
+                  {chatUnreadTotal}
+                </span>
+              ) : null}
+            </Button>
+          )}
+          {authStatus.loggedIn && canChat && (
+            <Button variant="ghost" onClick={() => void sendCurrentPositionToChat()} title="Отправить ссылку на текущий раздел в общий чат">
+              Отправить ссылку
+            </Button>
+          )}
           {authStatus.loggedIn && caps.canUseSync && !viewMode && (
             <Button
               variant="ghost"
@@ -340,35 +431,44 @@ export function App() {
         </div>
       }
     >
-      {viewMode && (
-        <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', fontWeight: 800 }}>
-          Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
-        </div>
-      )}
-      <Tabs
-        tab={tab}
-        onTab={(t) => {
-          if (!authStatus.loggedIn && t !== 'auth') {
-            setTab('auth');
-            return;
-          }
-          if (!visibleTabs.includes(t)) return;
-          setTab(t);
-          if (t === 'audit') void refreshAudit();
-        }}
-        visibleTabs={visibleTabs}
-        authLabel={authStatus.loggedIn ? authStatus.user?.username ?? 'Вход' : 'Войти'}
-      />
+      <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
+        <div
+          style={{
+            flex: chatOpen && authStatus.loggedIn && canChat ? '0 0 75%' : '1 1 auto',
+            minWidth: 0,
+            overflow: 'auto',
+            paddingRight: 2,
+          }}
+        >
+          {viewMode && (
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', fontWeight: 800 }}>
+              Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
+            </div>
+          )}
+          <Tabs
+            tab={tab}
+            onTab={(t) => {
+              if (!authStatus.loggedIn && t !== 'auth') {
+                setTab('auth');
+                return;
+              }
+              if (!visibleTabs.includes(t)) return;
+              setTab(t);
+              if (t === 'audit') void refreshAudit();
+            }}
+            visibleTabs={visibleTabs}
+            authLabel={authStatus.loggedIn ? authStatus.user?.username ?? 'Вход' : 'Войти'}
+          />
 
-      <div style={{ marginTop: 14 }}>
-        {postLoginSyncMsg && (
-          <div style={{ marginBottom: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
-            {postLoginSyncMsg}
-          </div>
-        )}
-        {!authStatus.loggedIn && tab !== 'auth' && (
-          <div style={{ color: '#6b7280' }}>Требуется вход.</div>
-        )}
+          <div style={{ marginTop: 14 }}>
+            {postLoginSyncMsg && (
+              <div style={{ marginBottom: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
+                {postLoginSyncMsg}
+              </div>
+            )}
+            {!authStatus.loggedIn && tab !== 'auth' && (
+              <div style={{ color: '#6b7280' }}>Требуется вход.</div>
+            )}
 
         {tab === 'engines' && (
           <EnginesPage
@@ -496,7 +596,24 @@ export function App() {
         {tab === 'part' && !selectedPartId && (
           <div style={{ color: '#6b7280' }}>Выберите деталь из списка.</div>
         )}
-    </div>
+          </div>
+        </div>
+
+        {chatOpen && authStatus.loggedIn && canChat && (
+          <div style={{ flex: '0 0 25%', minWidth: 320, borderLeft: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+            <ChatPanel
+              meUserId={authStatus.user?.id ?? ''}
+              canExport={canChatExport}
+              canAdminViewAll={canChatAdminView}
+              viewMode={viewMode}
+              onHide={() => setChatOpen(false)}
+              onNavigate={(link) => {
+                void navigateDeepLink(link);
+              }}
+            />
+          </div>
+        )}
+      </div>
     </Page>
   );
 }
