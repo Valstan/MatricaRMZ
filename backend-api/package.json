@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/backend-api",
-  "version": "0.3.55",
+  "version": "0.3.57",
   "private": true,
   "type": "module",
   "scripts": {
