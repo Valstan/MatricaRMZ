@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { logError } from '../utils/logger.js';
 
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   // Express JSON parse errors come as SyntaxError with `status` 400 in many cases.
@@ -10,7 +11,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return res.status(400).json({ ok: false, error: 'invalid json' });
   }
 
-  console.error('[backend-api] unhandled error', {
+  logError('unhandled error', {
     method: req.method,
     url: req.originalUrl || req.url,
     message: msg,

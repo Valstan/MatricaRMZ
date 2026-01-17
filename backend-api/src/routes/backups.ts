@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { ensureFolderDeep, getDownloadHref, listFolderAll } from '../services/yandexDisk.js';
+import { logError, logInfo } from '../utils/logger.js';
 
 export const backupsRouter = Router();
 backupsRouter.use(requireAuth);
@@ -55,8 +56,10 @@ backupsRouter.get('/nightly', requirePermission(PermissionCode.BackupsView), asy
 
     backups.sort((a, b) => dateKey(b.date) - dateKey(a.date));
 
+    logInfo('backups nightly list', { count: backups.length }, { critical: true });
     return res.json({ ok: true, folder, backups });
   } catch (e) {
+    logError('backups nightly list failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -70,8 +73,10 @@ backupsRouter.get('/nightly/:date/url', requirePermission(PermissionCode.Backups
     const folder = backupsFolder();
     const diskPath = `${folder}/${parsed.data.date}.sqlite`;
     const url = await getDownloadHref(diskPath);
+    logInfo('backups nightly url', { date: parsed.data.date }, { critical: true });
     return res.json({ ok: true, url });
   } catch (e) {
+    logError('backups nightly url failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -93,6 +98,7 @@ backupsRouter.post('/nightly/run', requirePermission(PermissionCode.BackupsRun),
     const useTsx = scriptPath.endsWith('.ts');
     const startedAt = Date.now();
     runInFlight = { startedAt };
+    logInfo('backups nightly run start', { startedAt }, { critical: true });
 
     const child = useTsx
       ? spawn('pnpm', ['-C', join(here, '..', '..'), 'backup:nightly'], {
@@ -114,6 +120,7 @@ backupsRouter.post('/nightly/run', requirePermission(PermissionCode.BackupsRun),
     return res.json({ ok: true, startedAt });
   } catch (e) {
     runInFlight = null;
+    logError('backups nightly run failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

@@ -186,8 +186,9 @@ export type MatricaApi = {
     send: (level: LogLevel, message: string) => Promise<void>;
   };
   logging: {
-    getEnabled: () => Promise<boolean>;
-    setEnabled: (enabled: boolean) => Promise<void>;
+    getConfig: () => Promise<{ ok: true; enabled: boolean; mode: 'dev' | 'prod' } | { ok: false; error: string }>;
+    setEnabled: (enabled: boolean) => Promise<{ ok: true } | { ok: false; error: string }>;
+    setMode: (mode: 'dev' | 'prod') => Promise<{ ok: true; mode: 'dev' | 'prod' } | { ok: false; error: string }>;
   };
   backups: {
     status: () => Promise<{ ok: true; mode: 'live' | 'backup'; backupDate: string | null } | { ok: false; error: string }>;

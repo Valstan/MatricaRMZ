@@ -25,7 +25,10 @@ export function registerBackupsIpc(ctx: IpcContext, ctrl: BackupModeController) 
       const date = String((args as any)?.date ?? '').trim();
       const schema = z.object({ date: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) });
       const parsed = schema.safeParse({ date });
-      if (!parsed.success) return { ok: false as const, error: parsed.error.flatten().fieldErrors?.date?.[0] ?? 'invalid date' };
+      if (!parsed.success) {
+        ctx.logToFile(`backups:nightly:enter invalid date=${date}`);
+        return { ok: false as const, error: parsed.error.flatten().fieldErrors?.date?.[0] ?? 'invalid date' };
+      }
 
       ctx.logToFile(`backups:nightly:enter date=${parsed.data.date}`);
       const dl = await nightlyBackupDownload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { date: parsed.data.date, userDataDir: app.getPath('userData') });

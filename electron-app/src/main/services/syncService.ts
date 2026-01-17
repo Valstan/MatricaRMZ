@@ -9,6 +9,7 @@ import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operat
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
+import { logMessage } from './logService.js';
 
 const PUSH_TIMEOUT_MS = 120_000;
 const PULL_TIMEOUT_MS = 30_000;
@@ -647,6 +648,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
   try {
     const session = await getSession(db).catch(() => null);
     if (!session?.accessToken) {
+      void logMessage(db, apiBaseUrl, 'warn', 'sync blocked: auth required', { component: 'sync', action: 'run', critical: true });
       return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
     }
 
@@ -716,6 +718,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
   } catch (e) {
     const err = formatError(e);
     logSync(`error ${err}`);
+    void logMessage(db, apiBaseUrl, 'error', `sync failed: ${err}`, { component: 'sync', action: 'run', critical: true });
     return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
   }
 }

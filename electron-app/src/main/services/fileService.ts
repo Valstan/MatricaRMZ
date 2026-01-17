@@ -9,6 +9,7 @@ import type { FileRef } from '@matricarmz/shared';
 import { getSession } from './authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
+import { logMessage } from './logService.js';
 
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
 const PREVIEW_PNG_MAX_SIDE = 256;
@@ -308,7 +309,10 @@ export async function filesUpload(
         },
         { timeoutMs: 120_000 },
       );
-      if (!initRes.ok) return { ok: false, error: `init ${formatHttpError(initRes)}` };
+      if (!initRes.ok) {
+        void logMessage(db, apiBaseUrl, 'warn', `file upload init failed: ${formatHttpError(initRes)}`, { component: 'files', action: 'upload:init' });
+        return { ok: false, error: `init ${formatHttpError(initRes)}` };
+      }
       const json = initRes.json as any;
       if (!json?.ok || !json?.file) return { ok: false, error: 'bad init response' };
       const uploadUrl = json.uploadUrl as string | null;
@@ -320,6 +324,11 @@ export async function filesUpload(
         const r = await net.fetch(uploadUrl, { method: 'PUT', body: fileBuffer });
         if (!r.ok) {
           const errorText = await r.text().catch(() => '');
+          void logMessage(db, apiBaseUrl, 'warn', `file upload yandex PUT failed: HTTP ${r.status}`, {
+            component: 'files',
+            action: 'upload:yandex',
+            status: r.status,
+          });
           return { ok: false, error: `yandex PUT HTTP ${r.status}: ${errorText}`.trim() };
         }
       }
@@ -352,7 +361,10 @@ export async function filesUpload(
       },
       { timeoutMs: 120_000 },
     );
-    if (!r.ok) return { ok: false, error: `upload ${formatHttpError(r)}` };
+    if (!r.ok) {
+      void logMessage(db, apiBaseUrl, 'warn', `file upload failed: ${formatHttpError(r)}`, { component: 'files', action: 'upload' });
+      return { ok: false, error: `upload ${formatHttpError(r)}` };
+    }
     if (!r.json?.ok || !r.json?.file) return { ok: false, error: 'bad upload response' };
     const file = r.json.file as FileRef;
 
@@ -364,6 +376,7 @@ export async function filesUpload(
 
     return { ok: true, file };
   } catch (e) {
+    void logMessage(db, apiBaseUrl, 'error', `file upload error: ${String(e)}`, { component: 'files', action: 'upload' });
     return { ok: false, error: String(e) };
   }
 }
@@ -409,7 +422,10 @@ export async function filesDownload(
     if (!fileId) return { ok: false, error: 'fileId is empty' };
 
     const metaRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
-    if (!metaRes.ok) return { ok: false, error: `meta ${formatHttpError(metaRes)}` };
+    if (!metaRes.ok) {
+      void logMessage(db, apiBaseUrl, 'warn', `file download meta failed: ${formatHttpError(metaRes)}`, { component: 'files', action: 'download:meta' });
+      return { ok: false, error: `meta ${formatHttpError(metaRes)}` };
+    }
     if (!metaRes.json?.ok || !metaRes.json?.file) return { ok: false, error: 'bad meta response' };
     const meta = metaRes.json.file as FileRef;
 
@@ -418,13 +434,19 @@ export async function filesDownload(
 
     // If Yandex: get direct URL and stream download.
     const urlRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/url`, { method: 'GET' });
-    if (!urlRes.ok) return { ok: false, error: `url ${formatHttpError(urlRes)}` };
+    if (!urlRes.ok) {
+      void logMessage(db, apiBaseUrl, 'warn', `file download url failed: ${formatHttpError(urlRes)}`, { component: 'files', action: 'download:url' });
+      return { ok: false, error: `url ${formatHttpError(urlRes)}` };
+    }
     const directUrl = urlRes.json?.url as string | null | undefined;
 
     if (directUrl) {
       // Use net.fetch() for external URL (required in Electron)
       const r = await net.fetch(directUrl);
-      if (!r.ok) return { ok: false, error: `download HTTP ${r.status}` };
+      if (!r.ok) {
+        void logMessage(db, apiBaseUrl, 'warn', `file download failed: HTTP ${r.status}`, { component: 'files', action: 'download', status: r.status });
+        return { ok: false, error: `download HTTP ${r.status}` };
+      }
       const ab = await r.arrayBuffer();
       await fsp.writeFile(target, Buffer.from(ab));
       return { ok: true, localPath: target };
@@ -437,11 +459,15 @@ export async function filesDownload(
       method: 'GET',
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
-    if (!r2.ok) return { ok: false, error: `download HTTP ${r2.status}` };
+    if (!r2.ok) {
+      void logMessage(db, apiBaseUrl, 'warn', `file download failed: HTTP ${r2.status}`, { component: 'files', action: 'download', status: r2.status });
+      return { ok: false, error: `download HTTP ${r2.status}` };
+    }
     const ab2 = await r2.arrayBuffer();
     await fsp.writeFile(target, Buffer.from(ab2));
     return { ok: true, localPath: target };
   } catch (e) {
+    void logMessage(db, apiBaseUrl, 'error', `file download error: ${String(e)}`, { component: 'files', action: 'download' });
     return { ok: false, error: String(e) };
   }
 }
@@ -485,7 +511,10 @@ export async function filesPreviewGet(
     if (!fileId) return { ok: false, error: 'fileId is empty' };
 
     const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/preview`, { method: 'GET' }, { timeoutMs: 30_000 });
-    if (!r.ok) return { ok: false, error: `preview ${formatHttpError(r)}` };
+    if (!r.ok) {
+      void logMessage(db, apiBaseUrl, 'warn', `file preview failed: ${formatHttpError(r)}`, { component: 'files', action: 'preview' });
+      return { ok: false, error: `preview ${formatHttpError(r)}` };
+    }
     if (!r.json?.ok) return { ok: false, error: 'bad preview response' };
 
     const p = (r.json as any).preview as { mime: string; dataBase64: string } | null | undefined;
@@ -495,6 +524,7 @@ export async function filesPreviewGet(
     if (!dataBase64) return { ok: true, dataUrl: null };
     return { ok: true, dataUrl: `data:${mime};base64,${dataBase64}` };
   } catch (e) {
+    void logMessage(db, apiBaseUrl, 'error', `file preview error: ${String(e)}`, { component: 'files', action: 'preview' });
     return { ok: false, error: String(e) };
   }
 }

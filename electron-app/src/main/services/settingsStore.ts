@@ -17,6 +17,7 @@ export const SettingsKey = {
 
   // Logging
   LoggingEnabled: 'logging.enabled',
+  LoggingMode: 'logging.mode',
 
   // Files
   FilesDownloadDir: 'files.downloadDir',

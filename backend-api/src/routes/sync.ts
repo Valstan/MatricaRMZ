@@ -5,6 +5,7 @@ import { syncPushRequestSchema } from '@matricarmz/shared';
 import { applyPushBatch } from '../services/sync/applyPushBatch.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
+import { logError, logInfo } from '../utils/logger.js';
 
 export const syncRouter = Router();
 
@@ -17,7 +18,7 @@ syncRouter.post('/push', async (req, res) => {
       return res.status(400).json({ ok: false, error: parsed.error.flatten() });
     }
 
-    console.log(`[sync/push] user=${actor} client_id=${parsed.data.client_id} packs=${parsed.data.upserts.length}`);
+    logInfo('sync push', { user: actor, client_id: parsed.data.client_id, packs: parsed.data.upserts.length }, { critical: true });
     const result = await applyPushBatch(parsed.data, {
       id: user?.id ?? '',
       username: actor,
@@ -25,7 +26,7 @@ syncRouter.post('/push', async (req, res) => {
     });
     return res.json({ ok: true, ...result });
   } catch (e) {
-    console.error('[sync/push] failed', e);
+    logError('sync push failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -42,11 +43,11 @@ syncRouter.get('/pull', async (req, res) => {
       return res.status(400).json({ ok: false, error: parsed.error.flatten() });
     }
 
-    console.log(`[sync/pull] user=${actor} since=${parsed.data.since}`);
+    logInfo('sync pull', { user: actor, since: parsed.data.since }, { critical: true });
     const response = await pullChangesSince(parsed.data.since);
     return res.json(response);
   } catch (e) {
-    console.error('[sync/pull] failed', e);
+    logError('sync pull failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

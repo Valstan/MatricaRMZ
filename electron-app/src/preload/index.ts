@@ -149,8 +149,9 @@ contextBridge.exposeInMainWorld('matrica', {
     downloadDirPick: async () => ipcRenderer.invoke('files:downloadDir:pick'),
   },
   logging: {
-    getEnabled: async () => ipcRenderer.invoke('logging:getEnabled'),
+    getConfig: async () => ipcRenderer.invoke('logging:getConfig'),
     setEnabled: async (enabled: boolean) => ipcRenderer.invoke('logging:setEnabled', enabled),
+    setMode: async (mode: 'dev' | 'prod') => ipcRenderer.invoke('logging:setMode', mode),
   },
   backups: {
     status: async () => ipcRenderer.invoke('backups:status'),

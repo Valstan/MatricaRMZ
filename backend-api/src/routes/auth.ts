@@ -10,6 +10,7 @@ import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../au
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { randomUUID } from 'node:crypto';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
+import { logError } from '../utils/logger.js';
 
 export const authRouter = Router();
 
@@ -58,7 +59,7 @@ authRouter.post('/login', async (req, res) => {
 
     return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions });
   } catch (e) {
-    console.error('[auth/login] failed', e);
+    logError('auth login failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -112,7 +113,7 @@ authRouter.post('/refresh', async (req, res) => {
 
     return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser, permissions });
   } catch (e) {
-    console.error('[auth/refresh] failed', e);
+    logError('auth refresh failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -126,7 +127,7 @@ authRouter.post('/logout', requireAuth, async (req, res) => {
     await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
     return res.json({ ok: true });
   } catch (e) {
-    console.error('[auth/logout] failed', e);
+    logError('auth logout failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

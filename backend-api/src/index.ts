@@ -16,6 +16,7 @@ import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { logError, logInfo } from './utils/logger.js';
 
 const app = express();
 // За reverse-proxy (nginx / панель провайдера) важно корректно понимать X-Forwarded-* заголовки.
@@ -54,11 +55,11 @@ async function ensurePermissionsSeeded() {
 
 async function bootstrap() {
   await ensurePermissionsSeeded().catch((e) => {
-    console.error('[backend-api] permissions seed failed', e);
+    logError('permissions seed failed', { error: String(e) });
   });
 
   app.listen(port, host, () => {
-    console.log(`[backend-api] listening on ${host}:${port}`);
+    logInfo(`listening on ${host}:${port}`, { host, port }, { critical: true });
   });
 }
 

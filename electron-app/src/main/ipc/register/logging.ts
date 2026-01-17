@@ -3,7 +3,7 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
 
-import { logMessage, logMessageGetEnabled, logMessageSetEnabled } from '../../services/logService.js';
+import { logMessage, logMessageGetEnabled, logMessageGetMode, logMessageSetEnabled, logMessageSetMode } from '../../services/logService.js';
 
 export function registerLoggingIpc(ctx: IpcContext) {
   ipcMain.handle('log:send', async (_e, payload: { level: 'debug' | 'info' | 'warn' | 'error'; message: string }) => {
@@ -11,6 +11,11 @@ export function registerLoggingIpc(ctx: IpcContext) {
     // If enabled — buffer and send to server
     await logMessage(ctx.sysDb, ctx.mgr.getApiBaseUrl(), payload.level, payload.message, { source: 'renderer' }).catch(() => {});
     return { ok: true };
+  });
+
+  ipcMain.handle('logging:getConfig', async () => {
+    const [enabled, mode] = await Promise.all([logMessageGetEnabled(ctx.sysDb), logMessageGetMode(ctx.sysDb)]);
+    return { ok: true, enabled, mode };
   });
 
   ipcMain.handle('logging:getEnabled', async () => {
@@ -24,6 +29,15 @@ export function registerLoggingIpc(ctx: IpcContext) {
 
     await logMessageSetEnabled(ctx.sysDb, enabled, ctx.mgr.getApiBaseUrl());
     return { ok: true };
+  });
+
+  ipcMain.handle('logging:setMode', async (_e, mode: 'dev' | 'prod') => {
+    const gate = await requirePermOrResult(ctx, 'sync.use');
+    if (!gate.ok) return gate;
+
+    const next = mode === 'dev' ? 'dev' : 'prod';
+    await logMessageSetMode(ctx.sysDb, next);
+    return { ok: true, mode: next };
   });
 }
 

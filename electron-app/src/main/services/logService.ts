@@ -1,7 +1,7 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { getSession } from './authService.js';
-import { SettingsKey, settingsGetBoolean, settingsSetBoolean } from './settingsStore.js';
+import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
 
 const LOG_BUFFER_MAX = 100;
@@ -13,6 +13,8 @@ type LogEntry = {
   timestamp: number;
   metadata?: Record<string, unknown>;
 };
+
+export type LoggingMode = 'dev' | 'prod';
 
 let logBuffer: LogEntry[] = [];
 let sendInterval: NodeJS.Timeout | null = null;
@@ -26,8 +28,22 @@ async function getLoggingEnabled(db: BetterSQLite3Database): Promise<boolean> {
   }
 }
 
+async function getLoggingMode(db: BetterSQLite3Database): Promise<LoggingMode> {
+  try {
+    const raw = await settingsGetString(db, SettingsKey.LoggingMode);
+    const v = String(raw ?? '').trim().toLowerCase();
+    return v === 'dev' ? 'dev' : 'prod';
+  } catch {
+    return 'prod';
+  }
+}
+
 async function setLoggingEnabled(db: BetterSQLite3Database, enabled: boolean): Promise<void> {
   await settingsSetBoolean(db, SettingsKey.LoggingEnabled, enabled);
+}
+
+async function setLoggingMode(db: BetterSQLite3Database, mode: LoggingMode): Promise<void> {
+  await settingsSetString(db, SettingsKey.LoggingMode, mode);
 }
 
 async function sendLogs(db: BetterSQLite3Database, apiBaseUrl: string): Promise<void> {
@@ -86,6 +102,12 @@ export function stopLogSender(): void {
   }
 }
 
+function shouldSendLog(level: LogEntry['level'], metadata: LogEntry['metadata'], mode: LoggingMode): boolean {
+  if (metadata?.critical === true) return true;
+  if (mode === 'dev') return true;
+  return level === 'warn' || level === 'error';
+}
+
 export async function logMessage(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -95,6 +117,8 @@ export async function logMessage(
 ): Promise<void> {
   const enabled = await getLoggingEnabled(db);
   if (!enabled) return;
+  const mode = await getLoggingMode(db);
+  if (!shouldSendLog(level, metadata, mode)) return;
 
   logBuffer.push({
     level,
@@ -120,4 +144,12 @@ export async function logMessageSetEnabled(db: BetterSQLite3Database, enabled: b
   } else if (apiBaseUrl) {
     startLogSender(db, apiBaseUrl);
   }
+}
+
+export async function logMessageGetMode(db: BetterSQLite3Database): Promise<LoggingMode> {
+  return getLoggingMode(db);
+}
+
+export async function logMessageSetMode(db: BetterSQLite3Database, mode: LoggingMode): Promise<void> {
+  await setLoggingMode(db, mode);
 }

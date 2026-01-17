@@ -5,6 +5,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 
 export function SettingsPage() {
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
+  const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [backupLoading, setBackupLoading] = useState<boolean>(false);
@@ -26,9 +27,10 @@ export function SettingsPage() {
   async function loadSettings() {
     try {
       setLoading(true);
-      const r = await window.matrica.logging.getEnabled();
+      const r = await window.matrica.logging.getConfig();
       if (r.ok) {
         setLoggingEnabled(r.enabled);
+        setLoggingMode(r.mode);
       } else {
         setStatus(`Ошибка загрузки: ${formatError(r.error)}`);
       }
@@ -80,6 +82,22 @@ export function SettingsPage() {
     }
   }
 
+  async function handleSetLoggingMode(mode: 'dev' | 'prod') {
+    try {
+      setStatus('Сохранение...');
+      const r = await window.matrica.logging.setMode(mode);
+      if (r.ok) {
+        setLoggingMode(r.mode);
+        setStatus(mode === 'dev' ? 'Режим логирования: разработка' : 'Режим логирования: прод');
+        setTimeout(() => setStatus(''), 2000);
+      } else {
+        setStatus(`Ошибка: ${formatError((r as any).error)}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка: ${formatError(e)}`);
+    }
+  }
+
   if (loading) {
     return <div style={{ padding: 20, color: '#6b7280' }}>Загрузка настроек...</div>;
   }
@@ -100,6 +118,25 @@ export function SettingsPage() {
           </Button>
           {loggingEnabled && <span style={{ color: '#059669' }}>✓ Включено</span>}
           {!loggingEnabled && <span style={{ color: '#6b7280' }}>Отключено</span>}
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: '#6b7280' }}>Режим логирования:</span>
+          <Button
+            variant={loggingMode === 'prod' ? 'primary' : 'ghost'}
+            onClick={() => void handleSetLoggingMode('prod')}
+            disabled={!loggingEnabled}
+            title="Минимальные логи: только критичные события"
+          >
+            Прод
+          </Button>
+          <Button
+            variant={loggingMode === 'dev' ? 'primary' : 'ghost'}
+            onClick={() => void handleSetLoggingMode('dev')}
+            disabled={!loggingEnabled}
+            title="Подробные логи для диагностики"
+          >
+            Разработка
+          </Button>
         </div>
       </div>
 
