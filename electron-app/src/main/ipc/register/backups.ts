@@ -25,7 +25,7 @@ export function registerBackupsIpc(ctx: IpcContext, ctrl: BackupModeController) 
     try {
       const dateRaw = String((args as any)?.date ?? '');
       const date = dateRaw.trim();
-      const schema = z.object({ date: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) });
+      const schema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
       const parsed = schema.safeParse({ date });
       if (!parsed.success) {
         const msg = `invalid date "${dateRaw}" (expected YYYY-MM-DD)`;
@@ -64,7 +64,7 @@ export function registerBackupsIpc(ctx: IpcContext, ctrl: BackupModeController) 
       const backupDate = String((args as any)?.backupDate ?? '').trim();
       const backupPath = String((args as any)?.backupPath ?? '').trim();
       const schema = z.object({
-        backupDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+        backupDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         backupPath: z.string().min(1),
       });
       const parsed = schema.safeParse({ backupDate, backupPath });
