@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { IpcContext } from '../ipcContext.js';
 
 import { nightlyBackupDownload, nightlyBackupRunNow, nightlyBackupsList } from '../../services/backupService.js';
+import { logMessage } from '../../services/logService.js';
 
 export type BackupModeController = {
   enterBackup: (args: { backupDate: string; backupPath: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -22,15 +23,29 @@ export function registerBackupsIpc(ctx: IpcContext, ctrl: BackupModeController) 
 
   ipcMain.handle('backups:nightly:enter', async (_e, args: { date: string }) => {
     try {
-      const date = String((args as any)?.date ?? '').trim();
+      const dateRaw = String((args as any)?.date ?? '');
+      const date = dateRaw.trim();
       const schema = z.object({ date: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) });
       const parsed = schema.safeParse({ date });
       if (!parsed.success) {
-        ctx.logToFile(`backups:nightly:enter invalid date=${date}`);
-        return { ok: false as const, error: parsed.error.flatten().fieldErrors?.date?.[0] ?? 'invalid date' };
+        const msg = `invalid date "${dateRaw}" (expected YYYY-MM-DD)`;
+        ctx.logToFile(`backups:nightly:enter ${msg}`);
+        void logMessage(ctx.sysDb, ctx.mgr.getApiBaseUrl(), 'warn', `backup enter invalid date: "${dateRaw}"`, {
+          component: 'backups',
+          action: 'nightlyEnter',
+          date: dateRaw,
+          critical: true,
+        });
+        return { ok: false as const, error: msg };
       }
 
       ctx.logToFile(`backups:nightly:enter date=${parsed.data.date}`);
+      void logMessage(ctx.sysDb, ctx.mgr.getApiBaseUrl(), 'info', `backup enter start: ${parsed.data.date}`, {
+        component: 'backups',
+        action: 'nightlyEnter',
+        date: parsed.data.date,
+        critical: true,
+      });
       const dl = await nightlyBackupDownload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { date: parsed.data.date, userDataDir: app.getPath('userData') });
       if (!dl.ok) return dl;
       return await ctrl.enterBackup({ backupDate: parsed.data.date, backupPath: dl.backupPath });
