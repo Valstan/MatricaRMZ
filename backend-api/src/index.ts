@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import cors from 'cors';
 
 import { db } from './database/db.js';
@@ -7,6 +10,7 @@ import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { syncRouter } from './routes/sync.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
+import { adminMasterdataRouter } from './routes/adminMasterdata.js';
 import { chatRouter } from './routes/chat.js';
 import { filesRouter } from './routes/files.js';
 import { partsRouter } from './routes/parts.js';
@@ -31,11 +35,22 @@ app.use('/auth', authRouter);
 app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
 app.use('/chat', requireAuth, requirePermission(PermissionCode.ChatUse), chatRouter);
 app.use('/admin', adminUsersRouter);
+app.use('/admin/masterdata', adminMasterdataRouter);
 app.use('/changes', changesRouter);
 app.use('/files', filesRouter);
 app.use('/parts', partsRouter);
 app.use('/logs', logsRouter);
 app.use('/backups', backupsRouter);
+
+// Web admin UI (served as static SPA from /admin-ui)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webAdminDir = path.resolve(__dirname, '../../web-admin/dist');
+if (existsSync(webAdminDir)) {
+  app.use('/admin-ui', express.static(webAdminDir));
+  app.get('/admin-ui/*', (_req, res) => {
+    res.sendFile(path.join(webAdminDir, 'index.html'));
+  });
+}
 
 // Must be last: centralized error handler.
 app.use(errorHandler);

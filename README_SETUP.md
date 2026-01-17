@@ -18,6 +18,8 @@
 - Сборка Electron приложения для Windows
 - Настройка Electron на подключение к backend
 
+Справочник путей/структуры/ENV/логов: `docs/PATHS.md` (единый источник).
+
 ---
 
 ## Шаг 1: Настройка PostgreSQL на VPS
@@ -153,11 +155,7 @@ pnpm install
 ```
 
 3. Настройте URL backend API:
-   - Отредактируйте `electron-app/src/main/index.ts`
-   - Измените строку 50:
-   ```typescript
-   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
-   ```
+   - См. `docs/PATHS.md` → раздел **ENV переменные (ключевые)**.
 
 4. Соберите приложение:
 ```bash
@@ -186,17 +184,7 @@ pnpm run dist
 ## Шаг 4: Настройка Electron клиента
 
 ### 4.1. Указать URL backend API
-
-В файле `electron-app/src/main/index.ts` (строка ~50):
-
-```typescript
-const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
-```
-
-Или через переменную окружения при запуске:
-```bash
-MATRICA_API_URL=http://a6fd55b8e0ae.vps.myjino.ru pnpm run dev
-```
+См. `docs/PATHS.md` → раздел **ENV переменные (ключевые)**.
 
 ### 4.3. Пользователи и права доступа (новое)
 

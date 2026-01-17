@@ -52,6 +52,61 @@ pnpm release:auto
 - если был новый релиз backend — делает `pnpm -C shared build`, `pnpm -C backend-api build`, затем пытается перезапустить backend (systemd)
 - создаёт тег `v<client-version>` (если нужно) и **пушит** `main` и `--tags`
 
+Важно: если релиз содержит изменения схемы БД, необходимо применять миграции на backend.
+Рекомендуется выполнять полный цикл: сборка shared+backend, `db:migrate`, `perm:seed`,
+и перезапуск сервиса, чтобы клиент сразу мог синхронизироваться без ошибок.
+
+## Веб‑админка (web-admin)
+
+Веб‑админка — отдельное браузерное приложение. Оно **раздаётся backend‑ом** как статические файлы из `web-admin/dist`
+и доступно по пути `/admin-ui/`.
+
+### Сборка
+```bash
+cd /home/valstan/MatricaRMZ
+pnpm --filter @matricarmz/web-admin install
+pnpm --filter @matricarmz/web-admin build
+```
+
+После сборки должны появиться файлы:
+```
+/home/valstan/MatricaRMZ/web-admin/dist
+```
+
+### Запуск / перезапуск
+Если backend уже работает — достаточно **перезапустить backend**, чтобы он подхватил новую сборку:
+- systemd: `sudo systemctl restart matricarmz-backend.service`
+- pm2: `pm2 restart matricarmz-api`
+
+### Проксирование в nginx (обязательно)
+В nginx нужно проксировать `/admin-ui/` на backend:
+```nginx
+location /admin-ui/ {
+  proxy_pass http://127.0.0.1:3001/admin-ui/;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+После изменения:
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Проверка
+```bash
+curl -I http://127.0.0.1:3001/admin-ui/
+```
+Ожидаемо: `200 OK` (если backend доступен и папка `web-admin/dist` существует).
+
+### Замечание по адресу API
+По умолчанию веб‑админка использует **тот же домен**, где она открыта.
+Для dev‑режима можно задать:
+```
+VITE_API_BASE_URL=http://127.0.0.1:3001
+```
+
 Настройки для перезапуска backend (опционально):
 
 - `MATRICA_BACKEND_RESTART_CMD`: произвольная команда перезапуска (например `pm2 restart matricarmz-api`)
