@@ -12,6 +12,17 @@ export function SettingsPage() {
   const [backupList, setBackupList] = useState<Array<{ date: string; name: string; size: number | null; modified: string | null }>>([]);
   const [backupPick, setBackupPick] = useState<string | null>(null);
 
+  function formatError(e: unknown): string {
+    if (e == null) return 'unknown error';
+    if (typeof e === 'string') return e;
+    if (e instanceof Error) return e.message || String(e);
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return String(e);
+    }
+  }
+
   async function loadSettings() {
     try {
       setLoading(true);
@@ -19,10 +30,10 @@ export function SettingsPage() {
       if (r.ok) {
         setLoggingEnabled(r.enabled);
       } else {
-        setStatus(`Ошибка загрузки: ${r.error}`);
+        setStatus(`Ошибка загрузки: ${formatError(r.error)}`);
       }
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      setStatus(`Ошибка: ${formatError(e)}`);
     } finally {
       setLoading(false);
     }
@@ -36,12 +47,12 @@ export function SettingsPage() {
 
       const r = await window.matrica.backups.nightlyList();
       if (!r.ok) {
-        setStatus(`Ошибка резервных копий: ${r.error}`);
+        setStatus(`Ошибка резервных копий: ${formatError(r.error)}`);
         return;
       }
       setBackupList(r.backups ?? []);
     } catch (e) {
-      setStatus(`Ошибка резервных копий: ${String(e)}`);
+      setStatus(`Ошибка резервных копий: ${formatError(e)}`);
     } finally {
       setBackupLoading(false);
     }
@@ -62,10 +73,10 @@ export function SettingsPage() {
         setStatus(newValue ? 'Отправка логов включена' : 'Отправка логов отключена');
         setTimeout(() => setStatus(''), 2000);
       } else {
-        setStatus(`Ошибка: ${r.error}`);
+        setStatus(`Ошибка: ${formatError(r.error)}`);
       }
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      setStatus(`Ошибка: ${formatError(e)}`);
     }
   }
 
@@ -130,7 +141,7 @@ export function SettingsPage() {
                     // Через пару секунд обновим список, чтобы новая дата появилась (если ещё не была).
                     setTimeout(() => void refreshBackups(), 4000);
                   } else {
-                    setStatus(`Ошибка: ${r.error}`);
+                    setStatus(`Ошибка: ${formatError(r.error)}`);
                   }
                 })();
               }}
@@ -151,7 +162,7 @@ export function SettingsPage() {
                     setStatus('Открыт режим просмотра резервной копии.');
                     setBackupStatus({ mode: 'backup', backupDate: backupPick });
                   } else {
-                    setStatus(`Ошибка: ${r.error}`);
+                    setStatus(`Ошибка: ${formatError(r.error)}`);
                   }
                 })();
               }}
