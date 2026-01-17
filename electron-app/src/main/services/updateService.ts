@@ -71,27 +71,32 @@ export async function runAutoUpdateFlow(opts: { reason: 'startup' | 'manual_menu
   if (updateInFlight) return;
   updateInFlight = true;
   try {
-    showUpdateWindow(opts.parentWindow ?? null);
-    await setUpdateUi('Проверяем обновления…', 0);
-
     const check = await checkForUpdates();
     if (!check.ok) {
+      // Ошибку показываем кратко и не блокируем работу.
+      showUpdateWindow(opts.parentWindow ?? null);
       await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
+      setTimeout(() => updateUiWindow?.close(), 3500);
       return;
     }
     if (!check.updateAvailable) {
-      await setUpdateUi('Обновлений нет', 100);
-      // на старте можно быстро скрыть окно
-      if (opts.reason === 'startup') setTimeout(() => updateUiWindow?.close(), 900);
       return;
     }
 
-    await setUpdateUi(`Найдена новая версия. Скачиваем…`, 0, check.version);
+    showUpdateWindow(opts.parentWindow ?? null);
+    await setUpdateUi('Проверяем обновления…', 0);
+    await setUpdateUi(`Найдена новая версия. Скачиваем…`, 5, check.version);
     const latest = await fetchLatestInfo();
     const filePath = await downloadInstaller(latest.fileName, (pct) => setUpdateUi('Скачиваем обновление…', pct, latest.version));
     lastDownloadedInstallerPath = filePath;
-    await setUpdateUi('Скачивание завершено. Запускаем установку…', 100, latest.version);
-    await quitAndInstall();
+    await setUpdateUi('Скачивание завершено. Готовим установку…', 95, latest.version);
+    await setUpdateUi('Запускаем установку. Идёт замена версии…', 100, latest.version);
+    const install = await quitAndInstall();
+    if (!install.ok) {
+      await setUpdateUi(`Ошибка установки: ${install.error ?? 'unknown'}`, 100, latest.version);
+      setTimeout(() => updateUiWindow?.close(), 3500);
+      return;
+    }
   } finally {
     updateInFlight = false;
   }
