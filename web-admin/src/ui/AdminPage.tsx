@@ -34,7 +34,6 @@ export function AdminPage(props: {
 
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
-  const [typeQuery, setTypeQuery] = useState<string>('');
   const [defs, setDefs] = useState<AttrDefRow[]>([]);
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
@@ -126,11 +125,13 @@ export function AdminPage(props: {
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
 
-  const filteredTypes = useMemo(() => {
-    const q = typeQuery.trim().toLowerCase();
-    if (!q) return types;
-    return types.filter((t) => `${t.name} ${t.code}`.toLowerCase().includes(q));
-  }, [types, typeQuery]);
+  const excludedTypeCodes = new Set(['engine', 'part']);
+  const visibleTypes = useMemo(() => {
+    return types
+      .filter((t) => !excludedTypeCodes.has(t.code))
+      .slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
+  }, [types]);
 
   const filteredEntities = useMemo(() => {
     const q = entityQuery.trim().toLowerCase();
@@ -204,7 +205,11 @@ export function AdminPage(props: {
     }
     const rows = r.rows ?? [];
     setTypes(rows);
-    if (!selectedTypeId && rows[0]) setSelectedTypeId(rows[0].id);
+    setSelectedTypeId((prev) => {
+      const nextVisible = rows.filter((t) => !excludedTypeCodes.has(t.code));
+      if (prev && nextVisible.some((t) => t.id === prev)) return prev;
+      return nextVisible[0]?.id ?? '';
+    });
   }
 
   async function refreshDefs(typeId: string) {
@@ -450,6 +455,14 @@ export function AdminPage(props: {
   }, [selectedTypeId]);
 
   useEffect(() => {
+    if (!types.length) return;
+    setSelectedTypeId((prev) => {
+      if (prev && visibleTypes.some((t) => t.id === prev)) return prev;
+      return visibleTypes[0]?.id ?? '';
+    });
+  }, [types, visibleTypes]);
+
+  useEffect(() => {
     if (!selectedEntityId) return;
     void loadEntity(selectedEntityId);
     void refreshIncomingLinks(selectedEntityId);
@@ -511,9 +524,9 @@ export function AdminPage(props: {
 
       {props.canViewMasterData && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
-          <div className="card">
+          <div className="card" style={{ gridColumn: '1 / -1' }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <strong>Номенклатура</strong>
+              <strong>Справочники</strong>
               <span style={{ flex: 1 }} />
               <Button variant="ghost" onClick={() => void refreshTypes()}>
                 Обновить
@@ -533,33 +546,30 @@ export function AdminPage(props: {
               )}
             </div>
 
-            <div style={{ marginTop: 10 }}>
-              <Input value={typeQuery} onChange={(e) => setTypeQuery(e.target.value)} placeholder="Поиск номенклатуры…" />
-
-              <div style={{ marginTop: 8, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-                  {filteredTypes.map((t) => {
-                    const active = t.id === selectedTypeId;
-                    return (
-                      <div
-                        key={t.id}
-                        onClick={() => setSelectedTypeId(t.id)}
-                        style={{
-                          padding: '10px 12px',
-                          cursor: 'pointer',
-                          borderBottom: '1px solid #f3f4f6',
-                          background: active ? '#eef2ff' : '#fff',
-                        }}
-                        title={t.code}
-                      >
-                        <div style={{ fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>{t.name}</div>
-                      </div>
-                    );
-                  })}
-
-                  {filteredTypes.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
-                </div>
-              </div>
+            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {visibleTypes.map((t) => {
+                const active = t.id === selectedTypeId;
+                return (
+                  <Button
+                    key={t.id}
+                    variant="ghost"
+                    onClick={() => setSelectedTypeId(t.id)}
+                    style={
+                      active
+                        ? {
+                            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
+                            border: '1px solid #1e40af',
+                            color: '#fff',
+                            boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
+                          }
+                        : undefined
+                    }
+                  >
+                    {t.name}
+                  </Button>
+                );
+              })}
+              {visibleTypes.length === 0 && <div className="muted">(справочники не настроены)</div>}
             </div>
 
             {props.canEditMasterData && (
