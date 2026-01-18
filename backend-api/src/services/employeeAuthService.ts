@@ -12,6 +12,7 @@ const AUTH_CODES = {
   systemRole: 'system_role',
   accessEnabled: 'access_enabled',
   fullName: 'full_name',
+  chatDisplayName: 'chat_display_name',
 } as const;
 
 function nowMs() {
@@ -151,6 +152,7 @@ export async function ensureEmployeeAuthDefs() {
   await ensure(AUTH_CODES.passwordHash, 'Пароль (хэш)', 'text');
   await ensure(AUTH_CODES.systemRole, 'Системная роль', 'text');
   await ensure(AUTH_CODES.accessEnabled, 'Доступ разрешен', 'boolean');
+  await ensure(AUTH_CODES.chatDisplayName, 'Имя в чате', 'text');
 
   return { ok: true as const, employeeTypeId, defs: byCode };
 }
@@ -183,6 +185,18 @@ export async function getEmployeeFullNameDefId() {
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
+export async function getEmployeeChatDisplayNameDefId() {
+  await ensureEmployeeAuthDefs().catch(() => null);
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return null;
+  const rows = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), eq(attributeDefs.code, AUTH_CODES.chatDisplayName), isNull(attributeDefs.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
 async function getEmployeeAttrDefId(code: string) {
   const employeeTypeId = await getEmployeeTypeId();
   if (!employeeTypeId) return null;
@@ -193,6 +207,7 @@ export async function listEmployeesAuth() {
   const defs = await getEmployeeAuthDefIds();
   if (!defs) return { ok: false as const, error: 'employee type not found' };
   const fullNameDefId = await getEmployeeFullNameDefId();
+  const chatDisplayDefId = await getEmployeeChatDisplayNameDefId();
 
   const rows = await db
     .select({ id: entities.id })
@@ -203,7 +218,9 @@ export async function listEmployeesAuth() {
   const ids = rows.map((r) => String(r.id));
   if (ids.length === 0) return { ok: true as const, rows: [] };
 
-  const defIds = [defs.loginDefId, defs.passwordDefId, defs.roleDefId, defs.accessDefId, fullNameDefId].filter(Boolean) as string[];
+  const defIds = [defs.loginDefId, defs.passwordDefId, defs.roleDefId, defs.accessDefId, fullNameDefId, chatDisplayDefId].filter(
+    Boolean,
+  ) as string[];
   const vals = await db
     .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -227,6 +244,7 @@ export async function listEmployeesAuth() {
       const systemRole = String(rec[defs.roleDefId] ?? 'user').trim().toLowerCase();
       const accessEnabled = rec[defs.accessDefId] === true;
       const fullName = fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '';
+      const chatDisplayName = chatDisplayDefId ? String(rec[chatDisplayDefId] ?? '').trim() : '';
       return {
         id,
         login,
@@ -234,6 +252,7 @@ export async function listEmployeesAuth() {
         systemRole,
         accessEnabled,
         fullName,
+        chatDisplayName,
       };
     }),
   };
@@ -359,14 +378,22 @@ export async function setEmployeeFullName(employeeId: string, fullName: string |
   return { ok: true as const };
 }
 
+export async function setEmployeeChatDisplayName(employeeId: string, chatDisplayName: string | null) {
+  const defId = await getEmployeeChatDisplayNameDefId();
+  if (!defId) return { ok: false as const, error: 'chat_display_name def not found' };
+  await upsertAttrValue(employeeId, defId, chatDisplayName ? String(chatDisplayName).trim() : null);
+  return { ok: true as const };
+}
+
 export async function getEmployeeProfileById(employeeId: string) {
   const auth = await getEmployeeAuthById(employeeId);
   if (!auth) return null;
 
   const fullNameDefId = await getEmployeeFullNameDefId();
+  const chatDisplayDefId = await getEmployeeChatDisplayNameDefId();
   const roleDefId = await getEmployeeAttrDefId('role');
   const sectionDefId = await getEmployeeAttrDefId('section_id');
-  const defIds = [fullNameDefId, roleDefId, sectionDefId].filter(Boolean) as string[];
+  const defIds = [fullNameDefId, chatDisplayDefId, roleDefId, sectionDefId].filter(Boolean) as string[];
 
   const vals =
     defIds.length === 0
@@ -383,6 +410,7 @@ export async function getEmployeeProfileById(employeeId: string) {
   }
 
   const fullName = fullNameDefId ? String(byDefId[fullNameDefId] ?? '').trim() : '';
+  const chatDisplayName = chatDisplayDefId ? String(byDefId[chatDisplayDefId] ?? '').trim() : '';
   const position = roleDefId ? String(byDefId[roleDefId] ?? '').trim() : '';
   const sectionId = sectionDefId ? String(byDefId[sectionDefId] ?? '').trim() : '';
   const sectionName = sectionId ? await getSectionNameById(sectionId) : null;
@@ -392,6 +420,7 @@ export async function getEmployeeProfileById(employeeId: string) {
     login: auth.login,
     role: normalizeRole(auth.login, auth.systemRole),
     fullName,
+    chatDisplayName,
     position,
     sectionId: sectionId || null,
     sectionName,
@@ -400,10 +429,14 @@ export async function getEmployeeProfileById(employeeId: string) {
 
 export async function setEmployeeProfile(
   employeeId: string,
-  args: { fullName?: string | null; position?: string | null; sectionName?: string | null },
+  args: { fullName?: string | null; position?: string | null; sectionName?: string | null; chatDisplayName?: string | null },
 ) {
   if (args.fullName !== undefined) {
     const r = await setEmployeeFullName(employeeId, args.fullName);
+    if (!r.ok) return r;
+  }
+  if (args.chatDisplayName !== undefined) {
+    const r = await setEmployeeChatDisplayName(employeeId, args.chatDisplayName);
     if (!r.ok) return r;
   }
   if (args.position !== undefined) {

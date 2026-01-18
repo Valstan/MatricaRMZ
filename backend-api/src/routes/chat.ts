@@ -149,10 +149,11 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (_req,
       const last = presenceById.get(String(r.id)) ?? null;
       const online = last != null && ts - last < onlineWindowMs;
       const role = normalizeRole(r.login, r.systemRole);
-      const username = r.fullName || r.login || r.id;
+      const displayName = r.chatDisplayName || r.fullName || r.login || r.id;
       return {
         id: String(r.id),
-        username,
+        username: displayName,
+        chatDisplayName: r.chatDisplayName ? String(r.chatDisplayName) : null,
         login: r.login,
         role,
         isActive: Boolean(r.accessEnabled),

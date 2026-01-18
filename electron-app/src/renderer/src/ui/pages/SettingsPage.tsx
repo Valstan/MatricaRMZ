@@ -14,8 +14,9 @@ export function SettingsPage(props: {
   const [loading, setLoading] = useState<boolean>(true);
   const [authUser, setAuthUser] = useState<{ id: string; username: string; role: string } | null>(null);
   const [profileStatus, setProfileStatus] = useState<string>('');
-  const [profileForm, setProfileForm] = useState<{ fullName: string; position: string; sectionName: string }>({
+  const [profileForm, setProfileForm] = useState<{ fullName: string; chatDisplayName: string; position: string; sectionName: string }>({
     fullName: '',
+    chatDisplayName: '',
     position: '',
     sectionName: '',
   });
@@ -59,6 +60,7 @@ export function SettingsPage(props: {
           const profile = (p as any).profile;
           setProfileForm({
             fullName: String(profile.fullName ?? ''),
+            chatDisplayName: String(profile.chatDisplayName ?? ''),
             position: String(profile.position ?? ''),
             sectionName: String(profile.sectionName ?? ''),
           });
@@ -169,6 +171,7 @@ export function SettingsPage(props: {
     setProfileStatus('Сохранение профиля...');
     const r = await window.matrica.auth.profileUpdate({
       fullName: profileForm.fullName.trim() || null,
+      chatDisplayName: profileForm.chatDisplayName.trim() || null,
       position: profileForm.position.trim() || null,
       sectionName: profileForm.sectionName.trim() || null,
     });
@@ -176,6 +179,7 @@ export function SettingsPage(props: {
       const profile = (r as any).profile ?? null;
       setProfileForm({
         fullName: String(profile?.fullName ?? profileForm.fullName),
+        chatDisplayName: String(profile?.chatDisplayName ?? profileForm.chatDisplayName),
         position: String(profile?.position ?? profileForm.position),
         sectionName: String(profile?.sectionName ?? profileForm.sectionName),
       });
@@ -226,6 +230,13 @@ export function SettingsPage(props: {
             value={profileForm.fullName}
             onChange={(e) => setProfileForm((p) => ({ ...p, fullName: e.target.value }))}
             placeholder="Фамилия Имя Отчество"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
+          />
+          <div style={{ color: 'var(--muted)' }}>Имя в чате</div>
+          <input
+            value={profileForm.chatDisplayName}
+            onChange={(e) => setProfileForm((p) => ({ ...p, chatDisplayName: e.target.value }))}
+            placeholder="Например: Саша, Мастер участка"
             style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
           <div style={{ color: 'var(--muted)' }}>Должность</div>

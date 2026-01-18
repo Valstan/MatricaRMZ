@@ -2,7 +2,7 @@ import { app, BrowserWindow, net } from 'electron';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { copyFile, cp, mkdir, stat } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
 
 export type UpdateCheckResult =
@@ -138,6 +138,7 @@ export async function runAutoUpdateFlow(
       helperExePath: helper.helperExePath,
       installerPath: filePath,
       launchPath: helper.launchPath,
+      resourcesPath: helper.resourcesPath,
       version: latest.version,
     });
     await setUpdateUi('Запускаем установку…', 80, latest.version);
@@ -204,25 +205,39 @@ type ReleaseInfo = {
 let cachedLatest: { version: string; fileName: string } | null = null;
 let lastDownloadedInstallerPath: string | null = null;
 
-async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPath: string }> {
+async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPath: string; resourcesPath: string }> {
   if (!app.isPackaged) throw new Error('Update helper requires packaged app');
   const launchPath = process.execPath;
   const appDir = dirname(launchPath);
   const resourcesDir = join(appDir, 'resources');
-  const baseTemp = join(app.getPath('temp'), 'MatricaRMZ-updater');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const baseTemp = join(app.getPath('temp'), 'MatricaRMZ-UpdateHelper');
+  const stamp = String(Date.now());
   const helperDir = join(baseTemp, `helper-${stamp}`);
   await mkdir(helperDir, { recursive: true });
   const helperExePath = join(helperDir, 'MatricaRMZ-Updater.exe');
+  const helperResources = join(helperDir, 'resources');
   await copyFile(launchPath, helperExePath);
-  await cp(resourcesDir, join(helperDir, 'resources'), { recursive: true });
-  return { helperExePath, launchPath };
+  await cp(resourcesDir, helperResources, { recursive: true, force: true });
+  const asarPath = join(helperResources, 'app.asar');
+  const st = await stat(asarPath).catch(() => null);
+  if (!st || st.size < 1024 * 100) {
+    throw new Error(`Invalid helper package: missing app.asar (from ${basename(resourcesDir)})`);
+  }
+  return { helperExePath, launchPath, resourcesPath: helperResources };
 }
 
-function spawnUpdateHelper(args: { helperExePath: string; installerPath: string; launchPath: string; version?: string }) {
+function spawnUpdateHelper(args: { helperExePath: string; installerPath: string; launchPath: string; resourcesPath: string; version?: string }) {
   const spawnArgs = ['--update-helper', '--installer', args.installerPath, '--launch', args.launchPath];
   if (args.version) spawnArgs.push('--version', args.version);
-  const child = spawn(args.helperExePath, spawnArgs, { detached: true, stdio: 'ignore', windowsHide: true });
+  const child = spawn(args.helperExePath, spawnArgs, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env: {
+      ...process.env,
+      ELECTRON_OVERRIDE_RESOURCES_PATH: args.resourcesPath,
+    },
+  });
   child.unref();
 }
 

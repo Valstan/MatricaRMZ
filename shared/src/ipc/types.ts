@@ -144,6 +144,7 @@ export type AuthProfile = {
   login: string;
   role: string;
   fullName: string;
+  chatDisplayName?: string | null;
   position: string;
   sectionId: string | null;
   sectionName: string | null;
@@ -192,6 +193,7 @@ export type ChatMessageItem = {
 export type ChatUserItem = {
   id: string;
   username: string;
+  chatDisplayName?: string | null;
   role: string;
   isActive: boolean;
   lastActivityAt: number | null;
@@ -278,6 +280,7 @@ export type MatricaApi = {
       fullName?: string | null;
       position?: string | null;
       sectionName?: string | null;
+      chatDisplayName?: string | null;
     }) => Promise<{ ok: true; profile: AuthProfile } | { ok: false; error: string }>;
   };
   presence: {

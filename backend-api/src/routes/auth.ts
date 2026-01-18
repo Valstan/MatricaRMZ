@@ -95,14 +95,16 @@ authRouter.patch('/profile', requireAuth, async (req, res) => {
       fullName: z.string().max(200).optional().nullable(),
       position: z.string().max(200).optional().nullable(),
       sectionName: z.string().max(200).optional().nullable(),
+      chatDisplayName: z.string().max(80).optional().nullable(),
     });
     const parsed = schema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const patch: { fullName?: string | null; position?: string | null; sectionName?: string | null } = {};
+    const patch: { fullName?: string | null; position?: string | null; sectionName?: string | null; chatDisplayName?: string | null } = {};
     if (parsed.data.fullName !== undefined) patch.fullName = parsed.data.fullName;
     if (parsed.data.position !== undefined) patch.position = parsed.data.position;
     if (parsed.data.sectionName !== undefined) patch.sectionName = parsed.data.sectionName;
+    if (parsed.data.chatDisplayName !== undefined) patch.chatDisplayName = parsed.data.chatDisplayName;
     const r = await setEmployeeProfile(actor.id, patch);
     if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
     const profile = await getEmployeeProfileById(actor.id);

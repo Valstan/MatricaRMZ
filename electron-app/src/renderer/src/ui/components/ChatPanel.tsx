@@ -181,8 +181,9 @@ export function ChatPanel(props: {
 
   function getMessageUser(m: ChatMessageItem) {
     const u = usersById.get(m.senderUserId) ?? null;
+    const displayName = u?.chatDisplayName?.trim() || u?.username?.trim() || '';
     return {
-      name: u?.username?.trim() || m.senderUsername || 'Пользователь',
+      name: displayName || m.senderUsername || 'Пользователь',
       role: u?.role ?? '',
       online: u?.online ?? null,
     };
@@ -293,7 +294,8 @@ export function ChatPanel(props: {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;
                 const indicator = u.online ? dot('var(--success)') : dot('var(--danger)');
-                const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
+                const display = u.chatDisplayName || u.username;
+                const label = `${display}${uUnread > 0 ? ` (${uUnread})` : ''}`;
                 const roleStyle = roleStyles(u.role);
                 return (
                   <Button
@@ -340,7 +342,7 @@ export function ChatPanel(props: {
               <option value="">Пользователь A…</option>
               {users.filter((u) => u.isActive).map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.username}
+                  {u.chatDisplayName || u.username}
                 </option>
               ))}
             </select>
@@ -353,7 +355,7 @@ export function ChatPanel(props: {
               <option value="">Пользователь B…</option>
               {users.filter((u) => u.isActive).map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.username}
+                  {u.chatDisplayName || u.username}
                 </option>
               ))}
             </select>
@@ -361,7 +363,7 @@ export function ChatPanel(props: {
         )}
         <div style={{ color: theme.colors.muted, fontSize: 12 }}>
           {modeLabel}
-          {privateWith ? `: ${privateWith.username}` : ''}
+          {privateWith ? `: ${privateWith.chatDisplayName || privateWith.username}` : ''}
         </div>
       </div>
 
@@ -389,48 +391,84 @@ export function ChatPanel(props: {
                 }}
                 style={{
                   display: 'flex',
-                  gap: 8,
-                  alignItems: 'flex-start',
+                  flexDirection: 'column',
+                  gap: 6,
                   padding: '6px 8px',
                   border: `1px solid ${mine ? theme.colors.chatMineBorder : theme.colors.chatOtherBorder}`,
                   background: mine ? theme.colors.chatMineBg : theme.colors.chatOtherBg,
                 }}
               >
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '2px 8px',
-                    border: `1px solid ${roleStyle.border}`,
-                    background: roleStyle.background,
-                    color: roleStyle.color,
-                    fontWeight: 800,
-                    fontSize: 12,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {info.online == null ? null : (
-                      <span
-                        style={{
-                          width: 9,
-                          height: 9,
-                          borderRadius: 999,
-                          display: 'inline-block',
-                          background: info.online ? 'var(--success)' : 'var(--danger)',
-                          boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
-                        }}
-                        title={info.online ? 'В сети' : 'Не в сети'}
-                      />
-                    )}
-                    <span>{info.name}</span>
-                    {info.role ? <span style={{ fontSize: 11, opacity: 0.9 }}>({info.role})</span> : null}
-                    {info.online != null ? (
-                      <span style={{ fontSize: 11, opacity: 0.85 }}>{info.online ? 'В сети' : 'Не в сети'}</span>
-                    ) : null}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '2px 8px',
+                      border: `1px solid ${roleStyle.border}`,
+                      background: roleStyle.background,
+                      color: roleStyle.color,
+                      fontWeight: 800,
+                      fontSize: 12,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {info.online == null ? null : (
+                        <span
+                          style={{
+                            width: 9,
+                            height: 9,
+                            borderRadius: 999,
+                            display: 'inline-block',
+                            background: info.online ? 'var(--success)' : 'var(--danger)',
+                            boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
+                          }}
+                          title={info.online ? 'В сети' : 'Не в сети'}
+                        />
+                      )}
+                      <span>{info.name}</span>
+                      {info.role ? <span style={{ fontSize: 11, opacity: 0.9 }}>({info.role})</span> : null}
+                      {info.online != null ? (
+                        <span style={{ fontSize: 11, opacity: 0.85 }}>{info.online ? 'В сети' : 'Не в сети'}</span>
+                      ) : null}
+                    </span>
                   </span>
-                </span>
+                  <span style={{ flex: 1 }} />
+                  <button
+                    onMouseEnter={(e) => {
+                      clearHoverCloseTimer();
+                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                      openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'hover');
+                    }}
+                    onMouseLeave={() => {
+                      if (menu?.mode === 'hover' && menu?.message.id === m.id) {
+                        hoverCloseTimer.current = window.setTimeout(() => setMenu(null), 120);
+                      }
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                      openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'context');
+                    }}
+                    title="Доп. сведения"
+                    style={{
+                      border: `1px solid ${theme.colors.border}`,
+                      background: theme.colors.surface2,
+                      color: theme.colors.text,
+                      width: 22,
+                      height: 22,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    i
+                  </button>
+                </div>
                 <div
                   onClick={() => {
                     if (m.messageType === 'file') {
@@ -443,8 +481,6 @@ export function ChatPanel(props: {
                     }
                   }}
                   style={{
-                    flex: 1,
-                    minWidth: 0,
                     color: theme.colors.text,
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
@@ -454,39 +490,6 @@ export function ChatPanel(props: {
                 >
                   {infoText}
                 </div>
-                <button
-                  onMouseEnter={(e) => {
-                    clearHoverCloseTimer();
-                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                    openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'hover');
-                  }}
-                  onMouseLeave={() => {
-                    if (menu?.mode === 'hover' && menu?.message.id === m.id) {
-                      hoverCloseTimer.current = window.setTimeout(() => setMenu(null), 120);
-                    }
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                    openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'context');
-                  }}
-                  title="Доп. сведения"
-                  style={{
-                    border: `1px solid ${theme.colors.border}`,
-                    background: theme.colors.surface2,
-                    color: theme.colors.text,
-                    width: 22,
-                    height: 22,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  i
-                </button>
               </div>
               {menuOpen && (
                 <div
