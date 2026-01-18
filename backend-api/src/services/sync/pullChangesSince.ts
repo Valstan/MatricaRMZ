@@ -22,7 +22,8 @@ export async function pullChangesSince(
     .limit(5000);
 
   const actorId = String(actor?.id ?? '');
-  const actorIsAdmin = String(actor?.role ?? '').toLowerCase() === 'admin';
+  const actorRole = String(actor?.role ?? '').toLowerCase();
+  const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
 
   // Filter out test/bulk artifacts (historical bench data) so new clients don't pull them.
   // IMPORTANT: we MUST still allow delete events through, otherwise clients can't get rid of them.

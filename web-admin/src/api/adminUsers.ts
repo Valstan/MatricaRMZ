@@ -4,7 +4,7 @@ export function listUsers() {
   return apiJson('/admin/users', { method: 'GET' });
 }
 
-export function createUser(args: { username: string; password: string; role: string }) {
+export function createUser(args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean }) {
   return apiJson('/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -12,7 +12,10 @@ export function createUser(args: { username: string; password: string; role: str
   });
 }
 
-export function updateUser(userId: string, args: { role?: string; isActive?: boolean; password?: string }) {
+export function updateUser(
+  userId: string,
+  args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string },
+) {
   return apiJson(`/admin/users/${encodeURIComponent(userId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

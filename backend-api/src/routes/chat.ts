@@ -6,8 +6,9 @@ import { randomUUID } from 'node:crypto';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { db } from '../database/db.js';
-import { changeLog, chatMessages, chatReads, fileAssets, userPresence, users } from '../database/schema.js';
+import { changeLog, chatMessages, chatReads, fileAssets, userPresence } from '../database/schema.js';
 import { SyncTableName } from '@matricarmz/shared';
+import { listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
 
 export const chatRouter = Router();
 chatRouter.use(requireAuth);
@@ -17,7 +18,8 @@ function nowMs() {
 }
 
 function isAdminRole(role: string) {
-  return String(role || '').toLowerCase() === 'admin';
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'superadmin';
 }
 
 function chatMessagePayload(row: {
@@ -126,35 +128,40 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (_req,
     const ts = nowMs();
     const onlineWindowMs = 5 * 60_000;
 
-    const rows = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        role: users.role,
-        isActive: users.isActive,
-        lastActivityAt: userPresence.lastActivityAt,
-      })
-      .from(users)
-      .leftJoin(userPresence, and(eq(userPresence.userId, users.id), isNull(userPresence.deletedAt)))
-      .where(and(isNull(users.deletedAt)))
-      .orderBy(users.username)
-      .limit(10_000);
+    const list = await listEmployeesAuth();
+    if (!list.ok) return res.status(500).json({ ok: false, error: list.error });
+    const ids = list.rows.map((r) => String(r.id));
 
-    return res.json({
-      ok: true,
-      users: rows.map((r: any) => {
-        const last = r.lastActivityAt == null ? null : Number(r.lastActivityAt);
-        const online = last != null && ts - last < onlineWindowMs;
-        return {
-          id: String(r.id),
-          username: String(r.username),
-          role: String(r.role ?? ''),
-          isActive: Boolean(r.isActive),
-          lastActivityAt: last,
-          online,
-        };
-      }),
+    const presenceRows =
+      ids.length === 0
+        ? []
+        : await db
+            .select({ userId: userPresence.userId, lastActivityAt: userPresence.lastActivityAt })
+            .from(userPresence)
+            .where(and(inArray(userPresence.userId, ids as any), isNull(userPresence.deletedAt)))
+            .limit(20_000);
+    const presenceById = new Map<string, number | null>();
+    for (const p of presenceRows as any[]) {
+      presenceById.set(String(p.userId), p.lastActivityAt == null ? null : Number(p.lastActivityAt));
+    }
+
+    const users = list.rows.map((r) => {
+      const last = presenceById.get(String(r.id)) ?? null;
+      const online = last != null && ts - last < onlineWindowMs;
+      const role = normalizeRole(r.login, r.systemRole);
+      const username = r.fullName || r.login || r.id;
+      return {
+        id: String(r.id),
+        username,
+        login: r.login,
+        role,
+        isActive: Boolean(r.accessEnabled),
+        lastActivityAt: last,
+        online,
+      };
     });
+
+    return res.json({ ok: true, users });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -615,13 +622,14 @@ chatRouter.get(
       const startMs = parsed.data.startMs;
       const endMs = parsed.data.endMs;
 
-      const userRows = await db
-        .select({ id: users.id, username: users.username })
-        .from(users)
-        .where(isNull(users.deletedAt))
-        .limit(50_000);
+      const userRows = await listEmployeesAuth();
       const usernameById = new Map<string, string>();
-      for (const u of userRows as any[]) usernameById.set(String(u.id), String(u.username));
+      if (userRows.ok) {
+        for (const u of userRows.rows) {
+          const name = u.fullName || u.login || u.id;
+          usernameById.set(String(u.id), String(name));
+        }
+      }
 
       const rows = await db
         .select({

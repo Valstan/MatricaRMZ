@@ -124,7 +124,7 @@ export const rowOwners = pgTable(
     id: uuid('id').primaryKey(),
     tableName: text('table_name').notNull(),
     rowId: uuid('row_id').notNull(),
-    ownerUserId: uuid('owner_user_id').references(() => users.id),
+    ownerUserId: uuid('owner_user_id').references(() => entities.id),
     ownerUsername: text('owner_username'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
@@ -149,19 +149,19 @@ export const changeRequests = pgTable(
     beforeJson: text('before_json'),
     afterJson: text('after_json').notNull(),
 
-    recordOwnerUserId: uuid('record_owner_user_id').references(() => users.id),
+    recordOwnerUserId: uuid('record_owner_user_id').references(() => entities.id),
     recordOwnerUsername: text('record_owner_username'),
 
     changeAuthorUserId: uuid('change_author_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     changeAuthorUsername: text('change_author_username').notNull(),
 
     note: text('note'),
 
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     decidedAt: bigint('decided_at', { mode: 'number' }),
-    decidedByUserId: uuid('decided_by_user_id').references(() => users.id),
+    decidedByUserId: uuid('decided_by_user_id').references(() => entities.id),
     decidedByUsername: text('decided_by_username'),
   },
   (t) => ({
@@ -215,7 +215,7 @@ export const refreshTokens = pgTable(
     id: uuid('id').primaryKey(),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     tokenHash: text('token_hash').notNull(),
     expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -246,7 +246,7 @@ export const userPermissions = pgTable(
     id: uuid('id').primaryKey(),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     permCode: text('perm_code')
       .notNull()
       .references(() => permissions.code),
@@ -269,12 +269,12 @@ export const permissionDelegations = pgTable(
     // кто делегировал (владелец права по регламенту)
     fromUserId: uuid('from_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
 
     // кому делегировали
     toUserId: uuid('to_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
 
     // какое право делегировано
     permCode: text('perm_code')
@@ -289,10 +289,10 @@ export const permissionDelegations = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
 
     revokedAt: bigint('revoked_at', { mode: 'number' }),
-    revokedByUserId: uuid('revoked_by_user_id').references(() => users.id),
+    revokedByUserId: uuid('revoked_by_user_id').references(() => entities.id),
     revokeNote: text('revoke_note'),
   },
   (t) => ({
@@ -310,7 +310,7 @@ export const fileAssets = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
 
     name: text('name').notNull(),
     mime: text('mime'),
@@ -347,11 +347,11 @@ export const chatMessages = pgTable(
 
     senderUserId: uuid('sender_user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     senderUsername: text('sender_username').notNull(),
 
     // null => общий чат
-    recipientUserId: uuid('recipient_user_id').references(() => users.id),
+    recipientUserId: uuid('recipient_user_id').references(() => entities.id),
 
     // text/file/deep_link
     messageType: text('message_type').notNull(),
@@ -375,7 +375,7 @@ export const chatReads = pgTable(
       .references(() => chatMessages.id),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     readAt: bigint('read_at', { mode: 'number' }).notNull(),
 
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -394,10 +394,10 @@ export const userPresence = pgTable(
     // Используем userId как primary key, чтобы на пользователя была ровно одна строка.
     id: uuid('id')
       .primaryKey()
-      .references(() => users.id),
+      .references(() => entities.id),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     lastActivityAt: bigint('last_activity_at', { mode: 'number' }).notNull(),
 
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),

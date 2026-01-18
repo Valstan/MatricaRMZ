@@ -151,16 +151,22 @@ export function registerAdminIpc(ctx: IpcContext) {
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminListUsers(ctx.sysDb, ctx.mgr.getApiBaseUrl());
   });
-  ipcMain.handle('admin:users:create', async (_e, args: { username: string; password: string; role: string }) => {
+  ipcMain.handle(
+    'admin:users:create',
+    async (_e, args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean }) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminCreateUser(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
-  });
-  ipcMain.handle('admin:users:update', async (_e, userId: string, args: { role?: string; isActive?: boolean; password?: string }) => {
+    },
+  );
+  ipcMain.handle(
+    'admin:users:update',
+    async ( _e, userId: string, args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string }) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminUpdateUser(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId, args);
-  });
+    },
+  );
   ipcMain.handle('admin:users:permissionsGet', async (_e, userId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');

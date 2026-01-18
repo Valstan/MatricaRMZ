@@ -1,7 +1,7 @@
 import { ipcMain, net } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { authLogin, authLogout, authStatus, authSync } from '../../services/authService.js';
+import { authChangePassword, authLogin, authLogout, authStatus, authSync, presenceMe } from '../../services/authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { isViewMode } from '../ipcContext.js';
 
@@ -15,6 +15,10 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   ipcMain.handle('auth:logout', async (_e, args: { refreshToken?: string }) =>
     authLogout(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), refreshToken: args.refreshToken }),
   );
+  ipcMain.handle('auth:changePassword', async (_e, args: { currentPassword: string; newPassword: string }) =>
+    authChangePassword(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), currentPassword: args.currentPassword, newPassword: args.newPassword }),
+  );
+  ipcMain.handle('presence:me', async () => presenceMe(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
 
   // Sync
   ipcMain.handle('sync:run', async () => {

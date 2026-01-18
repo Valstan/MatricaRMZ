@@ -20,7 +20,11 @@ export async function adminListUsers(db: BetterSQLite3Database, apiBaseUrl: stri
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
-export async function adminCreateUser(db: BetterSQLite3Database, apiBaseUrl: string, args: { username: string; password: string; role: string }) {
+export async function adminCreateUser(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean },
+) {
   const r = await httpAuthed(db, apiBaseUrl, '/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -34,7 +38,7 @@ export async function adminUpdateUser(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   userId: string,
-  args: { role?: string; isActive?: boolean; password?: string },
+  args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string },
 ) {
   const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}`, {
     method: 'PATCH',

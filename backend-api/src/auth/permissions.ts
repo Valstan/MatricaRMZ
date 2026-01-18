@@ -1,7 +1,8 @@
 import { and, eq, gt, isNull, lt } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { permissionDelegations, userPermissions, users } from '../database/schema.js';
+import { permissionDelegations, userPermissions } from '../database/schema.js';
+import { getEmployeeAuthById, isSuperadminLogin, normalizeRole } from '../services/employeeAuthService.js';
 
 export const PermissionCode = {
   // system / admin
@@ -69,6 +70,13 @@ export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode
 export function defaultPermissionsForRole(role: string): Record<string, boolean> {
   const r = String(role || '').toLowerCase();
 
+  // superadmin: полный доступ
+  if (r === 'superadmin') {
+    const all: Record<string, boolean> = {};
+    for (const code of Object.values(PermissionCode)) all[code] = true;
+    return all;
+  }
+
   // admin: полный доступ
   if (r === 'admin') {
     const all: Record<string, boolean> = {};
@@ -106,15 +114,12 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
 }
 
 export async function getEffectivePermissionsForUser(userId: string): Promise<Record<string, boolean>> {
-  const userRows = await db
-    .select({ id: users.id, role: users.role })
-    .from(users)
-    .where(and(eq(users.id, userId), eq(users.isActive, true), isNull(users.deletedAt)))
-    .limit(1);
-  const u = userRows[0];
-  if (!u) return {};
+  const u = await getEmployeeAuthById(userId);
+  if (!u || !u.accessEnabled) return {};
 
-  const base = defaultPermissionsForRole(u.role);
+  const role = normalizeRole(u.login, u.systemRole);
+  if (isSuperadminLogin(u.login)) return defaultPermissionsForRole('superadmin');
+  const base = defaultPermissionsForRole(role);
 
   const overrides = await db
     .select({ permCode: userPermissions.permCode, allowed: userPermissions.allowed })
@@ -140,9 +145,8 @@ export async function getEffectivePermissionsForUser(userId: string): Promise<Re
     .limit(10_000);
   for (const d of delegations) base[d.permCode] = true;
 
-  // Политика безопасности: `admin.users.manage` не может быть включено ни override-ом,
-  // ни делегированием, если роль не admin.
-  if (String(u.role || '').toLowerCase() !== 'admin') base[PermissionCode.AdminUsersManage] = false;
+  // Политика безопасности: `admin.users.manage` доступен только admin/superadmin.
+  if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.AdminUsersManage] = false;
 
   return base;
 }

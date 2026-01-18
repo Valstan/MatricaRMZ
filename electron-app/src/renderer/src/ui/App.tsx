@@ -8,7 +8,8 @@ import { EnginesPage } from './pages/EnginesPage.js';
 import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
-import { AdminPage } from './pages/AdminPage.js';
+import { MasterdataPage } from './pages/AdminPage.js';
+import { AdminUsersPage } from './pages/AdminUsersPage.js';
 import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
@@ -40,6 +41,7 @@ export function App() {
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
+  const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
 
   useEffect(() => {
     void refreshEngines();
@@ -157,6 +159,27 @@ export function App() {
     };
   }, [authStatus.loggedIn]);
 
+  useEffect(() => {
+    if (!authStatus.loggedIn) {
+      setPresence(null);
+      return;
+    }
+    let alive = true;
+    const poll = async () => {
+      const r = await window.matrica.presence.me().catch(() => null);
+      if (!alive) return;
+      if (r && (r as any).ok) {
+        setPresence({ online: !!(r as any).online, lastActivityAt: (r as any).lastActivityAt ?? null });
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 20_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [authStatus.loggedIn]);
+
   const capsBase = deriveUiCaps(authStatus.permissions ?? null);
   const viewMode = backupMode?.mode === 'backup';
   const canChat = !!authStatus.permissions?.['chat.use'];
@@ -190,9 +213,10 @@ export function App() {
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
-    ...((caps.canViewMasterData || caps.canManageUsers) ? (['admin'] as const) : []),
+    ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
     'settings',
+    'admin',
     'auth',
   ];
   const visibleTabsKey = visibleTabs.join('|');
@@ -347,8 +371,10 @@ export function App() {
           ? 'Матрица РМЗ — Настройки'
         : tab === 'reports'
           ? 'Матрица РМЗ — Отчёты'
-          : tab === 'admin'
+          : tab === 'masterdata'
             ? 'Матрица РМЗ — Справочники'
+            : tab === 'admin'
+              ? 'Матрица РМЗ — Админ'
           : 'Матрица РМЗ — Журнал';
 
   function formatSyncStatusRu(s: SyncStatus | null): { text: string; isError: boolean } {
@@ -458,6 +484,7 @@ export function App() {
             }}
             visibleTabs={visibleTabs}
             authLabel={authStatus.loggedIn ? authStatus.user?.username ?? 'Вход' : 'Войти'}
+            authStatus={presence ? { online: presence.online } : undefined}
           />
 
           <div style={{ marginTop: 14 }}>
@@ -559,21 +586,24 @@ export function App() {
         )}
 
         {tab === 'changes' && authStatus.loggedIn && authStatus.user && (
-          <ChangesPage me={authStatus.user} canDecideAsAdmin={String(authStatus.user.role ?? '').toLowerCase() === 'admin'} />
+          <ChangesPage
+            me={authStatus.user}
+            canDecideAsAdmin={['admin', 'superadmin'].includes(String(authStatus.user.role ?? '').toLowerCase())}
+          />
         )}
 
         {tab === 'settings' && <SettingsPage />}
 
         {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
 
-        {tab === 'admin' && (
-          <AdminPage
-            permissions={authStatus.permissions ?? {}}
+        {tab === 'masterdata' && (
+          <MasterdataPage
             canViewMasterData={caps.canViewMasterData}
             canEditMasterData={caps.canEditMasterData}
-            canManageUsers={caps.canManageUsers}
           />
         )}
+
+        {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={authStatus.user} />}
 
         {tab === 'auth' && (
           <AuthPage

@@ -49,7 +49,8 @@ function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'u
 type SyncActor = { id: string; username: string; role: string };
 
 function isAdminRole(role: string): boolean {
-  return String(role || '').toLowerCase() === 'admin';
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'superadmin';
 }
 
 function safeActor(a: SyncActor): SyncActor {

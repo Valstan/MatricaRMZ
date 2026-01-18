@@ -13,6 +13,7 @@ export type TabId =
   | 'changes'
   | 'auth'
   | 'reports'
+  | 'masterdata'
   | 'admin'
   | 'audit'
   | 'settings';
@@ -22,6 +23,7 @@ export function Tabs(props: {
   onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part'>) => void;
   visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[];
   authLabel?: string;
+  authStatus?: { online: boolean | null };
   right?: React.ReactNode;
 }) {
   function tabButton(id: Exclude<TabId, 'engine' | 'request' | 'part'>, label: string) {
@@ -53,9 +55,25 @@ export function Tabs(props: {
     );
   }
 
+  const authDot =
+    props.authStatus?.online == null ? null : (
+      <span
+        className={props.authStatus.online ? 'chatBlink' : undefined}
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: 999,
+          display: 'inline-block',
+          background: props.authStatus.online ? '#16a34a' : '#dc2626',
+          boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
+        }}
+        title={props.authStatus.online ? 'В сети' : 'Не в сети'}
+      />
+    );
+
   return (
     <div style={{ display: 'flex', gap: 6, rowGap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-      {props.visibleTabs.includes('admin') && tabButton('admin', 'Справочники')}
+      {props.visibleTabs.includes('masterdata') && tabButton('masterdata', 'Справочники')}
       {props.visibleTabs.includes('changes') && tabButton('changes', 'Изменения')}
       {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
       {props.visibleTabs.includes('requests') && tabButton('requests', 'Заявки')}
@@ -64,7 +82,11 @@ export function Tabs(props: {
       <span style={{ flex: 1 }} />
       {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}
       {tabButton('settings', 'Настройки')}
-      {tabButton('auth', props.authLabel?.trim() ? props.authLabel.trim() : 'Вход')}
+      {props.visibleTabs.includes('admin') && tabButton('admin', 'Админ')}
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {authDot}
+        {tabButton('auth', props.authLabel?.trim() ? props.authLabel.trim() : 'Вход')}
+      </div>
       {props.right}
     </div>
   );

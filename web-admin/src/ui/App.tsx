@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 
 import { login, logout, me } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
+import { presenceMe } from '../api/presence.js';
 import { deriveCaps } from '../auth/permissions.js';
-import { AdminPage } from './AdminPage.js';
+import { MasterdataPage } from './AdminPage.js';
+import { AdminUsersPage } from './AdminUsersPage.js';
 import { ChatPanel } from './ChatPanel.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
@@ -11,12 +13,28 @@ import { Tabs } from './components/Tabs.js';
 
 type AuthUser = { id: string; username: string; role: string };
 
+function roleStyles(roleRaw: string) {
+  const role = String(roleRaw ?? '').toLowerCase();
+  if (role === 'superadmin') {
+    return {
+      background: 'linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%)',
+      border: '#4b5563',
+      color: '#ffffff',
+    };
+  }
+  if (role === 'admin') {
+    return { background: '#ffffff', border: '#1d4ed8', color: '#1d4ed8' };
+  }
+  return { background: '#ffffff', border: '#16a34a', color: '#16a34a' };
+}
+
 export function App() {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
-  const [tab, setTab] = useState<'admin' | 'chat'>('admin');
+  const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
+  const [tab, setTab] = useState<'masterdata' | 'admin' | 'chat'>('masterdata');
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
 
@@ -29,7 +47,8 @@ export function App() {
       return;
     }
     const u = r.user as AuthUser;
-    if (!u || String(u.role ?? '').toLowerCase() !== 'admin') {
+    const role = String(u?.role ?? '').toLowerCase();
+    if (!u || (role !== 'admin' && role !== 'superadmin')) {
       setAuthError('Доступ только для администраторов.');
       clearTokens();
       setUser(null);
@@ -45,6 +64,27 @@ export function App() {
   useEffect(() => {
     void refreshMe();
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setPresence(null);
+      return;
+    }
+    let alive = true;
+    const tick = async () => {
+      const r = await presenceMe().catch(() => null);
+      if (!alive) return;
+      if (r && (r as any).ok) {
+        setPresence({ online: !!(r as any).online, lastActivityAt: (r as any).lastActivityAt ?? null });
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 20000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [user?.id]);
 
   async function doLogin() {
     setAuthError(null);
@@ -103,8 +143,32 @@ export function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ fontWeight: 800 }}>MatricaRMZ Admin</div>
           <span style={{ flex: 1 }} />
-          <div className="muted">
-            {user.username} ({user.role})
+          <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {presence ? (
+              <span
+                className={presence.online ? 'chatBlink' : undefined}
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  display: 'inline-block',
+                  background: presence.online ? '#16a34a' : '#dc2626',
+                }}
+                title={presence.online ? 'В сети' : 'Не в сети'}
+              />
+            ) : null}
+            <span
+              style={{
+                padding: '2px 8px',
+                borderRadius: 999,
+                border: `1px solid ${roleStyles(user.role).border}`,
+                background: roleStyles(user.role).background,
+                color: roleStyles(user.role).color,
+                fontWeight: 800,
+              }}
+            >
+              {user.username} ({user.role})
+            </span>
           </div>
           <Button variant="ghost" onClick={() => void doLogout()}>
             Выйти
@@ -115,7 +179,8 @@ export function App() {
       <div className="card" style={{ marginBottom: 12 }}>
         <Tabs
           tabs={[
-            { id: 'admin', label: 'Справочники и права' },
+            { id: 'masterdata', label: 'Справочники' },
+            { id: 'admin', label: 'Админ' },
             { id: 'chat', label: 'Чат' },
           ]}
           active={tab}
@@ -123,7 +188,8 @@ export function App() {
         />
       </div>
 
-      {tab === 'admin' && <AdminPage permissions={permissions} canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} canManageUsers={caps.canManageUsers} />}
+      {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
+      {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
       {tab === 'chat' && <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />}
     </div>
   );

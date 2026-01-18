@@ -6,11 +6,12 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { db } from '../database/db.js';
-import { changeRequests, fileAssets, users } from '../database/schema.js';
+import { changeRequests, fileAssets } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { deletePath, ensureFolderDeep, getDownloadHref, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
+import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 
 // Multipart parser (no 3rd party): we accept base64 payload for MVP.
 // NOTE: For large files, Electron will stream later; for now keep it simple.
@@ -451,14 +452,13 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
     const row = rows[0] as any;
     if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
 
-    const actorIsAdmin = String(actor.role || '').toLowerCase() === 'admin';
+    const actorRole = String(actor.role || '').toLowerCase();
+    const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
     const ownerUserId = row.createdByUserId ? String(row.createdByUserId) : null;
     if (!actorIsAdmin && ownerUserId && ownerUserId !== actor.id) {
       const ts = nowMs();
-      const ownerUser = ownerUserId
-        ? await db.select({ username: users.username }).from(users).where(and(eq(users.id, ownerUserId as any), isNull(users.deletedAt))).limit(1)
-        : [];
-      const ownerUsername = ownerUser[0]?.username ? String(ownerUser[0].username) : null;
+      const ownerUser = ownerUserId ? await getEmployeeAuthById(ownerUserId) : null;
+      const ownerUsername = ownerUser ? ownerUser.fullName || ownerUser.login || ownerUser.id : null;
 
       await db.insert(changeRequests).values({
         id: randomUUID(),

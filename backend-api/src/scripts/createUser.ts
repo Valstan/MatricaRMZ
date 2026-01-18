@@ -1,11 +1,10 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
-
 import { db, pool } from '../database/db.js';
-import { users } from '../database/schema.js';
+import { entities } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
+import { ensureEmployeeAuthDefs, getEmployeeAuthByLogin, getEmployeeTypeId, setEmployeeAuth, setEmployeeFullName } from '../services/employeeAuthService.js';
 
 function nowMs() {
   return Date.now();
@@ -34,34 +33,40 @@ async function main() {
   const usernameRaw = String(args.username ?? '').trim();
   const password = String(args.password ?? '').trim();
   const role = String(args.role ?? 'admin').trim() || 'admin';
+  const fullName = String(args.fullName ?? '').trim();
 
   if (!usernameRaw || !password) {
-    console.error('Usage: pnpm --filter @matricarmz/backend-api user:create -- --username <name> --password <pass> [--role admin|user]');
+    console.error(
+      'Usage: pnpm --filter @matricarmz/backend-api user:create -- --username <login> --password <pass> [--role admin|user] [--fullName "Name"]',
+    );
     process.exit(2);
   }
 
-  const username = usernameRaw.toLowerCase();
+  const login = usernameRaw.toLowerCase();
   const ts = nowMs();
+  await ensureEmployeeAuthDefs();
 
   const passwordHash = await hashPassword(password);
-  const existing = await db.select({ id: users.id, deletedAt: users.deletedAt }).from(users).where(eq(users.username, username)).limit(1);
-  if (existing[0]) {
-    if (existing[0].deletedAt != null) {
-      await db
-        .update(users)
-        .set({ passwordHash, role, isActive: true, deletedAt: null, updatedAt: ts })
-        .where(eq(users.id, existing[0].id));
-      console.log(`Restored user: ${username} (id=${existing[0].id}, role=${role})`);
-      return;
-    }
-    console.error(`User already exists: ${username}`);
+  const existing = await getEmployeeAuthByLogin(login);
+  if (existing) {
+    await setEmployeeAuth(existing.id, { passwordHash, systemRole: role, accessEnabled: true, login });
+    if (fullName) await setEmployeeFullName(existing.id, fullName);
+    console.log(`Updated employee login: ${login} (id=${existing.id}, role=${role})`);
+    return;
+  }
+
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) {
+    console.error('Employee entity type not found');
     process.exit(1);
   }
 
   const id = randomUUID();
-  await db.insert(users).values({ id, username, passwordHash, role, isActive: true, createdAt: ts, updatedAt: ts, deletedAt: null });
+  await db.insert(entities).values({ id, typeId: employeeTypeId, createdAt: ts, updatedAt: ts, deletedAt: null, syncStatus: 'synced' });
+  await setEmployeeAuth(id, { login, passwordHash, systemRole: role, accessEnabled: true });
+  if (fullName) await setEmployeeFullName(id, fullName);
 
-  console.log(`Created user: ${username} (id=${id}, role=${role})`);
+  console.log(`Created employee login: ${login} (id=${id}, role=${role})`);
 }
 
 main()

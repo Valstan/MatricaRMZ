@@ -3,14 +3,15 @@ import { z } from 'zod';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { refreshTokens, users } from '../database/schema.js';
+import { refreshTokens } from '../database/schema.js';
 import { signAccessToken, type AuthUser } from '../auth/jwt.js';
-import { verifyPassword } from '../auth/password.js';
+import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { randomUUID } from 'node:crypto';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { logError } from '../utils/logger.js';
+import { getEmployeeAuthById, getEmployeeAuthByLogin, normalizeRole, setEmployeeAuth } from '../services/employeeAuthService.js';
 
 export const authRouter = Router();
 
@@ -31,18 +32,14 @@ authRouter.post('/login', async (req, res) => {
     const username = parsed.data.username.trim().toLowerCase();
     const password = parsed.data.password;
 
-    const rows = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.username, username), eq(users.isActive, true), isNull(users.deletedAt)))
-      .limit(1);
-    const u = rows[0];
-    if (!u) return res.status(401).json({ ok: false, error: 'invalid credentials' });
+    const u = await getEmployeeAuthByLogin(username);
+    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(401).json({ ok: false, error: 'invalid credentials' });
 
     const ok = await verifyPassword(password, u.passwordHash);
     if (!ok) return res.status(401).json({ ok: false, error: 'invalid credentials' });
 
-    const authUser: AuthUser = { id: u.id, username: u.username, role: u.role };
+    const role = normalizeRole(u.login, u.systemRole);
+    const authUser: AuthUser = { id: u.id, username: u.login, role };
     const accessToken = await signAccessToken(authUser);
     const permissions = await getEffectivePermissionsForUser(u.id);
 
@@ -87,15 +84,11 @@ authRouter.post('/refresh', async (req, res) => {
     const rt = rows[0];
     if (!rt) return res.status(401).json({ ok: false, error: 'invalid refresh token' });
 
-    const userRows = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, rt.userId), eq(users.isActive, true), isNull(users.deletedAt)))
-      .limit(1);
-    const u = userRows[0];
-    if (!u) return res.status(401).json({ ok: false, error: 'user disabled' });
+    const u = await getEmployeeAuthById(String(rt.userId));
+    if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'user disabled' });
 
-    const authUser: AuthUser = { id: u.id, username: u.username, role: u.role };
+    const role = normalizeRole(u.login, u.systemRole);
+    const authUser: AuthUser = { id: u.id, username: u.login, role };
     const accessToken = await signAccessToken(authUser);
     const permissions = await getEffectivePermissionsForUser(u.id);
 
@@ -128,6 +121,35 @@ authRouter.post('/logout', requireAuth, async (req, res) => {
     return res.json({ ok: true });
   } catch (e) {
     logError('auth logout failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const schema = z.object({
+      currentPassword: z.string().min(1).max(500),
+      newPassword: z.string().min(6).max(500),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+
+    const u = await getEmployeeAuthById(actor.id);
+    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(403).json({ ok: false, error: 'user disabled' });
+
+    const ok = await verifyPassword(parsed.data.currentPassword, u.passwordHash);
+    if (!ok) return res.status(400).json({ ok: false, error: 'invalid current password' });
+
+    const passwordHash = await hashPassword(parsed.data.newPassword);
+    const r = await setEmployeeAuth(actor.id, { passwordHash });
+    if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    logError('auth change-password failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

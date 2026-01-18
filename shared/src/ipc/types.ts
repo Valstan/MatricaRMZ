@@ -257,6 +257,10 @@ export type MatricaApi = {
     sync: () => Promise<AuthStatus>;
     login: (args: { username: string; password: string }) => Promise<AuthLoginResult>;
     logout: (args: { refreshToken?: string }) => Promise<AuthLogoutResult>;
+    changePassword: (args: { currentPassword: string; newPassword: string }) => Promise<{ ok: boolean; error?: string }>;
+  };
+  presence: {
+    me: () => Promise<{ ok: true; online: boolean; lastActivityAt: number | null } | { ok: false; error: string }>;
   };
   engines: {
     list: () => Promise<EngineListItem[]>;
@@ -339,18 +343,24 @@ export type MatricaApi = {
       softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
     };
     users: {
-      list: () => Promise<{ ok: true; users: { id: string; username: string; role: string; isActive: boolean }[] } | { ok: false; error: string }>;
-      create: (args: { username: string; password: string; role: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      list: () => Promise<
+        | { ok: true; users: { id: string; username: string; login?: string; fullName?: string; role: string; isActive: boolean }[] }
+        | { ok: false; error: string }
+      >;
+      create: (args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean }) => Promise<
+        | { ok: true; id: string }
+        | { ok: false; error: string }
+      >;
       update: (
         userId: string,
-        args: { role?: string; isActive?: boolean; password?: string },
+        args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string },
       ) => Promise<{ ok: boolean; error?: string }>;
       permissionsGet: (
         userId: string,
       ) => Promise<
         | {
             ok: true;
-            user: { id: string; username: string; role: string };
+            user: { id: string; username: string; login?: string; role: string; isActive?: boolean };
             allCodes?: string[];
             base: Record<string, boolean>;
             overrides: Record<string, boolean>;

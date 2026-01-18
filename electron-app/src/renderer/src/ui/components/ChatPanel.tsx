@@ -6,9 +6,10 @@ import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { theme } from '../theme.js';
 
-function dot(color: string) {
+function dot(color: string, blinking: boolean) {
   return (
     <span
+      className={blinking ? 'chatBlink' : undefined}
       style={{
         width: 10,
         height: 10,
@@ -19,6 +20,21 @@ function dot(color: string) {
       }}
     />
   );
+}
+
+function roleStyles(roleRaw: string) {
+  const role = String(roleRaw ?? '').toLowerCase();
+  if (role === 'superadmin') {
+    return {
+      background: 'linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%)',
+      border: '#4b5563',
+      color: '#ffffff',
+    };
+  }
+  if (role === 'admin') {
+    return { background: '#ffffff', border: '#1d4ed8', color: '#1d4ed8' };
+  }
+  return { background: '#ffffff', border: '#16a34a', color: '#16a34a' };
 }
 
 export function ChatPanel(props: {
@@ -173,14 +189,21 @@ export function ChatPanel(props: {
               .map((u) => {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;
-                const indicator = u.online ? dot('#16a34a') : dot('#dc2626');
+                const indicator = u.online ? dot('#16a34a', true) : dot('#dc2626', false);
                 const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
+                const roleStyle = roleStyles(u.role);
                 return (
                   <Button
                     key={u.id}
                     variant={isSel ? 'primary' : 'ghost'}
                     onClick={() => setSelectedUserId(u.id)}
                     title={u.online ? 'Онлайн' : 'Оффлайн'}
+                    style={{
+                      border: `1px solid ${roleStyle.border}`,
+                      background: roleStyle.background,
+                      color: roleStyle.color,
+                      boxShadow: isSel ? '0 0 0 2px rgba(15, 23, 42, 0.35)' : undefined,
+                    }}
                   >
                     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                       {indicator}

@@ -199,6 +199,53 @@ export async function authLogout(db: BetterSQLite3Database, args: { apiBaseUrl: 
   }
 }
 
+export async function authChangePassword(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string; currentPassword: string; newPassword: string },
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const session = await getSession(db);
+    const accessToken = session?.accessToken ?? null;
+    if (!accessToken) return { ok: false, error: 'missing session' };
+    const r = await net.fetch(`${args.apiBaseUrl}/auth/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ currentPassword: args.currentPassword, newPassword: args.newPassword }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `change-password HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok) return { ok: false, error: json?.error ?? 'bad response' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+export async function presenceMe(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string },
+): Promise<{ ok: true; online: boolean; lastActivityAt: number | null } | { ok: false; error: string }> {
+  try {
+    const session = await getSession(db).catch(() => null);
+    if (!session?.accessToken) return { ok: false, error: 'missing session' };
+    const r = await net.fetch(`${args.apiBaseUrl}/presence/me`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `presence HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok) return { ok: false, error: 'bad presence response' };
+    return { ok: true, online: !!json.online, lastActivityAt: json.lastActivityAt ?? null };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 function safeJsonParse(s: string): unknown {
   try {
     return JSON.parse(s);

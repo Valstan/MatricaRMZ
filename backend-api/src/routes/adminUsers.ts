@@ -4,32 +4,82 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { permissionDelegations, permissions, userPermissions, users } from '../database/schema.js';
+import { entities, permissionDelegations, permissions, userPermissions } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
+import {
+  ensureEmployeeAuthDefs,
+  getEmployeeAuthById,
+  getEmployeeAuthByLogin,
+  getEmployeeTypeId,
+  isLoginTaken,
+  isSuperadminLogin,
+  listEmployeesAuth,
+  normalizeRole,
+  setEmployeeAuth,
+  setEmployeeFullName,
+} from '../services/employeeAuthService.js';
 
 export const adminUsersRouter = Router();
 
 adminUsersRouter.use(requireAuth);
 adminUsersRouter.use(requirePermission(PermissionCode.AdminUsersManage));
 
+function roleLevel(role: string) {
+  const r = String(role ?? '').toLowerCase();
+  if (r === 'superadmin') return 2;
+  if (r === 'admin') return 1;
+  return 0;
+}
+
+function ensureManageAllowed(args: {
+  actorId: string;
+  actorRole: string;
+  targetId: string;
+  targetLogin: string;
+  targetRole: string;
+  allowSelfPasswordOnly?: boolean;
+  touchingRoleOrAccess: boolean;
+}) {
+  const actorLevel = roleLevel(args.actorRole);
+  const targetLevel = roleLevel(args.targetRole);
+
+  if (actorLevel < 1) return { ok: false as const, error: 'admin only' };
+
+  if (args.actorId === args.targetId) {
+    if (args.allowSelfPasswordOnly && !args.touchingRoleOrAccess) return { ok: true as const };
+    return { ok: false as const, error: 'cannot update own access or role' };
+  }
+
+  if (isSuperadminLogin(args.targetLogin) && args.touchingRoleOrAccess) {
+    return { ok: false as const, error: 'superadmin role is immutable' };
+  }
+
+  if (actorLevel === 1 && targetLevel > 0) {
+    return { ok: false as const, error: 'admin can manage only users' };
+  }
+
+  return { ok: true as const };
+}
+
 adminUsersRouter.get('/users', async (_req, res) => {
   try {
-    const rows = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        role: users.role,
-        isActive: users.isActive,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-        deletedAt: users.deletedAt,
-      })
-      .from(users)
-      .where(isNull(users.deletedAt))
-      .limit(5000);
-    return res.json({ ok: true, users: rows });
+    const list = await listEmployeesAuth();
+    if (!list.ok) return res.status(500).json({ ok: false, error: list.error });
+    const users = list.rows.map((r) => {
+      const role = normalizeRole(r.login, r.systemRole);
+      const username = r.fullName || r.login || r.id;
+      return {
+        id: r.id,
+        username,
+        login: r.login,
+        fullName: r.fullName,
+        role,
+        isActive: r.accessEnabled,
+      };
+    });
+    return res.json({ ok: true, users });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -38,51 +88,59 @@ adminUsersRouter.get('/users', async (_req, res) => {
 adminUsersRouter.post('/users', async (req, res) => {
   try {
     const schema = z.object({
-      username: z.string().min(1).max(100),
+      employeeId: z.string().uuid().optional(),
+      fullName: z.string().max(200).optional(),
+      login: z.string().min(1).max(100),
       password: z.string().min(6).max(500),
       role: z.string().min(1).max(50).default('user'),
+      accessEnabled: z.boolean().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const username = parsed.data.username.trim().toLowerCase();
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+    const login = parsed.data.login.trim().toLowerCase();
     const role = parsed.data.role.trim().toLowerCase();
-    const ts = Date.now();
+    const accessEnabled = parsed.data.accessEnabled ?? true;
 
-    // В БД username уникален глобально (включая soft-deleted записи),
-    // поэтому при попытке создать "удалённого" пользователя нужно либо восстановить запись,
-    // либо изменить индекс. Здесь делаем восстановление (без риска ошибки UNIQUE).
-    const existing = await db
-      .select({ id: users.id, deletedAt: users.deletedAt })
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
+    if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'login already exists' });
 
-    const passwordHash = await hashPassword(parsed.data.password);
-
-    if (existing[0]) {
-      if (existing[0].deletedAt != null) {
-        await db
-          .update(users)
-          .set({ passwordHash, role, isActive: true, deletedAt: null, updatedAt: ts })
-          .where(eq(users.id, existing[0].id));
-        return res.json({ ok: true, id: existing[0].id, restored: true });
-      }
-      return res.status(409).json({ ok: false, error: 'username already exists' });
+    const actorLevel = roleLevel(actorRole);
+    if (actorLevel < 1) return res.status(403).json({ ok: false, error: 'admin only' });
+    if (actorLevel === 1 && role !== 'user') return res.status(403).json({ ok: false, error: 'admin can create only users' });
+    if (isSuperadminLogin(login) && actorLevel < 2) {
+      return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
     }
 
-    const id = randomUUID();
-    await db.insert(users).values({
-      id,
-      username,
+    const passwordHash = await hashPassword(parsed.data.password);
+    let employeeId = parsed.data.employeeId;
+    const ts = Date.now();
+
+    if (!employeeId) {
+      const employeeTypeId = await getEmployeeTypeId();
+      if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'employee type not found' });
+      employeeId = randomUUID();
+      await db.insert(entities).values({
+        id: employeeId,
+        typeId: employeeTypeId,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      });
+    }
+
+    await ensureEmployeeAuthDefs();
+    await setEmployeeAuth(employeeId, {
+      login,
       passwordHash,
-      role,
-      isActive: true,
-      createdAt: ts,
-      updatedAt: ts,
-      deletedAt: null,
+      systemRole: role,
+      accessEnabled,
     });
-    return res.json({ ok: true, id, restored: false });
+    if (parsed.data.fullName) await setEmployeeFullName(employeeId, parsed.data.fullName);
+
+    return res.json({ ok: true, id: employeeId });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -91,8 +149,10 @@ adminUsersRouter.post('/users', async (req, res) => {
 adminUsersRouter.patch('/users/:id', async (req, res) => {
   try {
     const schema = z.object({
+      login: z.string().min(1).max(100).optional(),
+      fullName: z.string().max(200).optional(),
       role: z.string().min(1).max(50).optional(),
-      isActive: z.boolean().optional(),
+      accessEnabled: z.boolean().optional(),
       password: z.string().min(6).max(500).optional(),
     });
     const parsed = schema.safeParse(req.body);
@@ -101,13 +161,50 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const ts = Date.now();
-    const patch: any = { updatedAt: ts };
-    if (parsed.data.role) patch.role = parsed.data.role.trim().toLowerCase();
-    if (typeof parsed.data.isActive === 'boolean') patch.isActive = parsed.data.isActive;
-    if (parsed.data.password) patch.passwordHash = await hashPassword(parsed.data.password);
+    const target = await getEmployeeAuthById(id);
+    if (!target) return res.status(404).json({ ok: false, error: 'employee not found' });
 
-    await db.update(users).set(patch).where(eq(users.id, id));
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorId = String(actor?.id ?? '');
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+    const targetRole = normalizeRole(target.login, target.systemRole);
+
+    const touchingRoleOrAccess =
+      parsed.data.role !== undefined || parsed.data.accessEnabled !== undefined || parsed.data.login !== undefined;
+    const manageGate = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: id,
+      targetLogin: target.login,
+      targetRole,
+      allowSelfPasswordOnly: true,
+      touchingRoleOrAccess,
+    });
+    if (!manageGate.ok) return res.status(403).json({ ok: false, error: manageGate.error });
+
+    if (parsed.data.login && (await isLoginTaken(parsed.data.login, id))) {
+      return res.status(409).json({ ok: false, error: 'login already exists' });
+    }
+    if (parsed.data.login && isSuperadminLogin(parsed.data.login) && roleLevel(actorRole) < 2) {
+      return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
+    }
+
+    if (actorRole === 'admin' && parsed.data.role && parsed.data.role.trim().toLowerCase() !== 'user') {
+      return res.status(403).json({ ok: false, error: 'admin can assign only user role' });
+    }
+
+    if (parsed.data.password) {
+      await setEmployeeAuth(id, { passwordHash: await hashPassword(parsed.data.password) });
+    }
+    if (parsed.data.role || parsed.data.accessEnabled !== undefined || parsed.data.login) {
+      await setEmployeeAuth(id, {
+        login: parsed.data.login ? parsed.data.login.trim().toLowerCase() : undefined,
+        systemRole: parsed.data.role ? parsed.data.role.trim().toLowerCase() : undefined,
+        accessEnabled: parsed.data.accessEnabled,
+      });
+    }
+    if (parsed.data.fullName) await setEmployeeFullName(id, parsed.data.fullName);
+
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -119,16 +216,14 @@ adminUsersRouter.get('/users/:id/permissions', async (req, res) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    const userRow = await db
-      .select({ id: users.id, username: users.username, role: users.role })
-      .from(users)
-      .where(and(eq(users.id, id), isNull(users.deletedAt)))
-      .limit(1);
-    if (!userRow[0]) return res.status(404).json({ ok: false, error: 'user not found' });
+    const userRow = await getEmployeeAuthById(id);
+    if (!userRow) return res.status(404).json({ ok: false, error: 'employee not found' });
+    const role = normalizeRole(userRow.login, userRow.systemRole);
+    const username = userRow.fullName || userRow.login || id;
 
     const allCodes = Object.values(PermissionCode);
     const effective = await getEffectivePermissionsForUser(id);
-    const base = defaultPermissionsForRole(userRow[0].role);
+    const base = defaultPermissionsForRole(role);
 
     const overrides = await db
       .select({ permCode: userPermissions.permCode, allowed: userPermissions.allowed })
@@ -139,7 +234,14 @@ adminUsersRouter.get('/users/:id/permissions', async (req, res) => {
     const overridesMap: Record<string, boolean> = {};
     for (const o of overrides) overridesMap[o.permCode] = !!o.allowed;
 
-    return res.json({ ok: true, user: userRow[0], allCodes, base, overrides: overridesMap, effective });
+    return res.json({
+      ok: true,
+      user: { id, username, login: userRow.login, role, isActive: userRow.accessEnabled },
+      allCodes,
+      base,
+      overrides: overridesMap,
+      effective,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -157,23 +259,34 @@ adminUsersRouter.put('/users/:id/permissions', async (req, res) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
-    // policy: `admin.users.manage` только для role=admin
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorId = String(actor?.id ?? '');
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+
+    const target = await getEmployeeAuthById(id);
+    if (!target) return res.status(404).json({ ok: false, error: 'employee not found' });
+    const targetRole = normalizeRole(target.login, target.systemRole);
+
+    const manageGate = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: id,
+      targetLogin: target.login,
+      targetRole,
+      allowSelfPasswordOnly: false,
+      touchingRoleOrAccess: true,
+    });
+    if (!manageGate.ok) return res.status(403).json({ ok: false, error: manageGate.error });
+
+    // policy: `admin.users.manage` только для role=admin/superadmin
     if (Object.prototype.hasOwnProperty.call(parsed.data.set, PermissionCode.AdminUsersManage)) {
-      const target = await db
-        .select({ role: users.role })
-        .from(users)
-        .where(and(eq(users.id, id), isNull(users.deletedAt)))
-        .limit(1);
-      const role = String(target[0]?.role ?? '').toLowerCase();
-      if (role !== 'admin' && parsed.data.set[PermissionCode.AdminUsersManage] === true) {
+      if (targetRole !== 'admin' && targetRole !== 'superadmin' && parsed.data.set[PermissionCode.AdminUsersManage] === true) {
         return res.status(400).json({ ok: false, error: 'admin.users.manage is allowed only for role=admin' });
       }
     }
 
-    // safety: admin не может сам себе отрубить admin.users.manage
-    const actor = (req as unknown as AuthenticatedRequest).user;
-    if (actor?.id === id && parsed.data.set[PermissionCode.AdminUsersManage] === false) {
-      return res.status(400).json({ ok: false, error: 'cannot revoke own admin.users.manage' });
+    if (actorRole === 'admin' && targetRole !== 'user') {
+      return res.status(403).json({ ok: false, error: 'admin can manage only users' });
     }
 
     const ts = Date.now();
@@ -218,6 +331,24 @@ adminUsersRouter.get('/users/:id/delegations', async (req, res) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
 
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorId = String(actor?.id ?? '');
+    const actorRole = String(actor?.role ?? '');
+
+    const target = await getEmployeeAuthById(id);
+    if (!target) return res.status(404).json({ ok: false, error: 'employee not found' });
+    const targetRole = normalizeRole(target.login, target.systemRole);
+    const gate = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: id,
+      targetLogin: target.login,
+      targetRole,
+      allowSelfPasswordOnly: false,
+      touchingRoleOrAccess: true,
+    });
+    if (!gate.ok) return res.status(403).json({ ok: false, error: gate.error });
+
     const rows = await db
       .select({
         id: permissionDelegations.id,
@@ -259,6 +390,8 @@ adminUsersRouter.post('/delegations', async (req, res) => {
 
     const actor = (req as unknown as AuthenticatedRequest).user;
     if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const actorId = String(actor.id);
+    const actorRole = String(actor.role ?? '').toLowerCase();
 
     const now = Date.now();
     const startsAt = parsed.data.startsAt ?? now;
@@ -266,6 +399,36 @@ adminUsersRouter.post('/delegations', async (req, res) => {
     if (endsAt <= startsAt) return res.status(400).json({ ok: false, error: 'endsAt must be > startsAt' });
     if (endsAt <= now) return res.status(400).json({ ok: false, error: 'endsAt must be in the future' });
     if (parsed.data.fromUserId === parsed.data.toUserId) return res.status(400).json({ ok: false, error: 'cannot delegate to self' });
+    if (parsed.data.fromUserId === actorId || parsed.data.toUserId === actorId) {
+      return res.status(403).json({ ok: false, error: 'cannot change own permissions' });
+    }
+
+    const fromUser = await getEmployeeAuthById(parsed.data.fromUserId);
+    const toUser = await getEmployeeAuthById(parsed.data.toUserId);
+    if (!fromUser || !toUser) return res.status(404).json({ ok: false, error: 'employee not found' });
+    const fromRole = normalizeRole(fromUser.login, fromUser.systemRole);
+    const toRole = normalizeRole(toUser.login, toUser.systemRole);
+
+    const gateFrom = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: parsed.data.fromUserId,
+      targetLogin: fromUser.login,
+      targetRole: fromRole,
+      allowSelfPasswordOnly: false,
+      touchingRoleOrAccess: true,
+    });
+    if (!gateFrom.ok) return res.status(403).json({ ok: false, error: gateFrom.error });
+    const gateTo = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: parsed.data.toUserId,
+      targetLogin: toUser.login,
+      targetRole: toRole,
+      allowSelfPasswordOnly: false,
+      touchingRoleOrAccess: true,
+    });
+    if (!gateTo.ok) return res.status(403).json({ ok: false, error: gateTo.error });
 
     // разрешаем делегировать только существующие permissions.code
     const permRow = await db
@@ -314,6 +477,52 @@ adminUsersRouter.post('/delegations/:id/revoke', async (req, res) => {
 
     const actor = (req as unknown as AuthenticatedRequest).user;
     if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const actorId = String(actor.id);
+    const actorRole = String(actor.role ?? '').toLowerCase();
+
+    const existing = await db
+      .select({
+        id: permissionDelegations.id,
+        fromUserId: permissionDelegations.fromUserId,
+        toUserId: permissionDelegations.toUserId,
+        revokedAt: permissionDelegations.revokedAt,
+      })
+      .from(permissionDelegations)
+      .where(eq(permissionDelegations.id, id))
+      .limit(1);
+    const delegation = existing[0];
+    if (!delegation) return res.status(404).json({ ok: false, error: 'delegation not found' });
+    if (delegation.revokedAt) return res.json({ ok: true });
+    if (String(delegation.fromUserId) === actorId || String(delegation.toUserId) === actorId) {
+      return res.status(403).json({ ok: false, error: 'cannot change own permissions' });
+    }
+
+    const fromUser = await getEmployeeAuthById(String(delegation.fromUserId));
+    const toUser = await getEmployeeAuthById(String(delegation.toUserId));
+    if (!fromUser || !toUser) return res.status(404).json({ ok: false, error: 'employee not found' });
+    const fromRole = normalizeRole(fromUser.login, fromUser.systemRole);
+    const toRole = normalizeRole(toUser.login, toUser.systemRole);
+
+    const gateFrom = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: String(delegation.fromUserId),
+      targetLogin: fromUser.login,
+      targetRole: fromRole,
+      allowSelfPasswordOnly: false,
+      touchingRoleOrAccess: true,
+    });
+    if (!gateFrom.ok) return res.status(403).json({ ok: false, error: gateFrom.error });
+    const gateTo = ensureManageAllowed({
+      actorId,
+      actorRole,
+      targetId: String(delegation.toUserId),
+      targetLogin: toUser.login,
+      targetRole: toRole,
+      allowSelfPasswordOnly: false,
+      touchingRoleOrAccess: true,
+    });
+    if (!gateTo.ok) return res.status(403).json({ ok: false, error: gateTo.error });
 
     const now = Date.now();
     await db

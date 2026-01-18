@@ -8,6 +8,11 @@ export function SettingsPage() {
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
+  const [authUser, setAuthUser] = useState<{ id: string; username: string; role: string } | null>(null);
+  const [pwCurrent, setPwCurrent] = useState<string>('');
+  const [pwNew, setPwNew] = useState<string>('');
+  const [pwRepeat, setPwRepeat] = useState<string>('');
+  const [pwStatus, setPwStatus] = useState<string>('');
   const [backupLoading, setBackupLoading] = useState<boolean>(false);
   const [backupStatus, setBackupStatus] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
   const [backupList, setBackupList] = useState<Array<{ date: string; name: string; size: number | null; modified: string | null }>>([]);
@@ -34,6 +39,8 @@ export function SettingsPage() {
       } else {
         setStatus(`Ошибка загрузки: ${formatError(r.error)}`);
       }
+      const auth = await window.matrica.auth.status().catch(() => null);
+      if (auth?.loggedIn) setAuthUser(auth.user ?? null);
     } catch (e) {
       setStatus(`Ошибка: ${formatError(e)}`);
     } finally {
@@ -95,6 +102,34 @@ export function SettingsPage() {
       }
     } catch (e) {
       setStatus(`Ошибка: ${formatError(e)}`);
+    }
+  }
+
+  async function handleChangePassword() {
+    if (!authUser?.id) {
+      setPwStatus('Требуется вход в систему.');
+      return;
+    }
+    const cur = pwCurrent.trim();
+    const next = pwNew.trim();
+    const repeat = pwRepeat.trim();
+    if (!cur || !next) {
+      setPwStatus('Введите текущий и новый пароль.');
+      return;
+    }
+    if (next !== repeat) {
+      setPwStatus('Новый пароль и подтверждение не совпадают.');
+      return;
+    }
+    setPwStatus('Смена пароля...');
+    const r = await window.matrica.auth.changePassword({ currentPassword: cur, newPassword: next });
+    if (r.ok) {
+      setPwStatus('Пароль обновлён.');
+      setPwCurrent('');
+      setPwNew('');
+      setPwRepeat('');
+    } else {
+      setPwStatus(`Ошибка: ${formatError(r.error)}`);
     }
   }
 
@@ -234,6 +269,45 @@ export function SettingsPage() {
               </span>
             )}
           </div>
+        </div>
+      </div>
+
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Смена пароля</h3>
+        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+          Вы можете сменить пароль своей учетной записи. Суперадмин может менять пароль любого пользователя в разделе Админ.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 520 }}>
+          <div style={{ color: '#6b7280' }}>Текущий пароль</div>
+          <input
+            type="password"
+            value={pwCurrent}
+            onChange={(e) => setPwCurrent(e.target.value)}
+            placeholder="текущий пароль"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+          <div style={{ color: '#6b7280' }}>Новый пароль</div>
+          <input
+            type="password"
+            value={pwNew}
+            onChange={(e) => setPwNew(e.target.value)}
+            placeholder="новый пароль"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+          <div style={{ color: '#6b7280' }}>Повтор пароля</div>
+          <input
+            type="password"
+            value={pwRepeat}
+            onChange={(e) => setPwRepeat(e.target.value)}
+            placeholder="повтор пароля"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <Button variant="ghost" onClick={() => void handleChangePassword()} disabled={!authUser?.id}>
+            Сменить пароль
+          </Button>
+          {pwStatus && <span style={{ color: '#6b7280' }}>{pwStatus}</span>}
         </div>
       </div>
 

@@ -27,9 +27,10 @@ type ChatMessageItem = {
 
 type ChatUnread = { ok: boolean; total: number; global: number; byUser: Record<string, number> };
 
-function dot(color: string) {
+function dot(color: string, blinking: boolean) {
   return (
     <span
+      className={blinking ? 'chatBlink' : undefined}
       style={{
         width: 10,
         height: 10,
@@ -40,6 +41,21 @@ function dot(color: string) {
       }}
     />
   );
+}
+
+function roleStyles(roleRaw: string) {
+  const role = String(roleRaw ?? '').toLowerCase();
+  if (role === 'superadmin') {
+    return {
+      background: 'linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%)',
+      border: '#4b5563',
+      color: '#ffffff',
+    };
+  }
+  if (role === 'admin') {
+    return { background: '#ffffff', border: '#1d4ed8', color: '#1d4ed8' };
+  }
+  return { background: '#ffffff', border: '#16a34a', color: '#16a34a' };
 }
 
 async function sha256Hex(buf: ArrayBuffer): Promise<string> {
@@ -65,7 +81,7 @@ export function ChatPanel(props: {
   const [unread, setUnread] = useState<ChatUnread | null>(null);
   const [exportRange, setExportRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [linkDraft, setLinkDraft] = useState<{ tab: string; engineId: string; requestId: string; partId: string }>({
-    tab: 'admin',
+    tab: 'masterdata',
     engineId: '',
     requestId: '',
     partId: '',
@@ -248,10 +264,22 @@ export function ChatPanel(props: {
               .map((u) => {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;
-                const indicator = u.online ? dot('#16a34a') : dot('#dc2626');
+                const indicator = u.online ? dot('#16a34a', true) : dot('#dc2626', false);
                 const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
+                const roleStyle = roleStyles(u.role);
                 return (
-                  <Button key={u.id} variant={isSel ? 'primary' : 'ghost'} onClick={() => setSelectedUserId(u.id)} title={u.online ? 'Онлайн' : 'Оффлайн'}>
+                  <Button
+                    key={u.id}
+                    variant={isSel ? 'primary' : 'ghost'}
+                    onClick={() => setSelectedUserId(u.id)}
+                    title={u.online ? 'Онлайн' : 'Оффлайн'}
+                    style={{
+                      border: `1px solid ${roleStyle.border}`,
+                      background: roleStyle.background,
+                      color: roleStyle.color,
+                      boxShadow: isSel ? '0 0 0 2px rgba(15, 23, 42, 0.2)' : undefined,
+                    }}
+                  >
                     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                       {indicator}
                       {uUnread > 0 ? (
@@ -384,6 +412,7 @@ export function ChatPanel(props: {
             <div style={{ fontWeight: 900, color: '#111827' }}>Ссылка на раздел (для клиента Windows)</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <select value={linkDraft.tab} onChange={(e) => setLinkDraft((s) => ({ ...s, tab: e.target.value }))} style={{ padding: 6 }}>
+                <option value="masterdata">masterdata</option>
                 <option value="admin">admin</option>
                 <option value="engines">engines</option>
                 <option value="engine">engine</option>
