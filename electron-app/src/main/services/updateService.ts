@@ -1,12 +1,24 @@
-import { app, BrowserWindow, shell, net } from 'electron';
+import { app, BrowserWindow, net } from 'electron';
+import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { copyFile, cp, mkdir, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string }
   | { ok: false; error: string };
+
+export type UpdateFlowResult =
+  | { action: 'no_update' }
+  | { action: 'update_started' }
+  | { action: 'error'; error: string };
+
+export type UpdateHelperArgs = {
+  installerPath: string;
+  launchPath: string;
+  version?: string;
+};
 
 export function initAutoUpdate() {
   // Обновления идут через Яндекс.Диск (public folder).
@@ -14,6 +26,7 @@ export function initAutoUpdate() {
 
 let updateInFlight = false;
 let updateUiWindow: BrowserWindow | null = null;
+let updateUiLocked = false;
 
 function showUpdateWindow(parent?: BrowserWindow | null) {
   if (updateUiWindow && !updateUiWindow.isDestroyed()) return updateUiWindow;
@@ -26,11 +39,16 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
     resizable: false,
     minimizable: false,
     maximizable: false,
+    alwaysOnTop: true,
     webPreferences: {
       contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
     },
+  });
+  updateUiWindow.setMenuBarVisibility(false);
+  updateUiWindow.on('close', (e) => {
+    if (updateUiLocked) e.preventDefault();
   });
 
   const html = `<!doctype html>
@@ -53,6 +71,25 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
   return updateUiWindow;
 }
 
+function lockUpdateUi(locked: boolean) {
+  updateUiLocked = locked;
+  if (updateUiWindow && !updateUiWindow.isDestroyed()) {
+    try {
+      updateUiWindow.setClosable(!locked);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function closeUpdateWindowSoon(ms = 500) {
+  lockUpdateUi(false);
+  setTimeout(() => {
+    updateUiWindow?.close();
+    updateUiWindow = null;
+  }, ms);
+}
+
 async function setUpdateUi(msg: string, pct?: number, version?: string) {
   const w = updateUiWindow;
   if (!w || w.isDestroyed()) return;
@@ -67,36 +104,49 @@ async function setUpdateUi(msg: string, pct?: number, version?: string) {
   await w.webContents.executeJavaScript(js, true).catch(() => {});
 }
 
-export async function runAutoUpdateFlow(opts: { reason: 'startup' | 'manual_menu'; parentWindow?: BrowserWindow | null } = { reason: 'startup' }) {
-  if (updateInFlight) return;
+export async function runAutoUpdateFlow(
+  opts: { reason: 'startup' | 'manual_menu'; parentWindow?: BrowserWindow | null } = { reason: 'startup' },
+): Promise<UpdateFlowResult> {
+  if (updateInFlight) return { action: 'error', error: 'update already in progress' };
   updateInFlight = true;
   try {
+    showUpdateWindow(opts.parentWindow ?? null);
+    await setUpdateUi('Проверяем обновления…', 0);
+
     const check = await checkForUpdates();
     if (!check.ok) {
       // Ошибку показываем кратко и не блокируем работу.
-      showUpdateWindow(opts.parentWindow ?? null);
       await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
-      setTimeout(() => updateUiWindow?.close(), 3500);
-      return;
+      closeUpdateWindowSoon(3500);
+      return { action: 'error', error: check.error };
     }
     if (!check.updateAvailable) {
-      return;
+      await setUpdateUi('Обновлений нет. Запускаем приложение…', 100);
+      closeUpdateWindowSoon(700);
+      return { action: 'no_update' };
     }
 
-    showUpdateWindow(opts.parentWindow ?? null);
-    await setUpdateUi('Проверяем обновления…', 0);
     await setUpdateUi(`Найдена новая версия. Скачиваем…`, 5, check.version);
     const latest = await fetchLatestInfo();
     const filePath = await downloadInstaller(latest.fileName, (pct) => setUpdateUi('Скачиваем обновление…', pct, latest.version));
     lastDownloadedInstallerPath = filePath;
-    await setUpdateUi('Скачивание завершено. Готовим установку…', 95, latest.version);
-    await setUpdateUi('Запускаем установку. Идёт замена версии…', 100, latest.version);
-    const install = await quitAndInstall();
-    if (!install.ok) {
-      await setUpdateUi(`Ошибка установки: ${install.error ?? 'unknown'}`, 100, latest.version);
-      setTimeout(() => updateUiWindow?.close(), 3500);
-      return;
-    }
+    await setUpdateUi('Скачивание завершено. Готовим установку…', 60, latest.version);
+    lockUpdateUi(true);
+    await setUpdateUi('Подготовка установщика…', 70, latest.version);
+    const helper = await prepareUpdateHelper();
+    spawnUpdateHelper({
+      helperExePath: helper.helperExePath,
+      installerPath: filePath,
+      launchPath: helper.launchPath,
+      version: latest.version,
+    });
+    await setUpdateUi('Запускаем установку…', 80, latest.version);
+    return { action: 'update_started' };
+  } catch (e) {
+    const message = String(e);
+    await setUpdateUi(`Ошибка обновления: ${message}`, 100);
+    closeUpdateWindowSoon(3500);
+    return { action: 'error', error: message };
   } finally {
     updateInFlight = false;
   }
@@ -113,15 +163,28 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   }
 }
 
-export async function quitAndInstall(): Promise<{ ok: boolean; error?: string }> {
+export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void> {
   try {
-    const target = lastDownloadedInstallerPath ?? (await downloadInstaller((await fetchLatestInfo()).fileName));
-    const err = await shell.openPath(target);
-    if (err) return { ok: false, error: err };
+    showUpdateWindow(null);
+    lockUpdateUi(true);
+    await setUpdateUi('Подготовка установки…', 70, args.version);
+    await sleep(800);
+    await setUpdateUi('Удаляем старую версию…', 75, args.version);
+    const exitCode = await runSilentInstaller(args.installerPath);
+    if (exitCode !== 0) {
+      await setUpdateUi(`Ошибка установки: code=${exitCode}`, 100, args.version);
+      closeUpdateWindowSoon(4000);
+      setTimeout(() => app.quit(), 4200);
+      return;
+    }
+    await setUpdateUi('Установка завершена. Запускаем программу…', 95, args.version);
+    spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
+    await sleep(800);
     app.quit();
-    return { ok: true };
   } catch (e) {
-    return { ok: false, error: String(e) };
+    await setUpdateUi(`Ошибка установки: ${String(e)}`, 100, args.version);
+    closeUpdateWindowSoon(4000);
+    setTimeout(() => app.quit(), 4200);
   }
 }
 
@@ -140,6 +203,40 @@ type ReleaseInfo = {
 
 let cachedLatest: { version: string; fileName: string } | null = null;
 let lastDownloadedInstallerPath: string | null = null;
+
+async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPath: string }> {
+  if (!app.isPackaged) throw new Error('Update helper requires packaged app');
+  const launchPath = process.execPath;
+  const appDir = dirname(launchPath);
+  const resourcesDir = join(appDir, 'resources');
+  const baseTemp = join(app.getPath('temp'), 'MatricaRMZ-updater');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const helperDir = join(baseTemp, `helper-${stamp}`);
+  await mkdir(helperDir, { recursive: true });
+  const helperExePath = join(helperDir, 'MatricaRMZ-Updater.exe');
+  await copyFile(launchPath, helperExePath);
+  await cp(resourcesDir, join(helperDir, 'resources'), { recursive: true });
+  return { helperExePath, launchPath };
+}
+
+function spawnUpdateHelper(args: { helperExePath: string; installerPath: string; launchPath: string; version?: string }) {
+  const spawnArgs = ['--update-helper', '--installer', args.installerPath, '--launch', args.launchPath];
+  if (args.version) spawnArgs.push('--version', args.version);
+  const child = spawn(args.helperExePath, spawnArgs, { detached: true, stdio: 'ignore', windowsHide: true });
+  child.unref();
+}
+
+async function runSilentInstaller(installerPath: string): Promise<number> {
+  return await new Promise<number>((resolve) => {
+    const child = spawn(installerPath, ['/S'], { windowsHide: true, stdio: 'ignore' });
+    child.on('close', (code) => resolve(code ?? 0));
+    child.on('error', () => resolve(1));
+  });
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function readReleaseInfo(): ReleaseInfo | null {
   try {

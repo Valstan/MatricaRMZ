@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
-import { initAutoUpdate, runAutoUpdateFlow } from './services/updateService.js';
+import { initAutoUpdate, runAutoUpdateFlow, runUpdateHelperFlow } from './services/updateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -101,6 +101,21 @@ function createWindow(): void {
   });
 }
 
+function getArgValue(argv: string[], key: string) {
+  const idx = argv.indexOf(key);
+  if (idx < 0) return null;
+  return argv[idx + 1] ?? null;
+}
+
+function getUpdateHelperArgs(argv: string[]) {
+  if (!argv.includes('--update-helper')) return null;
+  const installerPath = getArgValue(argv, '--installer');
+  const launchPath = getArgValue(argv, '--launch');
+  if (!installerPath || !launchPath) return null;
+  const version = getArgValue(argv, '--version') ?? undefined;
+  return { installerPath, launchPath, version };
+}
+
 app.whenReady().then(() => {
   // Логи Chromium/Electron в stderr (в Windows можно потом смотреть через event viewer / debug tools).
   app.commandLine.appendSwitch('enable-logging');
@@ -110,8 +125,12 @@ app.whenReady().then(() => {
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
   process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
   setupMenu();
-  // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
-  createWindow();
+
+  const helperArgs = getUpdateHelperArgs(process.argv);
+  if (helperArgs) {
+    void runUpdateHelperFlow(helperArgs);
+    return;
+  }
 
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
@@ -119,9 +138,17 @@ app.whenReady().then(() => {
   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
 
   // Автообновление при старте: если есть новая версия — сразу скачиваем и запускаем установщик.
-  void runAutoUpdateFlow({ reason: 'startup', parentWindow: mainWindow });
-  // Инициализируем SQLite + IPC асинхронно (после создания окна).
   void (async () => {
+    const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: null });
+    if (updateResult?.action === 'update_started') {
+      app.quit();
+      return;
+    }
+
+    // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
+    createWindow();
+
+    // Инициализируем SQLite + IPC асинхронно (после создания окна).
     try {
       const { openSqlite } = await import('./database/db.js');
       const { migrateSqlite } = await import('./database/migrate.js');
