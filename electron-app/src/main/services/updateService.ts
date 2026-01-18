@@ -1,9 +1,8 @@
-import { app, BrowserWindow, net } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
 import { copyFile, cp, mkdir, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { readFileSync } from 'node:fs';
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string }
@@ -21,7 +20,9 @@ export type UpdateHelperArgs = {
 };
 
 export function initAutoUpdate() {
-  // Обновления идут через Яндекс.Диск (public folder).
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.allowDowngrade = false;
 }
 
 let updateInFlight = false;
@@ -113,9 +114,13 @@ export async function runAutoUpdateFlow(
     showUpdateWindow(opts.parentWindow ?? null);
     await setUpdateUi('Проверяем обновления…', 0);
 
-    const check = await checkForUpdates();
+    if (!app.isPackaged) {
+      closeUpdateWindowSoon(300);
+      return { action: 'no_update' };
+    }
+
+    const check = await waitForUpdateCheck();
     if (!check.ok) {
-      // Ошибку показываем кратко и не блокируем работу.
       await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
       closeUpdateWindowSoon(3500);
       return { action: 'error', error: check.error };
@@ -127,21 +132,25 @@ export async function runAutoUpdateFlow(
     }
 
     await setUpdateUi(`Найдена новая версия. Скачиваем…`, 5, check.version);
-    const latest = await fetchLatestInfo();
-    const filePath = await downloadInstaller(latest.fileName, (pct) => setUpdateUi('Скачиваем обновление…', pct, latest.version));
-    lastDownloadedInstallerPath = filePath;
-    await setUpdateUi('Скачивание завершено. Готовим установку…', 60, latest.version);
+    const download = await downloadUpdate(check.version);
+    if (!download.ok || !download.filePath) {
+      await setUpdateUi(`Ошибка скачивания: ${download.error ?? 'unknown'}`, 100, check.version);
+      closeUpdateWindowSoon(3500);
+      return { action: 'error', error: download.error ?? 'download failed' };
+    }
+    lastDownloadedInstallerPath = download.filePath;
+    await setUpdateUi('Скачивание завершено. Готовим установку…', 60, check.version);
     lockUpdateUi(true);
-    await setUpdateUi('Подготовка установщика…', 70, latest.version);
+    await setUpdateUi('Подготовка установщика…', 70, check.version);
     const helper = await prepareUpdateHelper();
     spawnUpdateHelper({
       helperExePath: helper.helperExePath,
-      installerPath: filePath,
+      installerPath: download.filePath,
       launchPath: helper.launchPath,
       resourcesPath: helper.resourcesPath,
-      version: latest.version,
+      version: check.version,
     });
-    await setUpdateUi('Запускаем установку…', 80, latest.version);
+    await setUpdateUi('Запускаем установку…', 80, check.version);
     return { action: 'update_started' };
   } catch (e) {
     const message = String(e);
@@ -155,10 +164,12 @@ export async function runAutoUpdateFlow(
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
-    const latest = await fetchLatestInfo();
+    if (!app.isPackaged) return { ok: true, updateAvailable: false };
+    const result = await autoUpdater.checkForUpdates();
+    const latest = String((result as any)?.updateInfo?.version ?? '');
     const current = app.getVersion();
-    const updateAvailable = compareSemver(latest.version, current) > 0;
-    return { ok: true, updateAvailable, version: latest.version };
+    const updateAvailable = latest ? compareSemver(latest, current) > 0 : false;
+    return { ok: true, updateAvailable, version: latest || undefined };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -189,21 +200,68 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
   }
 }
 
-// ------------------------
-// Yandex.Disk public update source
-// ------------------------
-
-type ReleaseInfo = {
-  releaseDate?: string;
-  update?: {
-    provider?: 'yandex';
-    yandexPublicKey?: string;
-    yandexBasePath?: string; // например: "latest"
-  };
-};
-
-let cachedLatest: { version: string; fileName: string } | null = null;
 let lastDownloadedInstallerPath: string | null = null;
+
+async function waitForUpdateCheck(): Promise<UpdateCheckResult> {
+  return await new Promise<UpdateCheckResult>((resolve) => {
+    const cleanup = () => {
+      autoUpdater.removeListener('update-available', onAvailable);
+      autoUpdater.removeListener('update-not-available', onNotAvailable);
+      autoUpdater.removeListener('error', onError);
+    };
+    const onAvailable = (info: any) => {
+      cleanup();
+      resolve({ ok: true, updateAvailable: true, version: String(info?.version ?? '') || undefined });
+    };
+    const onNotAvailable = () => {
+      cleanup();
+      resolve({ ok: true, updateAvailable: false });
+    };
+    const onError = (err: any) => {
+      cleanup();
+      resolve({ ok: false, error: String(err) });
+    };
+    autoUpdater.once('update-available', onAvailable);
+    autoUpdater.once('update-not-available', onNotAvailable);
+    autoUpdater.once('error', onError);
+    autoUpdater.checkForUpdates().catch(onError);
+  });
+}
+
+async function downloadUpdate(version?: string): Promise<{ ok: boolean; filePath?: string; error?: string }> {
+  return await new Promise((resolve) => {
+    const cleanup = () => {
+      autoUpdater.removeListener('download-progress', onProgress);
+      autoUpdater.removeListener('update-downloaded', onDownloaded);
+      autoUpdater.removeListener('error', onError);
+    };
+    const onProgress = (p: any) => {
+      const pct = typeof p?.percent === 'number' ? p.percent : 0;
+      void setUpdateUi('Скачиваем обновление…', pct, version);
+    };
+    const onDownloaded = (info: any) => {
+      cleanup();
+      const filePath =
+        (info as any)?.downloadedFile ||
+        (info as any)?.files?.[0]?.path ||
+        (info as any)?.path ||
+        null;
+      if (!filePath) {
+        resolve({ ok: false, error: 'missing downloaded file path' });
+        return;
+      }
+      resolve({ ok: true, filePath: String(filePath) });
+    };
+    const onError = (err: any) => {
+      cleanup();
+      resolve({ ok: false, error: String(err) });
+    };
+    autoUpdater.on('download-progress', onProgress);
+    autoUpdater.once('update-downloaded', onDownloaded);
+    autoUpdater.once('error', onError);
+    autoUpdater.downloadUpdate().catch(onError);
+  });
+}
 
 async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPath: string; resourcesPath: string }> {
   if (!app.isPackaged) throw new Error('Update helper requires packaged app');
@@ -251,168 +309,6 @@ async function runSilentInstaller(installerPath: string): Promise<number> {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function readReleaseInfo(): ReleaseInfo | null {
-  try {
-    const p = join(app.getAppPath(), 'release-info.json');
-    const raw = readFileSync(p, 'utf8');
-    return JSON.parse(raw) as ReleaseInfo;
-  } catch {
-    return null;
-  }
-}
-
-function getPublicKey() {
-  const fromEnv = process.env.MATRICA_UPDATE_YANDEX_PUBLIC_KEY;
-  if (fromEnv) return fromEnv;
-
-  const info = readReleaseInfo();
-  const fromBundled = info?.update?.yandexPublicKey;
-  if (fromBundled) return fromBundled;
-
-  // Нет public_key => обновления отключены/не настроены.
-  throw new Error('Yandex updater is not configured (missing yandexPublicKey)');
-}
-
-function getBasePath() {
-  const fromEnv = process.env.MATRICA_UPDATE_YANDEX_BASE_PATH;
-  if (fromEnv) return normalizePublicPath(fromEnv);
-
-  const info = readReleaseInfo();
-  const fromBundled = info?.update?.yandexBasePath;
-  if (fromBundled) return normalizePublicPath(fromBundled);
-
-  // По умолчанию ожидаем, что public_key указывает на папку "/matricarmz"
-  // и внутри неё есть подпапка "latest".
-  return 'latest';
-}
-
-async function fetchLatestInfo(): Promise<{ version: string; path: string }> {
-  if (cachedLatest) return cachedLatest;
-
-  // Новая стратегия: в /latest лежит один .exe. Определяем “последний” по версии из имени файла.
-  const folder = getBasePath();
-  const items = await listPublicFolder(folder);
-  const exe = pickNewestInstaller(items);
-  if (!exe) throw new Error(`No installer .exe found in ${folder}`);
-  const version = extractVersionFromFileName(exe);
-  if (!version) throw new Error(`Cannot extract version from installer name: ${exe}`);
-  cachedLatest = { version, fileName: exe };
-  return cachedLatest;
-}
-
-function joinPosix(a: string, b: string) {
-  const aa = a.replaceAll('\\', '/').replace(/\/+$/, '');
-  const bb = b.replaceAll('\\', '/').replace(/^\/+/, '');
-  return `${aa}/${bb}`;
-}
-
-function normalizePublicPath(p: string) {
-  // Для public/resources/download path должен быть путём ВНУТРИ опубликованного ресурса.
-  // На практике API ожидает ведущий "/", иначе часто возвращает 404.
-  const out = p.replaceAll('\\', '/').replace(/\/+$/, '');
-  return out.startsWith('/') ? out : `/${out}`;
-}
-
-async function getDownloadHref(pathOnDisk: string): Promise<string> {
-  const api =
-    'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
-    new URLSearchParams({
-      public_key: getPublicKey(),
-      path: normalizePublicPath(pathOnDisk),
-    }).toString();
-  const r = await net.fetch(api);
-  if (!r.ok) throw new Error(`Yandex download href failed ${r.status} (path=${normalizePublicPath(pathOnDisk)})`);
-  const json = await r.json().catch(() => ({}));
-  if (!json?.href) throw new Error('Yandex API returned no href');
-  return json.href;
-}
-
-async function downloadInstaller(fileName: string, onProgress?: (pct: number) => void): Promise<string> {
-  const href = await getDownloadHref(joinPosix(getBasePath(), fileName));
-  const r = await net.fetch(href);
-  if (!r.ok) throw new Error(`Yandex download failed ${r.status}`);
-
-  const dir = join(app.getPath('temp'), 'MatricaRMZ-updates');
-  await mkdir(dir, { recursive: true });
-  const outPath = join(dir, fileName);
-
-  const total = Number(r.headers.get('content-length') ?? '0') || 0;
-  const ws = createWriteStream(outPath);
-  let received = 0;
-
-  // Web stream путь (electron.net.fetch обычно отдаёт web stream)
-  if ((r.body as any)?.getReader) {
-    const reader = (r.body as any).getReader();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const buf = Buffer.from(value);
-      ws.write(buf);
-      received += buf.length;
-      if (total > 0 && onProgress) onProgress((received / total) * 100);
-    }
-              ws.end();
-  } else if (r.body) {
-    // Node stream fallback (без прогресса если нет content-length)
-    await new Promise<void>((resolve, reject) => {
-      (r.body as any).on('data', (c: Buffer) => {
-        ws.write(c);
-        received += c.length;
-        if (total > 0 && onProgress) onProgress((received / total) * 100);
-      });
-      (r.body as any).on('end', () => {
-              ws.end();
-        resolve();
-      });
-      (r.body as any).on('error', reject);
-    });
-  } else {
-    throw new Error('No response body');
-  }
-
-  const s = await stat(outPath);
-  if (s.size < 1024 * 100) {
-    // слишком маленький файл — вероятно, скачали HTML/ошибку
-    throw new Error('Downloaded installer looks too small');
-  }
-  return outPath;
-}
-
-async function listPublicFolder(pathOnDisk: string): Promise<string[]> {
-  const api =
-    'https://cloud-api.yandex.net/v1/disk/public/resources?' +
-    new URLSearchParams({
-      public_key: getPublicKey(),
-      path: normalizePublicPath(pathOnDisk),
-      limit: '200',
-    }).toString();
-
-  const r = await net.fetch(api);
-  if (!r.ok) throw new Error(`Yandex list failed ${r.status} (path=${normalizePublicPath(pathOnDisk)})`);
-  const json = (await r.json()) as any;
-  const items = (json?._embedded?.items ?? []) as any[];
-  return items.map((x) => String(x?.name ?? '')).filter(Boolean);
-}
-
-function extractVersionFromFileName(fileName: string): string | null {
-  // Поддерживаем имена вроде:
-  // - MatricaRMZ-Setup-0.0.23.exe
-  // - MatricaRMZ Setup 0.0.23.exe
-  const m = fileName.match(/(\d+\.\d+\.\d+)/);
-  return m ? m[1] : null;
-}
-
-function pickNewestInstaller(items: string[]): string | null {
-  const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
-  if (exes.length === 0) return null;
-  const parsed = exes
-    .map((n) => ({ n, v: extractVersionFromFileName(n) }))
-    .filter((x) => x.v);
-  if (parsed.length === 0) return exes[0];
-  parsed.sort((a, b) => compareSemver(b.v!, a.v!));
-  return parsed[0].n;
 }
 
 function compareSemver(a: string, b: string): number {

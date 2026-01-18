@@ -35,30 +35,9 @@ jobs:
       - name: Build electron app
         run: pnpm -C electron-app build
 
-      - name: Write release-info.json
-        shell: pwsh
-        env:
-          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
-          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
-        run: node scripts/write-release-info.mjs
-
       - name: Publish release (Windows x64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm -C electron-app exec electron-builder --win --x64 --publish always
-
-      - name: Upload to Yandex.Disk
-        shell: pwsh
-        env:
-          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
-          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: |
-          if (-not $env:YANDEX_DISK_TOKEN -or -not $env:YANDEX_DISK_FOLDER) {
-            Write-Host "ERROR: YANDEX_DISK_TOKEN or YANDEX_DISK_FOLDER is not set. Upload cannot proceed."
-            exit 1
-          }
-          Write-Host "Uploading to Yandex.Disk folder: $env:YANDEX_DISK_FOLDER"
-          node scripts/upload-yandex-disk.mjs --dir electron-app/release
 
 
