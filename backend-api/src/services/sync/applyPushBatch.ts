@@ -1095,7 +1095,18 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           user_id: actor.id,
         }));
         const rows = await filterStaleByUpdatedAt(chatReads, parsed);
-        const ids = rows.map((r) => r.id);
+        const messageIds = Array.from(new Set(rows.map((r) => String(r.message_id))));
+        const existingMessages =
+          messageIds.length === 0
+            ? []
+            : await tx
+                .select({ id: chatMessages.id })
+                .from(chatMessages)
+                .where(inArray(chatMessages.id, messageIds as any))
+                .limit(50_000);
+        const existingMessageIds = new Set(existingMessages.map((m) => String(m.id)));
+        const filteredRows = rows.filter((r) => existingMessageIds.has(String(r.message_id)));
+        const ids = filteredRows.map((r) => r.id);
         const existing = await tx
           .select()
           .from(chatReads)
@@ -1105,7 +1116,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
         const allowed: typeof rows = [];
-        for (const r of rows) {
+        for (const r of filteredRows) {
           const cur = existingMap.get(String(r.id));
           if (!cur) {
             allowed.push(r);

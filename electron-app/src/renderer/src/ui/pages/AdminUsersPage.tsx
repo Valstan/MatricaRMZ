@@ -102,6 +102,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const canEditPermissions = !selectedIsSelf && !adminLocked;
   const canEditPassword = !adminLocked;
   const canCreateAdmin = meRole === 'superadmin';
+  const canToggleAdminRole = canCreateAdmin && !selectedIsSelf && selectedRole !== 'superadmin';
 
   return (
     <div>
@@ -205,25 +206,23 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               </div>
 
               {selectedUserId && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <select
-                    value={selectedUser?.role ?? 'user'}
-                    onChange={async (e) => {
-                      const role = e.target.value;
-                      setStatus('Обновление роли...');
-                      const r = await window.matrica.admin.users.update(selectedUserId, { role });
-                      setStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
-                      await refreshUsers();
-                      await openUser(selectedUserId);
-                    }}
-                    disabled={!canEditRoleOrAccess}
-                    style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-                  >
-                    <option value="user">user</option>
-                    <option value="admin" disabled={!canCreateAdmin}>
-                      admin
-                    </option>
-                  </select>
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedRole === 'admin'}
+                      onChange={async (e) => {
+                        const nextRole = e.target.checked ? 'admin' : 'user';
+                        setStatus('Обновление роли...');
+                        const r = await window.matrica.admin.users.update(selectedUserId, { role: nextRole });
+                        setStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
+                        await refreshUsers();
+                        await openUser(selectedUserId);
+                      }}
+                      disabled={!canToggleAdminRole}
+                    />
+                    админ системы
+                  </label>
 
                   <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
                     <input

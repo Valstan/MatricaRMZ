@@ -142,14 +142,6 @@ export function App() {
     setTab('auth');
   }
 
-  if (loading) {
-    return (
-      <div className="page">
-        <div className="card">Загрузка…</div>
-      </div>
-    );
-  }
-
   const caps = deriveCaps(permissions);
   const userTab = user ? 'settings' : 'auth';
   const userLabel = user ? user.username : 'Вход';
@@ -158,6 +150,7 @@ export function App() {
     ...(caps.canManageUsers ? ([{ id: 'admin', label: 'Админ' }] as const) : []),
     ...(caps.canChatUse ? ([{ id: 'chat', label: 'Чат' }] as const) : []),
   ];
+  const visibleTabIds = visibleTabs.map((t) => t.id).join('|');
 
   useEffect(() => {
     if (!user && tab !== 'auth') setTab('auth');
@@ -168,7 +161,15 @@ export function App() {
     const ids = visibleTabs.map((t) => t.id);
     if (ids.includes(tab)) return;
     setTab(userTab);
-  }, [tab, visibleTabs.map((t) => t.id).join('|'), userTab]);
+  }, [tab, visibleTabIds, userTab]);
+
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="card">Загрузка…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

@@ -6,6 +6,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 export function SettingsPage(props: {
   uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' };
   onUiPrefsChange: (prefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }) => void;
+  onLogout: () => void;
 }) {
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
@@ -193,6 +194,13 @@ export function SettingsPage(props: {
     } else {
       setStatus(`Ошибка: ${formatError((r as any)?.error ?? 'unknown error')}`);
     }
+  }
+
+  async function handleLogout() {
+    setStatus('Выход из аккаунта...');
+    await window.matrica.auth.logout({});
+    setStatus('');
+    props.onLogout();
   }
 
   if (loading) {
@@ -443,6 +451,16 @@ export function SettingsPage(props: {
           </Button>
           {pwStatus && <span style={{ color: '#6b7280' }}>{pwStatus}</span>}
         </div>
+      </div>
+
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Аккаунт</h3>
+        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+          Выйти из аккаунта текущего оператора. После выхода потребуется повторный вход.
+        </p>
+        <Button variant="ghost" onClick={() => void handleLogout()}>
+          Выйти из аккаунта
+        </Button>
       </div>
 
       {status && (

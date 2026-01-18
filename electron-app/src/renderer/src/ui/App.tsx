@@ -631,7 +631,16 @@ export function App() {
           />
         )}
 
-        {tab === 'settings' && <SettingsPage uiPrefs={uiPrefs} onUiPrefsChange={setUiPrefs} />}
+        {tab === 'settings' && (
+          <SettingsPage
+            uiPrefs={uiPrefs}
+            onUiPrefsChange={setUiPrefs}
+            onLogout={() => {
+              void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
+              setTab('auth');
+            }}
+          />
+        )}
 
         {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
 
