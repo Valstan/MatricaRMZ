@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-import { autoUpdater } from 'electron-updater';
+import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { copyFile, cp, mkdir, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -18,6 +18,8 @@ export type UpdateHelperArgs = {
   launchPath: string;
   version?: string;
 };
+
+const autoUpdater = updater.autoUpdater;
 
 export function initAutoUpdate() {
   autoUpdater.autoDownload = false;
