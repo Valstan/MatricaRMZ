@@ -197,11 +197,11 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
       await setEmployeeAuth(id, { passwordHash: await hashPassword(parsed.data.password) });
     }
     if (parsed.data.role || parsed.data.accessEnabled !== undefined || parsed.data.login) {
-      await setEmployeeAuth(id, {
-        login: parsed.data.login ? parsed.data.login.trim().toLowerCase() : undefined,
-        systemRole: parsed.data.role ? parsed.data.role.trim().toLowerCase() : undefined,
-        accessEnabled: parsed.data.accessEnabled,
-      });
+      const patch: { login?: string | null; systemRole?: string | null; accessEnabled?: boolean | null } = {};
+      if (parsed.data.login !== undefined) patch.login = parsed.data.login ? parsed.data.login.trim().toLowerCase() : null;
+      if (parsed.data.role !== undefined) patch.systemRole = parsed.data.role ? parsed.data.role.trim().toLowerCase() : 'user';
+      if (parsed.data.accessEnabled !== undefined) patch.accessEnabled = parsed.data.accessEnabled;
+      await setEmployeeAuth(id, patch);
     }
     if (parsed.data.fullName) await setEmployeeFullName(id, parsed.data.fullName);
 

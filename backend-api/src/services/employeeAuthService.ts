@@ -91,12 +91,17 @@ export async function ensureEmployeeAuthDefs() {
 export async function getEmployeeAuthDefIds() {
   const ensured = await ensureEmployeeAuthDefs();
   if (!ensured.ok) return null;
+  const loginDefId = ensured.defs[AUTH_CODES.login];
+  const passwordDefId = ensured.defs[AUTH_CODES.passwordHash];
+  const roleDefId = ensured.defs[AUTH_CODES.systemRole];
+  const accessDefId = ensured.defs[AUTH_CODES.accessEnabled];
+  if (!loginDefId || !passwordDefId || !roleDefId || !accessDefId) return null;
   return {
     employeeTypeId: ensured.employeeTypeId,
-    loginDefId: ensured.defs[AUTH_CODES.login],
-    passwordDefId: ensured.defs[AUTH_CODES.passwordHash],
-    roleDefId: ensured.defs[AUTH_CODES.systemRole],
-    accessDefId: ensured.defs[AUTH_CODES.accessEnabled],
+    loginDefId,
+    passwordDefId,
+    roleDefId,
+    accessDefId,
   };
 }
 
