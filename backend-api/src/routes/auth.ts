@@ -11,7 +11,14 @@ import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { randomUUID } from 'node:crypto';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { logError } from '../utils/logger.js';
-import { getEmployeeAuthById, getEmployeeAuthByLogin, normalizeRole, setEmployeeAuth } from '../services/employeeAuthService.js';
+import {
+  getEmployeeAuthById,
+  getEmployeeAuthByLogin,
+  getEmployeeProfileById,
+  normalizeRole,
+  setEmployeeAuth,
+  setEmployeeProfile,
+} from '../services/employeeAuthService.js';
 
 export const authRouter = Router();
 
@@ -65,6 +72,45 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
   const permissions = await getEffectivePermissionsForUser(user.id).catch(() => ({}));
   return res.json({ ok: true, user, permissions });
+});
+
+authRouter.get('/profile', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const profile = await getEmployeeProfileById(actor.id);
+    if (!profile) return res.status(404).json({ ok: false, error: 'profile not found' });
+    return res.json({ ok: true, profile });
+  } catch (e) {
+    logError('auth profile get failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/profile', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const schema = z.object({
+      fullName: z.string().max(200).optional().nullable(),
+      position: z.string().max(200).optional().nullable(),
+      sectionName: z.string().max(200).optional().nullable(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const patch: { fullName?: string | null; position?: string | null; sectionName?: string | null } = {};
+    if (parsed.data.fullName !== undefined) patch.fullName = parsed.data.fullName;
+    if (parsed.data.position !== undefined) patch.position = parsed.data.position;
+    if (parsed.data.sectionName !== undefined) patch.sectionName = parsed.data.sectionName;
+    const r = await setEmployeeProfile(actor.id, patch);
+    if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+    const profile = await getEmployeeProfileById(actor.id);
+    return res.json({ ok: true, profile });
+  } catch (e) {
+    logError('auth profile update failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 authRouter.post('/refresh', async (req, res) => {

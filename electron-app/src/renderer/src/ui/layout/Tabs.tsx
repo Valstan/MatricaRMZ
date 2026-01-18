@@ -22,7 +22,8 @@ export function Tabs(props: {
   tab: TabId;
   onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part'>) => void;
   visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[];
-  authLabel?: string;
+  userLabel: string;
+  userTab: Exclude<TabId, 'engine' | 'request' | 'part'>;
   authStatus?: { online: boolean | null };
   right?: React.ReactNode;
 }) {
@@ -81,11 +82,10 @@ export function Tabs(props: {
       {props.visibleTabs.includes('reports') && tabButton('reports', 'Отчёты')}
       <span style={{ flex: 1 }} />
       {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}
-      {tabButton('settings', 'Настройки')}
       {props.visibleTabs.includes('admin') && tabButton('admin', 'Админ')}
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {authDot}
-        {tabButton('auth', props.authLabel?.trim() ? props.authLabel.trim() : 'Вход')}
+        {tabButton(props.userTab, props.userLabel?.trim() ? props.userLabel.trim() : 'Вход')}
       </div>
       {props.right}
     </div>

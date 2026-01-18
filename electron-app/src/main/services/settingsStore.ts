@@ -24,6 +24,10 @@ export const SettingsKey = {
 
   // Client identity (stable per workstation)
   ClientId: 'clientId',
+
+  // UI preferences
+  UiTheme: 'ui.theme',
+  UiChatSide: 'ui.chatSide',
 } as const;
 
 export type SettingsKey = (typeof SettingsKey)[keyof typeof SettingsKey];

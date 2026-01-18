@@ -10,22 +10,41 @@ import { ChatPanel } from './ChatPanel.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
+import { UserSettingsPage, type UiPrefs } from './UserSettingsPage.js';
 
 type AuthUser = { id: string; username: string; role: string };
 
-function roleStyles(roleRaw: string) {
-  const role = String(roleRaw ?? '').toLowerCase();
-  if (role === 'superadmin') {
+const PREFS_KEY = 'matrica_webadmin_prefs';
+const LOG_KEY = 'matrica_webadmin_log';
+
+function loadPrefs(): UiPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) {
+      return { theme: 'auto', chatSide: 'right', chatDocked: false, loggingEnabled: false };
+    }
+    const parsed = JSON.parse(raw) as Partial<UiPrefs>;
     return {
-      background: 'linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%)',
-      border: '#4b5563',
-      color: '#ffffff',
+      theme: parsed.theme === 'light' || parsed.theme === 'dark' || parsed.theme === 'auto' ? parsed.theme : 'auto',
+      chatSide: parsed.chatSide === 'left' || parsed.chatSide === 'right' ? parsed.chatSide : 'right',
+      chatDocked: parsed.chatDocked === true,
+      loggingEnabled: parsed.loggingEnabled === true,
     };
+  } catch {
+    return { theme: 'auto', chatSide: 'right', chatDocked: false, loggingEnabled: false };
   }
-  if (role === 'admin') {
-    return { background: '#ffffff', border: '#1d4ed8', color: '#1d4ed8' };
-  }
-  return { background: '#ffffff', border: '#16a34a', color: '#16a34a' };
+}
+
+function savePrefs(prefs: UiPrefs) {
+  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  localStorage.setItem(LOG_KEY, prefs.loggingEnabled ? 'true' : 'false');
+}
+
+function resolveTheme(theme: UiPrefs['theme']) {
+  if (theme === 'light') return 'light';
+  if (theme === 'dark') return 'dark';
+  const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  return mq?.matches ? 'dark' : 'light';
 }
 
 export function App() {
@@ -34,7 +53,9 @@ export function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
-  const [tab, setTab] = useState<'masterdata' | 'admin' | 'chat'>('masterdata');
+  const [tab, setTab] = useState<'masterdata' | 'admin' | 'chat' | 'settings' | 'auth'>('auth');
+  const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
 
@@ -64,6 +85,24 @@ export function App() {
   useEffect(() => {
     void refreshMe();
   }, []);
+
+  useEffect(() => {
+    savePrefs(prefs);
+    const next = resolveTheme(prefs.theme);
+    setResolvedTheme(next);
+  }, [prefs]);
+
+  useEffect(() => {
+    document.body.dataset.theme = resolvedTheme;
+  }, [resolvedTheme]);
+
+  useEffect(() => {
+    if (prefs.theme !== 'auto' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => setResolvedTheme(resolveTheme('auto'));
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, [prefs.theme]);
 
   useEffect(() => {
     if (!user) {
@@ -100,6 +139,7 @@ export function App() {
     await logout();
     setUser(null);
     setPermissions({});
+    setTab('auth');
   }
 
   if (loading) {
@@ -110,32 +150,25 @@ export function App() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="page">
-        <div className="card" style={{ maxWidth: 420 }}>
-          <h2>Вход в админ‑панель</h2>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <Input
-              value={loginForm.username}
-              onChange={(e) => setLoginForm((p) => ({ ...p, username: e.target.value }))}
-              placeholder="логин"
-            />
-            <Input
-              type="password"
-              value={loginForm.password}
-              onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))}
-              placeholder="пароль"
-            />
-            {authError && <div className="danger">{authError}</div>}
-            <Button onClick={() => void doLogin()}>Войти</Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const caps = deriveCaps(permissions);
+  const userTab = user ? 'settings' : 'auth';
+  const userLabel = user ? user.username : 'Вход';
+  const visibleTabs = [
+    ...(caps.canViewMasterData ? ([{ id: 'masterdata', label: 'Справочники' }] as const) : []),
+    ...(caps.canManageUsers ? ([{ id: 'admin', label: 'Админ' }] as const) : []),
+    ...(caps.canChatUse ? ([{ id: 'chat', label: 'Чат' }] as const) : []),
+  ];
+
+  useEffect(() => {
+    if (!user && tab !== 'auth') setTab('auth');
+  }, [user, tab]);
+
+  useEffect(() => {
+    if (tab === userTab) return;
+    const ids = visibleTabs.map((t) => t.id);
+    if (ids.includes(tab)) return;
+    setTab(userTab);
+  }, [tab, visibleTabs.map((t) => t.id).join('|'), userTab]);
 
   return (
     <div className="page">
@@ -157,40 +190,61 @@ export function App() {
                 title={presence.online ? 'В сети' : 'Не в сети'}
               />
             ) : null}
-            <span
-              style={{
-                padding: '2px 8px',
-                borderRadius: 999,
-                border: `1px solid ${roleStyles(user.role).border}`,
-                background: roleStyles(user.role).background,
-                color: roleStyles(user.role).color,
-                fontWeight: 800,
-              }}
-            >
-              {user.username} ({user.role})
-            </span>
           </div>
-          <Button variant="ghost" onClick={() => void doLogout()}>
-            Выйти
+          <Button variant="ghost" onClick={() => setTab(userTab)}>
+            {userLabel}
           </Button>
         </div>
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
         <Tabs
-          tabs={[
-            { id: 'masterdata', label: 'Справочники' },
-            { id: 'admin', label: 'Админ' },
-            { id: 'chat', label: 'Чат' },
-          ]}
+          tabs={visibleTabs}
           active={tab}
           onChange={(id) => setTab(id as any)}
         />
       </div>
 
-      {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
-      {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
-      {tab === 'chat' && <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch' }}>
+        {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'left' && tab !== 'chat' && (
+          <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden' }}>
+            <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+          </div>
+        )}
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+          {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
+          {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
+          {tab === 'chat' && user && <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />}
+          {tab === 'settings' && (
+            <UserSettingsPage user={user} prefs={prefs} onPrefsChange={(next) => setPrefs(next)} onLogout={() => void doLogout()} />
+          )}
+          {tab === 'auth' && (
+            <div className="card" style={{ maxWidth: 420 }}>
+              <h2>Вход в админ‑панель</h2>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <Input
+                  value={loginForm.username}
+                  onChange={(e) => setLoginForm((p) => ({ ...p, username: e.target.value }))}
+                  placeholder="логин"
+                />
+                <Input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))}
+                  placeholder="пароль"
+                />
+                {authError && <div className="danger">{authError}</div>}
+                <Button onClick={() => void doLogin()}>Войти</Button>
+              </div>
+            </div>
+          )}
+        </div>
+        {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'right' && tab !== 'chat' && (
+          <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden' }}>
+            <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

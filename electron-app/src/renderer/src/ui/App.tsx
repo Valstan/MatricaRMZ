@@ -42,12 +42,20 @@ export function App() {
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
+  const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }>({
+    theme: 'auto',
+    chatSide: 'right',
+  });
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
   useEffect(() => {
     void refreshEngines();
     void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
     void window.matrica.app.version().then((r) => (r.ok ? setClientVersion(r.version) : setClientVersion(''))).catch(() => {});
     void refreshServerHealth();
+    void window.matrica.settings.uiGet().then((r: any) => {
+      if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right' });
+    });
   }, []);
 
   useEffect(() => {
@@ -160,6 +168,20 @@ export function App() {
   }, [authStatus.loggedIn]);
 
   useEffect(() => {
+    const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    const pick = () => {
+      if (uiPrefs.theme === 'light') return 'light';
+      if (uiPrefs.theme === 'dark') return 'dark';
+      return mq?.matches ? 'dark' : 'light';
+    };
+    setResolvedTheme(pick());
+    if (!mq) return;
+    const handler = () => setResolvedTheme(pick());
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, [uiPrefs.theme]);
+
+  useEffect(() => {
     if (!authStatus.loggedIn) {
       setPresence(null);
       return;
@@ -215,11 +237,11 @@ export function App() {
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
-    'settings',
     'admin',
-    'auth',
   ];
   const visibleTabsKey = visibleTabs.join('|');
+  const userTab: Exclude<TabId, 'engine' | 'request' | 'part'> = authStatus.loggedIn ? 'settings' : 'auth';
+  const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
   // Gate: без входа показываем только вкладку "Вход".
   useEffect(() => {
@@ -255,9 +277,9 @@ export function App() {
   // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
   useEffect(() => {
     if (tab === 'engine' || tab === 'request' || tab === 'part') return;
-    if (visibleTabs.includes(tab)) return;
+    if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
-  }, [tab, visibleTabsKey]);
+  }, [tab, visibleTabsKey, userTab]);
 
   useEffect(() => {
     let alive = true;
@@ -397,6 +419,7 @@ export function App() {
   return (
     <Page
       title={pageTitle}
+      uiTheme={resolvedTheme}
       right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
           {authStatus.loggedIn && canChat && !chatOpen && (
@@ -458,6 +481,20 @@ export function App() {
       }
     >
       <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
+        {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
+          <div style={{ flex: '0 0 25%', minWidth: 320, borderRight: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+            <ChatPanel
+              meUserId={authStatus.user?.id ?? ''}
+              canExport={canChatExport}
+              canAdminViewAll={canChatAdminView}
+              viewMode={viewMode}
+              onHide={() => setChatOpen(false)}
+              onNavigate={(link) => {
+                void navigateDeepLink(link);
+              }}
+            />
+          </div>
+        )}
         <div
           style={{
             flex: chatOpen && authStatus.loggedIn && canChat ? '0 0 75%' : '1 1 auto',
@@ -474,16 +511,18 @@ export function App() {
           <Tabs
             tab={tab}
             onTab={(t) => {
+              const isUserTab = t === userTab;
               if (!authStatus.loggedIn && t !== 'auth') {
                 setTab('auth');
                 return;
               }
-              if (!visibleTabs.includes(t)) return;
+              if (!visibleTabs.includes(t) && !isUserTab) return;
               setTab(t);
               if (t === 'audit') void refreshAudit();
             }}
             visibleTabs={visibleTabs}
-            authLabel={authStatus.loggedIn ? authStatus.user?.username ?? 'Вход' : 'Войти'}
+            userLabel={userLabel}
+            userTab={userTab}
             authStatus={presence ? { online: presence.online } : undefined}
           />
 
@@ -592,7 +631,7 @@ export function App() {
           />
         )}
 
-        {tab === 'settings' && <SettingsPage />}
+        {tab === 'settings' && <SettingsPage uiPrefs={uiPrefs} onUiPrefsChange={setUiPrefs} />}
 
         {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
 
@@ -629,7 +668,7 @@ export function App() {
           </div>
         </div>
 
-        {chatOpen && authStatus.loggedIn && canChat && (
+        {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide !== 'left' && (
           <div style={{ flex: '0 0 25%', minWidth: 320, borderLeft: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
             <ChatPanel
               meUserId={authStatus.user?.id ?? ''}

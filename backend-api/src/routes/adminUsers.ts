@@ -48,11 +48,12 @@ function ensureManageAllowed(args: {
   if (actorLevel < 1) return { ok: false as const, error: 'admin only' };
 
   if (args.actorId === args.targetId) {
+    if (actorLevel >= 2) return { ok: true as const };
     if (args.allowSelfPasswordOnly && !args.touchingRoleOrAccess) return { ok: true as const };
     return { ok: false as const, error: 'cannot update own access or role' };
   }
 
-  if (isSuperadminLogin(args.targetLogin) && args.touchingRoleOrAccess) {
+  if (isSuperadminLogin(args.targetLogin) && args.touchingRoleOrAccess && actorLevel < 2) {
     return { ok: false as const, error: 'superadmin role is immutable' };
   }
 

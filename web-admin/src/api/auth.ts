@@ -20,3 +20,15 @@ export async function me() {
   return apiJson('/auth/me', { method: 'GET' });
 }
 
+export async function profileGet() {
+  return apiJson('/auth/profile', { method: 'GET' });
+}
+
+export async function profileUpdate(args: { fullName?: string | null; position?: string | null; sectionName?: string | null }) {
+  return apiJson('/auth/profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args ?? {}),
+  });
+}
+

@@ -9,6 +9,7 @@ export function deriveCaps(perms: PermissionsMap | null | undefined) {
     canViewMasterData: has(perms, 'masterdata.view'),
     canEditMasterData: has(perms, 'masterdata.edit'),
     canManageUsers: has(perms, 'admin.users.manage'),
+    canChatUse: has(perms, 'chat.use'),
     canChatExport: has(perms, 'chat.export'),
     canChatAdminView: has(perms, 'chat.admin.view'),
   };

@@ -26,7 +26,8 @@ export const adminMasterdataRouter = Router();
 adminMasterdataRouter.use(requireAuth);
 
 function isAdminRole(role: string) {
-  return String(role || '').toLowerCase() === 'admin';
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'superadmin';
 }
 
 async function requireAdmin(req: Request, res: Response) {

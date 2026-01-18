@@ -21,7 +21,8 @@ function nowMs() {
 }
 
 function isAdminRole(role: string) {
-  return String(role || '').toLowerCase() === 'admin';
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'superadmin';
 }
 
 export const changesRouter = Router();

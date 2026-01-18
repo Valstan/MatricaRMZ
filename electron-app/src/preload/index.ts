@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('matrica', {
     login: async (args: { username: string; password: string }) => ipcRenderer.invoke('auth:login', args),
     logout: async (args: { refreshToken?: string }) => ipcRenderer.invoke('auth:logout', args),
     changePassword: async (args: { currentPassword: string; newPassword: string }) => ipcRenderer.invoke('auth:changePassword', args),
+    profileGet: async () => ipcRenderer.invoke('auth:profileGet'),
+    profileUpdate: async (args: { fullName?: string | null; position?: string | null; sectionName?: string | null }) =>
+      ipcRenderer.invoke('auth:profileUpdate', args),
   },
   presence: {
     me: async () => ipcRenderer.invoke('presence:me'),
@@ -168,6 +171,10 @@ contextBridge.exposeInMainWorld('matrica', {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),
     setEnabled: async (enabled: boolean) => ipcRenderer.invoke('logging:setEnabled', enabled),
     setMode: async (mode: 'dev' | 'prod') => ipcRenderer.invoke('logging:setMode', mode),
+  },
+  settings: {
+    uiGet: async () => ipcRenderer.invoke('ui:prefs:get'),
+    uiSet: async (args: { theme?: string; chatSide?: string }) => ipcRenderer.invoke('ui:prefs:set', args),
   },
   backups: {
     status: async () => ipcRenderer.invoke('backups:status'),

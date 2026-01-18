@@ -223,6 +223,57 @@ export async function authChangePassword(
     return { ok: false, error: String(e) };
   }
 }
+
+export async function authProfileGet(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string },
+): Promise<{ ok: true; profile: any } | { ok: false; error: string }> {
+  try {
+    const session = await getSession(db).catch(() => null);
+    if (!session?.accessToken) return { ok: false, error: 'missing session' };
+    const r = await net.fetch(`${args.apiBaseUrl}/auth/profile`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `profile HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !json?.profile) return { ok: false, error: json?.error ?? 'bad profile response' };
+    return { ok: true, profile: json.profile };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function authProfileUpdate(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string; fullName?: string | null; position?: string | null; sectionName?: string | null },
+): Promise<{ ok: true; profile: any } | { ok: false; error: string }> {
+  try {
+    const session = await getSession(db).catch(() => null);
+    if (!session?.accessToken) return { ok: false, error: 'missing session' };
+    const r = await net.fetch(`${args.apiBaseUrl}/auth/profile`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({
+        ...(args.fullName !== undefined ? { fullName: args.fullName } : {}),
+        ...(args.position !== undefined ? { position: args.position } : {}),
+        ...(args.sectionName !== undefined ? { sectionName: args.sectionName } : {}),
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `profile HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !json?.profile) return { ok: false, error: json?.error ?? 'bad profile response' };
+    return { ok: true, profile: json.profile };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
 export async function presenceMe(
   db: BetterSQLite3Database,
   args: { apiBaseUrl: string },

@@ -3,12 +3,23 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 
-export function SettingsPage() {
+export function SettingsPage(props: {
+  uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' };
+  onUiPrefsChange: (prefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }) => void;
+}) {
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [authUser, setAuthUser] = useState<{ id: string; username: string; role: string } | null>(null);
+  const [profileStatus, setProfileStatus] = useState<string>('');
+  const [profileForm, setProfileForm] = useState<{ fullName: string; position: string; sectionName: string }>({
+    fullName: '',
+    position: '',
+    sectionName: '',
+  });
+  const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
+  const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [pwCurrent, setPwCurrent] = useState<string>('');
   const [pwNew, setPwNew] = useState<string>('');
   const [pwRepeat, setPwRepeat] = useState<string>('');
@@ -40,7 +51,18 @@ export function SettingsPage() {
         setStatus(`Ошибка загрузки: ${formatError(r.error)}`);
       }
       const auth = await window.matrica.auth.status().catch(() => null);
-      if (auth?.loggedIn) setAuthUser(auth.user ?? null);
+      if (auth?.loggedIn) {
+        setAuthUser(auth.user ?? null);
+        const p = await window.matrica.auth.profileGet().catch(() => null);
+        if (p && (p as any).ok && (p as any).profile) {
+          const profile = (p as any).profile;
+          setProfileForm({
+            fullName: String(profile.fullName ?? ''),
+            position: String(profile.position ?? ''),
+            sectionName: String(profile.sectionName ?? ''),
+          });
+        }
+      }
     } catch (e) {
       setStatus(`Ошибка: ${formatError(e)}`);
     } finally {
@@ -71,6 +93,11 @@ export function SettingsPage() {
     void loadSettings();
     void refreshBackups();
   }, []);
+
+  useEffect(() => {
+    setUiTheme(props.uiPrefs.theme);
+    setChatSide(props.uiPrefs.chatSide);
+  }, [props.uiPrefs]);
 
   async function handleToggleLogging() {
     try {
@@ -133,6 +160,41 @@ export function SettingsPage() {
     }
   }
 
+  async function handleSaveProfile() {
+    if (!authUser?.id) {
+      setProfileStatus('Требуется вход в систему.');
+      return;
+    }
+    setProfileStatus('Сохранение профиля...');
+    const r = await window.matrica.auth.profileUpdate({
+      fullName: profileForm.fullName.trim() || null,
+      position: profileForm.position.trim() || null,
+      sectionName: profileForm.sectionName.trim() || null,
+    });
+    if (r && (r as any).ok) {
+      const profile = (r as any).profile ?? null;
+      setProfileForm({
+        fullName: String(profile?.fullName ?? profileForm.fullName),
+        position: String(profile?.position ?? profileForm.position),
+        sectionName: String(profile?.sectionName ?? profileForm.sectionName),
+      });
+      setProfileStatus('Профиль сохранён.');
+    } else {
+      setProfileStatus(`Ошибка: ${formatError((r as any)?.error ?? 'unknown error')}`);
+    }
+  }
+
+  async function handleSaveUiPrefs() {
+    const r = await window.matrica.settings.uiSet({ theme: uiTheme, chatSide });
+    if (r && (r as any).ok) {
+      props.onUiPrefsChange({ theme: (r as any).theme, chatSide: (r as any).chatSide });
+      setStatus('Настройки интерфейса сохранены.');
+      setTimeout(() => setStatus(''), 2000);
+    } else {
+      setStatus(`Ошибка: ${formatError((r as any)?.error ?? 'unknown error')}`);
+    }
+  }
+
   if (loading) {
     return <div style={{ padding: 20, color: '#6b7280' }}>Загрузка настроек...</div>;
   }
@@ -140,6 +202,78 @@ export function SettingsPage() {
   return (
     <div style={{ padding: 20 }}>
       <h2 style={{ marginTop: 0, marginBottom: 20 }}>Настройки</h2>
+
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Профиль пользователя</h3>
+        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+          Эти данные видны в системе и могут быть обновлены вами.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 680 }}>
+          <div style={{ color: '#6b7280' }}>Логин</div>
+          <div style={{ fontWeight: 700 }}>{authUser?.username ?? '—'}</div>
+          <div style={{ color: '#6b7280' }}>Роль</div>
+          <div style={{ fontWeight: 700 }}>{authUser?.role ?? '—'}</div>
+          <div style={{ color: '#6b7280' }}>ФИО</div>
+          <input
+            value={profileForm.fullName}
+            onChange={(e) => setProfileForm((p) => ({ ...p, fullName: e.target.value }))}
+            placeholder="Фамилия Имя Отчество"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+          <div style={{ color: '#6b7280' }}>Должность</div>
+          <input
+            value={profileForm.position}
+            onChange={(e) => setProfileForm((p) => ({ ...p, position: e.target.value }))}
+            placeholder="Должность"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+          <div style={{ color: '#6b7280' }}>Цех / участок</div>
+          <input
+            value={profileForm.sectionName}
+            onChange={(e) => setProfileForm((p) => ({ ...p, sectionName: e.target.value }))}
+            placeholder="Например: Цех № 4"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <Button variant="ghost" onClick={() => void handleSaveProfile()} disabled={!authUser?.id}>
+            Сохранить профиль
+          </Button>
+          {profileStatus && <span style={{ color: '#6b7280' }}>{profileStatus}</span>}
+        </div>
+      </div>
+
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Интерфейс</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 680 }}>
+          <div style={{ color: '#6b7280' }}>Цветовая схема</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button variant={uiTheme === 'auto' ? 'primary' : 'ghost'} onClick={() => setUiTheme('auto')}>
+              Авто
+            </Button>
+            <Button variant={uiTheme === 'light' ? 'primary' : 'ghost'} onClick={() => setUiTheme('light')}>
+              Светлая
+            </Button>
+            <Button variant={uiTheme === 'dark' ? 'primary' : 'ghost'} onClick={() => setUiTheme('dark')}>
+              Тёмная
+            </Button>
+          </div>
+          <div style={{ color: '#6b7280' }}>Чат в интерфейсе</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button variant={chatSide === 'right' ? 'primary' : 'ghost'} onClick={() => setChatSide('right')}>
+              Справа
+            </Button>
+            <Button variant={chatSide === 'left' ? 'primary' : 'ghost'} onClick={() => setChatSide('left')}>
+              Слева
+            </Button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <Button variant="ghost" onClick={() => void handleSaveUiPrefs()}>
+            Сохранить настройки интерфейса
+          </Button>
+        </div>
+      </div>
 
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Отправка логов на сервер</h3>

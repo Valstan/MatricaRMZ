@@ -2,12 +2,16 @@ import React from 'react';
 
 import { theme } from '../theme.js';
 
-export function Page(props: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+export function Page(props: { title: string; right?: React.ReactNode; children: React.ReactNode; uiTheme?: 'light' | 'dark' }) {
+  const gradient =
+    props.uiTheme === 'light'
+      ? `linear-gradient(135deg, #e2e8f0 0%, #f8fafc 45%, #e0f2fe 100%)`
+      : `linear-gradient(135deg, ${theme.colors.appBgFrom} 0%, ${theme.colors.appBgVia} 45%, ${theme.colors.appBgTo} 100%)`;
   return (
     <div
       style={{
         height: '100vh',
-        background: `linear-gradient(135deg, ${theme.colors.appBgFrom} 0%, ${theme.colors.appBgVia} 45%, ${theme.colors.appBgTo} 100%)`,
+        background: gradient,
         padding: 10,
         boxSizing: 'border-box',
       }}

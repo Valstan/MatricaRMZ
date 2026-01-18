@@ -2,6 +2,7 @@ const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 const ACCESS_KEY = 'matrica_access_token';
 const REFRESH_KEY = 'matrica_refresh_token';
+const LOG_KEY = 'matrica_webadmin_log';
 
 type JsonValue = any;
 
@@ -42,6 +43,12 @@ export async function apiFetch(path: string, init?: RequestInit, opts?: { retry?
   const headers = new Headers(init?.headers ?? {});
   const token = getAccessToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const logEnabled = typeof localStorage !== 'undefined' && localStorage.getItem(LOG_KEY) === 'true';
+  if (logEnabled) {
+    const method = init?.method ?? 'GET';
+    console.info(`[web-admin api] ${method} ${path}`);
+  }
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const status = res.status;

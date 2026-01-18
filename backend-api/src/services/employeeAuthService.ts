@@ -31,6 +31,73 @@ function normalizeLogin(login: string) {
   return String(login ?? '').trim().toLowerCase();
 }
 
+async function getEntityTypeIdByCode(code: string) {
+  const rows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, code), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function getAttributeDefId(entityTypeId: string, code: string) {
+  const rows = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, entityTypeId as any), eq(attributeDefs.code, code), isNull(attributeDefs.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function ensureSectionEntity(sectionNameRaw: string): Promise<string | null> {
+  const sectionName = String(sectionNameRaw ?? '').trim();
+  if (!sectionName) return null;
+
+  const sectionTypeId = await getEntityTypeIdByCode('section');
+  if (!sectionTypeId) return null;
+  const nameDefId = await getAttributeDefId(sectionTypeId, 'name');
+  if (!nameDefId) return null;
+
+  const existing = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .innerJoin(attributeValues, eq(attributeValues.entityId, entities.id))
+    .where(
+      and(
+        eq(entities.typeId, sectionTypeId as any),
+        isNull(entities.deletedAt),
+        eq(attributeValues.attributeDefId, nameDefId as any),
+        eq(attributeValues.valueJson, JSON.stringify(sectionName)),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (existing[0]?.id) return String(existing[0].id);
+
+  const ts = nowMs();
+  const id = randomUUID();
+  await db.insert(entities).values({
+    id,
+    typeId: sectionTypeId,
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'synced',
+  });
+  await db.insert(attributeValues).values({
+    id: randomUUID(),
+    entityId: id as any,
+    attributeDefId: nameDefId as any,
+    valueJson: JSON.stringify(sectionName),
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'synced',
+  });
+  return id;
+}
+
 export function normalizeRole(login: string, systemRole: string | null | undefined): 'superadmin' | 'admin' | 'user' {
   const l = normalizeLogin(login);
   if (l === SUPERADMIN_LOGIN) return 'superadmin';
@@ -114,6 +181,12 @@ export async function getEmployeeFullNameDefId() {
     .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), eq(attributeDefs.code, AUTH_CODES.fullName), isNull(attributeDefs.deletedAt)))
     .limit(1);
   return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function getEmployeeAttrDefId(code: string) {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return null;
+  return getAttributeDefId(employeeTypeId, code);
 }
 
 export async function listEmployeesAuth() {
@@ -248,6 +321,22 @@ async function upsertAttrValue(entityId: string, defId: string, value: unknown) 
   await db.update(entities).set({ updatedAt: ts, syncStatus: 'synced' }).where(eq(entities.id, entityId as any));
 }
 
+async function getSectionNameById(sectionId: string | null) {
+  if (!sectionId) return null;
+  const sectionTypeId = await getEntityTypeIdByCode('section');
+  if (!sectionTypeId) return null;
+  const nameDefId = await getAttributeDefId(sectionTypeId, 'name');
+  if (!nameDefId) return null;
+
+  const row = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, sectionId as any), eq(attributeValues.attributeDefId, nameDefId as any), isNull(attributeValues.deletedAt)))
+    .limit(1);
+  const raw = row[0]?.valueJson ? safeJsonParse(String(row[0].valueJson)) : null;
+  return raw == null || raw === '' ? null : String(raw);
+}
+
 export async function setEmployeeAuth(
   employeeId: string,
   args: { login?: string | null; passwordHash?: string | null; systemRole?: string | null; accessEnabled?: boolean | null },
@@ -267,6 +356,67 @@ export async function setEmployeeFullName(employeeId: string, fullName: string |
   const defId = await getEmployeeFullNameDefId();
   if (!defId) return { ok: false as const, error: 'full_name def not found' };
   await upsertAttrValue(employeeId, defId, fullName ? String(fullName).trim() : null);
+  return { ok: true as const };
+}
+
+export async function getEmployeeProfileById(employeeId: string) {
+  const auth = await getEmployeeAuthById(employeeId);
+  if (!auth) return null;
+
+  const fullNameDefId = await getEmployeeFullNameDefId();
+  const roleDefId = await getEmployeeAttrDefId('role');
+  const sectionDefId = await getEmployeeAttrDefId('section_id');
+  const defIds = [fullNameDefId, roleDefId, sectionDefId].filter(Boolean) as string[];
+
+  const vals =
+    defIds.length === 0
+      ? []
+      : await db
+          .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(eq(attributeValues.entityId, employeeId as any), inArray(attributeValues.attributeDefId, defIds as any), isNull(attributeValues.deletedAt)))
+          .limit(100);
+
+  const byDefId: Record<string, unknown> = {};
+  for (const v of vals as any[]) {
+    byDefId[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
+  }
+
+  const fullName = fullNameDefId ? String(byDefId[fullNameDefId] ?? '').trim() : '';
+  const position = roleDefId ? String(byDefId[roleDefId] ?? '').trim() : '';
+  const sectionId = sectionDefId ? String(byDefId[sectionDefId] ?? '').trim() : '';
+  const sectionName = sectionId ? await getSectionNameById(sectionId) : null;
+
+  return {
+    id: employeeId,
+    login: auth.login,
+    role: normalizeRole(auth.login, auth.systemRole),
+    fullName,
+    position,
+    sectionId: sectionId || null,
+    sectionName,
+  };
+}
+
+export async function setEmployeeProfile(
+  employeeId: string,
+  args: { fullName?: string | null; position?: string | null; sectionName?: string | null },
+) {
+  if (args.fullName !== undefined) {
+    const r = await setEmployeeFullName(employeeId, args.fullName);
+    if (!r.ok) return r;
+  }
+  if (args.position !== undefined) {
+    const roleDefId = await getEmployeeAttrDefId('role');
+    if (!roleDefId) return { ok: false as const, error: 'role def not found' };
+    await upsertAttrValue(employeeId, roleDefId, args.position ? String(args.position).trim() : null);
+  }
+  if (args.sectionName !== undefined) {
+    const sectionDefId = await getEmployeeAttrDefId('section_id');
+    if (!sectionDefId) return { ok: false as const, error: 'section_id def not found' };
+    const sectionId = args.sectionName ? await ensureSectionEntity(args.sectionName) : null;
+    await upsertAttrValue(employeeId, sectionDefId, sectionId);
+  }
   return { ok: true as const };
 }
 

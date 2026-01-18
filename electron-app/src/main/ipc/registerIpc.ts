@@ -19,6 +19,7 @@ import { registerFilesIpc } from './register/files.js';
 import { registerLoggingIpc } from './register/logging.js';
 import { registerPartsIpc } from './register/parts.js';
 import { registerReportsIpc } from './register/reports.js';
+import { registerSettingsIpc } from './register/settings.js';
 import { registerSupplyRequestsIpc } from './register/supplyRequests.js';
 import { registerUpdateIpc } from './register/update.js';
 import { openSqliteReadonly } from '../database/db.js';
@@ -94,6 +95,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   registerChecklistsIpc(ctx);
   registerSupplyRequestsIpc(ctx);
   registerPartsIpc(ctx);
+  registerSettingsIpc(ctx);
 
   registerBackupsIpc(ctx, {
     enterBackup: async (args) => {

@@ -139,6 +139,16 @@ export type AuthUserInfo = {
   role: string;
 };
 
+export type AuthProfile = {
+  id: string;
+  login: string;
+  role: string;
+  fullName: string;
+  position: string;
+  sectionId: string | null;
+  sectionName: string | null;
+};
+
 export type AuthStatus = {
   loggedIn: boolean;
   user: AuthUserInfo | null;
@@ -241,6 +251,10 @@ export type MatricaApi = {
     setEnabled: (enabled: boolean) => Promise<{ ok: true } | { ok: false; error: string }>;
     setMode: (mode: 'dev' | 'prod') => Promise<{ ok: true; mode: 'dev' | 'prod' } | { ok: false; error: string }>;
   };
+  settings: {
+    uiGet: () => Promise<{ ok: true; theme: string; chatSide: string } | { ok: false; error: string }>;
+    uiSet: (args: { theme?: string; chatSide?: string }) => Promise<{ ok: true; theme: string; chatSide: string } | { ok: false; error: string }>;
+  };
   backups: {
     status: () => Promise<{ ok: true; mode: 'live' | 'backup'; backupDate: string | null } | { ok: false; error: string }>;
     nightlyList: () => Promise<
@@ -258,6 +272,12 @@ export type MatricaApi = {
     login: (args: { username: string; password: string }) => Promise<AuthLoginResult>;
     logout: (args: { refreshToken?: string }) => Promise<AuthLogoutResult>;
     changePassword: (args: { currentPassword: string; newPassword: string }) => Promise<{ ok: boolean; error?: string }>;
+    profileGet: () => Promise<{ ok: true; profile: AuthProfile } | { ok: false; error: string }>;
+    profileUpdate: (args: {
+      fullName?: string | null;
+      position?: string | null;
+      sectionName?: string | null;
+    }) => Promise<{ ok: true; profile: AuthProfile } | { ok: false; error: string }>;
   };
   presence: {
     me: () => Promise<{ ok: true; online: boolean; lastActivityAt: number | null } | { ok: false; error: string }>;

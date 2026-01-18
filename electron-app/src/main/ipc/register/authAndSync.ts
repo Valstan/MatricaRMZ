@@ -1,7 +1,16 @@
 import { ipcMain, net } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { authChangePassword, authLogin, authLogout, authStatus, authSync, presenceMe } from '../../services/authService.js';
+import {
+  authChangePassword,
+  authLogin,
+  authLogout,
+  authProfileGet,
+  authProfileUpdate,
+  authStatus,
+  authSync,
+  presenceMe,
+} from '../../services/authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { isViewMode } from '../ipcContext.js';
 
@@ -17,6 +26,12 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   );
   ipcMain.handle('auth:changePassword', async (_e, args: { currentPassword: string; newPassword: string }) =>
     authChangePassword(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), currentPassword: args.currentPassword, newPassword: args.newPassword }),
+  );
+  ipcMain.handle('auth:profileGet', async () => authProfileGet(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
+  ipcMain.handle(
+    'auth:profileUpdate',
+    async (_e, args: { fullName?: string | null; position?: string | null; sectionName?: string | null }) =>
+      authProfileUpdate(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), ...args }),
   );
   ipcMain.handle('presence:me', async () => presenceMe(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
 
