@@ -9,15 +9,15 @@ function roleStyles(roleRaw: string) {
   const role = String(roleRaw ?? '').toLowerCase();
   if (role === 'superadmin') {
     return {
-      background: 'linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%)',
-      border: '#4b5563',
-      color: '#ffffff',
+      background: 'var(--role-superadmin-bg)',
+      border: 'var(--role-superadmin-border)',
+      color: 'var(--role-superadmin-text)',
     };
   }
   if (role === 'admin') {
-    return { background: '#ffffff', border: '#1d4ed8', color: '#1d4ed8' };
+    return { background: 'var(--role-admin-bg)', border: 'var(--role-admin-border)', color: 'var(--role-admin-text)' };
   }
-  return { background: '#ffffff', border: '#16a34a', color: '#16a34a' };
+  return { background: 'var(--role-user-bg)', border: 'var(--role-user-border)', color: 'var(--role-user-text)' };
 }
 
 export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
@@ -61,22 +61,21 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   return (
     <div>
       <h2 style={{ margin: '8px 0' }}>Вход</h2>
-      <div style={{ color: '#6b7280', marginBottom: 12 }}>
+      <div style={{ color: 'var(--muted)', marginBottom: 12 }}>
         Синхронизация теперь требует авторизации. Локальные данные доступны без входа, но push/pull будут работать только после входа.
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, maxWidth: 560 }}>
-        <div style={{ marginBottom: 10, color: '#111827', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, maxWidth: 560, background: 'var(--surface)' }}>
+        <div style={{ marginBottom: 10, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span>Статус:</span>
           {presence ? (
             <span
-              className={presence.online ? 'chatBlink' : undefined}
               style={{
                 width: 10,
                 height: 10,
                 borderRadius: 999,
                 display: 'inline-block',
-                background: presence.online ? '#16a34a' : '#dc2626',
+                background: presence.online ? 'var(--success)' : 'var(--danger)',
                 boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
               }}
               title={presence.online ? 'В сети' : 'Не в сети'}
@@ -106,9 +105,9 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
         {!status.loggedIn ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
-              <div style={{ color: '#6b7280' }}>Логин</div>
+              <div style={{ color: 'var(--muted)' }}>Логин</div>
               <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" />
-              <div style={{ color: '#6b7280' }}>Пароль</div>
+              <div style={{ color: 'var(--muted)' }}>Пароль</div>
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
             </div>
 
@@ -152,7 +151,7 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
           </div>
         )}
 
-        {msg && <div style={{ marginTop: 10, color: '#6b7280' }}>{msg}</div>}
+        {msg && <div style={{ marginTop: 10, color: 'var(--muted)' }}>{msg}</div>}
       </div>
     </div>
   );

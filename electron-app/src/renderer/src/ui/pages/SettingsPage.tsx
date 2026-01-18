@@ -204,57 +204,57 @@ export function SettingsPage(props: {
   }
 
   if (loading) {
-    return <div style={{ padding: 20, color: '#6b7280' }}>Загрузка настроек...</div>;
+    return <div style={{ padding: 20, color: 'var(--muted)' }}>Загрузка настроек...</div>;
   }
 
   return (
     <div style={{ padding: 20 }}>
       <h2 style={{ marginTop: 0, marginBottom: 20 }}>Настройки</h2>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Профиль пользователя</h3>
-        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+        <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
           Эти данные видны в системе и могут быть обновлены вами.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 680 }}>
-          <div style={{ color: '#6b7280' }}>Логин</div>
+          <div style={{ color: 'var(--muted)' }}>Логин</div>
           <div style={{ fontWeight: 700 }}>{authUser?.username ?? '—'}</div>
-          <div style={{ color: '#6b7280' }}>Роль</div>
+          <div style={{ color: 'var(--muted)' }}>Роль</div>
           <div style={{ fontWeight: 700 }}>{authUser?.role ?? '—'}</div>
-          <div style={{ color: '#6b7280' }}>ФИО</div>
+          <div style={{ color: 'var(--muted)' }}>ФИО</div>
           <input
             value={profileForm.fullName}
             onChange={(e) => setProfileForm((p) => ({ ...p, fullName: e.target.value }))}
             placeholder="Фамилия Имя Отчество"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
-          <div style={{ color: '#6b7280' }}>Должность</div>
+          <div style={{ color: 'var(--muted)' }}>Должность</div>
           <input
             value={profileForm.position}
             onChange={(e) => setProfileForm((p) => ({ ...p, position: e.target.value }))}
             placeholder="Должность"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
-          <div style={{ color: '#6b7280' }}>Цех / участок</div>
+          <div style={{ color: 'var(--muted)' }}>Цех / участок</div>
           <input
             value={profileForm.sectionName}
             onChange={(e) => setProfileForm((p) => ({ ...p, sectionName: e.target.value }))}
             placeholder="Например: Цех № 4"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
           <Button variant="ghost" onClick={() => void handleSaveProfile()} disabled={!authUser?.id}>
             Сохранить профиль
           </Button>
-          {profileStatus && <span style={{ color: '#6b7280' }}>{profileStatus}</span>}
+          {profileStatus && <span style={{ color: 'var(--muted)' }}>{profileStatus}</span>}
         </div>
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Интерфейс</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 680 }}>
-          <div style={{ color: '#6b7280' }}>Цветовая схема</div>
+          <div style={{ color: 'var(--muted)' }}>Цветовая схема</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Button variant={uiTheme === 'auto' ? 'primary' : 'ghost'} onClick={() => setUiTheme('auto')}>
               Авто
@@ -266,7 +266,7 @@ export function SettingsPage(props: {
               Тёмная
             </Button>
           </div>
-          <div style={{ color: '#6b7280' }}>Чат в интерфейсе</div>
+          <div style={{ color: 'var(--muted)' }}>Чат в интерфейсе</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Button variant={chatSide === 'right' ? 'primary' : 'ghost'} onClick={() => setChatSide('right')}>
               Справа
@@ -283,21 +283,21 @@ export function SettingsPage(props: {
         </div>
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Отправка логов на сервер</h3>
-        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+        <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
           При включении логи работы клиента будут отправляться на сервер для диагностики проблем. Логи сохраняются в папку{' '}
-          <code style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 4 }}>logs/</code> на сервере.
+          <code style={{ background: 'var(--surface-2)', padding: '2px 6px', borderRadius: 4 }}>logs/</code> на сервере.
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <Button onClick={() => void handleToggleLogging()} variant={loggingEnabled ? 'ghost' : 'primary'}>
             {loggingEnabled ? 'Отключить отправку логов' : 'Включить отправку логов'}
           </Button>
-          {loggingEnabled && <span style={{ color: '#059669' }}>✓ Включено</span>}
-          {!loggingEnabled && <span style={{ color: '#6b7280' }}>Отключено</span>}
+          {loggingEnabled && <span style={{ color: 'var(--success)' }}>✓ Включено</span>}
+          {!loggingEnabled && <span style={{ color: 'var(--muted)' }}>Отключено</span>}
         </div>
         <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ color: '#6b7280' }}>Режим логирования:</span>
+          <span style={{ color: 'var(--muted)' }}>Режим логирования:</span>
           <Button
             variant={loggingMode === 'prod' ? 'primary' : 'ghost'}
             onClick={() => void handleSetLoggingMode('prod')}
@@ -317,9 +317,9 @@ export function SettingsPage(props: {
         </div>
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Ночные резервные копии базы</h3>
-        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+        <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
           Выберите ночную резервную копию и откройте её в режиме просмотра. В этом режиме синхронизация отключена, данные изменять нельзя.
         </p>
 
@@ -406,7 +406,7 @@ export function SettingsPage(props: {
             </Button>
 
             {backupStatus?.mode === 'backup' && (
-              <span style={{ color: '#b91c1c', fontWeight: 800 }}>
+              <span style={{ color: 'var(--danger)', fontWeight: 800 }}>
                 Сейчас открыт просмотр: {backupStatus.backupDate ?? '—'}
               </span>
             )}
@@ -414,48 +414,48 @@ export function SettingsPage(props: {
         </div>
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Смена пароля</h3>
-        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+        <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
           Вы можете сменить пароль своей учетной записи. Суперадмин может менять пароль любого пользователя в разделе Админ.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 520 }}>
-          <div style={{ color: '#6b7280' }}>Текущий пароль</div>
+          <div style={{ color: 'var(--muted)' }}>Текущий пароль</div>
           <input
             type="password"
             value={pwCurrent}
             onChange={(e) => setPwCurrent(e.target.value)}
             placeholder="текущий пароль"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
-          <div style={{ color: '#6b7280' }}>Новый пароль</div>
+          <div style={{ color: 'var(--muted)' }}>Новый пароль</div>
           <input
             type="password"
             value={pwNew}
             onChange={(e) => setPwNew(e.target.value)}
             placeholder="новый пароль"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
-          <div style={{ color: '#6b7280' }}>Повтор пароля</div>
+          <div style={{ color: 'var(--muted)' }}>Повтор пароля</div>
           <input
             type="password"
             value={pwRepeat}
             onChange={(e) => setPwRepeat(e.target.value)}
             placeholder="повтор пароля"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
           />
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
           <Button variant="ghost" onClick={() => void handleChangePassword()} disabled={!authUser?.id}>
             Сменить пароль
           </Button>
-          {pwStatus && <span style={{ color: '#6b7280' }}>{pwStatus}</span>}
+          {pwStatus && <span style={{ color: 'var(--muted)' }}>{pwStatus}</span>}
         </div>
       </div>
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Аккаунт</h3>
-        <p style={{ color: '#6b7280', marginBottom: 16 }}>
+        <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
           Выйти из аккаунта текущего оператора. После выхода потребуется повторный вход.
         </p>
         <Button variant="ghost" onClick={() => void handleLogout()}>
@@ -464,7 +464,15 @@ export function SettingsPage(props: {
       </div>
 
       {status && (
-        <div style={{ marginTop: 16, padding: 12, background: status.startsWith('Ошибка') ? '#fee2e2' : '#d1fae5', color: status.startsWith('Ошибка') ? '#991b1b' : '#065f46', borderRadius: 8 }}>
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            background: status.startsWith('Ошибка') ? 'rgba(248, 113, 113, 0.16)' : 'rgba(34, 197, 94, 0.16)',
+            color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)',
+            borderRadius: 8,
+          }}
+        >
           {status}
         </div>
       )}

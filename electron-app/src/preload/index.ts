@@ -166,6 +166,7 @@ contextBridge.exposeInMainWorld('matrica', {
     markRead: async (args: { messageIds: string[] }) => ipcRenderer.invoke('chat:markRead', args),
     unreadCount: async () => ipcRenderer.invoke('chat:unreadCount'),
     export: async (args: { startMs: number; endMs: number }) => ipcRenderer.invoke('chat:export', args),
+    deleteMessage: async (args: { messageId: string }) => ipcRenderer.invoke('chat:deleteMessage', args),
   },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),

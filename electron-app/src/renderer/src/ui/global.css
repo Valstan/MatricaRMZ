@@ -15,12 +15,112 @@ body {
   padding: 0;
 }
 
+:root {
+  --app-bg-from: #e2e8f0;
+  --app-bg-via: #f8fafc;
+  --app-bg-to: #e0f2fe;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --border: rgba(15, 23, 42, 0.18);
+  --border-strong: rgba(15, 23, 42, 0.28);
+  --text: #0b1220;
+  --muted: #334155;
+  --subtle: #64748b;
+  --danger: #b91c1c;
+  --success: #15803d;
+  --warn: #b45309;
+
+  --input-bg: rgba(255, 255, 255, 0.95);
+  --input-bg-disabled: rgba(241, 245, 249, 0.8);
+  --input-border: rgba(15, 23, 42, 0.25);
+  --input-border-focus: #2563eb;
+  --input-shadow: 0 6px 12px rgba(15, 23, 42, 0.05);
+  --input-shadow-focus: 0 0 0 2px rgba(37, 99, 235, 0.18);
+
+  --button-primary-bg: linear-gradient(135deg, #2563eb 0%, #1d4ed8 60%, #7c3aed 120%);
+  --button-primary-border: #1e40af;
+  --button-primary-text: #ffffff;
+  --button-primary-shadow: 0 6px 14px rgba(29, 78, 216, 0.18);
+  --button-ghost-bg: rgba(255, 255, 255, 0.9);
+  --button-ghost-border: rgba(15, 23, 42, 0.25);
+  --button-ghost-text: #0b1220;
+  --button-ghost-shadow: 0 6px 12px rgba(15, 23, 42, 0.07);
+
+  --chat-mine-bg: #ecfeff;
+  --chat-mine-border: #a5f3fc;
+  --chat-other-bg: #f8fafc;
+  --chat-other-border: #e5e7eb;
+  --chat-menu-bg: #ffffff;
+  --chat-menu-border: rgba(15, 23, 42, 0.18);
+  --chat-menu-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+
+  --role-superadmin-bg: linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%);
+  --role-superadmin-border: #4b5563;
+  --role-superadmin-text: #ffffff;
+  --role-admin-bg: #ffffff;
+  --role-admin-border: #1d4ed8;
+  --role-admin-text: #1d4ed8;
+  --role-user-bg: #ffffff;
+  --role-user-border: #16a34a;
+  --role-user-text: #16a34a;
+}
+
+:root[data-theme='dark'] {
+  --app-bg-from: #0b1024;
+  --app-bg-via: #0b1f3a;
+  --app-bg-to: #2f0b2a;
+  --surface: #0f172a;
+  --surface-2: #111827;
+  --border: rgba(148, 163, 184, 0.2);
+  --border-strong: rgba(148, 163, 184, 0.35);
+  --text: #e2e8f0;
+  --muted: #cbd5e1;
+  --subtle: #94a3b8;
+  --danger: #f87171;
+  --success: #22c55e;
+  --warn: #f59e0b;
+
+  --input-bg: rgba(15, 23, 42, 0.9);
+  --input-bg-disabled: rgba(30, 41, 59, 0.75);
+  --input-border: rgba(148, 163, 184, 0.35);
+  --input-border-focus: #60a5fa;
+  --input-shadow: 0 6px 12px rgba(2, 6, 23, 0.45);
+  --input-shadow-focus: 0 0 0 2px rgba(96, 165, 250, 0.2);
+
+  --button-primary-bg: linear-gradient(135deg, #2563eb 0%, #1e40af 60%, #4c1d95 120%);
+  --button-primary-border: #1e3a8a;
+  --button-primary-text: #ffffff;
+  --button-primary-shadow: 0 8px 16px rgba(15, 23, 42, 0.45);
+  --button-ghost-bg: rgba(15, 23, 42, 0.9);
+  --button-ghost-border: rgba(148, 163, 184, 0.35);
+  --button-ghost-text: #e2e8f0;
+  --button-ghost-shadow: 0 8px 14px rgba(2, 6, 23, 0.4);
+
+  --chat-mine-bg: rgba(14, 116, 144, 0.22);
+  --chat-mine-border: rgba(56, 189, 248, 0.35);
+  --chat-other-bg: rgba(30, 41, 59, 0.65);
+  --chat-other-border: rgba(148, 163, 184, 0.2);
+  --chat-menu-bg: #0f172a;
+  --chat-menu-border: rgba(148, 163, 184, 0.3);
+  --chat-menu-shadow: 0 14px 32px rgba(2, 6, 23, 0.6);
+
+  --role-superadmin-bg: linear-gradient(135deg, #4b5563 0%, #6b7280 45%, #111827 100%);
+  --role-superadmin-border: #9ca3af;
+  --role-superadmin-text: #f8fafc;
+  --role-admin-bg: rgba(30, 58, 138, 0.35);
+  --role-admin-border: #60a5fa;
+  --role-admin-text: #bfdbfe;
+  --role-user-bg: rgba(22, 163, 74, 0.18);
+  --role-user-border: #4ade80;
+  --role-user-text: #bbf7d0;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  color: #0b1220;
+  color: var(--text);
   font-size: 14px; /* medium-ish, readable for accounting UI */
   line-height: 1.35;
-  background: #0b1024; /* fallback behind gradient */
+  background: var(--app-bg-from); /* fallback behind gradient */
 }
 
 #root {

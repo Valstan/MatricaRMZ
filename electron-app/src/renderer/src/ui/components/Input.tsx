@@ -1,21 +1,22 @@
 import React, { useState } from 'react';
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>((props, ref) => {
   const [focused, setFocused] = useState(false);
   return (
     <input
       {...props}
+      ref={ref}
       style={{
         width: '100%',
         padding: '7px 10px',
-        border: focused ? '1px solid #2563eb' : '1px solid rgba(15, 23, 42, 0.25)',
+        border: focused ? '1px solid var(--input-border-focus)' : '1px solid var(--input-border)',
         outline: 'none',
-        background: props.disabled ? 'rgba(241,245,249,0.8)' : 'rgba(255,255,255,0.95)',
-        color: '#0b1220',
+        background: props.disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
+        color: 'var(--text)',
         fontSize: 14,
         lineHeight: 1.2,
         minHeight: 32,
-        boxShadow: focused ? '0 0 0 2px rgba(37, 99, 235, 0.18)' : '0 6px 12px rgba(15, 23, 42, 0.05)',
+        boxShadow: focused ? 'var(--input-shadow-focus)' : 'var(--input-shadow)',
         ...(props.style ?? {}),
       }}
       onFocus={(e) => {
@@ -28,6 +29,8 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
       }}
     />
   );
-}
+});
+
+Input.displayName = 'Input';
 
 

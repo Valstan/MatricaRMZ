@@ -182,6 +182,14 @@ export function App() {
   }, [uiPrefs.theme]);
 
   useEffect(() => {
+    try {
+      document.documentElement.dataset.theme = resolvedTheme;
+    } catch {
+      // ignore
+    }
+  }, [resolvedTheme]);
+
+  useEffect(() => {
     if (!authStatus.loggedIn) {
       setPresence(null);
       return;
@@ -430,7 +438,7 @@ export function App() {
             >
               Открыть Чат
               {chatUnreadTotal > 0 ? (
-                <span style={{ marginLeft: 6, color: '#b91c1c', fontWeight: 900 }}>
+                <span style={{ marginLeft: 6, color: 'var(--danger)', fontWeight: 900 }}>
                   {chatUnreadTotal}
                 </span>
               ) : null}
@@ -453,7 +461,7 @@ export function App() {
           )}
           <div
             style={{
-              color: formatSyncStatusRu(syncStatus).isError ? '#b91c1c' : '#6b7280',
+              color: formatSyncStatusRu(syncStatus).isError ? 'var(--danger)' : 'var(--muted)',
               fontSize: 12,
               display: 'flex',
               flexWrap: 'wrap',
@@ -482,9 +490,10 @@ export function App() {
     >
       <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
-          <div style={{ flex: '0 0 25%', minWidth: 320, borderRight: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+          <div style={{ flex: '0 0 25%', minWidth: 320, borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
             <ChatPanel
               meUserId={authStatus.user?.id ?? ''}
+              meRole={authStatus.user?.role ?? ''}
               canExport={canChatExport}
               canAdminViewAll={canChatAdminView}
               viewMode={viewMode}
@@ -504,7 +513,17 @@ export function App() {
           }}
         >
           {viewMode && (
-            <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', fontWeight: 800 }}>
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 12,
+                border: '1px solid rgba(248, 113, 113, 0.5)',
+                background: 'rgba(248, 113, 113, 0.16)',
+                color: 'var(--danger)',
+                fontWeight: 800,
+              }}
+            >
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
@@ -528,12 +547,20 @@ export function App() {
 
           <div style={{ marginTop: 14 }}>
             {postLoginSyncMsg && (
-              <div style={{ marginBottom: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: 10,
+                  borderRadius: 12,
+                  background: 'rgba(14, 116, 144, 0.16)',
+                  color: 'var(--text)',
+                }}
+              >
                 {postLoginSyncMsg}
               </div>
             )}
             {!authStatus.loggedIn && tab !== 'auth' && (
-              <div style={{ color: '#6b7280' }}>Требуется вход.</div>
+              <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
             )}
 
         {tab === 'engines' && (
@@ -664,15 +691,15 @@ export function App() {
         {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} />}
 
         {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
-          <div style={{ color: '#6b7280' }}>Выберите двигатель из списка.</div>
+          <div style={{ color: 'var(--muted)' }}>Выберите двигатель из списка.</div>
       )}
 
         {tab === 'request' && !selectedRequestId && (
-          <div style={{ color: '#6b7280' }}>Выберите заявку из списка.</div>
+          <div style={{ color: 'var(--muted)' }}>Выберите заявку из списка.</div>
         )}
 
         {tab === 'part' && !selectedPartId && (
-          <div style={{ color: '#6b7280' }}>Выберите деталь из списка.</div>
+          <div style={{ color: 'var(--muted)' }}>Выберите деталь из списка.</div>
         )}
           </div>
         </div>

@@ -132,21 +132,21 @@ export function SearchSelect(props: {
             flex: 1,
             padding: '8px 10px',
             borderRadius: 10,
-            border: '1px solid #d1d5db',
-            background: disabled ? '#f3f4f6' : '#fff',
+            border: '1px solid var(--input-border)',
+            background: disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
             cursor: disabled ? 'not-allowed' : 'pointer',
-            color: '#111827',
+            color: 'var(--text)',
             display: 'flex',
             alignItems: 'center',
             minHeight: 36,
           }}
           title={selected?.id ?? ''}
         >
-          <span style={{ color: selected ? '#111827' : '#6b7280' }}>
+          <span style={{ color: selected ? 'var(--text)' : 'var(--muted)' }}>
             {selected ? selected.label : props.placeholder ?? '(не выбрано)'}
           </span>
           <span style={{ flex: 1 }} />
-          <span style={{ color: '#6b7280' }}>{open ? '▲' : '▼'}</span>
+          <span style={{ color: 'var(--muted)' }}>{open ? '▲' : '▼'}</span>
         </div>
 
         {!disabled && (
@@ -159,10 +159,10 @@ export function SearchSelect(props: {
             style={{
               padding: '8px 10px',
               borderRadius: 10,
-              border: '1px solid rgba(15, 23, 42, 0.25)',
-              background: 'rgba(255,255,255,0.90)',
+              border: '1px solid var(--button-ghost-border)',
+              background: 'var(--button-ghost-bg)',
               cursor: 'pointer',
-              color: '#6b7280',
+              color: 'var(--muted)',
               minHeight: 36,
             }}
             title="Очистить"
@@ -180,14 +180,14 @@ export function SearchSelect(props: {
             right: 0,
             top: 'calc(100% + 6px)',
             zIndex: 10,
-            background: '#fff',
-            border: '1px solid #e5e7eb',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
             borderRadius: 12,
-            boxShadow: '0 18px 40px rgba(0,0,0,0.15)',
+            boxShadow: 'var(--chat-menu-shadow)',
             overflow: 'hidden',
           }}
         >
-          <div style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
+          <div style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -225,14 +225,16 @@ export function SearchSelect(props: {
                 width: '100%',
                 padding: '8px 10px',
                 borderRadius: 10,
-                border: '1px solid #d1d5db',
+                border: '1px solid var(--input-border)',
+                background: 'var(--input-bg)',
+                color: 'var(--text)',
                 outline: 'none',
               }}
               autoFocus
             />
           </div>
           <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
-            {filtered.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>Ничего не найдено</div>}
+            {filtered.length === 0 && <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>}
             {filtered.map((o, idx) => {
               const active = props.value === o.id;
               const focused = activeIdx === idx;
@@ -250,12 +252,12 @@ export function SearchSelect(props: {
                   style={{
                     padding: '10px 12px',
                     cursor: 'pointer',
-                    borderBottom: '1px solid #f3f4f6',
-                    background: focused ? '#e0f2fe' : active ? '#eef2ff' : '#fff',
+                    borderBottom: '1px solid var(--border)',
+                    background: focused ? 'rgba(96, 165, 250, 0.18)' : active ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
                   }}
                 >
-                  <div style={{ fontWeight: 700, color: '#111827' }}>{o.label}</div>
-                  <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text)' }}>{o.label}</div>
+                  <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
                     {o.id.slice(0, 8)}
                   </div>
                 </div>

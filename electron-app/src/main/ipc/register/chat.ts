@@ -1,7 +1,18 @@
 import { ipcMain } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { chatAdminListPair, chatExport, chatList, chatMarkRead, chatSendDeepLink, chatSendFile, chatSendText, chatUnreadCount, chatUsersList } from '../../services/chatService.js';
+import {
+  chatAdminListPair,
+  chatDeleteMessage,
+  chatExport,
+  chatList,
+  chatMarkRead,
+  chatSendDeepLink,
+  chatSendFile,
+  chatSendText,
+  chatUnreadCount,
+  chatUsersList,
+} from '../../services/chatService.js';
 
 export function registerChatIpc(ctx: IpcContext) {
   ipcMain.handle('chat:usersList', async () => {
@@ -41,6 +52,11 @@ export function registerChatIpc(ctx: IpcContext) {
 
   ipcMain.handle('chat:export', async (_e, args: { startMs: number; endMs: number }) => {
     return await chatExport(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('chat:deleteMessage', async (_e, args: { messageId: string }) => {
+    if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
+    return await chatDeleteMessage(ctx.dataDb(), args);
   });
 }
 

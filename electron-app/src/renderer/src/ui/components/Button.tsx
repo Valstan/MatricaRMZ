@@ -7,28 +7,28 @@ export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { 
     variant === 'primary'
       ? {
           padding: '7px 12px',
-          border: '1px solid #1e40af',
-          background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 60%, #7c3aed 120%)',
-          color: '#fff',
+          border: '1px solid var(--button-primary-border)',
+          background: 'var(--button-primary-bg)',
+          color: 'var(--button-primary-text)',
           cursor: disabled ? 'not-allowed' : 'pointer',
           fontWeight: 700,
           fontSize: 14,
           lineHeight: 1.2,
           minHeight: 32,
-          boxShadow: disabled ? 'none' : '0 6px 14px rgba(29, 78, 216, 0.18)',
+          boxShadow: disabled ? 'none' : 'var(--button-primary-shadow)',
           opacity: disabled ? 0.55 : 1,
         }
       : {
           padding: '7px 12px',
-          border: '1px solid rgba(15, 23, 42, 0.25)',
-          background: 'rgba(255,255,255,0.90)',
-          color: '#0b1220',
+          border: '1px solid var(--button-ghost-border)',
+          background: 'var(--button-ghost-bg)',
+          color: 'var(--button-ghost-text)',
           cursor: disabled ? 'not-allowed' : 'pointer',
           fontWeight: 650,
           fontSize: 14,
           lineHeight: 1.2,
           minHeight: 32,
-          boxShadow: disabled ? 'none' : '0 6px 12px rgba(15, 23, 42, 0.07)',
+          boxShadow: disabled ? 'none' : 'var(--button-ghost-shadow)',
           opacity: disabled ? 0.55 : 1,
         };
 

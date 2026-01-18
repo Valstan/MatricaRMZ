@@ -59,13 +59,12 @@ export function Tabs(props: {
   const authDot =
     props.authStatus?.online == null ? null : (
       <span
-        className={props.authStatus.online ? 'chatBlink' : undefined}
         style={{
           width: 10,
           height: 10,
           borderRadius: 999,
           display: 'inline-block',
-          background: props.authStatus.online ? '#16a34a' : '#dc2626',
+          background: props.authStatus.online ? 'var(--success)' : 'var(--danger)',
           boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
         }}
         title={props.authStatus.online ? 'В сети' : 'Не в сети'}

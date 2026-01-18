@@ -5,7 +5,16 @@ import * as fsp from 'node:fs/promises';
 import { basename } from 'node:path';
 import { net, dialog, app } from 'electron';
 
-import type { ChatDeepLinkPayload, ChatExportResult, ChatListResult, ChatMessageItem, ChatSendResult, ChatUnreadCountResult, ChatUsersListResult } from '@matricarmz/shared';
+import type {
+  ChatDeepLinkPayload,
+  ChatDeleteResult,
+  ChatExportResult,
+  ChatListResult,
+  ChatMessageItem,
+  ChatSendResult,
+  ChatUnreadCountResult,
+  ChatUsersListResult,
+} from '@matricarmz/shared';
 
 import { chatMessages, chatReads } from '../database/schema.js';
 import { getSession } from './authService.js';
@@ -213,6 +222,31 @@ export async function chatSendDeepLink(db: BetterSQLite3Database, args: { recipi
       updatedAt: ts,
     });
     return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function chatDeleteMessage(db: BetterSQLite3Database, args: { messageId: string }): Promise<ChatDeleteResult> {
+  try {
+    const me = await currentUser(db);
+    if (!me) return { ok: false, error: 'auth required' };
+
+    const messageId = String(args.messageId ?? '').trim();
+    if (!messageId) return { ok: false, error: 'messageId required' };
+
+    const rows = await db.select().from(chatMessages).where(eq(chatMessages.id, messageId)).limit(1);
+    const msg = rows[0] as any;
+    if (!msg) return { ok: false, error: 'message not found' };
+    if (msg.deletedAt != null) return { ok: true };
+
+    const role = String(me.role ?? '').toLowerCase();
+    const isAdmin = role === 'admin' || role === 'superadmin';
+    if (!isAdmin && String(msg.senderUserId ?? '') !== me.id) return { ok: false, error: 'not allowed' };
+
+    const ts = nowMs();
+    await db.update(chatMessages).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' }).where(eq(chatMessages.id, messageId));
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

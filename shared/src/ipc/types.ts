@@ -205,6 +205,7 @@ export type ChatUnreadCountResult =
   | { ok: true; total: number; global: number; byUser: Record<string, number> }
   | { ok: false; error: string };
 export type ChatExportResult = { ok: true; path: string } | { ok: false; error: string };
+export type ChatDeleteResult = { ok: true } | { ok: false; error: string };
 
 export type AuthLoginResult =
   | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo; permissions: Record<string, boolean> }
@@ -560,6 +561,7 @@ export type MatricaApi = {
     markRead: (args: { messageIds: string[] }) => Promise<{ ok: true; marked: number } | { ok: false; error: string }>;
     unreadCount: () => Promise<ChatUnreadCountResult>;
     export: (args: { startMs: number; endMs: number }) => Promise<ChatExportResult>;
+    deleteMessage: (args: { messageId: string }) => Promise<ChatDeleteResult>;
   };
 };
 

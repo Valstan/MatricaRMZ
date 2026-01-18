@@ -6,10 +6,9 @@ import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { theme } from '../theme.js';
 
-function dot(color: string, blinking: boolean) {
+function dot(color: string) {
   return (
     <span
-      className={blinking ? 'chatBlink' : undefined}
       style={{
         width: 10,
         height: 10,
@@ -26,19 +25,42 @@ function roleStyles(roleRaw: string) {
   const role = String(roleRaw ?? '').toLowerCase();
   if (role === 'superadmin') {
     return {
-      background: 'linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%)',
-      border: '#4b5563',
-      color: '#ffffff',
+      background: 'var(--role-superadmin-bg)',
+      border: 'var(--role-superadmin-border)',
+      color: 'var(--role-superadmin-text)',
     };
   }
   if (role === 'admin') {
-    return { background: '#ffffff', border: '#1d4ed8', color: '#1d4ed8' };
+    return { background: 'var(--role-admin-bg)', border: 'var(--role-admin-border)', color: 'var(--role-admin-text)' };
   }
-  return { background: '#ffffff', border: '#16a34a', color: '#16a34a' };
+  return { background: 'var(--role-user-bg)', border: 'var(--role-user-border)', color: 'var(--role-user-text)' };
+}
+
+type MenuState = {
+  message: ChatMessageItem;
+  x: number;
+  y: number;
+  mode: 'hover' | 'context';
+};
+
+function formatMessageDate(ts: number) {
+  const dt = new Date(ts);
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(dt);
+  const get = (type: 'day' | 'month' | 'year' | 'hour' | 'minute') => parts.find((p) => p.type === type)?.value ?? '';
+  const date = `${get('day')} ${get('month')} ${get('year')}`;
+  const time = `${get('hour')}:${get('minute')}`;
+  return `${date}, ${time}`;
 }
 
 export function ChatPanel(props: {
   meUserId: string;
+  meRole: string;
   canExport: boolean;
   canAdminViewAll: boolean;
   onHide: () => void;
@@ -54,6 +76,10 @@ export function ChatPanel(props: {
   const [unread, setUnread] = useState<ChatUnreadCountResult | null>(null);
   const [exportRange, setExportRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const hoverCloseTimer = useRef<number | null>(null);
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
@@ -62,6 +88,14 @@ export function ChatPanel(props: {
     if (!unread || (unread as any).ok !== true) return {};
     return (unread as any).byUser as Record<string, number>;
   }, [unread]);
+
+  const usersById = useMemo(() => {
+    const map = new Map<string, ChatUserItem>();
+    for (const u of users) map.set(u.id, u);
+    return map;
+  }, [users]);
+
+  const isAdmin = ['admin', 'superadmin'].includes(String(props.meRole ?? '').toLowerCase());
 
   async function refreshUsers() {
     const r = await window.matrica.chat.usersList().catch(() => null);
@@ -126,6 +160,75 @@ export function ChatPanel(props: {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages.length]);
 
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (menuRef.current && menuRef.current.contains(t)) return;
+      setMenu(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menu]);
+
+  function clearHoverCloseTimer() {
+    if (hoverCloseTimer.current != null) {
+      window.clearTimeout(hoverCloseTimer.current);
+      hoverCloseTimer.current = null;
+    }
+  }
+
+  function getMessageUser(m: ChatMessageItem) {
+    const u = usersById.get(m.senderUserId) ?? null;
+    return {
+      name: u?.username?.trim() || m.senderUsername || 'Пользователь',
+      role: u?.role ?? '',
+      online: u?.online ?? null,
+    };
+  }
+
+  function insertMention(name: string) {
+    const mention = `@${name}`.trim();
+    setText((prev) => {
+      const base = prev.trim();
+      return base ? `${base} ${mention} ` : `${mention} `;
+    });
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function openMenuAt(message: ChatMessageItem, x: number, y: number, mode: MenuState['mode']) {
+    setMenu({ message, x, y, mode });
+  }
+
+  function handleReply(message: ChatMessageItem) {
+    const info = getMessageUser(message);
+    insertMention(info.name);
+    setMenu(null);
+  }
+
+  function handleReplyPrivate(message: ChatMessageItem) {
+    const info = getMessageUser(message);
+    const targetUserId =
+      message.senderUserId === props.meUserId ? (message.recipientUserId ? String(message.recipientUserId) : null) : message.senderUserId;
+    if (!targetUserId) return;
+    setAdminMode(false);
+    setSelectedUserId(targetUserId);
+    insertMention(info.name);
+    setMenu(null);
+  }
+
+  async function handleDeleteMessage(message: ChatMessageItem) {
+    const r = await window.matrica.chat.deleteMessage({ messageId: message.id }).catch(() => null);
+    if (r && (r as any).ok) {
+      setMenu(null);
+      await refreshMessages();
+      await refreshUnread();
+    } else {
+      setMenu(null);
+    }
+  }
+
   async function sendText() {
     const t = text.trim();
     if (!t) return;
@@ -189,7 +292,7 @@ export function ChatPanel(props: {
               .map((u) => {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;
-                const indicator = u.online ? dot('#16a34a', true) : dot('#dc2626', false);
+                const indicator = u.online ? dot('var(--success)') : dot('var(--danger)');
                 const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
                 const roleStyle = roleStyles(u.role);
                 return (
@@ -215,7 +318,7 @@ export function ChatPanel(props: {
                             height: 10,
                             borderRadius: 999,
                             display: 'inline-block',
-                            background: '#b91c1c',
+                            background: 'var(--danger)',
                           }}
                           title="Непрочитанные сообщения"
                         />
@@ -256,55 +359,170 @@ export function ChatPanel(props: {
             </select>
           </div>
         )}
-        <div style={{ color: '#6b7280', fontSize: 12 }}>
+        <div style={{ color: theme.colors.muted, fontSize: 12 }}>
           {modeLabel}
           {privateWith ? `: ${privateWith.username}` : ''}
         </div>
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: 10 }}>
-        {messages.length === 0 && <div style={{ color: '#6b7280' }}>Сообщений пока нет.</div>}
+        {messages.length === 0 && <div style={{ color: theme.colors.muted }}>Сообщений пока нет.</div>}
         {messages.map((m) => {
           const mine = m.senderUserId === props.meUserId;
-          const bubbleBg = mine ? '#ecfeff' : '#f8fafc';
-          const border = mine ? '#a5f3fc' : '#e5e7eb';
+          const info = getMessageUser(m);
+          const roleStyle = roleStyles(info.role);
+          const canDelete = (mine || isAdmin) && !props.viewMode;
+          const menuOpen = menu?.message.id === m.id;
+          const infoText =
+            m.messageType === 'file'
+              ? m.bodyText || 'Файл'
+              : m.messageType === 'deep_link'
+                ? 'Ссылка на раздел'
+                : m.bodyText || '';
+          const isClickable = m.messageType === 'file' || m.messageType === 'deep_link';
           return (
-            <div key={m.id} style={{ marginBottom: 8, display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '92%', border: `1px solid ${border}`, background: bubbleBg, borderRadius: 12, padding: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{m.senderUsername}</div>
-                {m.messageType === 'text' && <div style={{ whiteSpace: 'pre-wrap', color: '#111827' }}>{m.bodyText}</div>}
-                {m.messageType === 'file' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ color: '#111827' }}>{m.bodyText || 'Файл'}</div>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const fileId = (m.payload as any)?.id ? String((m.payload as any).id) : '';
-                        if (fileId) void window.matrica.files.open({ fileId });
-                      }}
-                    >
-                      Открыть файл
-                    </Button>
-                  </div>
-                )}
-                {m.messageType === 'deep_link' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ color: '#111827' }}>Ссылка на раздел</div>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const link = m.payload as any;
-                        if (link && link.kind === 'app_link') props.onNavigate(link as ChatDeepLinkPayload);
-                      }}
-                    >
-                      Открыть
-                    </Button>
-                  </div>
-                )}
-                <div style={{ marginTop: 4, fontSize: 11, color: '#6b7280', textAlign: mine ? 'right' : 'left' }}>
-                  {new Date(m.createdAt).toLocaleString('ru-RU')}
+            <div key={m.id} style={{ marginBottom: 6 }}>
+              <div
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openMenuAt(m, e.clientX + 6, e.clientY + 6, 'context');
+                }}
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'flex-start',
+                  padding: '6px 8px',
+                  border: `1px solid ${mine ? theme.colors.chatMineBorder : theme.colors.chatOtherBorder}`,
+                  background: mine ? theme.colors.chatMineBg : theme.colors.chatOtherBg,
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '2px 8px',
+                    border: `1px solid ${roleStyle.border}`,
+                    background: roleStyle.background,
+                    color: roleStyle.color,
+                    fontWeight: 800,
+                    fontSize: 12,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {info.online == null ? null : (
+                      <span
+                        style={{
+                          width: 9,
+                          height: 9,
+                          borderRadius: 999,
+                          display: 'inline-block',
+                          background: info.online ? 'var(--success)' : 'var(--danger)',
+                          boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
+                        }}
+                        title={info.online ? 'В сети' : 'Не в сети'}
+                      />
+                    )}
+                    <span>{info.name}</span>
+                    {info.role ? <span style={{ fontSize: 11, opacity: 0.9 }}>({info.role})</span> : null}
+                    {info.online != null ? (
+                      <span style={{ fontSize: 11, opacity: 0.85 }}>{info.online ? 'В сети' : 'Не в сети'}</span>
+                    ) : null}
+                  </span>
+                </span>
+                <div
+                  onClick={() => {
+                    if (m.messageType === 'file') {
+                      const fileId = (m.payload as any)?.id ? String((m.payload as any).id) : '';
+                      if (fileId) void window.matrica.files.open({ fileId });
+                    }
+                    if (m.messageType === 'deep_link') {
+                      const link = m.payload as any;
+                      if (link && link.kind === 'app_link') props.onNavigate(link as ChatDeepLinkPayload);
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    color: theme.colors.text,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    cursor: isClickable ? 'pointer' : 'text',
+                    textDecoration: isClickable ? 'underline' : 'none',
+                  }}
+                >
+                  {infoText}
                 </div>
+                <button
+                  onMouseEnter={(e) => {
+                    clearHoverCloseTimer();
+                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                    openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'hover');
+                  }}
+                  onMouseLeave={() => {
+                    if (menu?.mode === 'hover' && menu?.message.id === m.id) {
+                      hoverCloseTimer.current = window.setTimeout(() => setMenu(null), 120);
+                    }
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                    openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'context');
+                  }}
+                  title="Доп. сведения"
+                  style={{
+                    border: `1px solid ${theme.colors.border}`,
+                    background: theme.colors.surface2,
+                    color: theme.colors.text,
+                    width: 22,
+                    height: 22,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  i
+                </button>
               </div>
+              {menuOpen && (
+                <div
+                  ref={menuRef}
+                  onMouseEnter={() => clearHoverCloseTimer()}
+                  onMouseLeave={() => {
+                    if (menu?.mode === 'hover') setMenu(null);
+                  }}
+                  style={{
+                    position: 'fixed',
+                    left: menu?.x ?? 0,
+                    top: menu?.y ?? 0,
+                    minWidth: 220,
+                    background: theme.colors.chatMenuBg,
+                    border: `1px solid ${theme.colors.chatMenuBorder}`,
+                    boxShadow: theme.colors.chatMenuShadow,
+                    padding: 10,
+                    zIndex: 1000,
+                  }}
+                >
+                  <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 8 }}>{formatMessageDate(m.createdAt)}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <Button variant="ghost" onClick={() => handleReply(m)}>
+                      Ответить
+                    </Button>
+                    <Button variant="ghost" onClick={() => handleReplyPrivate(m)}>
+                      Ответить лично
+                    </Button>
+                    {canDelete ? (
+                      <Button variant="ghost" onClick={() => void handleDeleteMessage(m)}>
+                        Удалить
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -314,6 +532,7 @@ export function ChatPanel(props: {
       <div style={{ borderTop: `1px solid ${theme.colors.border}`, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Input
+            ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Введите сообщение…"
