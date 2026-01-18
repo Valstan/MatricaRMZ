@@ -459,32 +459,6 @@ export function App() {
               Синхронизировать сейчас
             </Button>
           )}
-          <div
-            style={{
-              color: formatSyncStatusRu(syncStatus).isError ? 'var(--danger)' : 'var(--muted)',
-              fontSize: 12,
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 6,
-              alignItems: 'center',
-              maxWidth: 700,
-              justifyContent: 'flex-end',
-            }}
-          >
-            <span>
-              Клиент:{' '}
-              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{clientVersion || '—'}</span>
-            </span>
-            <span>|</span>
-            <span>
-              Сервер:{' '}
-              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                {serverInfo?.ok ? serverInfo.version ?? '—' : '—'}
-              </span>
-            </span>
-            <span>|</span>
-            <span>{formatSyncStatusRu(syncStatus).text}</span>
-          </div>
         </div>
       }
     >

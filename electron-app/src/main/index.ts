@@ -12,7 +12,7 @@ import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
 
 let mainWindow: BrowserWindow | null = null;
-const APP_TITLE = () => `Матрица РМЗ`;
+const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
 
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);
