@@ -7,6 +7,7 @@ import {
   authLogout,
   authProfileGet,
   authProfileUpdate,
+  authRegister,
   authStatus,
   authSync,
   presenceMe,
@@ -20,6 +21,9 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   ipcMain.handle('auth:sync', async () => authSync(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
   ipcMain.handle('auth:login', async (_e, args: { username: string; password: string }) =>
     authLogin(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), username: args.username, password: args.password }),
+  );
+  ipcMain.handle('auth:register', async (_e, args: { login: string; password: string; fullName: string; position: string }) =>
+    authRegister(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), ...args }),
   );
   ipcMain.handle('auth:logout', async (_e, args: { refreshToken?: string }) =>
     authLogout(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), refreshToken: args.refreshToken }),

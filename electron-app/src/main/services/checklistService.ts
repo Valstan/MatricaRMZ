@@ -19,7 +19,7 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
-function defaultTemplate(): RepairChecklistTemplate {
+function defaultRepairTemplate(): RepairChecklistTemplate {
   return {
     id: 'default',
     code: 'repair_checklist_default',
@@ -78,13 +78,53 @@ function defaultTemplate(): RepairChecklistTemplate {
   };
 }
 
+function defaultDefectTemplate(): RepairChecklistTemplate {
+  return {
+    id: 'defect_default',
+    code: 'defect_sheet_default',
+    name: 'Лист дефектовки двигателя (MVP)',
+    stage: 'defect',
+    version: 1,
+    active: true,
+    items: [
+      { id: 'defect_act_number', label: 'Акт полной дефектовки двигателя (номер)', kind: 'text' },
+      { id: 'engine_mark_number', label: 'Марка, № двигателя', kind: 'text', required: true },
+      { id: 'passport_number', label: 'Паспорт двигателя (№)', kind: 'text' },
+      { id: 'defect_start_date', label: 'Дата начала дефектовки', kind: 'date' },
+      { id: 'defect_end_date', label: 'Дата окончания дефектовки', kind: 'date' },
+      { id: 'defect_summary', label: 'Итоги дефектовки', kind: 'text' },
+      {
+        id: 'defect_items',
+        label: 'Результаты дефектовки',
+        kind: 'table',
+        columns: [
+          { id: 'part_name', label: 'Наименование узла (детали)' },
+          { id: 'reinstall', label: 'Подлежит повторной установке (да/нет)' },
+          { id: 'replace', label: 'Подлежит замене (да/нет)' },
+          { id: 'note', label: 'Примечание' },
+        ],
+      },
+      { id: 'compiled_by', label: 'Настоящий акт составил (ФИО, должность, подпись)', kind: 'signature' },
+      { id: 'agreed_by', label: 'Настоящий акт согласовали (ФИО, должность, подпись)', kind: 'signature' },
+      { id: 'tech_director', label: 'Ремонт производить в соответствии с настоящим актом (ФИО, должность, подпись)', kind: 'signature' },
+    ],
+  };
+}
+
+function defaultTemplates(): RepairChecklistTemplate[] {
+  return [defaultRepairTemplate(), defaultDefectTemplate()];
+}
+
+function filterByStage(templates: RepairChecklistTemplate[], stage?: string) {
+  return stage ? templates.filter((t) => t.stage === stage) : templates;
+}
+
 export async function listRepairChecklistTemplates(db: BetterSQLite3Database, stage?: string) {
   try {
     const types = await listEntityTypes(db);
     const type = types.find((t) => String((t as any).code) === 'repair_checklist_template') ?? null;
     if (!type) {
-      const t = defaultTemplate();
-      return { ok: true as const, templates: stage ? (t.stage === stage ? [t] : []) : [t] };
+      return { ok: true as const, templates: filterByStage(defaultTemplates(), stage) };
     }
 
     const items = await listEntitiesByType(db, String((type as any).id));
@@ -109,10 +149,7 @@ export async function listRepairChecklistTemplates(db: BetterSQLite3Database, st
       out.push(tmpl);
     }
 
-    if (out.length === 0) {
-      const t = defaultTemplate();
-      return { ok: true as const, templates: stage ? (t.stage === stage ? [t] : []) : [t] };
-    }
+    if (out.length === 0) return { ok: true as const, templates: filterByStage(defaultTemplates(), stage) };
 
     return { ok: true as const, templates: out };
   } catch (e) {
@@ -166,12 +203,18 @@ export async function saveRepairChecklistForEngine(
     }
 
     const newId = randomUUID();
+    const note =
+      args.stage === 'defect'
+        ? 'Лист дефектовки двигателя'
+        : args.stage === 'repair'
+          ? 'Контрольный лист ремонта'
+          : `Чек-лист: ${args.stage}`;
     await db.insert(operations).values({
       id: newId,
       engineEntityId: args.engineId,
       operationType: args.stage,
       status: 'checklist',
-      note: 'Контрольный лист ремонта',
+      note,
       performedAt: ts,
       performedBy: args.actor?.trim() ? args.actor.trim() : 'local',
       metaJson,

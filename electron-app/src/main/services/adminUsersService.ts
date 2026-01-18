@@ -49,6 +49,20 @@ export async function adminUpdateUser(
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+export async function adminPendingApprove(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string },
+) {
+  const r = await httpAuthed(db, apiBaseUrl, '/admin/users/pending/approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 export async function adminGetUserPermissions(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
   const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/permissions`, { method: 'GET' });
   if (!r.ok) return { ok: false as const, error: formatHttpError(r) };

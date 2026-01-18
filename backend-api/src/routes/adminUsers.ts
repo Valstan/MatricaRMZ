@@ -12,6 +12,7 @@ import {
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
   getEmployeeAuthByLogin,
+  getEmployeeProfileById,
   getEmployeeTypeId,
   isLoginTaken,
   isSuperadminLogin,
@@ -19,6 +20,7 @@ import {
   normalizeRole,
   setEmployeeAuth,
   setEmployeeFullName,
+  setEmployeeProfile,
 } from '../services/employeeAuthService.js';
 
 export const adminUsersRouter = Router();
@@ -142,6 +144,60 @@ adminUsersRouter.post('/users', async (req, res) => {
     if (parsed.data.fullName) await setEmployeeFullName(employeeId, parsed.data.fullName);
 
     return res.json({ ok: true, id: employeeId });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/users/pending/approve', async (req, res) => {
+  try {
+    const schema = z.object({
+      pendingUserId: z.string().uuid(),
+      action: z.enum(['approve', 'merge']),
+      role: z.enum(['user', 'admin']).optional(),
+      targetUserId: z.string().uuid().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+    const actorLevel = roleLevel(actorRole);
+    if (actorLevel < 1) return res.status(403).json({ ok: false, error: 'admin only' });
+
+    const pendingId = parsed.data.pendingUserId;
+    const pending = await getEmployeeAuthById(pendingId);
+    if (!pending) return res.status(404).json({ ok: false, error: 'pending user not found' });
+    const pendingRole = normalizeRole(pending.login, pending.systemRole);
+    if (pendingRole !== 'pending') return res.status(400).json({ ok: false, error: 'user is not pending' });
+
+    if (parsed.data.action === 'approve') {
+      const role = (parsed.data.role ?? 'user').toLowerCase();
+      if (actorLevel === 1 && role !== 'user') return res.status(403).json({ ok: false, error: 'admin can approve only user role' });
+      await setEmployeeAuth(pendingId, { systemRole: role, accessEnabled: true });
+      return res.json({ ok: true });
+    }
+
+    const targetUserId = parsed.data.targetUserId;
+    if (!targetUserId) return res.status(400).json({ ok: false, error: 'targetUserId is required for merge' });
+    const target = await getEmployeeAuthById(targetUserId);
+    if (!target) return res.status(404).json({ ok: false, error: 'target user not found' });
+
+    const pendingProfile = await getEmployeeProfileById(pendingId);
+    if (pendingProfile) {
+      const patch: { fullName?: string | null; position?: string | null; sectionName?: string | null; chatDisplayName?: string | null } = {};
+      if (pendingProfile.fullName?.trim()) patch.fullName = pendingProfile.fullName.trim();
+      if (pendingProfile.position?.trim()) patch.position = pendingProfile.position.trim();
+      if (pendingProfile.sectionName?.trim()) patch.sectionName = pendingProfile.sectionName.trim();
+      if (pendingProfile.chatDisplayName?.trim()) patch.chatDisplayName = pendingProfile.chatDisplayName.trim();
+      if (Object.keys(patch).length > 0) {
+        const r = await setEmployeeProfile(targetUserId, patch);
+        if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+      }
+    }
+
+    await setEmployeeAuth(pendingId, { systemRole: 'merged', accessEnabled: false });
+    return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

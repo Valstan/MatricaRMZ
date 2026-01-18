@@ -24,6 +24,11 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   const [status, setStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [regLogin, setRegLogin] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regFullName, setRegFullName] = useState('');
+  const [regPosition, setRegPosition] = useState('');
   const [msg, setMsg] = useState<string>('');
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
 
@@ -104,28 +109,70 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
 
         {!status.loggedIn ? (
           <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <Button variant={mode === 'login' ? 'primary' : 'ghost'} onClick={() => setMode('login')}>
+                Вход
+              </Button>
+              <Button variant={mode === 'register' ? 'primary' : 'ghost'} onClick={() => setMode('register')}>
+                Регистрация
+              </Button>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
-              <div style={{ color: 'var(--muted)' }}>Логин</div>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" />
-              <div style={{ color: 'var(--muted)' }}>Пароль</div>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
+              {mode === 'login' ? (
+                <>
+                  <div style={{ color: 'var(--muted)' }}>Логин</div>
+                  <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" />
+                  <div style={{ color: 'var(--muted)' }}>Пароль</div>
+                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
+                </>
+              ) : (
+                <>
+                  <div style={{ color: 'var(--muted)' }}>Логин</div>
+                  <Input value={regLogin} onChange={(e) => setRegLogin(e.target.value)} placeholder="username" />
+                  <div style={{ color: 'var(--muted)' }}>Пароль</div>
+                  <Input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="password" />
+                  <div style={{ color: 'var(--muted)' }}>ФИО</div>
+                  <Input value={regFullName} onChange={(e) => setRegFullName(e.target.value)} placeholder="Фамилия Имя Отчество" />
+                  <div style={{ color: 'var(--muted)' }}>Должность</div>
+                  <Input value={regPosition} onChange={(e) => setRegPosition(e.target.value)} placeholder="Должность на заводе" />
+                </>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
               <Button
                 onClick={async () => {
-                  setMsg('Входим...');
-                  const r = await window.matrica.auth.login({ username, password });
+                  if (mode === 'login') {
+                    setMsg('Входим...');
+                    const r = await window.matrica.auth.login({ username, password });
+                    if (!r.ok) {
+                      setMsg(`Ошибка: ${r.error}`);
+                      return;
+                    }
+                    setPassword('');
+                    setMsg('OK: вход выполнен.');
+                    await refresh();
+                    return;
+                  }
+
+                  setMsg('Регистрируем...');
+                  const r = await window.matrica.auth.register({
+                    login: regLogin,
+                    password: regPassword,
+                    fullName: regFullName,
+                    position: regPosition,
+                  });
                   if (!r.ok) {
                     setMsg(`Ошибка: ${r.error}`);
                     return;
                   }
-                  setPassword('');
-                  setMsg('OK: вход выполнен.');
+                  setRegPassword('');
+                  setMsg('OK: регистрация выполнена.');
                   await refresh();
                 }}
               >
-                Войти
+                {mode === 'login' ? 'Войти' : 'Зарегистрироваться'}
               </Button>
               <Button variant="ghost" onClick={() => void refresh()}>
                 Обновить

@@ -245,7 +245,7 @@ export function App() {
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
-    'admin',
+    ...(caps.canManageUsers ? (['admin'] as const) : []),
   ];
   const visibleTabsKey = visibleTabs.join('|');
   const userTab: Exclude<TabId, 'engine' | 'request' | 'part'> = authStatus.loggedIn ? 'settings' : 'auth';
@@ -260,6 +260,12 @@ export function App() {
   useEffect(() => {
     if (!authStatus.loggedIn || !canChat) setChatOpen(false);
   }, [authStatus.loggedIn, canChat]);
+
+  // For pending users: open chat automatically.
+  useEffect(() => {
+    const role = String(authStatus.user?.role ?? '').toLowerCase();
+    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) setChatOpen(true);
+  }, [authStatus.loggedIn, authStatus.user?.role, canChat, chatOpen]);
 
   // Poll unread count (for the "Открыть чат" counter).
   useEffect(() => {

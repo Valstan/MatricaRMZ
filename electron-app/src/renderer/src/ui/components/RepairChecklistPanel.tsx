@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '@matricarmz/shared';
 
@@ -67,8 +67,10 @@ export function RepairChecklistPanel(props: {
   canExport: boolean;
   engineNumber?: string;
   engineBrand?: string;
+  engineBrandId?: string;
   canViewFiles?: boolean;
   canUploadFiles?: boolean;
+  defaultCollapsed?: boolean;
 }) {
   const [status, setStatus] = useState<string>('');
   const [templates, setTemplates] = useState<RepairChecklistTemplate[]>([]);
@@ -76,8 +78,12 @@ export function RepairChecklistPanel(props: {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [payload, setPayload] = useState<RepairChecklistPayload | null>(null);
   const [answers, setAnswers] = useState<RepairChecklistAnswers>({});
+  const [collapsed, setCollapsed] = useState<boolean>(props.defaultCollapsed === true);
+  const prefillKey = useRef<string>('');
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
+  const panelTitle = props.stage === 'defect' ? 'Лист дефектовки' : 'Контрольный лист ремонта';
+  const attachmentsTitle = props.stage === 'defect' ? 'Вложения к листу дефектовки' : 'Вложения к контрольному листу';
 
   async function load() {
     setStatus('Загрузка чек-листа...');
@@ -129,6 +135,36 @@ export function RepairChecklistPanel(props: {
       void save(next);
     }
   }, [activeTemplate?.id, props.engineBrand, props.engineNumber]);
+
+  useEffect(() => {
+    if (!activeTemplate) return;
+    if (props.stage !== 'defect') return;
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
+    if (!tableItem) return;
+    if (payload?.answers) return;
+    const existing = (answers as any)[tableItem.id];
+    if (existing?.kind === 'table' && Array.isArray(existing.rows) && existing.rows.length > 0) {
+      prefillKey.current = `${props.engineBrandId ?? ''}:${activeTemplate.id}`;
+      return;
+    }
+    if (!props.engineBrandId) return;
+    const key = `${props.engineBrandId}:${activeTemplate.id}`;
+    if (prefillKey.current === key) return;
+    prefillKey.current = key;
+    void (async () => {
+      const r = await window.matrica.parts.list({ engineBrandId: props.engineBrandId, limit: 5000 });
+      if (!r.ok) return;
+      const rows = r.parts.map((p) => ({
+        part_name: String(p.name ?? p.article ?? p.id),
+        reinstall: '',
+        replace: '',
+        note: '',
+      }));
+      const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+      setAnswers(next);
+      if (props.canEdit) void save(next);
+    })();
+  }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   async function save(nextAnswers: RepairChecklistAnswers) {
     if (!activeTemplate) return;
@@ -224,7 +260,7 @@ export function RepairChecklistPanel(props: {
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Контрольный лист ремонта</title>
+  <title>${panelTitle}</title>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
     h1 { margin: 0 0 12px 0; font-size: 20px; }
@@ -240,8 +276,12 @@ export function RepairChecklistPanel(props: {
   <div class="no-print" style="margin-bottom:12px;">
     <button onclick="window.print()">Печать</button>
   </div>
-  <h1>${activeTemplate.name}</h1>
-  <div class="meta"><b>Двигатель:</b> ${props.engineId}</div>
+  <h1>${panelTitle}</h1>
+  <div class="meta">
+    <div><b>Двигатель:</b> ${String(props.engineBrand ?? '')} ${String(props.engineNumber ?? '')}</div>
+    <div><b>Шаблон:</b> ${activeTemplate.name} (v${activeTemplate.version})</div>
+    <div><b>Дата:</b> ${new Date().toLocaleString('ru-RU')}</div>
+  </div>
   <table>
     <thead><tr><th style="width:40%">Поле</th><th>Значение</th></tr></thead>
     <tbody>
@@ -275,8 +315,11 @@ export function RepairChecklistPanel(props: {
   return (
     <div style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <strong>Контрольный лист ремонта</strong>
+        <strong>{panelTitle}</strong>
         <span style={{ flex: 1 }} />
+        <Button variant="ghost" onClick={() => setCollapsed((v) => !v)}>
+          {collapsed ? 'Развернуть' : 'Свернуть'}
+        </Button>
         <Button variant="ghost" onClick={() => void load()}>
           Обновить
         </Button>
@@ -297,6 +340,7 @@ export function RepairChecklistPanel(props: {
         )}
       </div>
 
+      {!collapsed && (
       <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
         <div style={{ width: 420 }}>
           <div style={{ fontSize: 12, color: '#334155', marginBottom: 4 }}>Шаблон</div>
@@ -324,10 +368,12 @@ export function RepairChecklistPanel(props: {
         <div style={{ flex: 1 }} />
         {status && <div style={{ color: '#64748b', fontSize: 12 }}>{status}</div>}
       </div>
+      )}
 
-      {!activeTemplate ? (
+      {!collapsed && !activeTemplate ? (
         <div style={{ marginTop: 10, color: '#64748b' }}>Нет доступных шаблонов.</div>
-      ) : (
+      ) : null}
+      {!collapsed && activeTemplate ? (
         <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>
           {activeTemplate.items.map((it) => {
             const a: any = (answers as any)[it.id];
@@ -435,38 +481,46 @@ export function RepairChecklistPanel(props: {
             );
           })}
         </div>
+      ) : null}
+
+      {!collapsed && !props.canEdit && <div style={{ marginTop: 10, color: '#64748b' }}>Только просмотр (нет прав на редактирование операций).</div>}
+
+      {!collapsed && (
+        <AttachmentsPanel
+          title={attachmentsTitle}
+          value={(payload as any)?.attachments}
+          canView={props.canViewFiles === true}
+          canUpload={props.canUploadFiles === true && props.canEdit}
+          onChange={async (next) => {
+            if (!activeTemplate) return;
+            if (!props.canEdit) return;
+            setStatus('Сохранение...');
+            const r = await window.matrica.checklists.engineSave({
+              engineId: props.engineId,
+              stage: props.stage,
+              templateId: activeTemplate.id,
+              operationId,
+              answers,
+              attachments: next,
+            });
+            if (!r.ok) {
+              setStatus(`Ошибка: ${r.error}`);
+              return { ok: false as const, error: r.error };
+            }
+            setOperationId(r.operationId);
+            setPayload((prev) => (prev ? ({ ...prev, attachments: next } as RepairChecklistPayload) : prev));
+            setStatus('Сохранено');
+            setTimeout(() => setStatus(''), 700);
+            return { ok: true as const };
+          }}
+        />
       )}
 
-      {!props.canEdit && <div style={{ marginTop: 10, color: '#64748b' }}>Только просмотр (нет прав на редактирование операций).</div>}
-
-      <AttachmentsPanel
-        title="Вложения к контрольному листу"
-        value={(payload as any)?.attachments}
-        canView={props.canViewFiles === true}
-        canUpload={props.canUploadFiles === true && props.canEdit}
-        onChange={async (next) => {
-          if (!activeTemplate) return;
-          if (!props.canEdit) return;
-          setStatus('Сохранение...');
-          const r = await window.matrica.checklists.engineSave({
-            engineId: props.engineId,
-            stage: props.stage,
-            templateId: activeTemplate.id,
-            operationId,
-            answers,
-            attachments: next,
-          });
-          if (!r.ok) {
-            setStatus(`Ошибка: ${r.error}`);
-            return { ok: false as const, error: r.error };
-          }
-          setOperationId(r.operationId);
-          setPayload((prev) => (prev ? ({ ...prev, attachments: next } as RepairChecklistPayload) : prev));
-          setStatus('Сохранено');
-          setTimeout(() => setStatus(''), 700);
-          return { ok: true as const };
-        }}
-      />
+      {!collapsed && props.stage === 'defect' && !props.engineBrandId && (
+        <div style={{ marginTop: 10, color: '#64748b', fontSize: 12 }}>
+          Выберите марку двигателя, чтобы подставить список деталей из справочника.
+        </div>
+      )}
     </div>
   );
 }

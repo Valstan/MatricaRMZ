@@ -16,6 +16,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
+import { getSuperadminUserId } from '../employeeAuthService.js';
 import {
   attributeDefs,
   attributeValues,
@@ -71,6 +72,8 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
   const actorIsAdmin = isAdminRole(actor.role);
+  const actorIsPending = String(actor.role ?? '').toLowerCase() === 'pending';
+  const superadminUserId = actorIsPending ? await getSuperadminUserId().catch(() => null) : null;
 
   return await db.transaction(async (tx) => {
     // Обновляем/создаем sync_state строку (последнее время push).
@@ -343,11 +346,18 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     }
 
     // Group incoming rows by table (so we can do bulk ops even if the client sent multiple packs).
-    const grouped = new Map<SyncTableName, unknown[]>();
+    let grouped = new Map<SyncTableName, unknown[]>();
     for (const upsert of req.upserts) {
       const arr = grouped.get(upsert.table) ?? [];
       arr.push(...upsert.rows);
       grouped.set(upsert.table, arr);
+    }
+
+    if (actorIsPending) {
+      const allowed = new Map<SyncTableName, unknown[]>();
+      allowed.set(SyncTableName.ChatMessages, grouped.get(SyncTableName.ChatMessages) ?? []);
+      allowed.set(SyncTableName.ChatReads, grouped.get(SyncTableName.ChatReads) ?? []);
+      grouped = allowed;
     }
 
     // Important: `entity_types.code` is globally unique on server.
@@ -1013,7 +1023,31 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           sender_user_id: actor.id,
           sender_username: actor.username,
         }));
-        const rows = await filterStaleByUpdatedAt(chatMessages, parsed);
+        let rows = await filterStaleByUpdatedAt(chatMessages, parsed);
+        if (actorIsPending) {
+          const targetId = superadminUserId ? String(superadminUserId) : '';
+          rows = rows.filter((r) => {
+            const recipient = r.recipient_user_id ? String(r.recipient_user_id) : '';
+            return !!targetId && recipient === targetId;
+          });
+        }
+        if (rows.length > 0) {
+          const recipientIds = Array.from(
+            new Set(rows.map((r) => (r.recipient_user_id ? String(r.recipient_user_id) : '')).filter((id) => id.length > 0)),
+          );
+          if (recipientIds.length > 0) {
+            const existingRecipients = await tx
+              .select({ id: entities.id })
+              .from(entities)
+              .where(inArray(entities.id, recipientIds as any))
+              .limit(50_000);
+            const existingSet = new Set(existingRecipients.map((r) => String(r.id)));
+            rows = rows.filter((r) => {
+              if (!r.recipient_user_id) return true;
+              return existingSet.has(String(r.recipient_user_id));
+            });
+          }
+        }
         const ids = rows.map((r) => r.id);
         const existing = await tx
           .select()

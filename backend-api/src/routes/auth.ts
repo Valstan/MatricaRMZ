@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { refreshTokens } from '../database/schema.js';
+import { chatMessages, changeLog, entities, refreshTokens } from '../database/schema.js';
 import { signAccessToken, type AuthUser } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
@@ -12,19 +12,32 @@ import { randomUUID } from 'node:crypto';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { logError } from '../utils/logger.js';
 import {
+  ensureEmployeeAuthDefs,
   getEmployeeAuthById,
   getEmployeeAuthByLogin,
+  getEmployeeTypeId,
+  getSuperadminUserId,
   getEmployeeProfileById,
+  isLoginTaken,
+  isSuperadminLogin,
   normalizeRole,
   setEmployeeAuth,
   setEmployeeProfile,
 } from '../services/employeeAuthService.js';
+import { SyncTableName } from '@matricarmz/shared';
 
 export const authRouter = Router();
 
 const loginSchema = z.object({
   username: z.string().min(1).max(100),
   password: z.string().min(1).max(500),
+});
+
+const registerSchema = z.object({
+  login: z.string().min(1).max(100),
+  password: z.string().min(6).max(500),
+  fullName: z.string().min(1).max(200),
+  position: z.string().min(1).max(200),
 });
 
 const refreshSchema = z.object({
@@ -64,6 +77,98 @@ authRouter.post('/login', async (req, res) => {
     return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions });
   } catch (e) {
     logError('auth login failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.post('/register', async (req, res) => {
+  try {
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const login = parsed.data.login.trim().toLowerCase();
+    const password = parsed.data.password;
+    const fullName = parsed.data.fullName.trim();
+    const position = parsed.data.position.trim();
+
+    if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'login already exists' });
+    if (isSuperadminLogin(login)) return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
+
+    const employeeTypeId = await getEmployeeTypeId();
+    if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'employee type not found' });
+    await ensureEmployeeAuthDefs();
+
+    const ts = Date.now();
+    const employeeId = randomUUID();
+    await db.insert(entities).values({
+      id: employeeId,
+      typeId: employeeTypeId,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+
+    const passwordHash = await hashPassword(password);
+    await setEmployeeAuth(employeeId, { login, passwordHash, systemRole: 'pending', accessEnabled: true });
+    await setEmployeeProfile(employeeId, { fullName, position });
+
+    const superadminId = await getSuperadminUserId();
+    if (superadminId) {
+      const msgId = randomUUID();
+      const bodyText = `Новый пользователь зарегистрировался: ${fullName} (${position}), логин: ${login}.`;
+      await db.insert(chatMessages).values({
+        id: msgId,
+        senderUserId: employeeId as any,
+        senderUsername: login,
+        recipientUserId: superadminId as any,
+        messageType: 'text',
+        bodyText,
+        payloadJson: null,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      });
+      await db.insert(changeLog).values({
+        tableName: SyncTableName.ChatMessages,
+        rowId: msgId as any,
+        op: 'upsert',
+        payloadJson: JSON.stringify({
+          id: msgId,
+          sender_user_id: employeeId,
+          sender_username: login,
+          recipient_user_id: superadminId,
+          message_type: 'text',
+          body_text: bodyText,
+          payload_json: null,
+          created_at: ts,
+          updated_at: ts,
+          deleted_at: null,
+          sync_status: 'synced',
+        }),
+        createdAt: ts,
+      });
+    }
+
+    const role = normalizeRole(login, 'pending');
+    const authUser: AuthUser = { id: employeeId, username: login, role };
+    const accessToken = await signAccessToken(authUser);
+    const permissions = await getEffectivePermissionsForUser(employeeId);
+
+    const refreshToken = generateRefreshToken();
+    const expiresAt = ts + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
+    await db.insert(refreshTokens).values({
+      id: randomUUID(),
+      userId: employeeId,
+      tokenHash: hashRefreshToken(refreshToken),
+      expiresAt,
+      createdAt: ts,
+    });
+
+    return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions });
+  } catch (e) {
+    logError('auth register failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

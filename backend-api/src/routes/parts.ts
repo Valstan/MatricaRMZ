@@ -15,6 +15,7 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
     const querySchema = z.object({
       q: z.string().optional(),
       limit: z.coerce.number().int().positive().max(5000).optional(),
+      engineBrandId: z.string().optional(),
     });
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -24,6 +25,7 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
     const result = await listParts({
       ...(parsed.data.q !== undefined && { q: parsed.data.q }),
       ...(parsed.data.limit !== undefined && { limit: parsed.data.limit }),
+      ...(parsed.data.engineBrandId !== undefined && { engineBrandId: parsed.data.engineBrandId }),
     });
     return res.json(result);
   } catch (e) {

@@ -6,6 +6,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -126,6 +127,7 @@ export function EngineDetailsPage(props: {
 }) {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
+  const [engineBrandId, setEngineBrandId] = useState(String(props.engine.attributes?.engine_brand_id ?? ''));
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
@@ -156,6 +158,7 @@ export function EngineDetailsPage(props: {
   useEffect(() => {
     setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
     setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
+    setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
     setWorkOrderId(String(props.engine.attributes?.work_order_id ?? ''));
@@ -227,10 +230,9 @@ export function EngineDetailsPage(props: {
     };
   }, []);
 
-  async function saveCoreFields() {
+  async function saveEngineNumber() {
     if (!props.canEditEngines) return;
     await saveAttr('engine_number', engineNumber);
-    await saveAttr('engine_brand', engineBrand);
   }
 
   async function saveAttachments(next: any[]) {
@@ -249,14 +251,22 @@ export function EngineDetailsPage(props: {
       const tid = typeIdByCode.get(code);
       if (!tid) return;
       const rows = await window.matrica.admin.entities.listByEntityType(tid);
-      setLinkLists((p) => ({ ...p, [key]: rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id })) }));
+      const opts = rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setLinkLists((p) => ({ ...p, [key]: opts }));
     }
+    await load('engine_brand', 'engine_brand');
     await load('customer', 'customer_id');
     await load('contract', 'contract_id');
     await load('work_order', 'work_order_id');
     await load('workshop', 'workshop_id');
     await load('section', 'section_id');
   }
+
+  useEffect(() => {
+    if (!props.canViewMasterData) return;
+    void loadLinkLists();
+  }, [props.canViewMasterData]);
 
   return (
     <div>
@@ -285,143 +295,111 @@ export function EngineDetailsPage(props: {
             value={engineNumber}
             disabled={!props.canEditEngines}
             onChange={(e) => setEngineNumber(e.target.value)}
-            onBlur={() => void saveCoreFields()}
+            onBlur={() => void saveEngineNumber()}
           />
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-          <Input
-            value={engineBrand}
-            disabled={!props.canEditEngines}
-            onChange={(e) => setEngineBrand(e.target.value)}
-            onBlur={() => void saveCoreFields()}
-          />
+          {(linkLists.engine_brand ?? []).length > 0 ? (
+            <SearchSelect
+              value={engineBrandId || null}
+              options={linkLists.engine_brand ?? []}
+              disabled={!props.canEditEngines}
+              onChange={(next) => {
+                const nextId = next ?? '';
+                const label = next ? (linkLists.engine_brand ?? []).find((o) => o.id === next)?.label ?? '' : '';
+                setEngineBrandId(nextId);
+                setEngineBrand(label);
+                void saveAttr('engine_brand_id', next || null);
+                if (next) void saveAttr('engine_brand', label || null);
+                else void saveAttr('engine_brand', null);
+              }}
+            />
+          ) : (
+            <Input
+              value={engineBrand}
+              disabled={!props.canEditEngines}
+              onChange={(e) => setEngineBrand(e.target.value)}
+              onBlur={() => void saveAttr('engine_brand', engineBrand)}
+              placeholder="Нет справочника марок — введите вручную"
+            />
+          )}
 
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Заказчик</div>
-          <select
-            value={customerId}
-                disabled={!props.canEditEngines}
-            onFocus={() => {
-              if (!linkLists.customer_id) void loadLinkLists();
+          <SearchSelect
+            value={customerId || null}
+            options={linkLists.customer_id ?? []}
+            disabled={!props.canEditEngines}
+            onChange={(next) => {
+              const v = next ?? '';
+              setCustomerId(v);
+              void saveAttr('customer_id', next ?? null);
             }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCustomerId(v);
-                  void saveAttr('customer_id', v || null);
-                }}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="">(не выбрано)</option>
-            {(linkLists.customer_id ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
 
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Контракт</div>
-          <select
-            value={contractId}
-                disabled={!props.canEditEngines}
-            onFocus={() => {
-              if (!linkLists.contract_id) void loadLinkLists();
+          <SearchSelect
+            value={contractId || null}
+            options={linkLists.contract_id ?? []}
+            disabled={!props.canEditEngines}
+            onChange={(next) => {
+              const v = next ?? '';
+              setContractId(v);
+              void saveAttr('contract_id', next ?? null);
             }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setContractId(v);
-                  void saveAttr('contract_id', v || null);
-                }}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="">(не выбрано)</option>
-            {(linkLists.contract_id ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
 
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Наряд</div>
-          <select
-            value={workOrderId}
-                disabled={!props.canEditEngines}
-            onFocus={() => {
-              if (!linkLists.work_order_id) void loadLinkLists();
+          <SearchSelect
+            value={workOrderId || null}
+            options={linkLists.work_order_id ?? []}
+            disabled={!props.canEditEngines}
+            onChange={(next) => {
+              const v = next ?? '';
+              setWorkOrderId(v);
+              void saveAttr('work_order_id', next ?? null);
             }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setWorkOrderId(v);
-                  void saveAttr('work_order_id', v || null);
-                }}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="">(не выбрано)</option>
-            {(linkLists.work_order_id ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
 
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Цех</div>
-          <select
-            value={workshopId}
-                disabled={!props.canEditEngines}
-            onFocus={() => {
-              if (!linkLists.workshop_id) void loadLinkLists();
+          <SearchSelect
+            value={workshopId || null}
+            options={linkLists.workshop_id ?? []}
+            disabled={!props.canEditEngines}
+            onChange={(next) => {
+              const v = next ?? '';
+              setWorkshopId(v);
+              void saveAttr('workshop_id', next ?? null);
             }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setWorkshopId(v);
-                  void saveAttr('workshop_id', v || null);
-                }}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="">(не выбрано)</option>
-            {(linkLists.workshop_id ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
 
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Участок</div>
-          <select
-            value={sectionId}
-                disabled={!props.canEditEngines}
-            onFocus={() => {
-              if (!linkLists.section_id) void loadLinkLists();
+          <SearchSelect
+            value={sectionId || null}
+            options={linkLists.section_id ?? []}
+            disabled={!props.canEditEngines}
+            onChange={(next) => {
+              const v = next ?? '';
+              setSectionId(v);
+              void saveAttr('section_id', next ?? null);
             }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSectionId(v);
-                  void saveAttr('section_id', v || null);
-                }}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="">(не выбрано)</option>
-            {(linkLists.section_id ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
         </div>
@@ -431,6 +409,7 @@ export function EngineDetailsPage(props: {
             onClick={() => {
               setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
               setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
+              setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
               setWorkOrderId(String(props.engine.attributes?.work_order_id ?? ''));
@@ -443,7 +422,7 @@ export function EngineDetailsPage(props: {
           <div style={{ flex: 1 }} />
           {props.canEditEngines && (
             <div style={{ color: '#64748b', fontSize: 12 }}>
-              Автосохранение: номер/марка — при выходе из поля, связи — сразу при выборе.
+              Автосохранение: номер — при выходе из поля, марка/связи — сразу при выборе.
             </div>
           )}
         </div>
@@ -525,12 +504,29 @@ export function EngineDetailsPage(props: {
       {props.canViewOperations && (
         <RepairChecklistPanel
           engineId={props.engineId}
+          stage="defect"
+          canEdit={props.canEditOperations}
+          canPrint={props.canPrintEngineCard}
+          canExport={props.canExportReports === true}
+          engineNumber={engineNumber}
+          engineBrand={engineBrand}
+          engineBrandId={engineBrandId || undefined}
+          canViewFiles={props.canViewFiles}
+          canUploadFiles={props.canUploadFiles}
+        />
+      )}
+
+      {props.canViewOperations && (
+        <RepairChecklistPanel
+          engineId={props.engineId}
           stage="repair"
           canEdit={props.canEditOperations}
           canPrint={props.canPrintEngineCard}
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
           engineBrand={engineBrand}
+          engineBrandId={engineBrandId || undefined}
+          defaultCollapsed
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}
         />

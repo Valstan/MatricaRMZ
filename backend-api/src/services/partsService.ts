@@ -194,7 +194,7 @@ export async function createPartAttributeDef(args: {
   }
 }
 
-export async function listParts(args?: { q?: string; limit?: number }): Promise<
+export async function listParts(args?: { q?: string; limit?: number; engineBrandId?: string }): Promise<
   | {
       ok: true;
       parts: {
@@ -211,6 +211,7 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
     const typeId = await ensurePartEntityType();
     const limit = args?.limit ?? 1000;
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
+    const engineBrandId = args?.engineBrandId ? String(args.engineBrandId).trim() : '';
 
     // Получаем все сущности типа Part
     const entityRows = await db
@@ -235,9 +236,15 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
       .from(attributeDefs)
       .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'article')))
       .limit(1);
+    const brandAttr = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'engine_brand_ids')))
+      .limit(1);
 
     const nameAttrId = nameAttr[0]?.id;
     const articleAttrId = articleAttr[0]?.id;
+    const brandAttrId = brandAttr[0]?.id;
 
     const entityIds = entityRows.map((r) => r.id);
     
@@ -263,6 +270,17 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
           .limit(10_000)
       : [];
 
+    const brandRows = brandAttrId
+      ? await db
+          .select({
+            entityId: attributeValues.entityId,
+            valueJson: attributeValues.valueJson,
+          })
+          .from(attributeValues)
+          .where(and(eq(attributeValues.attributeDefId, brandAttrId), inArray(attributeValues.entityId, entityIds), isNull(attributeValues.deletedAt)))
+          .limit(10_000)
+      : [];
+
     const attrsByEntity: Record<string, { name?: string; article?: string }> = {};
     for (const attr of attrRows) {
       if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
@@ -277,6 +295,14 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
       }
     }
 
+    const brandsByEntity: Record<string, string[]> = {};
+    for (const row of brandRows) {
+      const val = row.valueJson ? safeJsonParse(row.valueJson) : null;
+      if (Array.isArray(val)) {
+        brandsByEntity[row.entityId] = val.filter((x): x is string => typeof x === 'string');
+      }
+    }
+
     // Фильтрация по поисковому запросу
     let filtered = entityRows;
     if (qNorm) {
@@ -286,6 +312,9 @@ export async function listParts(args?: { q?: string; limit?: number }): Promise<
         const article = normalizeSearch(attrs.article || '');
         return name.includes(qNorm) || article.includes(qNorm);
       });
+    }
+    if (engineBrandId) {
+      filtered = filtered.filter((e) => (brandsByEntity[e.id] ?? []).includes(engineBrandId));
     }
 
     const parts = filtered.map((e) => {

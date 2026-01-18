@@ -95,7 +95,9 @@ export function ChatPanel(props: {
     return map;
   }, [users]);
 
-  const isAdmin = ['admin', 'superadmin'].includes(String(props.meRole ?? '').toLowerCase());
+  const role = String(props.meRole ?? '').toLowerCase();
+  const isAdmin = ['admin', 'superadmin'].includes(role);
+  const isPending = role === 'pending';
 
   async function refreshUsers() {
     const r = await window.matrica.chat.usersList().catch(() => null);
@@ -120,6 +122,7 @@ export function ChatPanel(props: {
       return;
     }
 
+    if (isPending && !selectedUserId) return;
     const r = await window.matrica.chat.list({ mode: selectedUserId ? 'private' : 'global', withUserId: selectedUserId, limit: 200 }).catch(() => null);
     if (r && (r as any).ok) {
       const msgs = (r as any).messages as ChatMessageItem[];
@@ -155,6 +158,13 @@ export function ChatPanel(props: {
       clearInterval(id);
     };
   }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId]);
+
+  useEffect(() => {
+    if (!isPending) return;
+    if (adminMode) setAdminMode(false);
+    const superadmin = users.find((u) => u.role === 'superadmin') ?? null;
+    if (superadmin && selectedUserId !== superadmin.id) setSelectedUserId(superadmin.id);
+  }, [isPending, users, selectedUserId, adminMode]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
@@ -281,15 +291,16 @@ export function ChatPanel(props: {
       <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {!adminMode ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <Button
-              variant={selectedUserId == null ? 'primary' : 'ghost'}
-              onClick={() => setSelectedUserId(null)}
-              title="Перейти в общий чат"
-            >
-              Общий чат{unread && (unread as any).ok === true && (unread as any).global > 0 ? ` (${(unread as any).global})` : ''}
-            </Button>
-            {users
-              .filter((u) => u.isActive)
+            {!isPending && (
+              <Button
+                variant={selectedUserId == null ? 'primary' : 'ghost'}
+                onClick={() => setSelectedUserId(null)}
+                title="Перейти в общий чат"
+              >
+                Общий чат{unread && (unread as any).ok === true && (unread as any).global > 0 ? ` (${(unread as any).global})` : ''}
+              </Button>
+            )}
+            {(isPending ? users.filter((u) => u.role === 'superadmin') : users.filter((u) => u.isActive))
               .map((u) => {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;

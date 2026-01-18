@@ -4,6 +4,7 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 
 type LinkOpt = { id: string; label: string };
@@ -274,9 +275,11 @@ export function SupplyRequestDetailsPage(props: {
       const tid = typeIdByCode.get(code);
       if (!tid) return;
       const rows = await window.matrica.admin.entities.listByEntityType(tid);
+      const opts = rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
       setLinkLists((p) => ({
         ...p,
-        [key]: rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id })),
+        [key]: opts,
       }));
     }
     await loadType('department', 'departmentId');
@@ -478,66 +481,36 @@ export function SupplyRequestDetailsPage(props: {
 
           <div style={{ color: '#6b7280' }}>Подразделение</div>
           {props.canViewMasterData ? (
-            <select
-              value={payload.departmentId}
+            <SearchSelect
+              value={payload.departmentId || null}
+              options={linkLists.departmentId ?? []}
               disabled={!props.canEdit}
-              onFocus={() => {
-                if (!linkLists.departmentId) void loadLinkLists();
-              }}
-              onChange={(e) => scheduleSave({ ...payload, departmentId: e.target.value })}
-              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-            >
-              <option value="">(не выбрано)</option>
-              {(linkLists.departmentId ?? []).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              onChange={(next) => scheduleSave({ ...payload, departmentId: next ?? '' })}
+            />
           ) : (
             <Input value={payload.departmentId} disabled />
           )}
 
           <div style={{ color: '#6b7280' }}>Цех</div>
           {props.canViewMasterData ? (
-            <select
-              value={payload.workshopId ?? ''}
+            <SearchSelect
+              value={payload.workshopId ?? null}
+              options={linkLists.workshopId ?? []}
               disabled={!props.canEdit}
-              onFocus={() => {
-                if (!linkLists.workshopId) void loadLinkLists();
-              }}
-              onChange={(e) => scheduleSave({ ...payload, workshopId: e.target.value || null })}
-              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-            >
-              <option value="">(не выбрано)</option>
-              {(linkLists.workshopId ?? []).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              onChange={(next) => scheduleSave({ ...payload, workshopId: next ?? null })}
+            />
           ) : (
             <Input value={payload.workshopId ?? ''} disabled />
           )}
 
           <div style={{ color: '#6b7280' }}>Участок</div>
           {props.canViewMasterData ? (
-            <select
-              value={payload.sectionId ?? ''}
+            <SearchSelect
+              value={payload.sectionId ?? null}
+              options={linkLists.sectionId ?? []}
               disabled={!props.canEdit}
-              onFocus={() => {
-                if (!linkLists.sectionId) void loadLinkLists();
-              }}
-              onChange={(e) => scheduleSave({ ...payload, sectionId: e.target.value || null })}
-              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-            >
-              <option value="">(не выбрано)</option>
-              {(linkLists.sectionId ?? []).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              onChange={(next) => scheduleSave({ ...payload, sectionId: next ?? null })}
+            />
           ) : (
             <Input value={payload.sectionId ?? ''} disabled />
           )}

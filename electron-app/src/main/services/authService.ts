@@ -142,6 +142,50 @@ export async function authLogin(
   }
 }
 
+export async function authRegister(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string; login: string; password: string; fullName: string; position: string },
+): Promise<AuthLoginResult> {
+  try {
+    const url = `${args.apiBaseUrl}/auth/register`;
+    const r = await net.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: args.login,
+        password: args.password,
+        fullName: args.fullName,
+        position: args.position,
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `register HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !json?.accessToken || !json?.refreshToken || !json?.user) return { ok: false, error: 'bad register response' };
+
+    const payload: SessionPayload = {
+      accessToken: String(json.accessToken),
+      refreshToken: String(json.refreshToken),
+      user: json.user as AuthUserInfo,
+      permissions: (json.permissions ?? {}) as Record<string, boolean>,
+      savedAt: nowMs(),
+    };
+    const stored = encryptJson(JSON.stringify(payload));
+    await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
+    return {
+      ok: true,
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      user: payload.user,
+      permissions: payload.permissions,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function authRefresh(
   db: BetterSQLite3Database,
   args: { apiBaseUrl: string; refreshToken: string },

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 
 type Attribute = {
@@ -92,7 +93,6 @@ export function PartDetailsPage(props: {
 
   // Links: engine brands
   const [engineBrandOptions, setEngineBrandOptions] = useState<Array<{ id: string; label: string }>>([]);
-  const [engineBrandQuery, setEngineBrandQuery] = useState<string>('');
   const [engineBrandIds, setEngineBrandIds] = useState<string[]>([]);
   const [engineBrandStatus, setEngineBrandStatus] = useState<string>('');
 
@@ -295,8 +295,6 @@ export function PartDetailsPage(props: {
   const engineBrandLabelById = new Map<string, string>();
   for (const o of engineBrandOptions) engineBrandLabelById.set(o.id, o.label);
 
-  const brandQuery = engineBrandQuery.trim().toLowerCase();
-  const filteredBrandOptions = brandQuery ? engineBrandOptions.filter((o) => o.label.toLowerCase().includes(brandQuery)) : engineBrandOptions;
 
   return (
     <div>
@@ -401,35 +399,21 @@ export function PartDetailsPage(props: {
               )}
 
               <div style={{ marginTop: 10 }}>
-                <Input value={engineBrandQuery} onChange={(e) => setEngineBrandQuery(e.target.value)} placeholder="Поиск марки…" />
-              </div>
-
-              <div style={{ marginTop: 10, maxHeight: 220, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 12, padding: 10 }}>
-                {filteredBrandOptions.length === 0 ? (
-                  <div style={{ color: '#6b7280', fontSize: 13 }}>Справочник пуст (создайте марки в «Справочники»).</div>
-                ) : (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {filteredBrandOptions.map((o) => {
-                      const checked = engineBrandIds.includes(o.id);
-                      return (
-                        <label key={o.id} style={{ display: 'flex', gap: 10, alignItems: 'center', cursor: props.canEdit ? 'pointer' : 'default' }}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={!props.canEdit}
-                            onChange={(e) => {
-                              const nextChecked = e.target.checked;
-                              const next = nextChecked ? [...engineBrandIds, o.id] : engineBrandIds.filter((x) => x !== o.id);
-                              // stable order for diff readability
-                              next.sort((a, b) => (engineBrandLabelById.get(a) ?? a).localeCompare(engineBrandLabelById.get(b) ?? b, 'ru'));
-                              setEngineBrandIds(next);
-                              void saveAttribute('engine_brand_ids', next);
-                            }}
-                          />
-                          <span style={{ fontSize: 13, color: '#111827' }}>{o.label}</span>
-                        </label>
-                      );
-                    })}
+                <MultiSearchSelect
+                  values={engineBrandIds}
+                  options={engineBrandOptions}
+                  disabled={!props.canEdit}
+                  placeholder="Выберите марки двигателя"
+                  onChange={(next) => {
+                    const sorted = [...next];
+                    sorted.sort((a, b) => (engineBrandLabelById.get(a) ?? a).localeCompare(engineBrandLabelById.get(b) ?? b, 'ru'));
+                    setEngineBrandIds(sorted);
+                    void saveAttribute('engine_brand_ids', sorted);
+                  }}
+                />
+                {engineBrandOptions.length === 0 && (
+                  <div style={{ marginTop: 8, color: '#6b7280', fontSize: 13 }}>
+                    Справочник пуст (создайте марки в «Справочники»).
                   </div>
                 )}
               </div>

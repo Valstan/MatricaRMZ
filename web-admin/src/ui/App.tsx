@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { login, logout, me } from '../api/auth.js';
+import { login, logout, me, register } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
 import { presenceMe } from '../api/presence.js';
 import { deriveCaps } from '../auth/permissions.js';
@@ -58,6 +58,8 @@ export function App() {
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [registerForm, setRegisterForm] = useState({ login: '', password: '', fullName: '', position: '' });
 
   async function refreshMe() {
     const r = await me();
@@ -69,8 +71,17 @@ export function App() {
     }
     const u = r.user as AuthUser;
     const role = String(u?.role ?? '').toLowerCase();
-    if (!u || (role !== 'admin' && role !== 'superadmin')) {
-      setAuthError('Доступ только для администраторов.');
+    if (!u) {
+      setAuthError('Не удалось получить пользователя.');
+      clearTokens();
+      setUser(null);
+      setPermissions({});
+      setLoading(false);
+      return;
+    }
+    const perms = (r.permissions ?? {}) as Record<string, boolean>;
+    if (role !== 'admin' && role !== 'superadmin' && role !== 'pending') {
+      setAuthError('Доступ только для администраторов или ожидающих одобрения.');
       clearTokens();
       setUser(null);
       setPermissions({});
@@ -78,7 +89,7 @@ export function App() {
       return;
     }
     setUser(u);
-    setPermissions(r.permissions ?? {});
+    setPermissions(perms);
     setLoading(false);
   }
 
@@ -157,6 +168,11 @@ export function App() {
   }, [user, tab]);
 
   useEffect(() => {
+    const role = String(user?.role ?? '').toLowerCase();
+    if (user && role === 'pending' && caps.canChatUse && tab !== 'chat') setTab('chat');
+  }, [user, caps.canChatUse, tab]);
+
+  useEffect(() => {
     if (tab === userTab) return;
     const ids = visibleTabs.map((t) => t.id);
     if (ids.includes(tab)) return;
@@ -209,40 +225,96 @@ export function App() {
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch' }}>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'left' && tab !== 'chat' && (
           <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden' }}>
-            <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+            <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
           </div>
         )}
         <div style={{ flex: '1 1 auto', minWidth: 0 }}>
           {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
           {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
-          {tab === 'chat' && user && <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />}
+          {tab === 'chat' && user && (
+            <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+          )}
           {tab === 'settings' && (
             <UserSettingsPage user={user} prefs={prefs} onPrefsChange={(next) => setPrefs(next)} onLogout={() => void doLogout()} />
           )}
           {tab === 'auth' && (
             <div className="card" style={{ maxWidth: 420 }}>
-              <h2>Вход в админ‑панель</h2>
+              <h2>Вход</h2>
               <div style={{ display: 'grid', gap: 10 }}>
-                <Input
-                  value={loginForm.username}
-                  onChange={(e) => setLoginForm((p) => ({ ...p, username: e.target.value }))}
-                  placeholder="логин"
-                />
-                <Input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))}
-                  placeholder="пароль"
-                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button variant={authMode === 'login' ? 'primary' : 'ghost'} onClick={() => setAuthMode('login')}>
+                    Вход
+                  </Button>
+                  <Button variant={authMode === 'register' ? 'primary' : 'ghost'} onClick={() => setAuthMode('register')}>
+                    Регистрация
+                  </Button>
+                </div>
+
+                {authMode === 'login' ? (
+                  <>
+                    <Input
+                      value={loginForm.username}
+                      onChange={(e) => setLoginForm((p) => ({ ...p, username: e.target.value }))}
+                      placeholder="логин"
+                    />
+                    <Input
+                      type="password"
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))}
+                      placeholder="пароль"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      value={registerForm.login}
+                      onChange={(e) => setRegisterForm((p) => ({ ...p, login: e.target.value }))}
+                      placeholder="логин"
+                    />
+                    <Input
+                      type="password"
+                      value={registerForm.password}
+                      onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))}
+                      placeholder="пароль"
+                    />
+                    <Input
+                      value={registerForm.fullName}
+                      onChange={(e) => setRegisterForm((p) => ({ ...p, fullName: e.target.value }))}
+                      placeholder="ФИО"
+                    />
+                    <Input
+                      value={registerForm.position}
+                      onChange={(e) => setRegisterForm((p) => ({ ...p, position: e.target.value }))}
+                      placeholder="Должность"
+                    />
+                  </>
+                )}
                 {authError && <div className="danger">{authError}</div>}
-                <Button onClick={() => void doLogin()}>Войти</Button>
+                <Button
+                  onClick={async () => {
+                    setAuthError(null);
+                    if (authMode === 'login') {
+                      await doLogin();
+                      return;
+                    }
+                    const r = await register(registerForm);
+                    if (!r?.ok) {
+                      setAuthError(r?.error ?? 'Ошибка регистрации');
+                      return;
+                    }
+                    await refreshMe();
+                    setRegisterForm({ login: '', password: '', fullName: '', position: '' });
+                  }}
+                >
+                  {authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}
+                </Button>
               </div>
             </div>
           )}
         </div>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'right' && tab !== 'chat' && (
           <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden' }}>
-            <ChatPanel meUserId={user.id} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+            <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
           </div>
         )}
       </div>

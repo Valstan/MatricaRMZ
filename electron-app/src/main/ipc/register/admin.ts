@@ -28,6 +28,7 @@ import {
   adminGetUserPermissions,
   adminListUserDelegations,
   adminListUsers,
+  adminPendingApprove,
   adminRevokeDelegation,
   adminSetUserPermissions,
   adminUpdateUser,
@@ -165,6 +166,14 @@ export function registerAdminIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminUpdateUser(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId, args);
+    },
+  );
+  ipcMain.handle(
+    'admin:users:pendingApprove',
+    async (_e, args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string }) => {
+      if (isViewMode(ctx)) return viewModeWriteError() as any;
+      await requirePermOrThrow(ctx, 'admin.users.manage');
+      return adminPendingApprove(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
     },
   );
   ipcMain.handle('admin:users:permissionsGet', async (_e, userId: string) => {

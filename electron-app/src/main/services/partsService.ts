@@ -18,7 +18,7 @@ function formatHttpError(r: { status: number; json?: any; text?: string }): stri
 export async function partsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { q?: string; limit?: number },
+  args?: { q?: string; limit?: number; engineBrandId?: string },
 ): Promise<
   | {
       ok: true;
@@ -36,6 +36,7 @@ export async function partsList(
     const queryParams = new URLSearchParams();
     if (args?.q) queryParams.set('q', args.q);
     if (args?.limit) queryParams.set('limit', String(args.limit));
+    if (args?.engineBrandId) queryParams.set('engineBrandId', String(args.engineBrandId));
 
     // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
     const url = `/parts/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;

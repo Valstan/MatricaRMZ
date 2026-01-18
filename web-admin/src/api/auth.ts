@@ -12,6 +12,18 @@ export async function login(username: string, password: string) {
   return r;
 }
 
+export async function register(args: { login: string; password: string; fullName: string; position: string }) {
+  const r = await apiJson('/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (r?.ok && r.accessToken && r.refreshToken) {
+    setTokens(r.accessToken, r.refreshToken);
+  }
+  return r;
+}
+
 export async function logout() {
   clearTokens();
 }

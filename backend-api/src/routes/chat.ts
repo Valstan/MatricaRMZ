@@ -8,7 +8,7 @@ import { PermissionCode } from '../auth/permissions.js';
 import { db } from '../database/db.js';
 import { changeLog, chatMessages, chatReads, fileAssets, userPresence } from '../database/schema.js';
 import { SyncTableName } from '@matricarmz/shared';
-import { listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
+import { getSuperadminUserId, listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
 
 export const chatRouter = Router();
 chatRouter.use(requireAuth);
@@ -123,8 +123,13 @@ function requireAdminActor(req: AuthenticatedRequest, res: any): { ok: true; act
 }
 
 // Список пользователей + online/offline по last_activity_at (из user_presence).
-chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (_req, res) => {
+chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
+    const actor = (req as AuthenticatedRequest).user;
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+    const actorId = String(actor?.id ?? '');
+    const pendingOnly = actorRole === 'pending';
+
     const ts = nowMs();
     const onlineWindowMs = 5 * 60_000;
 
@@ -145,7 +150,7 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (_req,
       presenceById.set(String(p.userId), p.lastActivityAt == null ? null : Number(p.lastActivityAt));
     }
 
-    const users = list.rows.map((r) => {
+    let users = list.rows.map((r) => {
       const last = presenceById.get(String(r.id)) ?? null;
       const online = last != null && ts - last < onlineWindowMs;
       const role = normalizeRole(r.login, r.systemRole);
@@ -162,6 +167,10 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (_req,
       };
     });
 
+    if (pendingOnly) {
+      users = users.filter((u) => u.role === 'superadmin' || u.id === actorId);
+    }
+
     return res.json({ ok: true, users });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -171,8 +180,11 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (_req,
 // Messages list for admin web UI (global/private with current admin).
 chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
-    const gate = requireAdminActor(req as AuthenticatedRequest, res);
-    if (!gate.ok) return;
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const actorRole = String(actor.role ?? '').toLowerCase();
+    const actorIsAdmin = isAdminRole(actorRole);
+    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'admin only' });
 
     const querySchema = z.object({
       mode: z.enum(['global', 'private']).default('global'),
@@ -182,13 +194,32 @@ chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (re
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const me = gate.actor;
+    const me = actor;
     const mode = parsed.data.mode;
     const withUserId = parsed.data.withUserId ? String(parsed.data.withUserId) : null;
     const limit = parsed.data.limit;
 
     let rows: any[] = [];
-    if (mode === 'global') {
+    if (!actorIsAdmin) {
+      const superadminId = await getSuperadminUserId();
+      if (!superadminId || !withUserId || withUserId !== superadminId) {
+        return res.status(403).json({ ok: false, error: 'pending can chat only with superadmin' });
+      }
+      rows = await db
+        .select()
+        .from(chatMessages)
+        .where(
+          and(
+            isNull(chatMessages.deletedAt),
+            or(
+              and(eq(chatMessages.senderUserId, me.id), eq(chatMessages.recipientUserId, withUserId as any)),
+              and(eq(chatMessages.senderUserId, withUserId as any), eq(chatMessages.recipientUserId, me.id)),
+            ),
+          ),
+        )
+        .orderBy(desc(chatMessages.createdAt))
+        .limit(limit);
+    } else if (mode === 'global') {
       rows = await db
         .select()
         .from(chatMessages)
@@ -290,8 +321,11 @@ chatRouter.get(
 
 chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
-    const gate = requireAdminActor(req as AuthenticatedRequest, res);
-    if (!gate.ok) return;
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const actorRole = String(actor.role ?? '').toLowerCase();
+    const actorIsAdmin = isAdminRole(actorRole);
+    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'admin only' });
 
     const schema = z.object({
       recipientUserId: z.string().uuid().nullable().optional(),
@@ -303,10 +337,16 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
     const ts = nowMs();
     const id = randomUUID();
     const recipientUserId = parsed.data.recipientUserId ? String(parsed.data.recipientUserId) : null;
+    if (!actorIsAdmin) {
+      const superadminId = await getSuperadminUserId();
+      if (!superadminId || recipientUserId !== superadminId) {
+        return res.status(403).json({ ok: false, error: 'pending can chat only with superadmin' });
+      }
+    }
     await db.insert(chatMessages).values({
       id,
-      senderUserId: gate.actor.id as any,
-      senderUsername: gate.actor.username,
+      senderUserId: actor.id as any,
+      senderUsername: actor.username,
       recipientUserId: recipientUserId ? (recipientUserId as any) : null,
       messageType: 'text',
       bodyText: parsed.data.text.trim(),
@@ -319,8 +359,8 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
 
     const payload = chatMessagePayload({
       id,
-      senderUserId: gate.actor.id,
-      senderUsername: gate.actor.username,
+      senderUserId: actor.id,
+      senderUsername: actor.username,
       recipientUserId,
       messageType: 'text',
       bodyText: parsed.data.text.trim(),
@@ -337,7 +377,7 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
       payloadJson: JSON.stringify(payload),
       createdAt: ts,
     });
-    await touchPresence(gate.actor.id);
+    await touchPresence(actor.id);
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -557,8 +597,11 @@ chatRouter.post('/mark-read', requirePermission(PermissionCode.ChatUse), async (
 
 chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
-    const gate = requireAdminActor(req as AuthenticatedRequest, res);
-    if (!gate.ok) return;
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const actorRole = String(actor.role ?? '').toLowerCase();
+    const actorIsAdmin = isAdminRole(actorRole);
+    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'admin only' });
 
     const msgs = await db
       .select({
@@ -567,7 +610,12 @@ chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req,
         recipientUserId: chatMessages.recipientUserId,
       })
       .from(chatMessages)
-      .where(and(isNull(chatMessages.deletedAt), or(isNull(chatMessages.recipientUserId), eq(chatMessages.recipientUserId, gate.actor.id as any))))
+      .where(
+        and(
+          isNull(chatMessages.deletedAt),
+          actorIsAdmin ? or(isNull(chatMessages.recipientUserId), eq(chatMessages.recipientUserId, actor.id as any)) : eq(chatMessages.recipientUserId, actor.id as any),
+        ),
+      )
       .limit(50_000);
 
     const ids = msgs.map((m) => String(m.id));
@@ -576,7 +624,7 @@ chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req,
     const reads = await db
       .select({ messageId: chatReads.messageId })
       .from(chatReads)
-      .where(and(eq(chatReads.userId, gate.actor.id as any), inArray(chatReads.messageId, ids as any)))
+      .where(and(eq(chatReads.userId, actor.id as any), inArray(chatReads.messageId, ids as any)))
       .limit(50_000);
     const readSet = new Set(reads.map((r) => String(r.messageId)));
 
@@ -586,13 +634,15 @@ chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req,
       const id = String(m.id);
       const senderUserId = String(m.senderUserId);
       const recipientUserId = m.recipientUserId == null ? null : String(m.recipientUserId);
-      if (senderUserId === gate.actor.id) continue;
+      if (senderUserId === actor.id) continue;
       if (readSet.has(id)) continue;
-      if (!recipientUserId) global += 1;
+      if (!recipientUserId) {
+        if (actorIsAdmin) global += 1;
+      }
       else byUser[senderUserId] = (byUser[senderUserId] ?? 0) + 1;
     }
     const total = global + Object.values(byUser).reduce((a, b) => a + b, 0);
-    await touchPresence(gate.actor.id);
+    await touchPresence(actor.id);
     return res.json({ ok: true, total, global, byUser });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });

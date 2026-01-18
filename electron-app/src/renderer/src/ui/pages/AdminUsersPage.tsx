@@ -52,6 +52,8 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     accessEnabled: true,
   });
   const [resetPassword, setResetPassword] = useState<string>('');
+  const [pendingMergeTargets, setPendingMergeTargets] = useState<Record<string, string>>({});
+  const [pendingRoles, setPendingRoles] = useState<Record<string, 'user' | 'admin'>>({});
 
   async function refreshUsers() {
     const r = await window.matrica.admin.users.list();
@@ -124,6 +126,87 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               Обновить
             </Button>
           </div>
+
+          {users.some((u) => String(u.role).toLowerCase() === 'pending') && (
+            <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+              <strong>Ожидают одобрения</strong>
+              <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+                {users
+                  .filter((u) => String(u.role).toLowerCase() === 'pending')
+                  .map((u) => {
+                    const mergeTarget = pendingMergeTargets[u.id] ?? '';
+                    const pendingRole = pendingRoles[u.id] ?? 'user';
+                    return (
+                      <div key={u.id} style={{ border: '1px solid #eef2f7', borderRadius: 10, padding: 10 }}>
+                        <div style={{ fontWeight: 700 }}>{u.username}</div>
+                        <div style={{ color: '#6b7280', fontSize: 12 }}>login: {u.login ?? u.id}</div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                          {canCreateAdmin && (
+                            <select
+                              value={pendingRole}
+                              onChange={(e) =>
+                                setPendingRoles((p) => ({ ...p, [u.id]: e.target.value === 'admin' ? 'admin' : 'user' }))
+                              }
+                              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                            >
+                              <option value="user">user</option>
+                              <option value="admin">admin</option>
+                            </select>
+                          )}
+                          <Button
+                            onClick={async () => {
+                              setStatus('Одобрение...');
+                              const r = await window.matrica.admin.users.pendingApprove({
+                                pendingUserId: u.id,
+                                action: 'approve',
+                                role: pendingRole,
+                              });
+                              setStatus(r.ok ? 'Пользователь одобрен' : `Ошибка: ${r.error ?? 'unknown'}`);
+                              await refreshUsers();
+                            }}
+                          >
+                            Одобрить
+                          </Button>
+                          <select
+                            value={mergeTarget}
+                            onChange={(e) => setPendingMergeTargets((p) => ({ ...p, [u.id]: e.target.value }))}
+                            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                          >
+                            <option value="">Слить с существующим…</option>
+                            {users
+                              .filter((x) => String(x.role).toLowerCase() !== 'pending')
+                              .map((x) => (
+                                <option key={x.id} value={x.id}>
+                                  {x.username} ({x.role})
+                                </option>
+                              ))}
+                          </select>
+                          <Button
+                            variant="ghost"
+                            onClick={async () => {
+                              if (!mergeTarget) {
+                                setStatus('Выберите пользователя для слияния');
+                                return;
+                              }
+                              setStatus('Слияние...');
+                              const r = await window.matrica.admin.users.pendingApprove({
+                                pendingUserId: u.id,
+                                action: 'merge',
+                                targetUserId: mergeTarget,
+                              });
+                              setStatus(r.ok ? 'Пользователь слит' : `Ошибка: ${r.error ?? 'unknown'}`);
+                              await refreshUsers();
+                            }}
+                          >
+                            Слить
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
             <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>

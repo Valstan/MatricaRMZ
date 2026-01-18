@@ -24,6 +24,7 @@ export async function pullChangesSince(
   const actorId = String(actor?.id ?? '');
   const actorRole = String(actor?.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
+  const actorIsPending = actorRole === 'pending';
 
   // Filter out test/bulk artifacts (historical bench data) so new clients don't pull them.
   // IMPORTANT: we MUST still allow delete events through, otherwise clients can't get rid of them.
@@ -43,6 +44,10 @@ export async function pullChangesSince(
   const filtered = rows.filter((r) => {
     const table = String(r.table);
 
+    if (actorIsPending && !['chat_messages', 'chat_reads', 'user_presence'].includes(table)) {
+      return false;
+    }
+
     // Chat privacy filter:
     // - chat_messages: private messages are visible only to sender/recipient (or admin)
     // - chat_reads: visible only to the owning user (or admin)
@@ -52,7 +57,7 @@ export async function pullChangesSince(
         const p = JSON.parse(String(r.payloadJson ?? '')) as any;
         const senderId = String(p?.sender_user_id ?? '');
         const recipientId = p?.recipient_user_id == null ? null : String(p?.recipient_user_id);
-        if (!recipientId) return true; // общий чат
+        if (!recipientId) return actorIsPending ? false : true; // pending не видит общий чат
         return senderId === actorId || recipientId === actorId;
       } catch {
         // If payload is corrupted, be safe and do not leak it.

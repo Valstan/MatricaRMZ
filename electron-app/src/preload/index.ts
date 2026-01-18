@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('matrica', {
     status: async () => ipcRenderer.invoke('auth:status'),
     sync: async () => ipcRenderer.invoke('auth:sync'),
     login: async (args: { username: string; password: string }) => ipcRenderer.invoke('auth:login', args),
+    register: async (args: { login: string; password: string; fullName: string; position: string }) =>
+      ipcRenderer.invoke('auth:register', args),
     logout: async (args: { refreshToken?: string }) => ipcRenderer.invoke('auth:logout', args),
     changePassword: async (args: { currentPassword: string; newPassword: string }) => ipcRenderer.invoke('auth:changePassword', args),
     profileGet: async () => ipcRenderer.invoke('auth:profileGet'),
@@ -98,6 +100,8 @@ contextBridge.exposeInMainWorld('matrica', {
         ipcRenderer.invoke('admin:users:create', args),
       update: async (userId: string, args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string }) =>
         ipcRenderer.invoke('admin:users:update', userId, args),
+      pendingApprove: async (args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string }) =>
+        ipcRenderer.invoke('admin:users:pendingApprove', args),
       permissionsGet: async (userId: string) => ipcRenderer.invoke('admin:users:permissionsGet', userId),
       permissionsSet: async (userId: string, set: Record<string, boolean>) => ipcRenderer.invoke('admin:users:permissionsSet', userId, set),
       delegationsList: async (userId: string) => ipcRenderer.invoke('admin:users:delegationsList', userId),

@@ -117,6 +117,14 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   // Минимальные поля для MVP (гибкая структура будет расширяться).
   await ensureAttrDef(engineTypeId, 'engine_number', 'Номер двигателя', AttributeDataType.Text, 10);
   await ensureAttrDef(engineTypeId, 'engine_brand', 'Марка двигателя', AttributeDataType.Text, 20);
+  await ensureAttrDef(
+    engineTypeId,
+    'engine_brand_id',
+    'Марка двигателя (справочник)',
+    AttributeDataType.Link,
+    25,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineBrand }),
+  );
   await ensureAttrDef(engineTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Engine master-data links (минимально, чтобы начать привязку).

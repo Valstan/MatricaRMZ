@@ -94,6 +94,13 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     return all;
   }
 
+  // pending: минимальный доступ — только чат с админом
+  if (r === 'pending') {
+    return {
+      [PermissionCode.ChatUse]: true,
+    };
+  }
+
   // default: только просмотр + sync
   return {
     [PermissionCode.SupplyRequestsView]: true,

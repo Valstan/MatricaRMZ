@@ -273,6 +273,7 @@ export type MatricaApi = {
     // Обновляет permissions по данным сервера (/auth/me) и сохраняет в локальную сессию.
     sync: () => Promise<AuthStatus>;
     login: (args: { username: string; password: string }) => Promise<AuthLoginResult>;
+    register: (args: { login: string; password: string; fullName: string; position: string }) => Promise<AuthLoginResult>;
     logout: (args: { refreshToken?: string }) => Promise<AuthLogoutResult>;
     changePassword: (args: { currentPassword: string; newPassword: string }) => Promise<{ ok: boolean; error?: string }>;
     profileGet: () => Promise<{ ok: true; profile: AuthProfile } | { ok: false; error: string }>;
@@ -379,6 +380,10 @@ export type MatricaApi = {
         userId: string,
         args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string },
       ) => Promise<{ ok: boolean; error?: string }>;
+      pendingApprove: (args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string }) => Promise<
+        | { ok: true }
+        | { ok: false; error: string }
+      >;
       permissionsGet: (
         userId: string,
       ) => Promise<
@@ -478,7 +483,7 @@ export type MatricaApi = {
   };
 
   parts: {
-    list: (args?: { q?: string; limit?: number }) => Promise<
+    list: (args?: { q?: string; limit?: number; engineBrandId?: string }) => Promise<
       | {
           ok: true;
           parts: Array<{
