@@ -30,7 +30,7 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   ipcMain.handle('auth:profileGet', async () => authProfileGet(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
   ipcMain.handle(
     'auth:profileUpdate',
-    async (_e, args: { fullName?: string | null; position?: string | null; sectionName?: string | null }) =>
+    async (_e, args: { fullName?: string | null; position?: string | null; sectionName?: string | null; chatDisplayName?: string | null }) =>
       authProfileUpdate(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), ...args }),
   );
   ipcMain.handle('presence:me', async () => presenceMe(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
