@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { permAdminOnly, permGroupRu, permTitleRu } from '../auth/permissionCatalog.js';
 
 type EmployeeAccount = {
   id: string;
@@ -45,8 +46,15 @@ export function EmployeeDetailsPage(props: {
   const [departments, setDepartments] = useState<Option[]>([]);
   const [departmentsStatus, setDepartmentsStatus] = useState('');
 
-  const [accounts, setAccounts] = useState<EmployeeAccount[]>([]);
+  const [accountPerms, setAccountPerms] = useState<{
+    user: { id: string; username: string; login?: string; role: string; isActive?: boolean };
+    allCodes: string[];
+    base: Record<string, boolean>;
+    overrides: Record<string, boolean>;
+    effective: Record<string, boolean>;
+  } | null>(null);
   const [accountStatus, setAccountStatus] = useState('');
+  const [permQuery, setPermQuery] = useState('');
   const [accountLogin, setAccountLogin] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
   const [accountRole, setAccountRole] = useState('user');
@@ -61,9 +69,19 @@ export function EmployeeDetailsPage(props: {
   const canCreateAdmin = meRole === 'superadmin';
   const canCreateEmployee = meRole === 'superadmin';
 
-  const accountUser = useMemo(() => accounts.find((u) => u.id === props.employeeId) ?? null, [accounts, props.employeeId]);
+  const accountUser = useMemo<EmployeeAccount | null>(() => {
+    if (!accountPerms?.user) return null;
+    return {
+      id: accountPerms.user.id,
+      username: accountPerms.user.username,
+      login: accountPerms.user.login,
+      role: accountPerms.user.role,
+      isActive: !!accountPerms.user.isActive,
+    };
+  }, [accountPerms?.user]);
   const canEditAccount =
     props.canManageUsers && (meRole === 'superadmin' || (meRole === 'admin' && String(accountUser?.role ?? '') === 'user'));
+  const canEditPermissions = canEditAccount;
 
   useEffect(() => {
     void loadEmployee();
@@ -74,9 +92,8 @@ export function EmployeeDetailsPage(props: {
   }, []);
 
   useEffect(() => {
-    if (!props.canManageUsers) return;
-    void loadAccounts();
-  }, [props.canManageUsers]);
+    void loadAccountPerms();
+  }, [props.employeeId]);
 
   useEffect(() => {
     if (!accountUser) return;
@@ -112,13 +129,19 @@ export function EmployeeDetailsPage(props: {
     }
   }
 
-  async function loadAccounts() {
-    const r = await window.matrica.admin.users.list();
+  async function loadAccountPerms() {
+    const r = await window.matrica.employees.permissionsGet(props.employeeId);
     if (!r.ok) {
-      setAccountStatus(`Ошибка users.list: ${r.error}`);
+      const err = r.error ?? 'unknown';
+      setAccountPerms(null);
+      if (err.includes('employee not found') || err.includes('HTTP 404')) {
+        setAccountStatus('Учётной записи нет.');
+      } else {
+        setAccountStatus(`Ошибка: ${err}`);
+      }
       return;
     }
-    setAccounts(r.users as any);
+    setAccountPerms(r);
     setAccountStatus('');
   }
 
@@ -233,21 +256,20 @@ export function EmployeeDetailsPage(props: {
         }}
       />
 
-      {props.canManageUsers && (
-        <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Учётная запись</strong>
-            <span style={{ flex: 1 }} />
-            <Button variant="ghost" onClick={() => void loadAccounts()}>
-              Обновить
-            </Button>
-          </div>
+      <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <strong>Пользователи и права доступа</strong>
+          <span style={{ flex: 1 }} />
+          <Button variant="ghost" onClick={() => void loadAccountPerms()}>
+            Обновить
+          </Button>
+        </div>
 
           {accountUser ? (
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', gap: 10, alignItems: 'center' }}>
                 <div style={{ color: '#6b7280', fontSize: 12 }}>Логин</div>
-                <Input value={accountLogin} onChange={(e) => setAccountLogin(e.target.value)} placeholder="логин" />
+                <Input value={accountLogin} onChange={(e) => setAccountLogin(e.target.value)} placeholder="логин" disabled={!canEditAccount} />
                 <Button
                   variant="ghost"
                   onClick={async () => {
@@ -256,7 +278,7 @@ export function EmployeeDetailsPage(props: {
                     setAccountStatus('Сохранение...');
                     const r = await window.matrica.admin.users.update(props.employeeId, { login: next });
                     setAccountStatus(r.ok ? 'Логин обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                    await loadAccounts();
+                    await loadAccountPerms();
                   }}
                   disabled={!canEditAccount || !accountLogin.trim()}
                 >
@@ -274,7 +296,7 @@ export function EmployeeDetailsPage(props: {
                       setAccountStatus('Обновление роли...');
                       const r = await window.matrica.admin.users.update(props.employeeId, { role: nextRole });
                       setAccountStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
-                      await loadAccounts();
+                      await loadAccountPerms();
                     }}
                     disabled={!canEditAccount}
                     style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
@@ -301,7 +323,7 @@ export function EmployeeDetailsPage(props: {
                       setAccountStatus('Обновление активности...');
                       const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: next });
                       setAccountStatus(r.ok ? 'Активность обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
-                      await loadAccounts();
+                      await loadAccountPerms();
                     }}
                     disabled={!canEditAccount}
                   />
@@ -314,6 +336,7 @@ export function EmployeeDetailsPage(props: {
                   value={accountPassword}
                   onChange={(e) => setAccountPassword(e.target.value)}
                   placeholder="новый пароль"
+                  disabled={!canEditAccount}
                 />
                 <Button
                   variant="ghost"
@@ -332,23 +355,24 @@ export function EmployeeDetailsPage(props: {
             </div>
           ) : (
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-              <div style={{ color: '#6b7280' }}>Учётной записи нет. Создать:</div>
+              <div style={{ color: '#6b7280' }}>Учётной записи нет.</div>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
                 <div style={{ color: '#6b7280' }}>Логин</div>
-                <Input value={createLogin} onChange={(e) => setCreateLogin(e.target.value)} placeholder="логин" />
+                <Input value={createLogin} onChange={(e) => setCreateLogin(e.target.value)} placeholder="логин" disabled={!canEditAccount} />
                 <div style={{ color: '#6b7280' }}>Пароль</div>
                 <Input
                   type="password"
                   value={createPassword}
                   onChange={(e) => setCreatePassword(e.target.value)}
                   placeholder="пароль"
+                  disabled={!canEditAccount}
                 />
                 <div style={{ color: '#6b7280' }}>Роль</div>
                 <select
                   value={createRole}
                   onChange={(e) => setCreateRole(e.target.value)}
                   style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-                  disabled={!props.canManageUsers}
+                  disabled={!canEditAccount}
                 >
                   <option value="user">user</option>
                   <option value="employee" disabled={!canCreateEmployee}>
@@ -360,7 +384,7 @@ export function EmployeeDetailsPage(props: {
                 </select>
                 <div style={{ color: '#6b7280' }}>Активность</div>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input type="checkbox" checked={createActive} onChange={(e) => setCreateActive(e.target.checked)} />
+                  <input type="checkbox" checked={createActive} onChange={(e) => setCreateActive(e.target.checked)} disabled={!canEditAccount} />
                   активен
                 </label>
               </div>
@@ -385,10 +409,10 @@ export function EmployeeDetailsPage(props: {
                     if (r.ok) {
                       setCreateLogin('');
                       setCreatePassword('');
-                      await loadAccounts();
+                      await loadAccountPerms();
                     }
                   }}
-                  disabled={!props.canManageUsers}
+                  disabled={!canEditAccount}
                 >
                   Создать учётную запись
                 </Button>
@@ -396,9 +420,115 @@ export function EmployeeDetailsPage(props: {
             </div>
           )}
 
+          {accountPerms && (
+            <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <strong>Права</strong>
+                <span style={{ flex: 1 }} />
+                <Button variant="ghost" onClick={() => void loadAccountPerms()}>
+                  Обновить
+                </Button>
+              </div>
+
+              <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <Input value={permQuery} onChange={(e) => setPermQuery(e.target.value)} placeholder="Поиск прав…" />
+                <div style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  Пользователь:{' '}
+                  <span style={{ fontWeight: 800, color: '#111827' }}>{accountPerms.user.username}</span> ({accountPerms.user.role})
+                </div>
+              </div>
+
+              <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ maxHeight: 520, overflowY: 'auto', padding: 12 }}>
+                  {Object.entries(
+                    (accountPerms.allCodes ?? [])
+                      .slice()
+                      .sort((a, b) => (permGroupRu(a) + permTitleRu(a)).localeCompare(permGroupRu(b) + permTitleRu(b), 'ru'))
+                      .reduce((acc: Record<string, string[]>, code: string) => {
+                        const q = permQuery.trim().toLowerCase();
+                        const hay = `${permGroupRu(code)} ${permTitleRu(code)} ${code}`.toLowerCase();
+                        if (q && !hay.includes(q)) return acc;
+                        const g = permGroupRu(code);
+                        if (!acc[g]) acc[g] = [];
+                        acc[g].push(code);
+                        return acc;
+                      }, {}),
+                  ).map(([group, codes]) => (
+                    <div key={group} style={{ marginBottom: 14 }}>
+                      <div style={{ fontWeight: 900, color: '#111827', marginBottom: 8 }}>{group}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                        {codes.map((code) => {
+                          const effective = accountPerms.effective?.[code] === true;
+                          const override = code in (accountPerms.overrides ?? {}) ? accountPerms.overrides[code] : null;
+                          const adminOnly = permAdminOnly(code);
+                          const selectedRole = String(accountPerms.user.role ?? '').toLowerCase();
+                          const selectedIsAdmin = selectedRole === 'admin' || selectedRole === 'superadmin';
+                          const disabled = adminOnly && !selectedIsAdmin;
+                          const locked = disabled || !canEditPermissions;
+
+                          return (
+                            <div
+                              key={code}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 140px',
+                                gap: 10,
+                                alignItems: 'center',
+                                border: '1px solid #f3f4f6',
+                                borderRadius: 12,
+                                padding: 10,
+                                background: locked ? '#f9fafb' : '#fff',
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>
+                                  {permTitleRu(code)}
+                                  {adminOnly && (
+                                    <span style={{ marginLeft: 8, fontSize: 12, color: '#b91c1c', fontWeight: 800 }}>
+                                      только admin
+                                    </span>
+                                  )}
+                                  {override !== null && (
+                                    <span style={{ marginLeft: 8, fontSize: 12, color: '#6b7280' }}>(настроено вручную)</span>
+                                  )}
+                                </div>
+                                <div style={{ marginTop: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#6b7280' }}>
+                                  {code}
+                                </div>
+                              </div>
+
+                              <label style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={effective}
+                                  disabled={locked}
+                                  onChange={async (e) => {
+                                    if (locked) return;
+                                    const next = e.target.checked;
+                                    setAccountStatus('Сохранение права...');
+                                    const r = await window.matrica.admin.users.permissionsSet(props.employeeId, { [code]: next });
+                                    setAccountStatus(r.ok ? 'Сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                    await loadAccountPerms();
+                                  }}
+                                />
+                                <span style={{ fontSize: 12, color: '#6b7280' }}>{effective ? 'вкл' : 'выкл'}</span>
+                              </label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {accountPerms.allCodes.length === 0 && <div style={{ color: '#6b7280' }}>(права не загружены)</div>}
+                </div>
+              </div>
+            </div>
+          )}
+
           {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{accountStatus}</div>}
         </div>
-      )}
+      </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
     </div>

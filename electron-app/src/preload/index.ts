@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('matrica', {
     setAttr: async (employeeId: string, code: string, value: unknown) =>
       ipcRenderer.invoke('employees:setAttr', employeeId, code, value),
     departmentsList: async () => ipcRenderer.invoke('employees:departments:list'),
+    permissionsGet: async (userId: string) => ipcRenderer.invoke('employees:permissionsGet', userId),
   },
   update: {
     check: async () => ipcRenderer.invoke('update:check'),

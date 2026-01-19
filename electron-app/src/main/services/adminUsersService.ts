@@ -69,6 +69,12 @@ export async function adminGetUserPermissions(db: BetterSQLite3Database, apiBase
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+export async function viewUserPermissions(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+  const r = await httpAuthed(db, apiBaseUrl, `/auth/users/${encodeURIComponent(userId)}/permissions-view`, { method: 'GET' });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 export async function adminSetUserPermissions(db: BetterSQLite3Database, apiBaseUrl: string, userId: string, set: Record<string, boolean>) {
   const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/permissions`, {
     method: 'PUT',

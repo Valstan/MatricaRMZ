@@ -9,7 +9,8 @@ import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { randomUUID } from 'node:crypto';
-import { getEffectivePermissionsForUser } from '../auth/permissions.js';
+import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
+import { userPermissions } from '../database/schema.js';
 import { logError } from '../utils/logger.js';
 import {
   ensureEmployeeAuthDefs,
@@ -200,6 +201,43 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
   const permissions = await getEffectivePermissionsForUser(user.id).catch(() => ({}));
   return res.json({ ok: true, user, permissions });
+});
+
+authRouter.get('/users/:id/permissions-view', requireAuth, async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const userRow = await getEmployeeAuthById(id);
+    if (!userRow) return res.status(404).json({ ok: false, error: 'employee not found' });
+    const role = normalizeRole(userRow.login, userRow.systemRole);
+    const username = userRow.fullName || userRow.login || id;
+
+    const allCodes = Object.values(PermissionCode);
+    const effective = await getEffectivePermissionsForUser(id);
+    const base = defaultPermissionsForRole(role);
+
+    const overrides = await db
+      .select({ permCode: userPermissions.permCode, allowed: userPermissions.allowed })
+      .from(userPermissions)
+      .where(eq(userPermissions.userId, id))
+      .limit(10_000);
+
+    const overridesMap: Record<string, boolean> = {};
+    for (const o of overrides) overridesMap[o.permCode] = !!o.allowed;
+
+    return res.json({
+      ok: true,
+      user: { id, username, login: userRow.login, role, isActive: userRow.accessEnabled },
+      allCodes,
+      base,
+      overrides: overridesMap,
+      effective,
+    });
+  } catch (e) {
+    logError('auth permissions view failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 authRouter.get('/profile', requireAuth, async (req, res) => {

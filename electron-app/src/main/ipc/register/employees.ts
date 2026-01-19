@@ -4,6 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute } from '../../services/entityService.js';
+import { viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
 async function getEntityTypeIdByCode(ctx: IpcContext, code: string): Promise<string | null> {
@@ -53,5 +54,11 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     const typeId = await getEntityTypeIdByCode(ctx, 'department');
     if (!typeId) return [];
     return listEntitiesByType(ctx.dataDb(), typeId);
+  });
+
+  ipcMain.handle('employees:permissionsGet', async (_e, userId: string) => {
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return { ok: false as const, error: gate.error };
+    return viewUserPermissions(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId);
   });
 }

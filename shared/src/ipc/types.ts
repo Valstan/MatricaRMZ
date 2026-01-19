@@ -93,7 +93,7 @@ export type SyncStatus = {
 };
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateResult = { ok: boolean; error?: string };
@@ -445,6 +445,17 @@ export type MatricaApi = {
     create: () => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     setAttr: (employeeId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
     departmentsList: () => Promise<EntityListItem[]>;
+    permissionsGet: (userId: string) => Promise<
+      | {
+          ok: true;
+          user: { id: string; username: string; login?: string; role: string; isActive?: boolean };
+          allCodes: string[];
+          base: Record<string, boolean>;
+          overrides: Record<string, boolean>;
+          effective: Record<string, boolean>;
+        }
+      | { ok: false; error: string }
+    >;
   };
   update: {
     check: () => Promise<UpdateCheckResult>;

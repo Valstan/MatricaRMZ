@@ -9,7 +9,6 @@ import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { MasterdataPage } from './pages/AdminPage.js';
-import { AdminUsersPage } from './pages/AdminUsersPage.js';
 import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
@@ -251,7 +250,6 @@ export function App() {
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
-    ...(caps.canManageUsers ? (['admin'] as const) : []),
   ];
   const visibleTabsKey = visibleTabs.join('|');
   const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'> = authStatus.loggedIn ? 'settings' : 'auth';
@@ -697,7 +695,7 @@ export function App() {
           />
         )}
 
-        {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={authStatus.user} />}
+        {tab === 'admin' && <div style={{ color: 'var(--muted)' }}>Раздел перемещён в карточку сотрудника.</div>}
 
         {tab === 'auth' && (
           <AuthPage
