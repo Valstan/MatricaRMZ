@@ -146,16 +146,25 @@ async function main() {
   await ensureFolder(token, remoteBase);
   await ensureFolder(token, remoteLatestFolder);
 
-  // 1) Переносим предыдущий installer из /latest в корень.
+  // 1) Чистим /latest, чтобы не копился мусор.
   const latestItems = await listFolder(token, remoteLatestFolder).catch(() => []);
   for (const it of latestItems) {
-    if (!it.name.toLowerCase().endsWith('.exe')) continue;
+    const lower = it.name.toLowerCase();
+    if (!isReleaseArtifact(lower)) continue;
     // В ответах API поле path обычно вида "disk:/...". Его нельзя прогонять через normalizeRemotePath.
-    const from = it.path;
-    const to = normalizeRemotePath(posixPath.join(remoteBase, it.name));
+    if (lower.endsWith('.exe')) {
+      const from = it.path;
+      const to = normalizeRemotePath(posixPath.join(remoteBase, it.name));
+      // eslint-disable-next-line no-console
+      console.log(`Moving old latest -> root: ${it.name}`);
+      await moveResource(token, from, to);
+      continue;
+    }
+    // Остальные артефакты (yml/blockmap) удаляем из latest.
+    const p = it.path;
     // eslint-disable-next-line no-console
-    console.log(`Moving old latest -> root: ${it.name}`);
-    await moveResource(token, from, to);
+    console.log(`Deleting old latest artifact: ${it.name}`);
+    await deleteResource(token, p);
   }
 
   // 2) Загружаем новый installer + latest.yml + blockmap в /latest.

@@ -9,7 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateFlowResult =
@@ -140,9 +140,34 @@ export async function runAutoUpdateFlow(
 
     const check = await waitForUpdateCheck();
     if (!check.ok || !check.updateAvailable) {
+      const gh = await checkGithubReleaseForUpdates();
+      if (gh.ok && gh.updateAvailable && gh.downloadUrl) {
+        await setUpdateUi(`Найдена новая версия (GitHub). Скачиваем…`, 5, gh.version);
+        const gdl = await downloadGithubUpdate(gh.downloadUrl, gh.version);
+        if (!gdl.ok || !gdl.filePath) {
+          await setUpdateUi(`Ошибка скачивания: ${gdl.error ?? 'unknown'}`, 100, gh.version);
+          closeUpdateWindowSoon(3500);
+          return { action: 'error', error: gdl.error ?? 'download failed' };
+        }
+        lastDownloadedInstallerPath = gdl.filePath;
+        await setUpdateUi('Скачивание завершено. Готовим установку…', 60, gh.version);
+        lockUpdateUi(true);
+        await setUpdateUi('Подготовка установщика…', 70, gh.version);
+        const helper = await prepareUpdateHelper();
+        spawnUpdateHelper({
+          helperExePath: helper.helperExePath,
+          installerPath: gdl.filePath,
+          launchPath: helper.launchPath,
+          resourcesPath: helper.resourcesPath,
+          version: gh.version,
+        });
+        await setUpdateUi('Запускаем установку…', 80, gh.version);
+        return { action: 'update_started' };
+      }
+
       const fallback = await checkYandexForUpdates();
       if (!fallback.ok) {
-        if (!check.ok) {
+        if (!check.ok && !gh.ok) {
           await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
           closeUpdateWindowSoon(3500);
           return { action: 'error', error: check.error };
@@ -156,7 +181,7 @@ export async function runAutoUpdateFlow(
         closeUpdateWindowSoon(700);
         return { action: 'no_update' };
       }
-      await setUpdateUi(`Найдена новая версия. Скачиваем…`, 5, fallback.version);
+      await setUpdateUi(`Найдена новая версия (Yandex). Скачиваем…`, 5, fallback.version);
       const ydl = await downloadYandexUpdate(fallback);
       if (!ydl.ok || !ydl.filePath) {
         await setUpdateUi(`Ошибка скачивания: ${ydl.error ?? 'unknown'}`, 100, fallback.version);
@@ -218,10 +243,14 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     const current = app.getVersion();
     const updateAvailable = latest ? compareSemver(latest, current) > 0 : false;
     if (updateAvailable) return { ok: true, updateAvailable, version: latest || undefined, source: 'github' };
+    const gh = await checkGithubReleaseForUpdates();
+    if (gh.ok && gh.updateAvailable) return gh;
     const y = await checkYandexForUpdates();
     if (y.ok) return y;
     return { ok: true, updateAvailable: false };
   } catch (e) {
+    const gh = await checkGithubReleaseForUpdates().catch(() => null);
+    if (gh) return gh;
     const y = await checkYandexForUpdates().catch(() => null);
     if (y) return y;
     return { ok: false, error: String(e) };
@@ -257,6 +286,9 @@ let lastDownloadedInstallerPath: string | null = null;
 
 type YandexUpdateInfo = { ok: true; updateAvailable: boolean; version?: string; path?: string; source: 'yandex' } | { ok: false; error: string };
 type YandexConfig = { publicKey: string; basePath: string };
+type GithubReleaseInfo =
+  | { ok: true; updateAvailable: boolean; version?: string; downloadUrl?: string; source: 'github' }
+  | { ok: false; error: string };
 
 async function readReleaseInfo(): Promise<{ yandexPublicKey?: string; yandexBasePath?: string } | null> {
   try {
@@ -271,6 +303,17 @@ async function readReleaseInfo(): Promise<{ yandexPublicKey?: string; yandexBase
     if (!raw2) return null;
     const json = JSON.parse(raw2) as any;
     return json?.update ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function readPackageJson(): Promise<{ repository?: { url?: string } | string } | null> {
+  try {
+    const primary = join(app.getAppPath(), 'package.json');
+    const raw = await readFile(primary, 'utf8').catch(() => null);
+    if (!raw) return null;
+    return JSON.parse(raw) as any;
   } catch {
     return null;
   }
@@ -298,6 +341,31 @@ async function getYandexConfig(): Promise<YandexConfig | null> {
   const basePath = String(info?.yandexBasePath ?? '').trim();
   if (!publicKey) return null;
   return { publicKey, basePath: basePath ? normalizePublicPath(basePath) : 'latest' };
+}
+
+function parseGithubRepoFromUrl(raw: string): { owner: string; repo: string } | null {
+  const cleaned = raw.replace(/^git\+/, '').replace(/\.git$/, '');
+  const m = cleaned.match(/github\.com\/([^/]+)\/([^/]+)$/i);
+  if (!m) return null;
+  return { owner: m[1], repo: m[2] };
+}
+
+async function getGithubConfig(): Promise<{ owner: string; repo: string } | null> {
+  const fromEnv = process.env.MATRICA_UPDATE_GITHUB_REPO?.trim();
+  if (fromEnv) {
+    const parts = fromEnv.split('/');
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return { owner: parts[0], repo: parts[1] };
+    }
+  }
+  const pkg = await readPackageJson();
+  const repo = (pkg as any)?.repository;
+  const url = typeof repo === 'string' ? repo : repo?.url;
+  if (url) {
+    const parsed = parseGithubRepoFromUrl(String(url));
+    if (parsed) return parsed;
+  }
+  return { owner: 'Valstan', repo: 'MatricaRMZ' };
 }
 
 async function getYandexDownloadHref(publicKey: string, path: string): Promise<string | null> {
@@ -381,6 +449,41 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
   }
 }
 
+async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | GithubReleaseInfo> {
+  const cfg = await getGithubConfig();
+  if (!cfg) return { ok: false, error: 'github update is not configured' };
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/releases/latest`;
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'MatricaRMZ-Updater',
+        },
+      },
+      10_000,
+    );
+    if (!res.ok) return { ok: false, error: `github release HTTP ${res.status}` };
+    const json = (await res.json().catch(() => null)) as any;
+    if (!json || json.draft) return { ok: true, updateAvailable: false };
+    const tag = String(json?.tag_name ?? '').trim();
+    const version = tag.replace(/^v/i, '');
+    if (!version) return { ok: false, error: 'github release has no version' };
+    const current = app.getVersion();
+    const updateAvailable = compareSemver(version, current) > 0;
+    if (!updateAvailable) return { ok: true, updateAvailable: false };
+    const assets = Array.isArray(json?.assets) ? json.assets : [];
+    const exe = assets.find((a: any) => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.exe'));
+    const downloadUrl = exe?.browser_download_url ? String(exe.browser_download_url) : undefined;
+    if (!downloadUrl) return { ok: false, error: 'github release missing exe asset' };
+    return { ok: true, updateAvailable: true, version, downloadUrl, source: 'github' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 async function downloadYandexUpdate(info: { version?: string; path?: string }) {
   try {
     const cfg = await getYandexConfig();
@@ -398,6 +501,31 @@ async function downloadYandexUpdate(info: { version?: string; path?: string }) {
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
     const res = await net.fetch(href);
     if (!res.ok || !res.body) return { ok: false as const, error: `yandex download HTTP ${res.status}` };
+    const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
+    await mkdir(outDir, { recursive: true });
+    const outPath = join(outDir, fileName);
+    await pipeline(Readable.fromWeb(res.body as any), createWriteStream(outPath));
+    return { ok: true as const, filePath: outPath };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+async function downloadGithubUpdate(url: string, version?: string) {
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/octet-stream',
+          'User-Agent': 'MatricaRMZ-Updater',
+        },
+      },
+      20_000,
+    );
+    if (!res.ok || !res.body) return { ok: false as const, error: `github download HTTP ${res.status}` };
+    const fileName = basename(new URL(url).pathname) || `MatricaRMZ-${version ?? 'update'}.exe`;
     const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
     await mkdir(outDir, { recursive: true });
     const outPath = join(outDir, fileName);
