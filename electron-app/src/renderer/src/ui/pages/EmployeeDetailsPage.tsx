@@ -528,8 +528,6 @@ export function EmployeeDetailsPage(props: {
 
           {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{accountStatus}</div>}
         </div>
-      </div>
-
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
     </div>
   );
