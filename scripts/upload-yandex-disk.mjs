@@ -84,8 +84,7 @@ async function uploadFile(token, localFilePath, remoteFilePath) {
 
 function isReleaseArtifact(filename) {
   const lower = filename.toLowerCase();
-  // По новой политике: в папку latest кладём только один installer .exe.
-  return lower.endsWith('.exe');
+  return lower.endsWith('.exe') || lower.endsWith('.yml') || lower.endsWith('.blockmap');
 }
 
 async function listFolder(token, remotePath) {
@@ -141,6 +140,8 @@ async function main() {
   if (!exe) {
     throw new Error(`No release artifacts found in ${dir}`);
   }
+  const latestYml = files.find((f) => f.toLowerCase() === 'latest.yml') ?? null;
+  const blockmap = files.find((f) => f.toLowerCase() === `${exe.toLowerCase()}.blockmap`) ?? null;
 
   await ensureFolder(token, remoteBase);
   await ensureFolder(token, remoteLatestFolder);
@@ -157,12 +158,29 @@ async function main() {
     await moveResource(token, from, to);
   }
 
-  // 2) Загружаем новый installer в /latest (и только его).
-  const localPath = join(dir, exe);
-  const remoteLatestPath = normalizeRemotePath(posixPath.join(remoteLatestFolder, exe));
-  // eslint-disable-next-line no-console
-  console.log(`Uploading installer to latest: ${exe}`);
-    await uploadFile(token, localPath, remoteLatestPath);
+  // 2) Загружаем новый installer + latest.yml + blockmap в /latest.
+  const latestUploads = [
+    { name: exe, local: join(dir, exe), remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, exe)) },
+  ];
+  if (latestYml) {
+    latestUploads.push({
+      name: latestYml,
+      local: join(dir, latestYml),
+      remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, latestYml)),
+    });
+  }
+  if (blockmap) {
+    latestUploads.push({
+      name: blockmap,
+      local: join(dir, blockmap),
+      remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, blockmap)),
+    });
+  }
+  for (const f of latestUploads) {
+    // eslint-disable-next-line no-console
+    console.log(`Uploading to latest: ${f.name}`);
+    await uploadFile(token, f.local, f.remote);
+  }
 
   // 3) Храним в корне только 3 последние версии (по semver из имени, иначе по modified).
   const rootItems = await listFolder(token, remoteBase);
@@ -183,7 +201,7 @@ async function main() {
   }
 
   // eslint-disable-next-line no-console
-  console.log(`Yandex.Disk upload done: ${remoteLatestFolder} (latest=1 exe) and root keep=3`);
+  console.log(`Yandex.Disk upload done: ${remoteLatestFolder} (latest exe/yml/blockmap) and root keep=3`);
 }
 
 main().catch((e) => {

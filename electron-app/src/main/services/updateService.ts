@@ -1,11 +1,15 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, net } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
-import { copyFile, cp, mkdir, stat } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { copyFile, cp, mkdir, readFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' }
   | { ok: false; error: string };
 
 export type UpdateFlowResult =
@@ -122,15 +126,44 @@ export async function runAutoUpdateFlow(
     }
 
     const check = await waitForUpdateCheck();
-    if (!check.ok) {
-      await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
-      closeUpdateWindowSoon(3500);
-      return { action: 'error', error: check.error };
-    }
-    if (!check.updateAvailable) {
-      await setUpdateUi('Обновлений нет. Запускаем приложение…', 100);
-      closeUpdateWindowSoon(700);
-      return { action: 'no_update' };
+    if (!check.ok || !check.updateAvailable) {
+      const fallback = await checkYandexForUpdates();
+      if (!fallback.ok) {
+        if (!check.ok) {
+          await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
+          closeUpdateWindowSoon(3500);
+          return { action: 'error', error: check.error };
+        }
+        await setUpdateUi('Обновлений нет. Запускаем приложение…', 100);
+        closeUpdateWindowSoon(700);
+        return { action: 'no_update' };
+      }
+      if (!fallback.updateAvailable) {
+        await setUpdateUi('Обновлений нет. Запускаем приложение…', 100);
+        closeUpdateWindowSoon(700);
+        return { action: 'no_update' };
+      }
+      await setUpdateUi(`Найдена новая версия. Скачиваем…`, 5, fallback.version);
+      const ydl = await downloadYandexUpdate(fallback);
+      if (!ydl.ok || !ydl.filePath) {
+        await setUpdateUi(`Ошибка скачивания: ${ydl.error ?? 'unknown'}`, 100, fallback.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: ydl.error ?? 'download failed' };
+      }
+      lastDownloadedInstallerPath = ydl.filePath;
+      await setUpdateUi('Скачивание завершено. Готовим установку…', 60, fallback.version);
+      lockUpdateUi(true);
+      await setUpdateUi('Подготовка установщика…', 70, fallback.version);
+      const helper = await prepareUpdateHelper();
+      spawnUpdateHelper({
+        helperExePath: helper.helperExePath,
+        installerPath: ydl.filePath,
+        launchPath: helper.launchPath,
+        resourcesPath: helper.resourcesPath,
+        version: fallback.version,
+      });
+      await setUpdateUi('Запускаем установку…', 80, fallback.version);
+      return { action: 'update_started' };
     }
 
     await setUpdateUi(`Найдена новая версия. Скачиваем…`, 5, check.version);
@@ -171,8 +204,13 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     const latest = String((result as any)?.updateInfo?.version ?? '');
     const current = app.getVersion();
     const updateAvailable = latest ? compareSemver(latest, current) > 0 : false;
-    return { ok: true, updateAvailable, version: latest || undefined };
+    if (updateAvailable) return { ok: true, updateAvailable, version: latest || undefined, source: 'github' };
+    const y = await checkYandexForUpdates();
+    if (y.ok) return y;
+    return { ok: true, updateAvailable: false };
   } catch (e) {
+    const y = await checkYandexForUpdates().catch(() => null);
+    if (y) return y;
     return { ok: false, error: String(e) };
   }
 }
@@ -204,6 +242,88 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
 
 let lastDownloadedInstallerPath: string | null = null;
 
+type YandexUpdateInfo = { ok: true; updateAvailable: boolean; version?: string; path?: string; source: 'yandex' } | { ok: false; error: string };
+
+async function readReleaseInfo(): Promise<{ yandexPublicKey?: string; yandexBasePath?: string } | null> {
+  try {
+    const primary = join(app.getAppPath(), 'release-info.json');
+    const raw = await readFile(primary, 'utf8').catch(() => null);
+    if (raw) {
+      const json = JSON.parse(raw) as any;
+      return json?.update ?? null;
+    }
+    const fallback = join(process.resourcesPath, 'release-info.json');
+    const raw2 = await readFile(fallback, 'utf8').catch(() => null);
+    if (!raw2) return null;
+    const json = JSON.parse(raw2) as any;
+    return json?.update ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getYandexDownloadHref(publicKey: string, path: string): Promise<string | null> {
+  const url =
+    'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
+    new URLSearchParams({ public_key: publicKey, path }).toString();
+  const res = await net.fetch(url, { method: 'GET' });
+  if (!res.ok) return null;
+  const json = (await res.json().catch(() => null)) as any;
+  return typeof json?.href === 'string' ? json.href : null;
+}
+
+function parseLatestYml(text: string): { version?: string; path?: string } {
+  const ver = text.match(/^version:\s*["']?([^\n"']+)["']?/m)?.[1];
+  const path = text.match(/^path:\s*["']?([^\n"']+)["']?/m)?.[1];
+  return { version: ver?.trim(), path: path?.trim() };
+}
+
+async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdateInfo> {
+  const info = await readReleaseInfo();
+  const publicKey = String(info?.yandexPublicKey ?? '').trim();
+  const basePath = String(info?.yandexBasePath ?? '').trim();
+  if (!publicKey || !basePath) return { ok: false, error: 'yandex update is not configured' };
+  try {
+    const latestPath = `${basePath.replace(/\/+$/, '')}/latest.yml`;
+    const href = await getYandexDownloadHref(publicKey, latestPath);
+    if (!href) return { ok: false, error: 'yandex latest.yml not found' };
+    const res = await net.fetch(href);
+    if (!res.ok) return { ok: false, error: `yandex latest.yml HTTP ${res.status}` };
+    const text = await res.text();
+    const parsed = parseLatestYml(text);
+    const latest = parsed.version ?? '';
+    if (!latest) return { ok: false, error: 'yandex latest.yml missing version' };
+    const current = app.getVersion();
+    const updateAvailable = compareSemver(latest, current) > 0;
+    return { ok: true, updateAvailable, version: latest, path: parsed.path, source: 'yandex' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function downloadYandexUpdate(info: { version?: string; path?: string }) {
+  try {
+    const release = await readReleaseInfo();
+    const publicKey = String(release?.yandexPublicKey ?? '').trim();
+    const basePath = String(release?.yandexBasePath ?? '').trim();
+    if (!publicKey || !basePath) return { ok: false as const, error: 'yandex update is not configured' };
+    const fileName = info.path ?? '';
+    if (!fileName) return { ok: false as const, error: 'yandex latest.yml missing path' };
+    const filePath = `${basePath.replace(/\/+$/, '')}/${fileName}`;
+    const href = await getYandexDownloadHref(publicKey, filePath);
+    if (!href) return { ok: false as const, error: 'yandex installer not found' };
+    const res = await net.fetch(href);
+    if (!res.ok || !res.body) return { ok: false as const, error: `yandex download HTTP ${res.status}` };
+    const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
+    await mkdir(outDir, { recursive: true });
+    const outPath = join(outDir, fileName);
+    await pipeline(Readable.fromWeb(res.body as any), createWriteStream(outPath));
+    return { ok: true as const, filePath: outPath };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 async function waitForUpdateCheck(): Promise<UpdateCheckResult> {
   return await new Promise<UpdateCheckResult>((resolve) => {
     const cleanup = () => {
@@ -213,7 +333,7 @@ async function waitForUpdateCheck(): Promise<UpdateCheckResult> {
     };
     const onAvailable = (info: any) => {
       cleanup();
-      resolve({ ok: true, updateAvailable: true, version: String(info?.version ?? '') || undefined });
+      resolve({ ok: true, updateAvailable: true, version: String(info?.version ?? '') || undefined, source: 'github' });
     };
     const onNotAvailable = () => {
       cleanup();

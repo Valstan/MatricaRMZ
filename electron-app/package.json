@@ -52,7 +52,8 @@
     "files": [
       "dist/**",
       "drizzle/**",
-      "package.json"
+      "package.json",
+      "release-info.json"
     ],
     "win": {
       "target": [

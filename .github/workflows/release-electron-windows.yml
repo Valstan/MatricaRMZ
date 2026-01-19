@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Write release info (Yandex/GitHub)
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_FOLDER: ${{ secrets.YANDEX_DISK_FOLDER }}
+        run: node scripts/write-release-info.mjs
+
       - name: Build shared
         run: pnpm -C shared build
 
@@ -39,5 +45,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm -C electron-app exec electron-builder --win --x64 --publish always
+
+      - name: Upload artifacts to Yandex Disk
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_FOLDER: ${{ secrets.YANDEX_DISK_FOLDER }}
+        run: node scripts/upload-yandex-disk.mjs --dir electron-app/release
 
 
