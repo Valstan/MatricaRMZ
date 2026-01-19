@@ -32,7 +32,7 @@ jobs:
       - name: Write release info (Yandex/GitHub)
         env:
           YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
-          YANDEX_DISK_FOLDER: ${{ secrets.YANDEX_DISK_FOLDER }}
+          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
         run: node scripts/write-release-info.mjs
 
       - name: Build shared
@@ -49,7 +49,7 @@ jobs:
       - name: Upload artifacts to Yandex Disk
         env:
           YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
-          YANDEX_DISK_FOLDER: ${{ secrets.YANDEX_DISK_FOLDER }}
+          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
         run: node scripts/upload-yandex-disk.mjs --dir electron-app/release
 
 

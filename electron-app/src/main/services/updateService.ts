@@ -243,6 +243,7 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
 let lastDownloadedInstallerPath: string | null = null;
 
 type YandexUpdateInfo = { ok: true; updateAvailable: boolean; version?: string; path?: string; source: 'yandex' } | { ok: false; error: string };
+type YandexConfig = { publicKey: string; basePath: string };
 
 async function readReleaseInfo(): Promise<{ yandexPublicKey?: string; yandexBasePath?: string } | null> {
   try {
@@ -262,14 +263,69 @@ async function readReleaseInfo(): Promise<{ yandexPublicKey?: string; yandexBase
   }
 }
 
+function normalizePublicPath(p: string) {
+  const out = p.replaceAll('\\', '/').replace(/\/+$/, '');
+  return out.startsWith('/') ? out : `/${out}`;
+}
+
+function joinPosix(a: string, b: string) {
+  const aa = a.replaceAll('\\', '/').replace(/\/+$/, '');
+  const bb = b.replaceAll('\\', '/').replace(/^\/+/, '');
+  return `${aa}/${bb}`;
+}
+
+async function getYandexConfig(): Promise<YandexConfig | null> {
+  const fromEnvKey = process.env.MATRICA_UPDATE_YANDEX_PUBLIC_KEY?.trim();
+  const fromEnvPath = process.env.MATRICA_UPDATE_YANDEX_BASE_PATH?.trim();
+  if (fromEnvKey) {
+    return { publicKey: fromEnvKey, basePath: fromEnvPath ? normalizePublicPath(fromEnvPath) : 'latest' };
+  }
+  const info = await readReleaseInfo();
+  const publicKey = String(info?.yandexPublicKey ?? '').trim();
+  const basePath = String(info?.yandexBasePath ?? '').trim();
+  if (!publicKey) return null;
+  return { publicKey, basePath: basePath ? normalizePublicPath(basePath) : 'latest' };
+}
+
 async function getYandexDownloadHref(publicKey: string, path: string): Promise<string | null> {
   const url =
     'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
-    new URLSearchParams({ public_key: publicKey, path }).toString();
+    new URLSearchParams({ public_key: publicKey, path: normalizePublicPath(path) }).toString();
   const res = await net.fetch(url, { method: 'GET' });
   if (!res.ok) return null;
   const json = (await res.json().catch(() => null)) as any;
   return typeof json?.href === 'string' ? json.href : null;
+}
+
+async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<string[]> {
+  const api =
+    'https://cloud-api.yandex.net/v1/disk/public/resources?' +
+    new URLSearchParams({
+      public_key: publicKey,
+      path: normalizePublicPath(pathOnDisk),
+      limit: '200',
+    }).toString();
+  const r = await net.fetch(api);
+  if (!r.ok) throw new Error(`Yandex list failed ${r.status}`);
+  const json = (await r.json().catch(() => null)) as any;
+  const items = (json?._embedded?.items ?? []) as any[];
+  return items.map((x) => String(x?.name ?? '')).filter(Boolean);
+}
+
+function extractVersionFromFileName(fileName: string): string | null {
+  const m = fileName.match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
+function pickNewestInstaller(items: string[]): string | null {
+  const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
+  if (exes.length === 0) return null;
+  const parsed = exes
+    .map((n) => ({ n, v: extractVersionFromFileName(n) }))
+    .filter((x) => x.v);
+  if (parsed.length === 0) return exes[0];
+  parsed.sort((a, b) => compareSemver(b.v!, a.v!));
+  return parsed[0].n;
 }
 
 function parseLatestYml(text: string): { version?: string; path?: string } {
@@ -279,23 +335,34 @@ function parseLatestYml(text: string): { version?: string; path?: string } {
 }
 
 async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdateInfo> {
-  const info = await readReleaseInfo();
-  const publicKey = String(info?.yandexPublicKey ?? '').trim();
-  const basePath = String(info?.yandexBasePath ?? '').trim();
-  if (!publicKey || !basePath) return { ok: false, error: 'yandex update is not configured' };
+  const cfg = await getYandexConfig();
+  if (!cfg) return { ok: false, error: 'yandex update is not configured' };
+  const { publicKey, basePath } = cfg;
   try {
-    const latestPath = `${basePath.replace(/\/+$/, '')}/latest.yml`;
+    const latestPath = joinPosix(basePath, 'latest.yml');
     const href = await getYandexDownloadHref(publicKey, latestPath);
-    if (!href) return { ok: false, error: 'yandex latest.yml not found' };
-    const res = await net.fetch(href);
-    if (!res.ok) return { ok: false, error: `yandex latest.yml HTTP ${res.status}` };
-    const text = await res.text();
-    const parsed = parseLatestYml(text);
-    const latest = parsed.version ?? '';
-    if (!latest) return { ok: false, error: 'yandex latest.yml missing version' };
+    if (href) {
+      const res = await net.fetch(href);
+      if (res.ok) {
+        const text = await res.text();
+        const parsed = parseLatestYml(text);
+        const latest = parsed.version ?? '';
+        if (latest) {
+          const current = app.getVersion();
+          const updateAvailable = compareSemver(latest, current) > 0;
+          return { ok: true, updateAvailable, version: latest, path: parsed.path, source: 'yandex' };
+        }
+      }
+    }
+
+    const items = await listPublicFolder(publicKey, basePath);
+    const exe = pickNewestInstaller(items);
+    if (!exe) return { ok: false, error: 'no installer found in yandex folder' };
+    const version = extractVersionFromFileName(exe);
+    if (!version) return { ok: false, error: 'cannot extract version from installer name' };
     const current = app.getVersion();
-    const updateAvailable = compareSemver(latest, current) > 0;
-    return { ok: true, updateAvailable, version: latest, path: parsed.path, source: 'yandex' };
+    const updateAvailable = compareSemver(version, current) > 0;
+    return { ok: true, updateAvailable, version, path: exe, source: 'yandex' };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -303,13 +370,17 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
 
 async function downloadYandexUpdate(info: { version?: string; path?: string }) {
   try {
-    const release = await readReleaseInfo();
-    const publicKey = String(release?.yandexPublicKey ?? '').trim();
-    const basePath = String(release?.yandexBasePath ?? '').trim();
-    if (!publicKey || !basePath) return { ok: false as const, error: 'yandex update is not configured' };
-    const fileName = info.path ?? '';
-    if (!fileName) return { ok: false as const, error: 'yandex latest.yml missing path' };
-    const filePath = `${basePath.replace(/\/+$/, '')}/${fileName}`;
+    const cfg = await getYandexConfig();
+    if (!cfg) return { ok: false as const, error: 'yandex update is not configured' };
+    const { publicKey, basePath } = cfg;
+    let fileName = info.path ?? '';
+    if (!fileName) {
+      const items = await listPublicFolder(publicKey, basePath);
+      const exe = pickNewestInstaller(items);
+      if (!exe) return { ok: false as const, error: 'no installer found in yandex folder' };
+      fileName = exe;
+    }
+    const filePath = joinPosix(basePath, fileName);
     const href = await getYandexDownloadHref(publicKey, filePath);
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
     const res = await net.fetch(href);
