@@ -7,6 +7,7 @@ import { Input } from '../components/Input.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -121,6 +122,7 @@ export function EngineDetailsPage(props: {
   canEditOperations: boolean;
   canPrintEngineCard: boolean;
   canViewMasterData: boolean;
+  canEditMasterData: boolean;
   canExportReports?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
@@ -136,6 +138,7 @@ export function EngineDetailsPage(props: {
   const [sectionId, setSectionId] = useState(String(props.engine.attributes?.section_id ?? ''));
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
+  const typeIdByCode = useRef<Record<string, string>>({});
 
   const [newOpType, setNewOpType] = useState<string>('acceptance');
   const [newOpStatus, setNewOpStatus] = useState<string>('выполнено');
@@ -246,9 +249,10 @@ export function EngineDetailsPage(props: {
 
   async function loadLinkLists() {
     const types = await window.matrica.admin.entityTypes.list();
-    const typeIdByCode = new Map(types.map((t) => [t.code, t.id] as const));
+    typeIdByCode.current = Object.fromEntries(types.map((t) => [String(t.code), String(t.id)]));
+    const typeIdByCodeMap = new Map(types.map((t) => [t.code, t.id] as const));
     async function load(code: string, key: string) {
-      const tid = typeIdByCode.get(code);
+      const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
       const rows = await window.matrica.admin.entities.listByEntityType(tid);
       const opts = rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
@@ -267,6 +271,32 @@ export function EngineDetailsPage(props: {
     if (!props.canViewMasterData) return;
     void loadLinkLists();
   }, [props.canViewMasterData]);
+
+  async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
+    if (!props.canEditMasterData) return null;
+    const typeId = typeIdByCode.current[typeCode];
+    if (!typeId) {
+      setSaveStatus(`Справочник не найден: ${typeCode}`);
+      return null;
+    }
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created.ok || !created.id) {
+      setSaveStatus(`Ошибка создания: ${typeCode}`);
+      return null;
+    }
+    const attrByType: Record<string, string> = {
+      engine_brand: 'name',
+      customer: 'name',
+      contract: 'number',
+      work_order: 'number',
+      workshop: 'name',
+      section: 'name',
+    };
+    const attr = attrByType[typeCode] ?? 'name';
+    await window.matrica.admin.entities.setAttr(created.id, attr, label);
+    await loadLinkLists();
+    return created.id;
+  }
 
   return (
     <div>
@@ -299,10 +329,12 @@ export function EngineDetailsPage(props: {
           />
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
           {(linkLists.engine_brand ?? []).length > 0 ? (
-            <SearchSelect
+            <SearchSelectWithCreate
               value={engineBrandId || null}
               options={linkLists.engine_brand ?? []}
               disabled={!props.canEditEngines}
+              canCreate={props.canEditMasterData}
+              createLabel="Новая марка двигателя"
               onChange={(next) => {
                 const nextId = next ?? '';
                 const label = next ? (linkLists.engine_brand ?? []).find((o) => o.id === next)?.label ?? '' : '';
@@ -311,6 +343,15 @@ export function EngineDetailsPage(props: {
                 void saveAttr('engine_brand_id', next || null);
                 if (next) void saveAttr('engine_brand', label || null);
                 else void saveAttr('engine_brand', null);
+              }}
+              onCreate={async (label) => {
+                const id = await createMasterDataItem('engine_brand', label);
+                if (!id) return null;
+                setEngineBrandId(id);
+                setEngineBrand(label);
+                void saveAttr('engine_brand_id', id);
+                void saveAttr('engine_brand', label);
+                return id;
               }}
             />
           ) : (
@@ -326,15 +367,18 @@ export function EngineDetailsPage(props: {
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Заказчик</div>
-          <SearchSelect
+          <SearchSelectWithCreate
             value={customerId || null}
             options={linkLists.customer_id ?? []}
             disabled={!props.canEditEngines}
+            canCreate={props.canEditMasterData}
+            createLabel="Новый заказчик"
             onChange={(next) => {
               const v = next ?? '';
               setCustomerId(v);
               void saveAttr('customer_id', next ?? null);
             }}
+            onCreate={async (label) => createMasterDataItem('customer', label)}
           />
             </>
           )}
@@ -342,15 +386,18 @@ export function EngineDetailsPage(props: {
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Контракт</div>
-          <SearchSelect
+          <SearchSelectWithCreate
             value={contractId || null}
             options={linkLists.contract_id ?? []}
             disabled={!props.canEditEngines}
+            canCreate={props.canEditMasterData}
+            createLabel="Номер контракта"
             onChange={(next) => {
               const v = next ?? '';
               setContractId(v);
               void saveAttr('contract_id', next ?? null);
             }}
+            onCreate={async (label) => createMasterDataItem('contract', label)}
           />
             </>
           )}
@@ -358,15 +405,18 @@ export function EngineDetailsPage(props: {
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Наряд</div>
-          <SearchSelect
+          <SearchSelectWithCreate
             value={workOrderId || null}
             options={linkLists.work_order_id ?? []}
             disabled={!props.canEditEngines}
+            canCreate={props.canEditMasterData}
+            createLabel="Номер наряда"
             onChange={(next) => {
               const v = next ?? '';
               setWorkOrderId(v);
               void saveAttr('work_order_id', next ?? null);
             }}
+            onCreate={async (label) => createMasterDataItem('work_order', label)}
           />
             </>
           )}
@@ -374,15 +424,18 @@ export function EngineDetailsPage(props: {
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Цех</div>
-          <SearchSelect
+          <SearchSelectWithCreate
             value={workshopId || null}
             options={linkLists.workshop_id ?? []}
             disabled={!props.canEditEngines}
+            canCreate={props.canEditMasterData}
+            createLabel="Новый цех"
             onChange={(next) => {
               const v = next ?? '';
               setWorkshopId(v);
               void saveAttr('workshop_id', next ?? null);
             }}
+            onCreate={async (label) => createMasterDataItem('workshop', label)}
           />
             </>
           )}
@@ -390,15 +443,18 @@ export function EngineDetailsPage(props: {
           {props.canViewMasterData && (
             <>
           <div style={{ color: '#6b7280' }}>Участок</div>
-          <SearchSelect
+          <SearchSelectWithCreate
             value={sectionId || null}
             options={linkLists.section_id ?? []}
             disabled={!props.canEditEngines}
+            canCreate={props.canEditMasterData}
+            createLabel="Новый участок"
             onChange={(next) => {
               const v = next ?? '';
               setSectionId(v);
               void saveAttr('section_id', next ?? null);
             }}
+            onCreate={async (label) => createMasterDataItem('section', label)}
           />
             </>
           )}

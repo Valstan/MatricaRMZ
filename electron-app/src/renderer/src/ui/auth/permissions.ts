@@ -26,6 +26,7 @@ export type UiCaps = {
   canEditMasterData: boolean;
   canManageUsers: boolean;
   canViewAudit: boolean;
+  canManageEmployees: boolean;
 
   canViewFiles: boolean;
   canUploadFiles: boolean;
@@ -72,6 +73,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canCreateParts = has(perms, 'parts.create');
   const canEditParts = has(perms, 'parts.edit');
   const canDeleteParts = has(perms, 'parts.delete');
+  const canManageEmployees = has(perms, 'employees.create');
 
   return {
     canViewEngines,
@@ -95,6 +97,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canEditMasterData,
     canManageUsers,
     canViewAudit,
+    canManageEmployees,
 
     canViewFiles,
     canUploadFiles,

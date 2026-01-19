@@ -277,6 +277,22 @@ export function App() {
                       onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))}
                       placeholder="пароль"
                     />
+                    <div
+                      style={{
+                        marginTop: -4,
+                        fontSize: 12,
+                        color: registerForm.password
+                          ? registerForm.password.trim().length >= 6
+                            ? 'var(--success)'
+                            : 'var(--danger)'
+                          : 'var(--muted)',
+                      }}
+                    >
+                      Минимум 6 символов
+                    </div>
+                    {registerForm.password && registerForm.password.trim().length < 6 && (
+                      <div style={{ marginTop: -4, fontSize: 12, color: 'var(--danger)' }}>Пароль слишком короткий</div>
+                    )}
                     <Input
                       value={registerForm.fullName}
                       onChange={(e) => setRegisterForm((p) => ({ ...p, fullName: e.target.value }))}
@@ -305,6 +321,7 @@ export function App() {
                     await refreshMe();
                     setRegisterForm({ login: '', password: '', fullName: '', position: '' });
                   }}
+                  disabled={authMode === 'register' && registerForm.password.trim().length < 6}
                 >
                   {authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}
                 </Button>

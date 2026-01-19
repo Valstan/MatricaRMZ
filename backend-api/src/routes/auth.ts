@@ -52,13 +52,36 @@ authRouter.post('/login', async (req, res) => {
     const username = parsed.data.username.trim().toLowerCase();
     const password = parsed.data.password;
 
-    const u = await getEmployeeAuthByLogin(username);
+    let u = await getEmployeeAuthByLogin(username);
+    const isBootstrapSuperadmin = isSuperadminLogin(username) && (!u || !u.passwordHash);
+    if (isBootstrapSuperadmin) {
+      const employeeTypeId = await getEmployeeTypeId();
+      if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'employee type not found' });
+      await ensureEmployeeAuthDefs();
+      const ts = Date.now();
+      const employeeId = u?.id ?? randomUUID();
+      if (!u) {
+        await db.insert(entities).values({
+          id: employeeId,
+          typeId: employeeTypeId,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        });
+      }
+      const passwordHash = await hashPassword(password);
+      await setEmployeeAuth(employeeId, { login: username, passwordHash, systemRole: 'superadmin', accessEnabled: true });
+      u = await getEmployeeAuthById(employeeId);
+    }
+
     if (!u || !u.accessEnabled || !u.passwordHash) return res.status(401).json({ ok: false, error: 'invalid credentials' });
 
     const ok = await verifyPassword(password, u.passwordHash);
     if (!ok) return res.status(401).json({ ok: false, error: 'invalid credentials' });
 
     const role = normalizeRole(u.login, u.systemRole);
+    if (role === 'employee') return res.status(403).json({ ok: false, error: 'employee has no access' });
     const authUser: AuthUser = { id: u.id, username: u.login, role };
     const accessToken = await signAccessToken(authUser);
     const permissions = await getEffectivePermissionsForUser(u.id);
@@ -241,6 +264,7 @@ authRouter.post('/refresh', async (req, res) => {
     if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'user disabled' });
 
     const role = normalizeRole(u.login, u.systemRole);
+    if (role === 'employee') return res.status(403).json({ ok: false, error: 'employee has no access' });
     const authUser: AuthUser = { id: u.id, username: u.login, role };
     const accessToken = await signAccessToken(authUser);
     const permissions = await getEffectivePermissionsForUser(u.id);

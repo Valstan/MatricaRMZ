@@ -1330,6 +1330,31 @@ function FieldEditor(props: {
   onSave: (v: unknown) => Promise<void>;
 }) {
   const dt = props.def.dataType;
+  const linkTargetTypeCode = useMemo(() => {
+    if (!props.def.metaJson) return '';
+    try {
+      const json = JSON.parse(String(props.def.metaJson));
+      return typeof json?.linkTargetTypeCode === 'string' ? json.linkTargetTypeCode : '';
+    } catch {
+      return '';
+    }
+  }, [props.def.metaJson]);
+
+  async function createLinkedEntity(label: string): Promise<string | null> {
+    if (!linkTargetTypeCode) return null;
+    const types = await window.matrica.admin.entityTypes.list();
+    const target = types.find((t) => String((t as any).code) === linkTargetTypeCode) ?? null;
+    if (!target?.id) return null;
+    const created = await window.matrica.admin.entities.create(String(target.id));
+    if (!created.ok || !created.id) return null;
+    const defs = await window.matrica.admin.attributeDefs.listByEntityType(String(target.id));
+    const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
+    const labelDef = defs.find((d) => labelKeys.includes(String((d as any).code))) ?? null;
+    if (labelDef?.code) {
+      await window.matrica.admin.entities.setAttr(created.id, String(labelDef.code), label);
+    }
+    return created.id;
+  }
 
   // date хранится как ms number (unix ms).
   const toInputDate = (ms: number) => {
@@ -1440,6 +1465,18 @@ function FieldEditor(props: {
           props.onChange(next);
           void props.onSave(next);
         }}
+        onCreate={
+          props.canEdit && linkTargetTypeCode
+            ? async (label) => {
+                const id = await createLinkedEntity(label);
+                if (!id) return null;
+                props.onChange(id);
+                void props.onSave(id);
+                return id;
+              }
+            : undefined
+        }
+        createLabel={linkTargetTypeCode ? `Новая запись (${linkTargetTypeCode})` : undefined}
       />
     );
   }

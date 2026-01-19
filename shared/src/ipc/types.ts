@@ -372,7 +372,14 @@ export type MatricaApi = {
         | { ok: true; users: { id: string; username: string; login?: string; fullName?: string; role: string; isActive: boolean }[] }
         | { ok: false; error: string }
       >;
-      create: (args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean }) => Promise<
+      create: (args: {
+        login: string;
+        password: string;
+        role: string;
+        fullName?: string;
+        accessEnabled?: boolean;
+        employeeId?: string;
+      }) => Promise<
         | { ok: true; id: string }
         | { ok: false; error: string }
       >;
@@ -431,6 +438,13 @@ export type MatricaApi = {
       }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       delegationRevoke: (args: { id: string; note?: string }) => Promise<{ ok: boolean; error?: string }>;
     };
+  };
+  employees: {
+    list: () => Promise<EntityListItem[]>;
+    get: (id: string) => Promise<EntityDetails>;
+    create: () => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    setAttr: (employeeId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
+    departmentsList: () => Promise<EntityListItem[]>;
   };
   update: {
     check: () => Promise<UpdateCheckResult>;

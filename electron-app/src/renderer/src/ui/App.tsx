@@ -16,6 +16,8 @@ import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
 import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
 import { PartsPage } from './pages/PartsPage.js';
 import { PartDetailsPage } from './pages/PartDetailsPage.js';
+import { EmployeesPage } from './pages/EmployeesPage.js';
+import { EmployeeDetailsPage } from './pages/EmployeeDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
@@ -39,6 +41,7 @@ export function App() {
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
@@ -89,6 +92,7 @@ export function App() {
     setOps([]);
     setSelectedRequestId(null);
     setSelectedPartId(null);
+    setSelectedEmployeeId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
 
   async function refreshServerHealth() {
@@ -235,12 +239,14 @@ export function App() {
         canManageUsers: false,
         canEditMasterData: false,
         canViewParts: false,
+        canManageEmployees: false,
       }
     : capsBase;
-  const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[] = [
+  const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>[] = [
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
+    ...(caps.canManageEmployees ? (['employees'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
@@ -248,7 +254,7 @@ export function App() {
     ...(caps.canManageUsers ? (['admin'] as const) : []),
   ];
   const visibleTabsKey = visibleTabs.join('|');
-  const userTab: Exclude<TabId, 'engine' | 'request' | 'part'> = authStatus.loggedIn ? 'settings' : 'auth';
+  const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'> = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -290,7 +296,7 @@ export function App() {
 
   // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
   useEffect(() => {
-    if (tab === 'engine' || tab === 'request' || tab === 'part') return;
+    if (tab === 'engine' || tab === 'request' || tab === 'part' || tab === 'employee') return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
   }, [tab, visibleTabsKey, userTab]);
@@ -336,6 +342,11 @@ export function App() {
   async function openPart(id: string) {
     setSelectedPartId(id);
     setTab('part');
+  }
+
+  async function openEmployee(id: string) {
+    setSelectedEmployeeId(id);
+    setTab('employee');
   }
 
   async function navigateDeepLink(link: any) {
@@ -401,6 +412,10 @@ export function App() {
             ? 'Матрица РМЗ — Детали'
             : tab === 'part'
               ? 'Матрица РМЗ — Карточка детали'
+          : tab === 'employees'
+            ? 'Матрица РМЗ — Сотрудники'
+            : tab === 'employee'
+              ? 'Матрица РМЗ — Карточка сотрудника'
         : tab === 'auth'
           ? 'Матрица РМЗ — Вход'
         : tab === 'settings'
@@ -588,6 +603,7 @@ export function App() {
             canEditOperations={caps.canEditOperations}
             canPrintEngineCard={caps.canPrintReports}
             canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
@@ -605,6 +621,7 @@ export function App() {
             canFulfill={caps.canFulfillSupplyRequests}
             canPrint={caps.canPrintSupplyRequests}
             canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
           />
@@ -620,6 +637,16 @@ export function App() {
           />
         )}
 
+        {tab === 'employees' && (
+          <EmployeesPage
+            onOpen={async (id) => {
+              setSelectedEmployeeId(id);
+              setTab('employee');
+            }}
+            canCreate={caps.canManageEmployees}
+          />
+        )}
+
         {tab === 'part' && selectedPartId && (
           <PartDetailsPage
             key={selectedPartId}
@@ -628,6 +655,18 @@ export function App() {
             canDelete={caps.canDeleteParts}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+          />
+        )}
+
+        {tab === 'employee' && selectedEmployeeId && (
+          <EmployeeDetailsPage
+            key={selectedEmployeeId}
+            employeeId={selectedEmployeeId}
+            canEdit={caps.canManageEmployees}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            canManageUsers={caps.canManageUsers}
+            me={authStatus.user}
           />
         )}
 
@@ -680,6 +719,10 @@ export function App() {
 
         {tab === 'part' && !selectedPartId && (
           <div style={{ color: 'var(--muted)' }}>Выберите деталь из списка.</div>
+        )}
+
+        {tab === 'employee' && !selectedEmployeeId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите сотрудника из списка.</div>
         )}
           </div>
         </div>

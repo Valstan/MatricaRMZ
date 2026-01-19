@@ -59,7 +59,7 @@ function ensureManageAllowed(args: {
     return { ok: false as const, error: 'superadmin role is immutable' };
   }
 
-  if (actorLevel === 1 && targetLevel > 0) {
+  if (actorLevel === 1 && (targetLevel > 0 || args.targetRole === 'employee')) {
     return { ok: false as const, error: 'admin can manage only users' };
   }
 
@@ -112,6 +112,9 @@ adminUsersRouter.post('/users', async (req, res) => {
     const actorLevel = roleLevel(actorRole);
     if (actorLevel < 1) return res.status(403).json({ ok: false, error: 'admin only' });
     if (actorLevel === 1 && role !== 'user') return res.status(403).json({ ok: false, error: 'admin can create only users' });
+    if (role === 'employee' && actorLevel < 2) {
+      return res.status(403).json({ ok: false, error: 'superadmin only' });
+    }
     if (isSuperadminLogin(login) && actorLevel < 2) {
       return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
     }
@@ -248,6 +251,9 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
 
     if (actorRole === 'admin' && parsed.data.role && parsed.data.role.trim().toLowerCase() !== 'user') {
       return res.status(403).json({ ok: false, error: 'admin can assign only user role' });
+    }
+    if (parsed.data.role && parsed.data.role.trim().toLowerCase() === 'employee' && roleLevel(actorRole) < 2) {
+      return res.status(403).json({ ok: false, error: 'superadmin only' });
     }
 
     if (parsed.data.password) {

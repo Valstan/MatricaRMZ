@@ -7,6 +7,7 @@ import { getEmployeeAuthById, isSuperadminLogin, normalizeRole } from '../servic
 export const PermissionCode = {
   // system / admin
   AdminUsersManage: 'admin.users.manage',
+  EmployeesCreate: 'employees.create',
 
   // master-data (EAV справочники)
   MasterDataView: 'masterdata.view',
@@ -84,6 +85,11 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     return all;
   }
 
+  // employee: no access to the app
+  if (r === 'employee') {
+    return {};
+  }
+
   // user: по новой политике — все права включены по умолчанию,
   // а админ уже отключает лишнее. Исключение: управление пользователями
   // доступно только role=admin.
@@ -98,6 +104,7 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   if (r === 'pending') {
     return {
       [PermissionCode.ChatUse]: true,
+      [PermissionCode.SyncUse]: true,
     };
   }
 

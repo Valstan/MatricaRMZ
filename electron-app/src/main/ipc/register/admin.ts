@@ -154,7 +154,10 @@ export function registerAdminIpc(ctx: IpcContext) {
   });
   ipcMain.handle(
     'admin:users:create',
-    async (_e, args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean }) => {
+    async (
+      _e,
+      args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean; employeeId?: string },
+    ) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminCreateUser(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);

@@ -14,6 +14,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     descriptionRu: 'Доступ к созданию пользователей, изменению ролей и настройке прав доступа.',
     adminOnly: true,
   },
+  { code: 'employees.create', group: 'Сотрудники', titleRu: 'Добавление сотрудников' },
   { code: 'masterdata.view', group: 'Справочники', titleRu: 'Просмотр справочников (мастер-данные)' },
   { code: 'masterdata.edit', group: 'Справочники', titleRu: 'Редактирование справочников (мастер-данные)' },
   { code: 'engines.view', group: 'Двигатели', titleRu: 'Просмотр двигателей' },

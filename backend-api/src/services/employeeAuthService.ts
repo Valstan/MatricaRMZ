@@ -99,11 +99,16 @@ async function ensureSectionEntity(sectionNameRaw: string): Promise<string | nul
   return id;
 }
 
-export function normalizeRole(login: string, systemRole: string | null | undefined): 'superadmin' | 'admin' | 'user' | 'pending' {
+export function normalizeRole(
+  login: string,
+  systemRole: string | null | undefined,
+): 'superadmin' | 'admin' | 'user' | 'pending' | 'employee' {
   const l = normalizeLogin(login);
   if (l === SUPERADMIN_LOGIN) return 'superadmin';
   const r = String(systemRole ?? '').toLowerCase();
+  if (r === 'superadmin') return 'superadmin';
   if (r === 'pending') return 'pending';
+  if (r === 'employee') return 'employee';
   return r === 'admin' ? 'admin' : 'user';
 }
 
@@ -481,6 +486,8 @@ export function isSuperadminLogin(login: string) {
 export async function getSuperadminUserId(): Promise<string | null> {
   const list = await listEmployeesAuth().catch(() => null);
   if (!list || !list.ok) return null;
-  const row = list.rows.find((r) => isSuperadminLogin(r.login));
-  return row?.id ? String(row.id) : null;
+  const byRole = list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin');
+  if (byRole?.id) return String(byRole.id);
+  const byLogin = list.rows.find((r) => isSuperadminLogin(r.login));
+  return byLogin?.id ? String(byLogin.id) : null;
 }

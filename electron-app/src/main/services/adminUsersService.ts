@@ -23,7 +23,7 @@ export async function adminListUsers(db: BetterSQLite3Database, apiBaseUrl: stri
 export async function adminCreateUser(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean },
+  args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean; employeeId?: string },
 ) {
   const r = await httpAuthed(db, apiBaseUrl, '/admin/users', {
     method: 'POST',

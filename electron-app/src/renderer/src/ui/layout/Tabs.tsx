@@ -10,6 +10,8 @@ export type TabId =
   | 'request'
   | 'parts'
   | 'part'
+  | 'employees'
+  | 'employee'
   | 'changes'
   | 'auth'
   | 'reports'
@@ -20,14 +22,14 @@ export type TabId =
 
 export function Tabs(props: {
   tab: TabId;
-  onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part'>) => void;
-  visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part'>[];
+  onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>) => void;
+  visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>[];
   userLabel: string;
-  userTab: Exclude<TabId, 'engine' | 'request' | 'part'>;
+  userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>;
   authStatus?: { online: boolean | null };
   right?: React.ReactNode;
 }) {
-  function tabButton(id: Exclude<TabId, 'engine' | 'request' | 'part'>, label: string) {
+  function tabButton(id: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>, label: string) {
     const acc = theme.accents[tabAccent(id)];
     const active = props.tab === id;
     return (
@@ -78,6 +80,7 @@ export function Tabs(props: {
       {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
       {props.visibleTabs.includes('requests') && tabButton('requests', 'Заявки')}
       {props.visibleTabs.includes('parts') && tabButton('parts', 'Детали')}
+      {props.visibleTabs.includes('employees') && tabButton('employees', 'Сотрудники')}
       {props.visibleTabs.includes('reports') && tabButton('reports', 'Отчёты')}
       <span style={{ flex: 1 }} />
       {props.visibleTabs.includes('audit') && tabButton('audit', 'Журнал')}

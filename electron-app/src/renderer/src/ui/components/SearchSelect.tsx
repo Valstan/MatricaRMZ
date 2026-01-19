@@ -8,6 +8,8 @@ export function SearchSelect(props: {
   placeholder?: string;
   disabled?: boolean;
   onChange: (next: string | null) => void;
+  onCreate?: (label: string) => Promise<string | null>;
+  createLabel?: string;
 }) {
   const disabled = props.disabled === true;
   const [open, setOpen] = useState(false);
@@ -263,6 +265,27 @@ export function SearchSelect(props: {
                 </div>
               );
             })}
+            {props.onCreate && (
+              <div
+                onClick={async () => {
+                  const label = window.prompt(props.createLabel ?? 'Добавить');
+                  if (!label?.trim()) return;
+                  const id = await props.onCreate?.(label.trim());
+                  if (!id) return;
+                  props.onChange(id);
+                  close();
+                }}
+                style={{
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  borderTop: '1px dashed var(--border)',
+                  background: 'transparent',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: 'var(--text)' }}>+ Добавить</div>
+                {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)' }}>{props.createLabel}</div>}
+              </div>
+            )}
           </div>
         </div>
       )}

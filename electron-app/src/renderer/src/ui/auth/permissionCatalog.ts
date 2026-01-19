@@ -17,6 +17,8 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     adminOnly: true,
   },
 
+  { code: 'employees.create', group: 'Сотрудники', titleRu: 'Добавление сотрудников' },
+
   { code: 'masterdata.view', group: 'Справочники', titleRu: 'Просмотр справочников (мастер-данные)' },
   { code: 'masterdata.edit', group: 'Справочники', titleRu: 'Редактирование справочников (мастер-данные)' },
 

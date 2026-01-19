@@ -31,6 +31,7 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   const [regPosition, setRegPosition] = useState('');
   const [msg, setMsg] = useState<string>('');
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
+  const regPasswordValid = regPassword.trim().length >= 6;
 
   async function refresh() {
     const s = await window.matrica.auth.status();
@@ -131,7 +132,20 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                   <div style={{ color: 'var(--muted)' }}>Логин</div>
                   <Input value={regLogin} onChange={(e) => setRegLogin(e.target.value)} placeholder="username" />
                   <div style={{ color: 'var(--muted)' }}>Пароль</div>
-                  <Input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="password" />
+                  <div>
+                    <Input
+                      type="password"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="password"
+                    />
+                    <div style={{ marginTop: 4, fontSize: 12, color: regPassword ? (regPasswordValid ? 'var(--success)' : 'var(--danger)') : 'var(--muted)' }}>
+                      Минимум 6 символов
+                    </div>
+                    {!regPasswordValid && regPassword && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--danger)' }}>Пароль слишком короткий</div>
+                    )}
+                  </div>
                   <div style={{ color: 'var(--muted)' }}>ФИО</div>
                   <Input value={regFullName} onChange={(e) => setRegFullName(e.target.value)} placeholder="Фамилия Имя Отчество" />
                   <div style={{ color: 'var(--muted)' }}>Должность</div>
@@ -171,6 +185,7 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                   setMsg('OK: регистрация выполнена.');
                   await refresh();
                 }}
+                disabled={mode === 'register' && !regPasswordValid}
               >
                 {mode === 'login' ? 'Войти' : 'Зарегистрироваться'}
               </Button>

@@ -53,6 +53,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     accessEnabled: true,
   });
   const [resetPassword, setResetPassword] = useState<string>('');
+  const [editLogin, setEditLogin] = useState<string>('');
   const [pendingMergeTargets, setPendingMergeTargets] = useState<Record<string, string>>({});
   const [pendingRoles, setPendingRoles] = useState<Record<string, 'user' | 'admin'>>({});
 
@@ -96,6 +97,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     void openUser(selectedUserId);
   }, [canManageUsers, selectedUserId]);
 
+  useEffect(() => {
+    setEditLogin(selectedUser?.login ?? '');
+  }, [selectedUser?.id, selectedUser?.login]);
+
   const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
   const selectedRole = String(selectedUser?.role ?? 'user').toLowerCase();
   const selectedIsSelf = !!me && selectedUserId === me.id;
@@ -104,6 +109,9 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const canEditPermissions = !selectedIsSelf && !adminLocked;
   const canEditPassword = !adminLocked;
   const canCreateAdmin = meRole === 'superadmin';
+  const canCreateEmployee = meRole === 'superadmin';
+  const canEditRole = canEditRoleOrAccess && !(meRole === 'admin' && selectedRole === 'employee');
+  const canEditLogin = !selectedIsSelf && !adminLocked && !(meRole === 'admin' && selectedRole === 'employee');
 
   return (
     <div>
@@ -224,6 +232,9 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                   style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
                 >
                   <option value="user">user</option>
+                  <option value="employee" disabled={!canCreateEmployee}>
+                    employee
+                  </option>
                   <option value="admin" disabled={!canCreateAdmin}>
                     admin
                   </option>
@@ -290,55 +301,90 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               </div>
 
               {selectedUserId && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <select
-                    value={selectedUser?.role ?? 'user'}
-                    onChange={async (e) => {
-                      const role = e.target.value;
-                      setStatus('Обновление роли...');
-                      const r = await adminUsers.updateUser(selectedUserId, { role });
-                      setStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
-                      await refreshUsers();
-                      await openUser(selectedUserId);
-                    }}
-                    disabled={!canEditRoleOrAccess}
-                    style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-                  >
-                    <option value="user">user</option>
-                    <option value="admin" disabled={!canCreateAdmin}>
-                      admin
-                    </option>
-                  </select>
-
-                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedUser?.isActive ?? true}
-                      onChange={async (e) => {
-                        setStatus('Обновление активности...');
-                        const r = await adminUsers.updateUser(selectedUserId, { accessEnabled: e.target.checked });
-                        setStatus(r.ok ? 'Активность обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
+                <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', gap: 10, alignItems: 'center' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      Логин
+                    </div>
+                    <Input value={editLogin} onChange={(e) => setEditLogin(e.target.value)} placeholder="логин" />
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        const next = editLogin.trim().toLowerCase();
+                        if (!next) return;
+                        setStatus('Смена логина...');
+                        const r = await adminUsers.updateUser(selectedUserId, { login: next });
+                        setStatus(r.ok ? 'Логин обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
                         await refreshUsers();
+                        await openUser(selectedUserId);
                       }}
-                      disabled={!canEditRoleOrAccess}
-                    />
-                    активен
-                  </label>
+                      disabled={!canEditLogin || !editLogin.trim()}
+                    >
+                      Сохранить
+                    </Button>
+                  </div>
 
-                  <Input value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} placeholder="новый пароль (опц.)" />
-                  <Button
-                    variant="ghost"
-                    onClick={async () => {
-                      if (!resetPassword.trim()) return;
-                      setStatus('Смена пароля...');
-                      const r = await adminUsers.updateUser(selectedUserId, { password: resetPassword });
-                      setStatus(r.ok ? 'Пароль обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                      setResetPassword('');
-                    }}
-                    disabled={!canEditPassword}
-                  >
-                    Сменить пароль
-                  </Button>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                      Роль
+                      <select
+                        value={selectedRole}
+                        onChange={async (e) => {
+                          const role = e.target.value;
+                          setStatus('Обновление роли...');
+                          const r = await adminUsers.updateUser(selectedUserId, { role });
+                          setStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
+                          await refreshUsers();
+                          await openUser(selectedUserId);
+                        }}
+                        disabled={!canEditRole}
+                        style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                      >
+                        <option value="user">user</option>
+                        <option value="employee" disabled={!canCreateEmployee}>
+                          employee
+                        </option>
+                        <option value="admin" disabled={!canCreateAdmin}>
+                          admin
+                        </option>
+                        <option value="superadmin" disabled>
+                          superadmin
+                        </option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUser?.isActive ?? true}
+                        onChange={async (e) => {
+                          setStatus('Обновление активности...');
+                          const r = await adminUsers.updateUser(selectedUserId, { accessEnabled: e.target.checked });
+                          setStatus(r.ok ? 'Активность обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
+                          await refreshUsers();
+                        }}
+                        disabled={!canEditRoleOrAccess}
+                      />
+                      активен
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Input value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} placeholder="новый пароль (опц.)" />
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        if (!resetPassword.trim()) return;
+                        setStatus('Смена пароля...');
+                        const r = await adminUsers.updateUser(selectedUserId, { password: resetPassword });
+                        setStatus(r.ok ? 'Пароль обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                        setResetPassword('');
+                      }}
+                      disabled={!canEditPassword}
+                    >
+                      Сменить пароль
+                    </Button>
+                  </div>
                 </div>
               )}
 

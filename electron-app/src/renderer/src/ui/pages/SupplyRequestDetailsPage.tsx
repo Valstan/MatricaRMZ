@@ -5,6 +5,7 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 
 type LinkOpt = { id: string; label: string };
@@ -206,6 +207,7 @@ export function SupplyRequestDetailsPage(props: {
   canFulfill: boolean;
   canPrint: boolean;
   canViewMasterData: boolean;
+  canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
 }) {
@@ -214,6 +216,7 @@ export function SupplyRequestDetailsPage(props: {
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
+  const typeIdByCode = useRef<Record<string, string>>({});
   const [productOptions, setProductOptions] = useState<{ name: string; unit: string }[]>([]);
 
   const saveTimer = useRef<any>(null);
@@ -270,9 +273,10 @@ export function SupplyRequestDetailsPage(props: {
   async function loadLinkLists() {
     if (!props.canViewMasterData) return;
     const types = await window.matrica.admin.entityTypes.list();
-    const typeIdByCode = new Map(types.map((t) => [t.code, t.id] as const));
+    typeIdByCode.current = Object.fromEntries(types.map((t) => [String(t.code), String(t.id)]));
+    const typeIdByCodeMap = new Map(types.map((t) => [t.code, t.id] as const));
     async function loadType(code: string, key: string) {
-      const tid = typeIdByCode.get(code);
+      const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
       const rows = await window.matrica.admin.entities.listByEntityType(tid);
       const opts = rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
@@ -306,6 +310,23 @@ export function SupplyRequestDetailsPage(props: {
     void load();
     void loadLinkLists();
   }, [props.id]);
+
+  async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
+    if (!props.canEditMasterData) return null;
+    const typeId = typeIdByCode.current[typeCode];
+    if (!typeId) return null;
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created.ok || !created.id) return null;
+    const attrByType: Record<string, string> = {
+      department: 'name',
+      workshop: 'name',
+      section: 'name',
+    };
+    const attr = attrByType[typeCode] ?? 'name';
+    await window.matrica.admin.entities.setAttr(created.id, attr, label);
+    await loadLinkLists();
+    return created.id;
+  }
 
   async function saveNow(next: SupplyRequestPayload) {
     if (!props.canEdit) return;
@@ -481,11 +502,14 @@ export function SupplyRequestDetailsPage(props: {
 
           <div style={{ color: '#6b7280' }}>Подразделение</div>
           {props.canViewMasterData ? (
-            <SearchSelect
+            <SearchSelectWithCreate
               value={payload.departmentId || null}
               options={linkLists.departmentId ?? []}
               disabled={!props.canEdit}
+              canCreate={props.canEditMasterData}
+              createLabel="Новое подразделение"
               onChange={(next) => scheduleSave({ ...payload, departmentId: next ?? '' })}
+              onCreate={async (label) => createMasterDataItem('department', label)}
             />
           ) : (
             <Input value={payload.departmentId} disabled />
@@ -493,11 +517,14 @@ export function SupplyRequestDetailsPage(props: {
 
           <div style={{ color: '#6b7280' }}>Цех</div>
           {props.canViewMasterData ? (
-            <SearchSelect
+            <SearchSelectWithCreate
               value={payload.workshopId ?? null}
               options={linkLists.workshopId ?? []}
               disabled={!props.canEdit}
+              canCreate={props.canEditMasterData}
+              createLabel="Новый цех"
               onChange={(next) => scheduleSave({ ...payload, workshopId: next ?? null })}
+              onCreate={async (label) => createMasterDataItem('workshop', label)}
             />
           ) : (
             <Input value={payload.workshopId ?? ''} disabled />
@@ -505,11 +532,14 @@ export function SupplyRequestDetailsPage(props: {
 
           <div style={{ color: '#6b7280' }}>Участок</div>
           {props.canViewMasterData ? (
-            <SearchSelect
+            <SearchSelectWithCreate
               value={payload.sectionId ?? null}
               options={linkLists.sectionId ?? []}
               disabled={!props.canEdit}
+              canCreate={props.canEditMasterData}
+              createLabel="Новый участок"
               onChange={(next) => scheduleSave({ ...payload, sectionId: next ?? null })}
+              onCreate={async (label) => createMasterDataItem('section', label)}
             />
           ) : (
             <Input value={payload.sectionId ?? ''} disabled />

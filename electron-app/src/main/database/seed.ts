@@ -174,9 +174,20 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(productTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Employee
-  await ensureAttrDef(employeeTypeId, 'full_name', 'ФИО', AttributeDataType.Text, 10);
-  await ensureAttrDef(employeeTypeId, 'role', 'Роль', AttributeDataType.Text, 20);
-  await ensureAttrDef(employeeTypeId, 'section_id', 'Участок', AttributeDataType.Link, 30, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Section }));
+  await ensureAttrDef(employeeTypeId, 'last_name', 'Фамилия', AttributeDataType.Text, 10);
+  await ensureAttrDef(employeeTypeId, 'first_name', 'Имя', AttributeDataType.Text, 20);
+  await ensureAttrDef(employeeTypeId, 'middle_name', 'Отчество', AttributeDataType.Text, 30);
+  await ensureAttrDef(employeeTypeId, 'full_name', 'ФИО', AttributeDataType.Text, 40);
+  await ensureAttrDef(employeeTypeId, 'role', 'Должность', AttributeDataType.Text, 50);
+  await ensureAttrDef(
+    employeeTypeId,
+    'department_id',
+    'Подразделение',
+    AttributeDataType.Link,
+    60,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Department }),
+  );
+  await ensureAttrDef(employeeTypeId, 'section_id', 'Участок', AttributeDataType.Link, 70, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Section }));
   await ensureAttrDef(employeeTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 }
 
