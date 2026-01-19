@@ -758,6 +758,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       const rows = await filterStaleByUpdatedAt(attributeValues, remapped);
       const ids = rows.map((r) => r.id);
       const entityIds = rows.map((r) => r.entity_id);
+      const defIds = rows.map((r) => r.attribute_def_id);
       const entityOwners = await getOwnersMap(SyncTableName.Entities, entityIds);
       const existing = await tx
         .select()
@@ -766,6 +767,18 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         .limit(50_000);
       const existingMap = new Map<string, any>();
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
+      const existingByPair = new Map<string, any>();
+      if (entityIds.length > 0 && defIds.length > 0) {
+        const existingPairs = await tx
+          .select()
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.entityId, entityIds as any), inArray(attributeValues.attributeDefId, defIds as any)))
+          .limit(50_000);
+        for (const e of existingPairs as any[]) {
+          const key = `${String(e.entityId)}:${String(e.attributeDefId)}`;
+          if (!existingByPair.has(key)) existingByPair.set(key, e);
+        }
+      }
 
       const allowed: typeof rows = [];
       for (const r of rows) {
@@ -784,7 +797,14 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           });
           continue;
         }
-        allowed.push(r);
+        const key = `${String(r.entity_id)}:${String(r.attribute_def_id)}`;
+        const pairExisting = existingByPair.get(key);
+        const resolvedId = pairExisting?.id ? String(pairExisting.id) : String(r.id);
+        if (resolvedId !== String(r.id)) {
+          allowed.push({ ...r, id: resolvedId });
+        } else {
+          allowed.push(r);
+        }
       }
 
       if (allowed.length > 0) {
@@ -803,10 +823,8 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
             })),
           )
           .onConflictDoUpdate({
-            target: attributeValues.id,
+            target: [attributeValues.entityId, attributeValues.attributeDefId],
             set: {
-              entityId: sql`excluded.entity_id`,
-              attributeDefId: sql`excluded.attribute_def_id`,
               valueJson: sql`excluded.value_json`,
               updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
               deletedAt: sql`excluded.deleted_at`,

@@ -25,6 +25,19 @@ export type UpdateHelperArgs = {
 
 const autoUpdater = updater.autoUpdater;
 
+const UPDATE_CHECK_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = UPDATE_CHECK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await net.fetch(url, { ...opts, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 export function initAutoUpdate() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
@@ -291,7 +304,7 @@ async function getYandexDownloadHref(publicKey: string, path: string): Promise<s
   const url =
     'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
     new URLSearchParams({ public_key: publicKey, path: normalizePublicPath(path) }).toString();
-  const res = await net.fetch(url, { method: 'GET' });
+  const res = await fetchWithTimeout(url, { method: 'GET' });
   if (!res.ok) return null;
   const json = (await res.json().catch(() => null)) as any;
   return typeof json?.href === 'string' ? json.href : null;
@@ -305,7 +318,7 @@ async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<
       path: normalizePublicPath(pathOnDisk),
       limit: '200',
     }).toString();
-  const r = await net.fetch(api);
+  const r = await fetchWithTimeout(api);
   if (!r.ok) throw new Error(`Yandex list failed ${r.status}`);
   const json = (await r.json().catch(() => null)) as any;
   const items = (json?._embedded?.items ?? []) as any[];
@@ -342,7 +355,7 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
     const latestPath = joinPosix(basePath, 'latest.yml');
     const href = await getYandexDownloadHref(publicKey, latestPath);
     if (href) {
-      const res = await net.fetch(href);
+      const res = await fetchWithTimeout(href);
       if (res.ok) {
         const text = await res.text();
         const parsed = parseLatestYml(text);

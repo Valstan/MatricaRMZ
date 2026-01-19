@@ -97,10 +97,6 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     void openUser(selectedUserId);
   }, [canManageUsers, selectedUserId]);
 
-  useEffect(() => {
-    setEditLogin(selectedUser?.login ?? '');
-  }, [selectedUser?.id, selectedUser?.login]);
-
   const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
   const selectedRole = String(selectedUser?.role ?? 'user').toLowerCase();
   const selectedIsSelf = !!me && selectedUserId === me.id;
@@ -112,6 +108,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const canCreateEmployee = meRole === 'superadmin';
   const canEditRole = canEditRoleOrAccess && !(meRole === 'admin' && selectedRole === 'employee');
   const canEditLogin = !selectedIsSelf && !adminLocked && !(meRole === 'admin' && selectedRole === 'employee');
+
+  useEffect(() => {
+    setEditLogin(selectedUser?.login ?? '');
+  }, [selectedUser?.id, selectedUser?.login]);
 
   return (
     <div>
