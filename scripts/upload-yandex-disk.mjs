@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, posix as posixPath } from 'node:path';
 
 function requireEnv(name) {
@@ -128,6 +128,11 @@ function compareSemver(a, b) {
   return 0;
 }
 
+function parseLatestYmlPath(text) {
+  const m = String(text).match(/^path:\s*["']?([^\n"']+)["']?/m);
+  return m?.[1]?.trim() ?? null;
+}
+
 async function main() {
   const token = requireEnv('YANDEX_DISK_TOKEN');
   const dir = getArg('--dir') ?? 'electron-app/release';
@@ -141,7 +146,11 @@ async function main() {
     throw new Error(`No release artifacts found in ${dir}`);
   }
   const latestYml = files.find((f) => f.toLowerCase() === 'latest.yml') ?? null;
+  const latestYmlText = latestYml ? await readFile(join(dir, latestYml), 'utf8').catch(() => '') : '';
+  const expectedExeName = parseLatestYmlPath(latestYmlText) ?? exe;
   const blockmap = files.find((f) => f.toLowerCase() === `${exe.toLowerCase()}.blockmap`) ?? null;
+  const expectedBlockmapName = `${expectedExeName}.blockmap`;
+  const localBlockmap = blockmap ?? files.find((f) => f.toLowerCase().endsWith('.exe.blockmap')) ?? null;
 
   await ensureFolder(token, remoteBase);
   await ensureFolder(token, remoteLatestFolder);
@@ -169,7 +178,7 @@ async function main() {
 
   // 2) Загружаем новый installer + latest.yml + blockmap в /latest.
   const latestUploads = [
-    { name: exe, local: join(dir, exe), remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, exe)) },
+    { name: expectedExeName, local: join(dir, exe), remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, expectedExeName)) },
   ];
   if (latestYml) {
     latestUploads.push({
@@ -178,11 +187,11 @@ async function main() {
       remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, latestYml)),
     });
   }
-  if (blockmap) {
+  if (localBlockmap) {
     latestUploads.push({
-      name: blockmap,
-      local: join(dir, blockmap),
-      remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, blockmap)),
+      name: expectedBlockmapName,
+      local: join(dir, localBlockmap),
+      remote: normalizeRemotePath(posixPath.join(remoteLatestFolder, expectedBlockmapName)),
     });
   }
   for (const f of latestUploads) {
