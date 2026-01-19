@@ -2,7 +2,7 @@ import { app, BrowserWindow, net } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { copyFile, cp, mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -110,6 +110,16 @@ function closeUpdateWindowSoon(ms = 500) {
   }, ms);
 }
 
+function quitMainAppSoon(ms = 800) {
+  setTimeout(() => {
+    try {
+      app.quit();
+    } catch {
+      // ignore
+    }
+  }, ms);
+}
+
 async function setUpdateUi(msg: string, pct?: number, version?: string) {
   const w = updateUiWindow;
   if (!w || w.isDestroyed()) return;
@@ -162,6 +172,7 @@ export async function runAutoUpdateFlow(
           version: gh.version,
         });
         await setUpdateUi('Запускаем установку…', 80, gh.version);
+        quitMainAppSoon();
         return { action: 'update_started' };
       }
 
@@ -201,6 +212,7 @@ export async function runAutoUpdateFlow(
         version: fallback.version,
       });
       await setUpdateUi('Запускаем установку…', 80, fallback.version);
+      quitMainAppSoon();
       return { action: 'update_started' };
     }
 
@@ -224,6 +236,7 @@ export async function runAutoUpdateFlow(
       version: check.version,
     });
     await setUpdateUi('Запускаем установку…', 80, check.version);
+    quitMainAppSoon();
     return { action: 'update_started' };
   } catch (e) {
     const message = String(e);
@@ -602,20 +615,13 @@ async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPat
   const launchPath = process.execPath;
   const appDir = dirname(launchPath);
   const resourcesDir = join(appDir, 'resources');
-  const baseTemp = join(app.getPath('temp'), 'MatricaRMZ-UpdateHelper');
-  const stamp = String(Date.now());
-  const helperDir = join(baseTemp, `helper-${stamp}`);
-  await mkdir(helperDir, { recursive: true });
-  const helperExePath = join(helperDir, 'MatricaRMZ-Updater.exe');
-  const helperResources = join(helperDir, 'resources');
-  await copyFile(launchPath, helperExePath);
-  await cp(resourcesDir, helperResources, { recursive: true, force: true });
-  const asarPath = join(helperResources, 'app.asar');
+  const helperExePath = launchPath;
+  const asarPath = join(resourcesDir, 'app.asar');
   const st = await stat(asarPath).catch(() => null);
   if (!st || st.size < 1024 * 100) {
     throw new Error(`Invalid helper package: missing app.asar (from ${basename(resourcesDir)})`);
   }
-  return { helperExePath, launchPath, resourcesPath: helperResources };
+  return { helperExePath, launchPath, resourcesPath: resourcesDir };
 }
 
 function spawnUpdateHelper(args: { helperExePath: string; installerPath: string; launchPath: string; resourcesPath: string; version?: string }) {
