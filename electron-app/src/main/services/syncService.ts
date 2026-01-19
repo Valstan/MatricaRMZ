@@ -701,10 +701,8 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       .insert(attributeValues)
       .values(groups.attribute_values)
       .onConflictDoUpdate({
-        target: attributeValues.id,
+        target: [attributeValues.entityId, attributeValues.attributeDefId],
         set: {
-          entityId: sql`excluded.entity_id`,
-          attributeDefId: sql`excluded.attribute_def_id`,
           valueJson: sql`excluded.value_json`,
           updatedAt: sql`excluded.updated_at`,
           deletedAt: sql`excluded.deleted_at`,
