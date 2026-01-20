@@ -96,6 +96,19 @@ export async function fetchTorrentManifest(baseUrl: string): Promise<TorrentUpda
   }
 }
 
+export async function fetchTorrentStatus(baseUrl: string): Promise<{ ok: true; status: any } | { ok: false; error: string }> {
+  try {
+    const url = `${normalizeBaseUrl(baseUrl)}/updates/status`;
+    const res = await fetchWithTimeout(url, DEFAULT_TIMEOUT_MS);
+    if (!res.ok) return { ok: false, error: `status HTTP ${res.status}` };
+    const json = (await res.json().catch(() => null)) as any;
+    if (!json?.ok) return { ok: false, error: String(json?.error ?? 'bad status response') };
+    return { ok: true, status: json.status ?? null };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function downloadTorrentUpdate(
   manifest: TorrentUpdateManifest,
   opts?: { onProgress?: (pct: number, peers: number) => void },

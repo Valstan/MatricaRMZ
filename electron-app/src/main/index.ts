@@ -14,10 +14,26 @@ import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
 
 let mainWindow: BrowserWindow | null = null;
+let mainWindowReady = false;
+let allowMainWindowShow = false;
 const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
 
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);
+
+function maybeShowMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindowReady || !allowMainWindowShow) return;
+  mainWindow.maximize();
+  mainWindow.show();
+}
+
+function scheduleShowMainWindow(delayMs = 0) {
+  setTimeout(() => {
+    allowMainWindowShow = true;
+    maybeShowMainWindow();
+  }, delayMs);
+}
 
 function createWindow(): void {
   const preloadPath = resolvePreloadPath(baseDir);
@@ -83,9 +99,8 @@ function createWindow(): void {
   });
 
   mainWindow.once('ready-to-show', () => {
-    // Стартуем развёрнутым на весь экран (но не fullscreen).
-    mainWindow?.maximize();
-    mainWindow?.show();
+    mainWindowReady = true;
+    maybeShowMainWindow();
   });
 
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
@@ -206,6 +221,10 @@ app.whenReady().then(() => {
           app.quit();
           return;
         }
+        const delay = updateResult?.action === 'error' ? 3800 : 800;
+        scheduleShowMainWindow(delay);
+      } else {
+        scheduleShowMainWindow(0);
       }
 
       if (torrentEnabled) {

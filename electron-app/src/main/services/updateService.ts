@@ -12,6 +12,7 @@ import {
   buildTorrentManifestUrl,
   downloadTorrentUpdate,
   fetchTorrentManifest,
+  fetchTorrentStatus,
   saveTorrentFileForVersion,
   saveTorrentSeedInfo,
   type TorrentUpdateManifest,
@@ -85,11 +86,21 @@ async function renderUpdateLog() {
   const safe = items.replace(/'/g, "\\'");
   const js = `document.getElementById('log').innerHTML='${safe}';`;
   await w.webContents.executeJavaScript(js, true).catch(() => {});
+  const lineCount = Math.min(updateLog.length, 18);
+  const baseHeight = 220;
+  const lineHeight = 18;
+  const targetHeight = Math.min(720, Math.max(320, baseHeight + lineCount * lineHeight));
+  try {
+    const [curW, curH] = w.getSize();
+    if (targetHeight > curH) w.setSize(Math.max(curW, 640), targetHeight);
+  } catch {
+    // ignore resize errors
+  }
 }
 
 async function addUpdateLog(line: string) {
   updateLog.push(line);
-  while (updateLog.length > 6) updateLog.shift();
+  while (updateLog.length > 18) updateLog.shift();
   await renderUpdateLog();
 }
 
@@ -97,14 +108,16 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
   if (updateUiWindow && !updateUiWindow.isDestroyed()) return updateUiWindow;
   updateLog.length = 0;
   updateUiWindow = new BrowserWindow({
-    width: 420,
-    height: 220,
+    width: 640,
+    height: 360,
+    minWidth: 520,
+    minHeight: 320,
     modal: !!parent,
     parent: parent ?? undefined,
     title: `Обновление MatricaRMZ`,
-    resizable: false,
+    resizable: true,
     minimizable: false,
-    maximizable: false,
+    maximizable: true,
     alwaysOnTop: true,
     webPreferences: {
       contextIsolation: true,
@@ -126,7 +139,7 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
     .fill{height:10px;background:#0f172a;width:0%}
     .row{display:flex;gap:8px;align-items:center;margin-top:8px}
     .pct{font-variant-numeric:tabular-nums}
-    .log{margin-top:10px; font-size:12px; color:#4b5563; max-height:72px; overflow:hidden}
+    .log{margin-top:10px; font-size:12px; color:#4b5563}
     .log-item{margin-top:4px}
   </style></head>
   <body>
@@ -198,6 +211,15 @@ async function cacheInstaller(filePath: string, version?: string) {
   return outPath;
 }
 
+function formatTorrentStatusError(status: any) {
+  const lastError = String(status?.lastError ?? '').trim();
+  const updatesDir = status?.updatesDir ? String(status.updatesDir) : '';
+  if (!lastError) return updatesDir ? `updates dir: ${updatesDir}` : '';
+  if (lastError === 'updates_dir_not_set') return 'updates_dir_not_set: set MATRICA_UPDATES_DIR';
+  if (lastError === 'no_installer_found') return 'no_installer_found: put latest .exe into updates dir';
+  return updatesDir ? `${lastError} (dir=${updatesDir})` : lastError;
+}
+
 async function checkTorrentForUpdates(): Promise<
   | { ok: true; updateAvailable: boolean; version?: string; manifest?: TorrentUpdateManifest }
   | { ok: false; error: string }
@@ -206,7 +228,15 @@ async function checkTorrentForUpdates(): Promise<
     if (!app.isPackaged) return { ok: true, updateAvailable: false };
     const baseUrl = getUpdateApiBaseUrl();
     const manifest = await fetchTorrentManifest(baseUrl);
-    if (!manifest) return { ok: false, error: 'torrent update not available' };
+    if (!manifest) {
+      const status = await fetchTorrentStatus(baseUrl);
+      if (status.ok) {
+        const reason = formatTorrentStatusError(status.status);
+        const msg = reason ? `torrent ${reason}` : 'torrent update not available';
+        return { ok: false, error: msg };
+      }
+      return { ok: false, error: status.error || 'torrent update not available' };
+    }
     const current = app.getVersion();
     const updateAvailable = compareSemver(manifest.version, current) > 0;
     return {
@@ -804,13 +834,15 @@ async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPat
   const launchPath = process.execPath;
   const appDir = dirname(launchPath);
   const helperExePath = launchPath;
+  const appPath = app.getAppPath();
+  const appPathDir = appPath ? dirname(appPath) : null;
   const candidates = Array.from(
-    new Set([join(appDir, 'resources'), process.resourcesPath].filter(Boolean) as string[]),
+    new Set([join(appDir, 'resources'), process.resourcesPath, appPathDir].filter(Boolean) as string[]),
   );
   for (const resourcesDir of candidates) {
     const asarPath = join(resourcesDir, 'app.asar');
     const asarStat = await stat(asarPath).catch(() => null);
-    if (asarStat && asarStat.size >= 1024 * 100) {
+    if (asarStat && asarStat.isFile()) {
       return { helperExePath, launchPath, resourcesPath: resourcesDir };
     }
     const appDirPath = join(resourcesDir, 'app');

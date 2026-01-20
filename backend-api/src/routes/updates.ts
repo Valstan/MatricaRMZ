@@ -40,3 +40,15 @@ updatesRouter.get('/latest.torrent', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="MatricaRMZ-${st.version}.torrent"`);
   return res.end(st.torrentBuffer);
 });
+
+updatesRouter.get('/file/:name', (req, res) => {
+  const st = getLatestTorrentState();
+  if (!st?.filePath) {
+    return res.status(404).json({ ok: false, error: 'no update file' });
+  }
+  const name = String(req.params.name ?? '').trim();
+  if (!name || name !== st.fileName) {
+    return res.status(404).json({ ok: false, error: 'file not found' });
+  }
+  return res.download(st.filePath, st.fileName);
+});

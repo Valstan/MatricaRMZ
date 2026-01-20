@@ -12,6 +12,7 @@ type WebTorrentTorrent = ReturnType<WebTorrentInstance['add']>;
 type TorrentState = {
   version: string;
   fileName: string;
+  filePath: string;
   size: number;
   infoHash: string | null;
   trackers: string[];
@@ -35,10 +36,15 @@ function getUpdatesDir(): string | null {
 function getTrackerUrls(): string[] {
   const raw = String(process.env.MATRICA_TORRENT_TRACKER_URLS ?? '').trim();
   if (raw) return raw.split(',').map((s) => s.trim()).filter(Boolean);
-  const base = String(process.env.MATRICA_PUBLIC_BASE_URL ?? '').trim().replace(/\/+$/, '');
+  const base = String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? '').trim().replace(/\/+$/, '');
   if (base) return [`${base}/announce`];
   const port = Number(process.env.MATRICA_TORRENT_TRACKER_PORT ?? 6969);
   return [`http://localhost:${port}/announce`];
+}
+
+function getPublicBaseUrl(): string | null {
+  const base = String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? '').trim().replace(/\/+$/, '');
+  return base || null;
 }
 
 function extractVersionFromFileName(fileName: string): string | null {
@@ -76,12 +82,13 @@ async function pickLatestInstaller(dir: string): Promise<{ path: string; version
   return { path, version, name: chosen.name, size: st.size };
 }
 
-async function createTorrentBuffer(filePath: string, trackers: string[]): Promise<Buffer> {
+async function createTorrentBuffer(filePath: string, trackers: string[], webSeedUrl?: string | null): Promise<Buffer> {
   return await new Promise<Buffer>((resolve, reject) => {
     createTorrent(
       filePath,
       {
         announceList: [trackers],
+        ...(webSeedUrl ? { urlList: [webSeedUrl] } : {}),
         createdBy: 'MatricaRMZ backend',
         comment: 'MatricaRMZ update torrent',
       },
@@ -95,7 +102,9 @@ async function createTorrentBuffer(filePath: string, trackers: string[]): Promis
 
 async function seedLatestInstaller(latest: { path: string; version: string; name: string; size: number }) {
   const trackers = getTrackerUrls();
-  const torrentBuffer = await createTorrentBuffer(latest.path, trackers);
+  const publicBase = getPublicBaseUrl();
+  const webSeedUrl = publicBase ? `${publicBase}/updates/file/${encodeURIComponent(latest.name)}` : null;
+  const torrentBuffer = await createTorrentBuffer(latest.path, trackers, webSeedUrl);
   const torrentPath = join(dirname(latest.path), 'latest.torrent');
   await writeFile(torrentPath, torrentBuffer);
 
@@ -112,6 +121,7 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
     currentState = {
       version: latest.version,
       fileName: latest.name,
+      filePath: latest.path,
       size: latest.size,
       infoHash: currentTorrent?.infoHash ?? null,
       trackers,
@@ -122,6 +132,7 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
   currentState = {
     version: latest.version,
     fileName: latest.name,
+    filePath: latest.path,
     size: latest.size,
     infoHash: currentTorrent?.infoHash ?? null,
     trackers,
