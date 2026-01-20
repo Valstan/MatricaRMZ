@@ -2,14 +2,23 @@ import { app, BrowserWindow, net } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 
+import {
+  buildTorrentManifestUrl,
+  downloadTorrentUpdate,
+  fetchTorrentManifest,
+  saveTorrentFileForVersion,
+  saveTorrentSeedInfo,
+  type TorrentUpdateManifest,
+} from './torrentUpdateService.js';
+
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex'; downloadUrl?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'torrent' | 'github' | 'yandex'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateFlowResult =
@@ -25,7 +34,18 @@ export type UpdateHelperArgs = {
 
 const autoUpdater = updater.autoUpdater;
 
-const UPDATE_CHECK_TIMEOUT_MS = 8000;
+const UPDATE_CHECK_TIMEOUT_MS = 10_000;
+const UPDATE_DOWNLOAD_TIMEOUT_MS = 30_000;
+
+function getUpdateApiBaseUrl() {
+  const envUrl = process.env.MATRICA_UPDATE_API_URL?.trim() || process.env.MATRICA_API_URL?.trim();
+  if (envUrl) {
+    const cleaned = envUrl.replace(/\/+$/, '');
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) return cleaned;
+    return `http://${cleaned}`;
+  }
+  return 'http://a6fd55b8e0ae.vps.myjino.ru';
+}
 
 async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = UPDATE_CHECK_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -134,6 +154,45 @@ async function setUpdateUi(msg: string, pct?: number, version?: string) {
   await w.webContents.executeJavaScript(js, true).catch(() => {});
 }
 
+async function cacheInstaller(filePath: string, version?: string) {
+  const ver = version?.trim() || 'latest';
+  const outDir = join(app.getPath('userData'), 'updates', ver);
+  await mkdir(outDir, { recursive: true });
+  const outPath = join(outDir, basename(filePath));
+  if (outPath === filePath) return outPath;
+  await copyFile(filePath, outPath).catch(() => {});
+  return outPath;
+}
+
+async function checkTorrentForUpdates(): Promise<
+  | { ok: true; updateAvailable: boolean; version?: string; manifest?: TorrentUpdateManifest }
+  | { ok: false; error: string }
+> {
+  try {
+    if (!app.isPackaged) return { ok: true, updateAvailable: false };
+    const baseUrl = getUpdateApiBaseUrl();
+    const manifest = await fetchTorrentManifest(baseUrl);
+    if (!manifest) return { ok: false, error: 'torrent update not available' };
+    const current = app.getVersion();
+    const updateAvailable = compareSemver(manifest.version, current) > 0;
+    return {
+      ok: true,
+      updateAvailable,
+      version: manifest.version,
+      manifest: { ...manifest, torrentUrl: buildTorrentManifestUrl(baseUrl, manifest.torrentUrl) },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function ensureTorrentSeedArtifacts(manifest: TorrentUpdateManifest | null, installerPath: string, version?: string) {
+  if (!manifest || !manifest.torrentUrl || !version) return;
+  const torrentPath = await saveTorrentFileForVersion(version, manifest.torrentUrl);
+  if (!torrentPath) return;
+  await saveTorrentSeedInfo({ version, installerPath, torrentPath });
+}
+
 export async function runAutoUpdateFlow(
   opts: { reason: 'startup' | 'manual_menu'; parentWindow?: BrowserWindow | null } = { reason: 'startup' },
 ): Promise<UpdateFlowResult> {
@@ -148,6 +207,38 @@ export async function runAutoUpdateFlow(
       return { action: 'no_update' };
     }
 
+    const torrentCheck = await checkTorrentForUpdates();
+    let torrentManifest: TorrentUpdateManifest | null = null;
+    if (torrentCheck.ok && torrentCheck.updateAvailable && torrentCheck.manifest) {
+      torrentManifest = torrentCheck.manifest;
+      await setUpdateUi(`Найдена новая версия (Torrent). Подключаемся…`, 5, torrentCheck.version);
+      const tdl = await downloadTorrentUpdate(torrentManifest, {
+        onProgress: (pct, peers) => {
+          void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
+        },
+      });
+      if (tdl.ok) {
+        const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
+        lastDownloadedInstallerPath = cachedPath;
+        await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
+        await setUpdateUi('Скачивание завершено. Готовим установку…', 60, torrentCheck.version);
+        lockUpdateUi(true);
+        await setUpdateUi('Подготовка установщика…', 70, torrentCheck.version);
+        const helper = await prepareUpdateHelper();
+        spawnUpdateHelper({
+          helperExePath: helper.helperExePath,
+          installerPath: cachedPath,
+          launchPath: helper.launchPath,
+          resourcesPath: helper.resourcesPath,
+          version: torrentCheck.version,
+        });
+        await setUpdateUi('Запускаем установку…', 80, torrentCheck.version);
+        quitMainAppSoon();
+        return { action: 'update_started' };
+      }
+      await setUpdateUi(`Торрент недоступен, пробуем GitHub…`, 15, torrentCheck.version);
+    }
+
     const check = await waitForUpdateCheck();
     if (!check.ok || !check.updateAvailable) {
       const gh = await checkGithubReleaseForUpdates();
@@ -159,14 +250,16 @@ export async function runAutoUpdateFlow(
           closeUpdateWindowSoon(3500);
           return { action: 'error', error: gdl.error ?? 'download failed' };
         }
-        lastDownloadedInstallerPath = gdl.filePath;
+        const cachedPath = await cacheInstaller(gdl.filePath, gh.version);
+        lastDownloadedInstallerPath = cachedPath;
+        await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, gh.version);
         await setUpdateUi('Скачивание завершено. Готовим установку…', 60, gh.version);
         lockUpdateUi(true);
         await setUpdateUi('Подготовка установщика…', 70, gh.version);
         const helper = await prepareUpdateHelper();
         spawnUpdateHelper({
           helperExePath: helper.helperExePath,
-          installerPath: gdl.filePath,
+          installerPath: cachedPath,
           launchPath: helper.launchPath,
           resourcesPath: helper.resourcesPath,
           version: gh.version,
@@ -199,14 +292,16 @@ export async function runAutoUpdateFlow(
         closeUpdateWindowSoon(3500);
         return { action: 'error', error: ydl.error ?? 'download failed' };
       }
-      lastDownloadedInstallerPath = ydl.filePath;
+      const cachedPath = await cacheInstaller(ydl.filePath, fallback.version);
+      lastDownloadedInstallerPath = cachedPath;
+      await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, fallback.version);
       await setUpdateUi('Скачивание завершено. Готовим установку…', 60, fallback.version);
       lockUpdateUi(true);
       await setUpdateUi('Подготовка установщика…', 70, fallback.version);
       const helper = await prepareUpdateHelper();
       spawnUpdateHelper({
         helperExePath: helper.helperExePath,
-        installerPath: ydl.filePath,
+        installerPath: cachedPath,
         launchPath: helper.launchPath,
         resourcesPath: helper.resourcesPath,
         version: fallback.version,
@@ -223,14 +318,16 @@ export async function runAutoUpdateFlow(
       closeUpdateWindowSoon(3500);
       return { action: 'error', error: download.error ?? 'download failed' };
     }
-    lastDownloadedInstallerPath = download.filePath;
+    const cachedPath = await cacheInstaller(download.filePath, check.version);
+    lastDownloadedInstallerPath = cachedPath;
+    await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, check.version);
     await setUpdateUi('Скачивание завершено. Готовим установку…', 60, check.version);
     lockUpdateUi(true);
     await setUpdateUi('Подготовка установщика…', 70, check.version);
     const helper = await prepareUpdateHelper();
     spawnUpdateHelper({
       helperExePath: helper.helperExePath,
-      installerPath: download.filePath,
+      installerPath: cachedPath,
       launchPath: helper.launchPath,
       resourcesPath: helper.resourcesPath,
       version: check.version,
@@ -251,6 +348,10 @@ export async function runAutoUpdateFlow(
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     if (!app.isPackaged) return { ok: true, updateAvailable: false };
+    const torrent = await checkTorrentForUpdates();
+    if (torrent.ok && torrent.updateAvailable) {
+      return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
+    }
     const result = await autoUpdater.checkForUpdates();
     const latest = String((result as any)?.updateInfo?.version ?? '');
     const current = app.getVersion();
@@ -262,6 +363,10 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     if (y.ok) return y;
     return { ok: true, updateAvailable: false };
   } catch (e) {
+    const torrent = await checkTorrentForUpdates().catch(() => null);
+    if (torrent && torrent.ok && torrent.updateAvailable) {
+      return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
+    }
     const gh = await checkGithubReleaseForUpdates().catch(() => null);
     if (gh) return gh;
     const y = await checkYandexForUpdates().catch(() => null);
@@ -512,7 +617,7 @@ async function downloadYandexUpdate(info: { version?: string; path?: string }) {
     const filePath = joinPosix(basePath, fileName);
     const href = await getYandexDownloadHref(publicKey, filePath);
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
-    const res = await net.fetch(href);
+    const res = await fetchWithTimeout(href, { method: 'GET' }, UPDATE_DOWNLOAD_TIMEOUT_MS);
     if (!res.ok || !res.body) return { ok: false as const, error: `yandex download HTTP ${res.status}` };
     const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
     await mkdir(outDir, { recursive: true });
@@ -535,7 +640,7 @@ async function downloadGithubUpdate(url: string, version?: string) {
           'User-Agent': 'MatricaRMZ-Updater',
         },
       },
-      20_000,
+      UPDATE_DOWNLOAD_TIMEOUT_MS,
     );
     if (!res.ok || !res.body) return { ok: false as const, error: `github download HTTP ${res.status}` };
     const fileName = basename(new URL(url).pathname) || `MatricaRMZ-${version ?? 'update'}.exe`;
@@ -551,7 +656,13 @@ async function downloadGithubUpdate(url: string, version?: string) {
 
 async function waitForUpdateCheck(): Promise<UpdateCheckResult> {
   return await new Promise<UpdateCheckResult>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve({ ok: false, error: 'update check timeout' });
+    }, UPDATE_CHECK_TIMEOUT_MS);
+
     const cleanup = () => {
+      clearTimeout(timeoutId);
       autoUpdater.removeListener('update-available', onAvailable);
       autoUpdater.removeListener('update-not-available', onNotAvailable);
       autoUpdater.removeListener('error', onError);

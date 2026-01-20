@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { profileGet, profileUpdate } from '../api/auth.js';
+import { getLatestUpdateInfo } from '../api/updates.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 
@@ -28,6 +29,13 @@ export function UserSettingsPage(props: {
   const [profileStatus, setProfileStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [prefs, setPrefs] = useState<UiPrefs>(props.prefs);
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    torrentUrl: string;
+    qbittorrentUrl: string;
+  } | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string>('');
+  const [updateLoading, setUpdateLoading] = useState<boolean>(false);
 
   useEffect(() => {
     setPrefs(props.prefs);
@@ -54,6 +62,30 @@ export function UserSettingsPage(props: {
       alive = false;
     };
   }, [props.user?.id]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      setUpdateLoading(true);
+      const r = await getLatestUpdateInfo().catch(() => null);
+      if (!alive) return;
+      if (r && (r as any).ok) {
+        setUpdateInfo({
+          version: String((r as any).version ?? ''),
+          torrentUrl: String((r as any).torrentUrl ?? ''),
+          qbittorrentUrl: String((r as any).qbittorrentUrl ?? 'https://www.qbittorrent.org/download'),
+        });
+        setUpdateStatus('');
+      } else {
+        setUpdateInfo(null);
+        setUpdateStatus(`Ошибка загрузки обновлений: ${(r as any)?.error ?? 'unknown'}`);
+      }
+      setUpdateLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function handleSaveProfile() {
     if (!props.user) {
@@ -83,6 +115,16 @@ export function UserSettingsPage(props: {
     props.onPrefsChange(prefs);
     setStatus('Настройки интерфейса сохранены.');
     setTimeout(() => setStatus(''), 2000);
+  }
+
+  async function handleCopy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setUpdateStatus('Ссылка скопирована.');
+      setTimeout(() => setUpdateStatus(''), 1500);
+    } catch {
+      setUpdateStatus('Не удалось скопировать ссылку.');
+    }
   }
 
   if (!props.user) {
@@ -164,6 +206,35 @@ export function UserSettingsPage(props: {
           </Button>
           {status && <span className="muted">{status}</span>}
         </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Обновление клиента</h3>
+        <div className="muted" style={{ marginBottom: 12 }}>
+          Ссылка на торрент последней версии «Матрица РМЗ» и скачивание qBittorrent.
+        </div>
+        {updateLoading ? (
+          <div className="muted">Загрузка…</div>
+        ) : updateInfo && updateInfo.torrentUrl ? (
+          <div style={{ display: 'grid', gap: 8, maxWidth: 720 }}>
+            <div className="muted">Версия: {updateInfo.version || '—'}</div>
+            <Input value={updateInfo.torrentUrl} readOnly />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant="ghost" onClick={() => void handleCopy(updateInfo.torrentUrl)}>
+                Скопировать ссылку
+              </Button>
+              <a href={updateInfo.torrentUrl} target="_blank" rel="noreferrer">
+                <Button variant="primary">Скачать торрент</Button>
+              </a>
+              <a href={updateInfo.qbittorrentUrl} target="_blank" rel="noreferrer">
+                <Button variant="ghost">Скачать qBittorrent</Button>
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div className="muted">Торрент обновления пока недоступен.</div>
+        )}
+        {updateStatus && <div className="muted" style={{ marginTop: 8 }}>{updateStatus}</div>}
       </div>
 
       <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

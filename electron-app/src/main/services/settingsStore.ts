@@ -28,6 +28,10 @@ export const SettingsKey = {
   // UI preferences
   UiTheme: 'ui.theme',
   UiChatSide: 'ui.chatSide',
+
+  // Remote admin controls
+  UpdatesEnabled: 'updates.enabled',
+  TorrentEnabled: 'torrent.enabled',
 } as const;
 
 export type SettingsKey = (typeof SettingsKey)[keyof typeof SettingsKey];

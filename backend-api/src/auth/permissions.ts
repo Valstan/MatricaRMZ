@@ -8,6 +8,7 @@ export const PermissionCode = {
   // system / admin
   AdminUsersManage: 'admin.users.manage',
   EmployeesCreate: 'employees.create',
+  ClientsManage: 'clients.manage',
 
   // master-data (EAV справочники)
   MasterDataView: 'masterdata.view',
@@ -97,6 +98,7 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     const all: Record<string, boolean> = {};
     for (const code of Object.values(PermissionCode)) all[code] = true;
     all[PermissionCode.AdminUsersManage] = false;
+    all[PermissionCode.ClientsManage] = false;
     return all;
   }
 
@@ -161,6 +163,7 @@ export async function getEffectivePermissionsForUser(userId: string): Promise<Re
 
   // Политика безопасности: `admin.users.manage` доступен только admin/superadmin.
   if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.AdminUsersManage] = false;
+  if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.ClientsManage] = false;
 
   return base;
 }

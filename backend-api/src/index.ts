@@ -18,11 +18,15 @@ import { partsRouter } from './routes/parts.js';
 import { logsRouter } from './routes/logs.js';
 import { changesRouter } from './routes/changes.js';
 import { backupsRouter } from './routes/backups.js';
+import { updatesRouter } from './routes/updates.js';
+import { clientSettingsRouter } from './routes/clientSettings.js';
+import { adminClientsRouter } from './routes/adminClients.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { logError, logInfo } from './utils/logger.js';
+import { startUpdateTorrentService } from './services/updateTorrentService.js';
 
 const app = express();
 // За reverse-proxy (nginx / панель провайдера) важно корректно понимать X-Forwarded-* заголовки.
@@ -37,12 +41,15 @@ app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRou
 app.use('/chat', requireAuth, requirePermission(PermissionCode.ChatUse), chatRouter);
 app.use('/presence', presenceRouter);
 app.use('/admin', adminUsersRouter);
+app.use('/admin', adminClientsRouter);
 app.use('/admin/masterdata', adminMasterdataRouter);
 app.use('/changes', changesRouter);
 app.use('/files', filesRouter);
 app.use('/parts', partsRouter);
 app.use('/logs', logsRouter);
 app.use('/backups', backupsRouter);
+app.use('/updates', updatesRouter);
+app.use('/client', clientSettingsRouter);
 
 // Web admin UI (served as static SPA from /admin-ui)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -76,6 +83,8 @@ async function bootstrap() {
   await ensurePermissionsSeeded().catch((e) => {
     logError('permissions seed failed', { error: String(e) });
   });
+
+  startUpdateTorrentService();
 
   app.listen(port, host, () => {
     logInfo(`listening on ${host}:${port}`, { host, port }, { critical: true });

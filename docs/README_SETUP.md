@@ -217,6 +217,28 @@ pnpm run dev
 
 ---
 
+## Торрент‑обновления клиента
+
+### 1) Переменные окружения backend
+Добавьте в `.env` (или systemd Environment):
+- `MATRICA_UPDATES_DIR=/opt/matricarmz/updates` — папка с последним `.exe` инсталлятором.
+- `MATRICA_PUBLIC_BASE_URL=https://<domain>` — публичный base URL (нужен для ссылок на торрент/трекер).
+- `MATRICA_TORRENT_TRACKER_PORT=6969` — порт трекера (HTTP+UDP).
+- `MATRICA_TORRENT_TRACKER_URLS=https://<domain>/announce` — список tracker URL (через запятую).
+
+### 2) Размещение инсталлятора
+- Положите последнюю сборку `.exe` в `MATRICA_UPDATES_DIR`.
+- Backend автоматически создаст `latest.torrent` и будет сидировать файл.
+
+### 3) Проксирование через nginx (пример)
+Если используете nginx, добавьте прокси:
+- `GET /updates/*` → `http://127.0.0.1:3001/updates/*`
+
+Для трекера:
+- откройте порт `MATRICA_TORRENT_TRACKER_PORT` наружу (TCP/UDP), либо настройте проброс.
+
+---
+
 ## HTTPS и панель провайдера (важно для синхронизации)
 
 Если на панели настроено проксирование **внешний 443 → внутренний 80**, то HTTPS терминируется не на VPS, а на стороне провайдера. В некоторых сетях Windows может падать с ошибкой schannel `0x80092013` (CRL/OCSP недоступен), и тогда **HTTPS запросы не проходят**, хотя HTTP работает.

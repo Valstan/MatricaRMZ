@@ -7,6 +7,8 @@ import { mkdirSync } from 'node:fs';
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
 import { initAutoUpdate, runAutoUpdateFlow, runUpdateHelperFlow } from './services/updateService.js';
+import { applyRemoteClientSettings, getCachedClientSettings } from './services/clientAdminService.js';
+import { startTorrentSeeding, stopTorrentSeeding } from './services/torrentUpdateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -137,18 +139,11 @@ app.whenReady().then(() => {
   // В проде обычно ходим через reverse-proxy (nginx) на 80/443, поэтому порт 3001 не указываем.
   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
 
-  // Автообновление при старте: если есть новая версия — сразу скачиваем и запускаем установщик.
+  // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
+  createWindow();
+
+  // Инициализируем SQLite + IPC асинхронно (после создания окна).
   void (async () => {
-    const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: null });
-    if (updateResult?.action === 'update_started') {
-      app.quit();
-      return;
-    }
-
-    // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
-    createWindow();
-
-    // Инициализируем SQLite + IPC асинхронно (после создания окна).
     try {
       const { openSqlite } = await import('./database/db.js');
       const { migrateSqlite } = await import('./database/migrate.js');
@@ -192,6 +187,32 @@ app.whenReady().then(() => {
 
       registerIpc(db, { clientId: stableClientId, apiBaseUrl });
       logToFile('IPC registered, SQLite ready');
+
+      const remote = await applyRemoteClientSettings({
+        db,
+        apiBaseUrl,
+        clientId: stableClientId,
+        version: app.getVersion(),
+        log: logToFile,
+      });
+      const cached = remote ?? (await getCachedClientSettings(db));
+
+      const updatesEnabled = cached.updatesEnabled !== false;
+      const torrentEnabled = updatesEnabled && cached.torrentEnabled !== false;
+
+      if (updatesEnabled) {
+        const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: mainWindow });
+        if (updateResult?.action === 'update_started') {
+          app.quit();
+          return;
+        }
+      }
+
+      if (torrentEnabled) {
+        await startTorrentSeeding();
+      } else {
+        await stopTorrentSeeding();
+      }
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);
       await dialog.showMessageBox({

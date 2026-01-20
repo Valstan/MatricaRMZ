@@ -338,6 +338,28 @@ export const fileAssets = pgTable(
 );
 
 // -----------------------------
+// Client settings (server-side only)
+// -----------------------------
+export const clientSettings = pgTable('client_settings', {
+  clientId: text('client_id').primaryKey(),
+
+  updatesEnabled: boolean('updates_enabled').notNull().default(true),
+  torrentEnabled: boolean('torrent_enabled').notNull().default(true),
+  loggingEnabled: boolean('logging_enabled').notNull().default(false),
+  loggingMode: text('logging_mode').notNull().default('prod'),
+
+  lastSeenAt: bigint('last_seen_at', { mode: 'number' }),
+  lastVersion: text('last_version'),
+  lastIp: text('last_ip'),
+  lastHostname: text('last_hostname'),
+  lastPlatform: text('last_platform'),
+  lastArch: text('last_arch'),
+
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+});
+
+// -----------------------------
 // Chat (sync tables)
 // -----------------------------
 export const chatMessages = pgTable(
