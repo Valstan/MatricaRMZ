@@ -36,6 +36,18 @@ function tagExists(tag) {
   }
 }
 
+function hasServerUpdatesSince(ref) {
+  return hasDiffSince(ref, ['backend-api', 'web-admin', 'shared']);
+}
+
+function deployServer() {
+  run('pnpm install');
+  run('pnpm -C shared build');
+  run('pnpm -C backend-api build');
+  run('pnpm --filter @matricarmz/web-admin build');
+  run('sudo systemctl restart matricarmz-backend.service');
+}
+
 async function main() {
   // Safety: must run from repo root
   const gitRoot = out('git rev-parse --show-toplevel');
@@ -83,6 +95,15 @@ async function main() {
   }
   if (!tagExists(tag)) run(`git tag "${tag}"`);
   run('git push origin main --tags');
+
+  if (hasServerUpdatesSince(lastClientTag)) {
+    // eslint-disable-next-line no-console
+    console.log('Detected backend/web-admin/shared updates. Deploying...');
+    deployServer();
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('No backend/web-admin/shared updates. Deploy skipped.');
+  }
 }
 
 main().catch((e) => {

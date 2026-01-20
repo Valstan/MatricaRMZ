@@ -30,22 +30,17 @@ pnpm release:auto
 - если `VERSION` уже отличается от последнего тега — синхронизирует версии пакетов по `VERSION`,
 - иначе автоматически повышает `RELEASE`,
 - делает релизный коммит и тег `vX.Y.Z`,
-- пушит `main` и теги.
+- пушит `main` и теги,
+- автоматически проверяет изменения в `backend-api` / `web-admin` / `shared` и, если есть — выполняет деплой и перезапуск сервиса.
 
 ## Быстрый релиз (оптимальный путь)
 1) Обновить `VERSION` (если нужен переход MAJOR/MINOR).
 2) Запустить `pnpm release:auto` один раз.
-3) Проверить, что `package.json` модулей синхронизированы с `VERSION` (обычно уже сделано скриптом).
-4) Если уже был тег `vX.Y.Z` и он указывал на старый коммит — обновить его:
-```bash
-git tag -f vX.Y.Z
-git push origin main --tags --force
-```
-5) Если изменялись `backend-api` или `web-admin` (или shared-контракты, влияющие на них) — выполнить деплой сервера и перезапустить сервисы (см. ниже).
-6) Дождаться артефактов Windows в GitHub Actions (см. ниже).
+3) Дождаться артефактов Windows в GitHub Actions (см. ниже).
 
-## Backend / Web‑admin после релиза (только если был апдейт)
-Если релиз затрагивает backend или web-admin, обновляем сервер и **перезапускаем сервис**:
+## Backend / Web‑admin после релиза (автоматически)
+`pnpm release:auto` сам проверяет, были ли изменения в `backend-api`/`web-admin`/`shared`.  
+Если да — автоматически выполняет деплой и перезапуск сервиса:
 ```bash
 git pull --tags
 pnpm install
@@ -54,7 +49,7 @@ pnpm -C backend-api build
 pnpm --filter @matricarmz/web-admin build
 sudo systemctl restart matricarmz-backend.service
 ```
-Если backend/web-admin не менялись — этот шаг пропускаем.
+Если backend/web-admin не менялись — шаг пропускается.
 
 ## Сборка и публикация клиента (Windows)
 
