@@ -6,6 +6,9 @@ import { basename, dirname, join } from 'node:path';
 
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
+type WebTorrentInstance = ReturnType<typeof WebTorrent>;
+type WebTorrentTorrent = ReturnType<WebTorrentInstance['add']>;
+
 type TorrentState = {
   version: string;
   fileName: string;
@@ -16,8 +19,8 @@ type TorrentState = {
 };
 
 let trackerServer: TrackerServer | null = null;
-let torrentClient: WebTorrent | null = null;
-let currentTorrent: any | null = null;
+let torrentClient: WebTorrentInstance | null = null;
+let currentTorrent: WebTorrentTorrent | null = null;
 let currentState: TorrentState | null = null;
 
 const RESCAN_INTERVAL_MS = 60_000;
@@ -38,7 +41,7 @@ function getTrackerUrls(): string[] {
 
 function extractVersionFromFileName(fileName: string): string | null {
   const m = fileName.match(/(\d+\.\d+\.\d+)/);
-  return m ? m[1] : null;
+  return m?.[1] ?? null;
 }
 
 function compareSemver(a: string, b: string): number {
@@ -63,6 +66,7 @@ async function pickLatestInstaller(dir: string): Promise<{ path: string; version
     return a.name.localeCompare(b.name);
   });
   const chosen = withVer[0];
+  if (!chosen) return null;
   const version = chosen.version ?? '0.0.0';
   const path = join(dir, chosen.name);
   const st = await stat(path).catch(() => null);
@@ -75,11 +79,11 @@ async function createTorrentBuffer(filePath: string, trackers: string[]): Promis
     createTorrent(
       filePath,
       {
-        announce: trackers,
+        announceList: [trackers],
         createdBy: 'MatricaRMZ backend',
         comment: 'MatricaRMZ update torrent',
       },
-      (err, torrent) => {
+      (err: Error | null, torrent: Buffer | Uint8Array) => {
         if (err) reject(err);
         else resolve(Buffer.isBuffer(torrent) ? torrent : Buffer.from(torrent));
       },
@@ -95,13 +99,13 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
 
   if (!torrentClient) torrentClient = new WebTorrent({ dht: true, tracker: true });
   if (currentTorrent) {
-    torrentClient.remove(currentTorrent.infoHash, () => {
+    torrentClient.remove(currentTorrent.infoHash, {}, () => {
       // removed
     });
   }
 
   currentTorrent = torrentClient.add(torrentBuffer, { path: dirname(latest.path) });
-  currentTorrent.on('error', (err) => logWarn('torrent seed error', { error: String(err) }));
+  currentTorrent.on('error', (err: unknown) => logWarn('torrent seed error', { error: String(err) }));
   currentTorrent.on('metadata', () => {
     currentState = {
       version: latest.version,
@@ -161,13 +165,16 @@ export function startUpdateTorrentService() {
   const port = Number(process.env.MATRICA_TORRENT_TRACKER_PORT ?? 6969);
   if (!trackerServer) {
     trackerServer = new TrackerServer({ http: true, udp: true, ws: false });
-    trackerServer.on('error', (err) => logWarn('tracker error', { error: String(err) }));
+    trackerServer.on('error', (err: unknown) => logWarn('tracker error', { error: String(err) }));
     trackerServer.listen(port, '0.0.0.0', () => {
       logInfo('tracker listening', { port }, { critical: true });
     });
   }
-  void rescanAndSeed().catch((e) => logError('torrent seed failed', { error: String(e) }));
-  setInterval(() => void rescanAndSeed().catch((e) => logError('torrent rescan failed', { error: String(e) })), RESCAN_INTERVAL_MS);
+  void rescanAndSeed().catch((e: unknown) => logError('torrent seed failed', { error: String(e) }));
+  setInterval(
+    () => void rescanAndSeed().catch((e: unknown) => logError('torrent rescan failed', { error: String(e) })),
+    RESCAN_INTERVAL_MS,
+  );
 }
 
 export function getLatestTorrentState(): TorrentState | null {

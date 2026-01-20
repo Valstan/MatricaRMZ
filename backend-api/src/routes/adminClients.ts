@@ -49,7 +49,18 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
   if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
 
   try {
-    const row = await updateClientSettings(clientId, parsed.data);
+    const updates: {
+      updatesEnabled?: boolean;
+      torrentEnabled?: boolean;
+      loggingEnabled?: boolean;
+      loggingMode?: 'dev' | 'prod';
+    } = {};
+    if (parsed.data.updatesEnabled !== undefined) updates.updatesEnabled = parsed.data.updatesEnabled;
+    if (parsed.data.torrentEnabled !== undefined) updates.torrentEnabled = parsed.data.torrentEnabled;
+    if (parsed.data.loggingEnabled !== undefined) updates.loggingEnabled = parsed.data.loggingEnabled;
+    if (parsed.data.loggingMode !== undefined) updates.loggingMode = parsed.data.loggingMode;
+
+    const row = await updateClientSettings(clientId, updates);
     return res.json({
       ok: true,
       row: {
