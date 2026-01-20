@@ -82,7 +82,7 @@ async function main() {
 
   if (nextStr === formatVersion(current)) {
     // eslint-disable-next-line no-console
-    console.log(`Client version already up-to-date: ${nextStr} (derived RELEASE=${derivedRelease})`);
+    console.log(`Client version already up-to-date: ${nextStr}`);
     return;
   }
 
