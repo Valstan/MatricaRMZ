@@ -32,7 +32,7 @@ pnpm release:auto
 
 ## Backend / Web‑admin после релиза
 
-Если релиз затрагивает backend или web-admin, обновляем сервер:
+Если релиз затрагивает backend или web-admin, обновляем сервер и **перезапускаем сервис**:
 ```bash
 git pull
 pnpm install
@@ -40,6 +40,18 @@ pnpm -C shared build
 pnpm -C backend-api build
 pnpm --filter @matricarmz/web-admin build
 sudo systemctl restart matricarmz-backend.service
+```
+
+## Сборка и публикация клиента (Windows)
+
+Артефакты Electron публикуются GitHub Actions по тегу `vX.Y.Z`.
+
+Проверить, что workflow отработал:
+- `release-electron-windows.yml` (в GitHub Actions)
+
+Если нужно запустить вручную:
+```bash
+gh workflow run release-electron-windows.yml --ref vX.Y.Z
 ```
 
 ## Обновления клиента (Windows)
