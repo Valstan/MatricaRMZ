@@ -22,6 +22,8 @@ let trackerServer: TrackerServer | null = null;
 let torrentClient: WebTorrentInstance | null = null;
 let currentTorrent: WebTorrentTorrent | null = null;
 let currentState: TorrentState | null = null;
+let lastScanAt: number | null = null;
+let lastError: string | null = null;
 
 const RESCAN_INTERVAL_MS = 60_000;
 
@@ -147,18 +149,38 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
 }
 
 async function rescanAndSeed() {
-  const dir = getUpdatesDir();
-  if (!dir) return;
-  const latest = await pickLatestInstaller(dir);
-  if (!latest) return;
-  if (currentState?.version === latest.version && currentState.fileName === latest.name) return;
-  await seedLatestInstaller(latest);
-  logInfo('torrent seeding ready', { version: latest.version, file: latest.name }, { critical: true });
+  lastScanAt = Date.now();
+  try {
+    const dir = getUpdatesDir();
+    if (!dir) {
+      lastError = 'updates_dir_not_set';
+      currentState = null;
+      return;
+    }
+    const latest = await pickLatestInstaller(dir);
+    if (!latest) {
+      lastError = 'no_installer_found';
+      currentState = null;
+      return;
+    }
+    if (currentState?.version === latest.version && currentState.fileName === latest.name) {
+      lastError = null;
+      return;
+    }
+    await seedLatestInstaller(latest);
+    lastError = null;
+    logInfo('torrent seeding ready', { version: latest.version, file: latest.name }, { critical: true });
+  } catch (e) {
+    lastError = `seed_failed: ${String(e)}`;
+    currentState = null;
+    throw e;
+  }
 }
 
 export function startUpdateTorrentService() {
   const dir = getUpdatesDir();
   if (!dir) {
+    lastError = 'updates_dir_not_set';
     logWarn('torrent updates disabled: MATRICA_UPDATES_DIR not set');
     return;
   }
@@ -179,4 +201,24 @@ export function startUpdateTorrentService() {
 
 export function getLatestTorrentState(): TorrentState | null {
   return currentState;
+}
+
+export function getUpdateTorrentStatus() {
+  const updatesDir = getUpdatesDir();
+  return {
+    enabled: !!updatesDir,
+    updatesDir,
+    trackers: updatesDir ? getTrackerUrls() : [],
+    lastScanAt,
+    lastError,
+    latest: currentState
+      ? {
+          version: currentState.version,
+          fileName: currentState.fileName,
+          size: currentState.size,
+          infoHash: currentState.infoHash,
+          trackers: currentState.trackers,
+        }
+      : null,
+  };
 }

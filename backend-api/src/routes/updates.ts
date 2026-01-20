@@ -1,13 +1,18 @@
 import { Router } from 'express';
 
-import { getLatestTorrentState } from '../services/updateTorrentService.js';
+import { getLatestTorrentState, getUpdateTorrentStatus } from '../services/updateTorrentService.js';
 
 export const updatesRouter = Router();
 
 updatesRouter.get('/latest', (req, res) => {
   const st = getLatestTorrentState();
   if (!st) {
-    return res.status(404).json({ ok: false, error: 'no update torrent' });
+    const status = getUpdateTorrentStatus();
+    return res.json({
+      ok: false,
+      error: status.lastError ?? (status.enabled ? 'no update torrent' : 'updates disabled'),
+      status,
+    });
   }
   const base = `${req.protocol}://${req.get('host')}`;
   return res.json({
@@ -20,6 +25,10 @@ updatesRouter.get('/latest', (req, res) => {
     torrentUrl: `${base}/updates/latest.torrent`,
     qbittorrentUrl: 'https://www.qbittorrent.org/download',
   });
+});
+
+updatesRouter.get('/status', (_req, res) => {
+  return res.json({ ok: true, status: getUpdateTorrentStatus() });
 });
 
 updatesRouter.get('/latest.torrent', (req, res) => {

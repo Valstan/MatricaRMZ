@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { profileGet, profileUpdate } from '../api/auth.js';
-import { getLatestUpdateInfo } from '../api/updates.js';
+import { getLatestUpdateInfo, getUpdateStatus } from '../api/updates.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 
@@ -34,6 +34,13 @@ export function UserSettingsPage(props: {
     torrentUrl: string;
     qbittorrentUrl: string;
   } | null>(null);
+  const [updateStatusInfo, setUpdateStatusInfo] = useState<{
+    enabled: boolean;
+    updatesDir?: string | null;
+    lastScanAt?: number | null;
+    lastError?: string | null;
+    latest?: { version: string; fileName: string; size: number };
+  } | null>(null);
   const [updateStatus, setUpdateStatus] = useState<string>('');
   const [updateLoading, setUpdateLoading] = useState<boolean>(false);
 
@@ -63,24 +70,64 @@ export function UserSettingsPage(props: {
     };
   }, [props.user?.id]);
 
+  function describeUpdateStatus(status: typeof updateStatusInfo): string {
+    if (!status) return '';
+    if (!status.enabled) return 'Обновления отключены: папка обновлений не настроена.';
+    const err = status.lastError ?? '';
+    if (err.startsWith('seed_failed:')) return `Ошибка подготовки торрента: ${err.replace('seed_failed:', '').trim()}`;
+    if (err === 'updates_dir_not_set') return 'Обновления отключены: папка обновлений не задана.';
+    if (err === 'no_installer_found') return 'Не найден установщик .exe в папке обновлений.';
+    if (status.latest) return 'Торрент обновления доступен.';
+    return 'Торрент обновления пока недоступен.';
+  }
+
+  async function refreshUpdateInfo() {
+    setUpdateLoading(true);
+    setUpdateStatus('');
+    const statusRes = await getUpdateStatus().catch(() => null);
+    if (statusRes && (statusRes as any).ok && (statusRes as any).status) {
+      const st = (statusRes as any).status;
+      setUpdateStatusInfo({
+        enabled: !!st.enabled,
+        updatesDir: st.updatesDir ?? null,
+        lastScanAt: st.lastScanAt ?? null,
+        lastError: st.lastError ?? null,
+        latest: st.latest
+          ? {
+              version: String(st.latest.version ?? ''),
+              fileName: String(st.latest.fileName ?? ''),
+              size: Number(st.latest.size ?? 0),
+            }
+          : undefined,
+      });
+      if (st.latest) {
+        const r = await getLatestUpdateInfo().catch(() => null);
+        if (r && (r as any).ok) {
+          setUpdateInfo({
+            version: String((r as any).version ?? ''),
+            torrentUrl: String((r as any).torrentUrl ?? ''),
+            qbittorrentUrl: String((r as any).qbittorrentUrl ?? 'https://www.qbittorrent.org/download'),
+          });
+        } else {
+          setUpdateInfo(null);
+          setUpdateStatus(`Ошибка загрузки обновлений: ${(r as any)?.error ?? 'unknown'}`);
+        }
+      } else {
+        setUpdateInfo(null);
+      }
+    } else {
+      setUpdateStatusInfo(null);
+      setUpdateInfo(null);
+      setUpdateStatus(`Ошибка загрузки обновлений: ${(statusRes as any)?.error ?? 'unknown'}`);
+    }
+    setUpdateLoading(false);
+  }
+
   useEffect(() => {
     let alive = true;
     void (async () => {
-      setUpdateLoading(true);
-      const r = await getLatestUpdateInfo().catch(() => null);
       if (!alive) return;
-      if (r && (r as any).ok) {
-        setUpdateInfo({
-          version: String((r as any).version ?? ''),
-          torrentUrl: String((r as any).torrentUrl ?? ''),
-          qbittorrentUrl: String((r as any).qbittorrentUrl ?? 'https://www.qbittorrent.org/download'),
-        });
-        setUpdateStatus('');
-      } else {
-        setUpdateInfo(null);
-        setUpdateStatus(`Ошибка загрузки обновлений: ${(r as any)?.error ?? 'unknown'}`);
-      }
-      setUpdateLoading(false);
+      await refreshUpdateInfo();
     })();
     return () => {
       alive = false;
@@ -213,6 +260,17 @@ export function UserSettingsPage(props: {
         <div className="muted" style={{ marginBottom: 12 }}>
           Ссылка на торрент последней версии «Матрица РМЗ» и скачивание qBittorrent.
         </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <Button variant="ghost" onClick={() => void refreshUpdateInfo()} disabled={updateLoading}>
+            Обновить
+          </Button>
+          {updateStatusInfo?.lastScanAt ? (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Проверено: {new Date(updateStatusInfo.lastScanAt).toLocaleString('ru-RU')}
+            </span>
+          ) : null}
+        </div>
+        {updateStatusInfo && <div className="muted" style={{ marginBottom: 8 }}>{describeUpdateStatus(updateStatusInfo)}</div>}
         {updateLoading ? (
           <div className="muted">Загрузка…</div>
         ) : updateInfo && updateInfo.torrentUrl ? (
