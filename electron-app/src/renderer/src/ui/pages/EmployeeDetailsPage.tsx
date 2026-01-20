@@ -11,6 +11,7 @@ import {
   suggestLinkTargetCodeWithRules,
   type LinkRule,
 } from '../utils/linkFieldRules.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type EmployeeAccount = {
   id: string;
@@ -121,6 +122,33 @@ function getLinkTargetTypeCode(def: AttrDef): string | null {
     return typeof json?.linkTargetTypeCode === 'string' ? json.linkTargetTypeCode : null;
   } catch {
     return null;
+  }
+}
+
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
+}
+
+function fileListHtml(list: unknown) {
+  const items = Array.isArray(list)
+    ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
+    : [];
+  if (items.length === 0) return '<div class="muted">Нет файлов</div>';
+  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
+}
+
+function formatValue(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map((x) => formatValue(x)).filter(Boolean).join(', ');
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
   }
 }
 
@@ -657,11 +685,57 @@ export function EmployeeDetailsPage(props: {
     await saveAttr('full_name', nextFull || null);
   }
 
+  function printEmployeeCard() {
+    const attrs = employee?.attributes ?? {};
+    const mainRows: Array<[string, string]> = [
+      ['ФИО', computedFullName],
+      ['Табельный номер', personnelNumber],
+      ['Должность', position],
+      ['Подразделение', departmentLabel || ''],
+      ['Дата рождения', birthDate || ''],
+    ];
+    const employmentRows: Array<[string, string]> = [
+      ['Статус', employmentStatus === 'terminated' ? 'Уволен' : 'Работает'],
+      ['Дата приема', hireDate || ''],
+      ['Дата увольнения', terminationDate || ''],
+    ];
+    const transfersHtml =
+      transfers.length === 0
+        ? '<div class="muted">Нет данных</div>'
+        : `<ul>${transfers
+            .map((t) => {
+              const dt = t.date ? new Date(t.date).toLocaleDateString('ru-RU') : '';
+              return `<li>${escapeHtml(dt)}: ${escapeHtml(String(t.kind ?? ''))} — ${escapeHtml(String(t.value ?? ''))}</li>`;
+            })
+            .join('')}</ul>`;
+    const extraRows = customDefs.map((d) => [d.name || d.code, formatValue((attrs as any)[d.code])]);
+
+    openPrintPreview({
+      title: 'Карточка сотрудника',
+      subtitle: computedFullName ? `Сотрудник: ${computedFullName}` : undefined,
+      sections: [
+        { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
+        { id: 'employment', title: 'Кадровые данные', html: keyValueTable(employmentRows) },
+        { id: 'transfers', title: 'Кадровые перемещения', html: transfersHtml },
+        {
+          id: 'extra',
+          title: 'Дополнительные поля',
+          html: extraRows.length > 0 ? keyValueTable(extraRows as Array<[string, string]>) : '<div class="muted">Нет данных</div>',
+        },
+        { id: 'files', title: 'Вложения', html: fileListHtml(attachments) },
+      ],
+    });
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
         <strong style={{ fontSize: 18 }}>{computedFullName || 'Карточка сотрудника'}</strong>
         {departmentLabel && <span style={{ color: '#6b7280' }}>• {departmentLabel}</span>}
+        <span style={{ flex: 1 }} />
+        <Button variant="ghost" onClick={printEmployeeCard}>
+          Распечатать
+        </Button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 820 }}>

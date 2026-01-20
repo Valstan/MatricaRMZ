@@ -90,7 +90,9 @@ export function ChatPanel(props: {
     partId: '',
   });
   const [sendingFile, setSendingFile] = useState(false);
+  const [openInfoId, setOpenInfoId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
@@ -163,6 +165,59 @@ export function ChatPanel(props: {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages.length]);
 
+  function shortId(id: string | null) {
+    if (!id) return '';
+    return id.length > 10 ? `${id.slice(0, 8)}…` : id;
+  }
+
+  function buildLinkBreadcrumbs() {
+    const labels: Record<string, string> = {
+      masterdata: 'Справочники',
+      contracts: 'Контракты',
+      contract: 'Карточка контракта',
+      changes: 'Изменения',
+      engines: 'Двигатели',
+      engine: 'Карточка двигателя',
+      requests: 'Заявки',
+      request: 'Карточка заявки',
+      parts: 'Детали',
+      part: 'Карточка детали',
+      employees: 'Сотрудники',
+      employee: 'Карточка сотрудника',
+      reports: 'Отчёты',
+      admin: 'Админ',
+      audit: 'Журнал',
+      settings: 'Настройки',
+      auth: 'Вход',
+    };
+    const parent: Record<string, string> = {
+      engine: 'Двигатели',
+      request: 'Заявки',
+      part: 'Детали',
+      contract: 'Контракты',
+      employee: 'Сотрудники',
+    };
+    const crumbs: string[] = [];
+    const parentLabel = parent[linkDraft.tab];
+    if (parentLabel) crumbs.push(parentLabel);
+    const label = labels[linkDraft.tab] ?? linkDraft.tab;
+    if (label) crumbs.push(label);
+    if (linkDraft.engineId.trim()) crumbs.push(`ID ${shortId(linkDraft.engineId.trim())}`);
+    if (linkDraft.requestId.trim()) crumbs.push(`ID ${shortId(linkDraft.requestId.trim())}`);
+    if (linkDraft.partId.trim()) crumbs.push(`ID ${shortId(linkDraft.partId.trim())}`);
+    return crumbs.filter(Boolean);
+  }
+
+  function insertMention(name: string) {
+    const mention = `@${String(name ?? '').trim()}`.trim();
+    if (!mention) return;
+    setText((prev) => {
+      const base = prev.trim();
+      return base ? `${base} ${mention} ` : `${mention} `;
+    });
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
   async function sendText() {
     const t = text.trim();
     if (!t) return;
@@ -181,6 +236,7 @@ export function ChatPanel(props: {
       engineId: linkDraft.engineId.trim() || null,
       requestId: linkDraft.requestId.trim() || null,
       partId: linkDraft.partId.trim() || null,
+      breadcrumbs: buildLinkBreadcrumbs(),
     };
     await chatApi.sendLink({ recipientUserId: selectedUserId, link: payload });
     await refreshMessages();
@@ -339,16 +395,44 @@ export function ChatPanel(props: {
         </div>
       </div>
 
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: 10 }}>
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 10 }}>
         {messages.length === 0 && <div className="muted">Сообщений пока нет.</div>}
         {messages.map((m) => {
           const mine = m.senderUserId === props.meUserId;
           const bubbleBg = mine ? '#ecfeff' : '#f8fafc';
           const border = mine ? '#a5f3fc' : '#e5e7eb';
+          const infoOpen = openInfoId === m.id;
+          const linkPayload = m.messageType === 'deep_link' ? (m.payload as any) : null;
+          const breadcrumbsRaw = Array.isArray(linkPayload?.breadcrumbs) ? linkPayload.breadcrumbs : [];
+          const breadcrumbs = breadcrumbsRaw.map((x: any) => String(x ?? '').trim()).filter(Boolean);
+          const breadcrumbText = breadcrumbs.join(' / ');
           return (
             <div key={m.id} style={{ marginBottom: 8, display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
               <div style={{ maxWidth: '92%', border: `1px solid ${border}`, background: bubbleBg, borderRadius: 12, padding: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{m.senderUsername}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>{m.senderUsername}</div>
+                  <span style={{ flex: 1 }} />
+                  <button
+                    onClick={() => setOpenInfoId((prev) => (prev === m.id ? null : m.id))}
+                    title="Доп. сведения"
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      background: '#ffffff',
+                      color: '#111827',
+                      width: 22,
+                      height: 22,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      borderRadius: 6,
+                    }}
+                  >
+                    i
+                  </button>
+                </div>
                 {m.messageType === 'text' && <div style={{ whiteSpace: 'pre-wrap', color: '#111827' }}>{m.bodyText}</div>}
                 {m.messageType === 'file' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -367,12 +451,32 @@ export function ChatPanel(props: {
                 {m.messageType === 'deep_link' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ color: '#111827' }}>Ссылка на раздел</div>
+                    {breadcrumbText ? <div className="muted" style={{ fontSize: 12 }}>{breadcrumbText}</div> : null}
                     <Button variant="ghost">Открыть в клиенте</Button>
                   </div>
                 )}
                 <div style={{ marginTop: 4, fontSize: 11, color: '#6b7280', textAlign: mine ? 'right' : 'left' }}>
                   {new Date(m.createdAt).toLocaleString('ru-RU')}
                 </div>
+                {infoOpen && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e5e7eb', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {new Date(m.createdAt).toLocaleString('ru-RU')}
+                    </div>
+                    {breadcrumbText ? <div className="muted" style={{ fontSize: 12 }}>Путь: {breadcrumbText}</div> : null}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          insertMention(m.senderUsername);
+                          setOpenInfoId(null);
+                        }}
+                      >
+                        Ответить
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -383,6 +487,7 @@ export function ChatPanel(props: {
       <div style={{ borderTop: '1px solid #e5e7eb', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Input
+            ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Введите сообщение…"
@@ -425,6 +530,8 @@ export function ChatPanel(props: {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <select value={linkDraft.tab} onChange={(e) => setLinkDraft((s) => ({ ...s, tab: e.target.value }))} style={{ padding: 6 }}>
                 <option value="masterdata">masterdata</option>
+                <option value="contracts">contracts</option>
+                <option value="contract">contract</option>
                 <option value="admin">admin</option>
                 <option value="engines">engines</option>
                 <option value="engine">engine</option>
@@ -432,6 +539,8 @@ export function ChatPanel(props: {
                 <option value="request">request</option>
                 <option value="parts">parts</option>
                 <option value="part">part</option>
+                <option value="employees">employees</option>
+                <option value="employee">employee</option>
                 <option value="changes">changes</option>
                 <option value="reports">reports</option>
                 <option value="audit">audit</option>

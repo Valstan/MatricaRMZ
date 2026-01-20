@@ -135,7 +135,12 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (req, 
 
     const list = await listEmployeesAuth();
     if (!list.ok) return res.status(500).json({ ok: false, error: list.error });
-    const ids = list.rows.map((r) => String(r.id));
+    const authRows = list.rows.filter((r) => {
+      const login = String(r.login ?? '').trim();
+      const passwordHash = String(r.passwordHash ?? '').trim();
+      return r.accessEnabled === true && login && passwordHash;
+    });
+    const ids = authRows.map((r) => String(r.id));
 
     const presenceRows =
       ids.length === 0
@@ -150,7 +155,7 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (req, 
       presenceById.set(String(p.userId), p.lastActivityAt == null ? null : Number(p.lastActivityAt));
     }
 
-    let users = list.rows.map((r) => {
+    let users = authRows.map((r) => {
       const last = presenceById.get(String(r.id)) ?? null;
       const online = last != null && ts - last < onlineWindowMs;
       const role = normalizeRole(r.login, r.systemRole);
@@ -392,10 +397,31 @@ chatRouter.post('/send-link', requirePermission(PermissionCode.ChatUse), async (
 
     const linkSchema = z.object({
       kind: z.literal('app_link'),
-      tab: z.enum(['engines', 'engine', 'requests', 'request', 'parts', 'part', 'changes', 'reports', 'admin', 'audit', 'settings', 'auth']),
+      tab: z.enum([
+        'masterdata',
+        'contracts',
+        'contract',
+        'changes',
+        'engines',
+        'engine',
+        'requests',
+        'request',
+        'parts',
+        'part',
+        'employees',
+        'employee',
+        'reports',
+        'admin',
+        'audit',
+        'settings',
+        'auth',
+      ]),
       engineId: z.string().uuid().nullable().optional(),
       requestId: z.string().uuid().nullable().optional(),
       partId: z.string().uuid().nullable().optional(),
+      contractId: z.string().uuid().nullable().optional(),
+      employeeId: z.string().uuid().nullable().optional(),
+      breadcrumbs: z.array(z.string().min(1)).optional(),
     });
     const schema = z.object({
       recipientUserId: z.string().uuid().nullable().optional(),

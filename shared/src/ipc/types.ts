@@ -185,13 +185,18 @@ export type ChatMessageType = 'text' | 'file' | 'deep_link';
 export type ChatDeepLinkPayload = {
   kind: 'app_link';
   tab:
+    | 'masterdata'
+    | 'contracts'
+    | 'contract'
+    | 'changes'
     | 'engines'
     | 'engine'
     | 'requests'
     | 'request'
     | 'parts'
     | 'part'
-    | 'changes'
+    | 'employees'
+    | 'employee'
     | 'reports'
     | 'admin'
     | 'audit'
@@ -200,6 +205,9 @@ export type ChatDeepLinkPayload = {
   engineId?: string | null;
   requestId?: string | null;
   partId?: string | null;
+  contractId?: string | null;
+  employeeId?: string | null;
+  breadcrumbs?: string[];
 };
 
 export type ChatMessageItem = {

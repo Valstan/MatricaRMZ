@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type AttributeDef = {
   id: string;
@@ -67,6 +68,21 @@ function getLinkTargetTypeCode(def: AttributeDef): string | null {
 
 function calcEngineTotal(items: EngineCountItem[]): number {
   return items.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+}
+
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
+}
+
+function fileListHtml(list: unknown) {
+  const items = Array.isArray(list)
+    ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
+    : [];
+  if (items.length === 0) return '<div class="muted">Нет файлов</div>';
+  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
 }
 
 export function ContractDetailsPage(props: {
@@ -348,11 +364,64 @@ export function ContractDetailsPage(props: {
   const extraDefs = sortedDefs.filter((d) => !coreCodes.has(d.code) && !fileDefs.find((f) => f.code === d.code));
 
   const engineTotal = calcEngineTotal(engineCountItems);
+  const engineBrandLabel = engineBrandOptions.find((o) => o.id === engineBrandId)?.label ?? '';
+
+  function printContractCard() {
+    const attrs = contract.attributes ?? {};
+    const mainRows: Array<[string, string]> = [
+      ['Номер контракта', number],
+      ['Дата контракта', date || ''],
+      ['Внутренний номер', internalNumber || ''],
+      ['Марка двигателя', engineBrandLabel || ''],
+      ['Сумма контракта', contractAmount || ''],
+      ['Цена за единицу', unitPrice || ''],
+      ['Количество двигателей', String(engineTotal || 0)],
+    ];
+    const engineItemsHtml =
+      engineCountItems.length === 0
+        ? '<div class="muted">Нет данных</div>'
+        : `<table><thead><tr><th>Тип</th><th>Количество</th></tr></thead><tbody>${engineCountItems
+            .map((it) => `<tr><td>${escapeHtml(it.label)}</td><td>${escapeHtml(String(it.count ?? 0))}</td></tr>`)
+            .join('\n')}</tbody></table>`;
+    const extraRows = extraDefs.map((d) => [d.name || d.code, String((attrs as any)[d.code] ?? '')]);
+    const filesHtml =
+      `<div><strong>Вложения</strong>${fileListHtml((attrs as any).attachments)}</div>` +
+      fileDefs
+        .map((d) => `<div style="margin-top:8px;"><strong>${escapeHtml(d.name)}</strong>${fileListHtml((attrs as any)[d.code])}</div>`)
+        .join('');
+
+    openPrintPreview({
+      title: 'Карточка контракта',
+      subtitle: number ? `Номер: ${number}` : undefined,
+      sections: [
+        { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
+        { id: 'engines', title: 'Состав контракта', html: engineItemsHtml },
+        {
+          id: 'extra',
+          title: 'Дополнительные поля',
+          html: extraRows.length > 0 ? keyValueTable(extraRows as Array<[string, string]>) : '<div class="muted">Нет данных</div>',
+        },
+        { id: 'files', title: 'Файлы', html: filesHtml },
+        {
+          id: 'meta',
+          title: 'Карточка',
+          html: keyValueTable([
+            ['ID', contract.id],
+            ['Создано', new Date(contract.createdAt).toLocaleString('ru-RU')],
+            ['Обновлено', new Date(contract.updatedAt).toLocaleString('ru-RU')],
+          ]),
+        },
+      ],
+    });
+  }
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ margin: 0, flex: 1 }}>Карточка контракта</h2>
+        <Button variant="ghost" onClick={printContractCard}>
+          Распечатать
+        </Button>
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
         <Button variant="ghost" onClick={() => void loadContract()}>
           Обновить

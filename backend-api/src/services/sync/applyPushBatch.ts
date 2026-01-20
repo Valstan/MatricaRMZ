@@ -614,20 +614,31 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       // Remap by (entity_type_id, code) -> existing server ID (if any).
       const typeIds = Array.from(new Set(withTypeRemap.map((r) => String(r.entity_type_id))));
       const codes = Array.from(new Set(withTypeRemap.map((r) => String(r.code))));
+      let keyToServerId = new Map<string, string>();
       if (typeIds.length > 0 && codes.length > 0) {
         const existingByKey = await tx
           .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
           .from(attributeDefs)
-          .where(and(inArray(attributeDefs.entityTypeId, typeIds as any), inArray(attributeDefs.code, codes as any), isNull(attributeDefs.deletedAt)))
+          .where(and(inArray(attributeDefs.entityTypeId, typeIds as any), inArray(attributeDefs.code, codes as any)))
           .limit(50_000);
-        const keyToId = new Map<string, string>();
+        keyToServerId = new Map<string, string>();
         for (const r of existingByKey as any[]) {
-          keyToId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
+          keyToServerId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
         }
-        for (const r of withTypeRemap) {
-          const serverId = keyToId.get(`${String(r.entity_type_id)}::${String(r.code)}`);
-          if (serverId && serverId !== String(r.id)) attributeDefIdRemap.set(String(r.id), serverId);
-        }
+      }
+
+      // Also dedupe incoming rows by (entity_type_id, code) to avoid intra-batch unique conflicts.
+      const keyToLatest = new Map<string, (typeof withTypeRemap)[number]>();
+      for (const r of withTypeRemap) {
+        const key = `${String(r.entity_type_id)}::${String(r.code)}`;
+        const prev = keyToLatest.get(key);
+        if (!prev || prev.updated_at < r.updated_at) keyToLatest.set(key, r);
+      }
+      for (const r of withTypeRemap) {
+        const key = `${String(r.entity_type_id)}::${String(r.code)}`;
+        const serverId = keyToServerId.get(key);
+        const canonicalId = serverId ?? String(keyToLatest.get(key)?.id ?? r.id);
+        if (canonicalId && canonicalId !== String(r.id)) attributeDefIdRemap.set(String(r.id), canonicalId);
       }
 
       // Apply ID remap and de-duplicate by ID (keep the newest updated_at).
@@ -642,7 +653,41 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
       const deduped = Array.from(dedupMap.values());
 
-      const rows = await filterStaleByUpdatedAt(attributeDefs, deduped);
+      let rows = await filterStaleByUpdatedAt(attributeDefs, deduped);
+      // Extra safety: remap by (entity_type_id, code) using the *current* rows to avoid
+      // unique violations if earlier remap missed a server match.
+      if (rows.length > 0) {
+        const rowTypeIds = Array.from(new Set(rows.map((r) => String(r.entity_type_id))));
+        const rowCodes = Array.from(new Set(rows.map((r) => String(r.code))));
+        if (rowTypeIds.length > 0 && rowCodes.length > 0) {
+          const existingByKey = await tx
+            .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+            .from(attributeDefs)
+            .where(and(inArray(attributeDefs.entityTypeId, rowTypeIds as any), inArray(attributeDefs.code, rowCodes as any)))
+            .limit(50_000);
+          const keyToExistingId = new Map<string, string>();
+          for (const r of existingByKey as any[]) {
+            keyToExistingId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
+          }
+          rows = rows.map((r) => {
+            const key = `${String(r.entity_type_id)}::${String(r.code)}`;
+            const serverId = keyToExistingId.get(key);
+            if (serverId && serverId !== String(r.id)) {
+              attributeDefIdRemap.set(String(r.id), serverId);
+              return { ...r, id: serverId };
+            }
+            return r;
+          });
+          // De-duplicate by ID again after remap.
+          const dedupById = new Map<string, (typeof rows)[number]>();
+          for (const r of rows) {
+            const prev = dedupById.get(String(r.id));
+            if (!prev || prev.updated_at < r.updated_at) dedupById.set(String(r.id), r);
+          }
+          rows = Array.from(dedupById.values());
+        }
+      }
+
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.AttributeDefs, ids);
       const existing = await tx

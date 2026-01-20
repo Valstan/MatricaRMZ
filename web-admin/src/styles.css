@@ -2,6 +2,12 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -23,6 +29,9 @@ a {
   max-width: 1280px;
   margin: 0 auto;
   padding: 18px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .card {

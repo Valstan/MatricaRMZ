@@ -15,8 +15,9 @@
 ## Команда “выпусти релиз”
 
 Важно:
-- Перед релизом **обязательно** сделать коммит всех изменений.
-- Рабочее дерево должно быть чистым.
+- `pnpm release:auto` сам добавляет и коммитит все текущие изменения (без вопросов).
+- Рабочее дерево можно не чистить вручную.
+- Версия задаётся в `VERSION` (MAJOR.MINOR.RELEASE). При повышении MINOR — `RELEASE` начинаем с 0.
 
 Команда релиза:
 ```bash
@@ -25,22 +26,29 @@ pnpm release:auto
 ```
 
 Что делает `pnpm release:auto`:
-- поднимает общую версию по `VERSION`,
-- синхронизирует версии всех модулей,
+- автоматически коммитит рабочее дерево (`git add -A`, `git commit -m "chore: session updates"`),
+- если `VERSION` уже отличается от последнего тега — синхронизирует версии пакетов по `VERSION`,
+- иначе автоматически повышает `RELEASE`,
 - делает релизный коммит и тег `vX.Y.Z`,
 - пушит `main` и теги.
 
-## Backend / Web‑admin после релиза
+## Быстрый релиз (оптимальный путь)
+1) Обновить `VERSION` (если нужен переход MAJOR/MINOR).
+2) Запустить `pnpm release:auto`.
+3) Если изменялись `backend-api` или `web-admin` (или shared-контракты, влияющие на них) — выполнить деплой сервера и перезапустить сервисы (см. ниже).
+4) Дождаться артефактов Windows в GitHub Actions (см. ниже).
 
+## Backend / Web‑admin после релиза (только если был апдейт)
 Если релиз затрагивает backend или web-admin, обновляем сервер и **перезапускаем сервис**:
 ```bash
-git pull
+git pull --tags
 pnpm install
 pnpm -C shared build
 pnpm -C backend-api build
 pnpm --filter @matricarmz/web-admin build
 sudo systemctl restart matricarmz-backend.service
 ```
+Если backend/web-admin не менялись — этот шаг пропускаем.
 
 ## Сборка и публикация клиента (Windows)
 
@@ -65,7 +73,7 @@ gh workflow run release-electron-windows.yml --ref vX.Y.Z
 
 ### Торрент‑обновления: размещение инсталлятора
 - На сервере должен быть каталог, указанный в `MATRICA_UPDATES_DIR`.
-- В этот каталог нужно положить **последний `.exe` инсталлятор** клиента (например `MatricaRMZ-0.5.65.exe`).
+- В этот каталог нужно положить **последний `.exe` инсталлятор** клиента (например `MatricaRMZ-0.6.0.exe`).
 - Backend сам создаст `latest.torrent` и `latest.json`, запустит сидирование и отдачу по `/updates/*`.
 
 

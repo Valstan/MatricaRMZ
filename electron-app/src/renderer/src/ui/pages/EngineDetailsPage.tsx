@@ -8,6 +8,7 @@ import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -15,76 +16,19 @@ function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
 }
 
-function escapeHtml(s: string) {
-  return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
 }
 
-function printEngineReport(engine: EngineDetails, ops: OperationItem[]) {
-  const number = String(engine.attributes?.engine_number ?? '');
-  const brand = String(engine.attributes?.engine_brand ?? '');
-  const created = new Date(engine.createdAt).toLocaleString('ru-RU');
-
-  const rows = [...ops].sort((a, b) => (a.performedAt ?? a.createdAt) - (b.performedAt ?? b.createdAt));
-  const opsHtml = rows
-    .map((o) => {
-      const dt = new Date(o.performedAt ?? o.createdAt).toLocaleString('ru-RU');
-      return `<tr>
-  <td>${escapeHtml(dt)}</td>
-  <td>${escapeHtml(opLabel(o.operationType))}</td>
-  <td>${escapeHtml(o.status)}</td>
-  <td>${escapeHtml(o.note ?? '')}</td>
-</tr>`;
-    })
-    .join('\n');
-
-  const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Карта двигателя</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 12px 0; font-size: 20px; }
-    .meta { color: #444; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
-    th { background: #f5f5f5; }
-    .muted { color: #666; }
-    @media print { .no-print { display: none; } }
-  </style>
-</head>
-<body>
-  <div class="no-print" style="margin-bottom:12px;">
-    <button onclick="window.print()">Печать</button>
-  </div>
-  <h1>Карта двигателя</h1>
-  <div class="meta">
-    <div><b>Номер:</b> ${escapeHtml(number || '-')}</div>
-    <div><b>Марка:</b> ${escapeHtml(brand || '-')}</div>
-    <div class="muted"><b>Создан:</b> ${escapeHtml(created)}</div>
-  </div>
-  <h2 style="font-size:14px;margin:0 0 8px 0;">Таймлайн операций</h2>
-  <table>
-    <thead><tr><th>Дата</th><th>Тип</th><th>Статус</th><th>Комментарий</th></tr></thead>
-    <tbody>
-      ${opsHtml || '<tr><td colspan="4" class="muted">Нет операций</td></tr>'}
-    </tbody>
-  </table>
-</body>
-</html>`;
-
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  // дать браузеру отрисовать
-  setTimeout(() => w.focus(), 200);
+function fileListHtml(list: unknown) {
+  const items = Array.isArray(list)
+    ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
+    : [];
+  if (items.length === 0) return '<div class="muted">Нет файлов</div>';
+  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
 }
 
 function opLabel(type: string) {
@@ -112,6 +56,62 @@ function opLabel(type: string) {
     default:
       return type;
   }
+}
+
+function printEngineReport(
+  engine: EngineDetails,
+  ops: OperationItem[],
+  context?: {
+    engineNumber?: string;
+    engineBrand?: string;
+    customer?: string;
+    contract?: string;
+    workOrder?: string;
+    workshop?: string;
+    section?: string;
+  },
+) {
+  const attrs = engine.attributes ?? {};
+  const mainRows: Array<[string, string]> = [
+    ['Номер двигателя', String(context?.engineNumber ?? attrs.engine_number ?? '')],
+    ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
+    ['Заказчик', String(context?.customer ?? attrs.customer_id ?? '')],
+    ['Контракт', String(context?.contract ?? attrs.contract_id ?? '')],
+    ['Наряд', String(context?.workOrder ?? attrs.work_order_id ?? '')],
+    ['Цех', String(context?.workshop ?? attrs.workshop_id ?? '')],
+    ['Участок', String(context?.section ?? attrs.section_id ?? '')],
+  ];
+  const opsSorted = [...ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
+  const opsHtml =
+    opsSorted.length === 0
+      ? '<div class="muted">Операций пока нет</div>'
+      : `<table>
+  <thead>
+    <tr><th>Дата</th><th>Тип</th><th>Статус</th><th>Комментарий</th></tr>
+  </thead>
+  <tbody>
+    ${opsSorted
+      .map(
+        (o) => `<tr>
+  <td>${escapeHtml(new Date(o.performedAt ?? o.createdAt).toLocaleString('ru-RU'))}</td>
+  <td>${escapeHtml(opLabel(o.operationType))}</td>
+  <td>${escapeHtml(String(o.status ?? ''))}</td>
+  <td>${escapeHtml(String(o.note ?? ''))}</td>
+</tr>`,
+      )
+      .join('\n')}
+  </tbody>
+</table>`;
+
+  openPrintPreview({
+    title: `Карточка двигателя`,
+    subtitle: (context?.engineNumber ?? attrs.engine_number) ? `Номер: ${String(context?.engineNumber ?? attrs.engine_number)}` : undefined,
+    sections: [
+      { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
+      { id: 'ops', title: 'Операции', html: opsHtml },
+      { id: 'files', title: 'Файлы', html: fileListHtml(attrs.attachments) },
+    ],
+  });
 }
 
 export function EngineDetailsPage(props: {
@@ -324,14 +324,23 @@ export function EngineDetailsPage(props: {
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         {props.canPrintEngineCard && (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            printEngineReport(props.engine, props.ops);
-          }}
-        >
-          Печать
-        </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
+              printEngineReport(props.engine, props.ops, {
+                engineNumber,
+                engineBrand,
+                customer: pickLabel('customer_id', customerId),
+                contract: pickLabel('contract_id', contractId),
+                workOrder: pickLabel('work_order_id', workOrderId),
+                workshop: pickLabel('workshop_id', workshopId),
+                section: pickLabel('section_id', sectionId),
+              });
+            }}
+          >
+            Распечатать
+          </Button>
         )}
         <div style={{ flex: 1 }} />
         {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}

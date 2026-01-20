@@ -42,7 +42,10 @@ async function main() {
   if (gitRoot !== process.cwd()) throw new Error(`Run from repo root: ${gitRoot}`);
 
   const dirty = out('git status --porcelain=v1');
-  if (dirty) throw new Error(`Working tree is not clean. Commit/stash first.\n${dirty}`);
+  if (dirty) {
+    run('git add -A');
+    run('git commit -m "chore: session updates"');
+  }
 
   const lastClientTag = (() => {
     try {
@@ -60,7 +63,14 @@ async function main() {
   }
 
   // Single version bump for all modules
-  run('pnpm version:bump');
+  const currentVersion = await readClientVersion();
+  if (!currentVersion) throw new Error('VERSION is empty');
+  const lastVersion = lastClientTag ? String(lastClientTag).replace(/^v/, '') : null;
+  if (lastVersion && lastVersion === currentVersion) {
+    run('pnpm version:bump');
+  } else {
+    run(`pnpm version:bump --set ${currentVersion}`);
+  }
   const changed = out('git status --porcelain=v1');
   const needsCommit = changed
     .split('\n')

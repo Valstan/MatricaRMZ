@@ -6,6 +6,7 @@ import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '../utils/linkFieldRules.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type Attribute = {
   id: string;
@@ -77,6 +78,33 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
       }}
     />
   );
+}
+
+function formatValue(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map((x) => formatValue(x)).filter(Boolean).join(', ');
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
+}
+
+function fileListHtml(list: unknown) {
+  const items = Array.isArray(list)
+    ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
+    : [];
+  if (items.length === 0) return '<div class="muted">Нет файлов</div>';
+  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
 }
 
 export function PartDetailsPage(props: {
@@ -500,11 +528,59 @@ export function PartDetailsPage(props: {
   const engineBrandLabelById = new Map<string, string>();
   for (const o of engineBrandOptions) engineBrandLabelById.set(o.id, o.label);
 
+  function printPartCard() {
+    const mainRows: Array<[string, string]> = [
+      ['Название', name],
+      ['Артикул / обозначение', article],
+      ['Описание', description],
+      ['Дата покупки', purchaseDate || ''],
+      ['Поставщик', supplier || ''],
+    ];
+    const compatibility = engineBrandIds
+      .map((id) => engineBrandLabelById.get(id) ?? id)
+      .filter(Boolean)
+      .join(', ');
+    const extraRows = extraAttrs.map((a) => [a.name || a.code, formatValue(a.value)]);
+    openPrintPreview({
+      title: 'Карточка детали',
+      subtitle: name ? `Название: ${name}` : undefined,
+      sections: [
+        { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
+        { id: 'compat', title: 'Совместимость', html: compatibility ? `<div>${escapeHtml(compatibility)}</div>` : '<div class="muted">Нет данных</div>' },
+        {
+          id: 'extra',
+          title: 'Дополнительные поля',
+          html: extraRows.length > 0 ? keyValueTable(extraRows as Array<[string, string]>) : '<div class="muted">Нет данных</div>',
+        },
+        {
+          id: 'files',
+          title: 'Файлы',
+          html:
+            `<div><strong>Вложения</strong>${fileListHtml(attrByCode.get('attachments')?.value)}</div>` +
+            `<div style="margin-top:8px;"><strong>Чертежи</strong>${fileListHtml(attrByCode.get('drawings')?.value)}</div>` +
+            `<div style="margin-top:8px;"><strong>Тех. документы</strong>${fileListHtml(attrByCode.get('tech_docs')?.value)}</div>`,
+        },
+        {
+          id: 'meta',
+          title: 'Карточка',
+          html: keyValueTable([
+            ['ID', part.id],
+            ['Создано', new Date(part.createdAt).toLocaleString('ru-RU')],
+            ['Обновлено', new Date(part.updatedAt).toLocaleString('ru-RU')],
+          ]),
+        },
+      ],
+    });
+  }
+
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0, flex: 1 }}>Карточка детали</h2>
+        <Button variant="ghost" onClick={printPartCard}>
+          Распечатать
+        </Button>
         {props.canDelete && (
           <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
             Удалить

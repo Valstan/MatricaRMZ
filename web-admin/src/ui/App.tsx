@@ -226,13 +226,13 @@ export function App() {
         />
       </div>
 
-      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flex: '1 1 auto', minHeight: 0 }}>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'left' && tab !== 'chat' && (
-          <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden' }}>
+          <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
             <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
           </div>
         )}
-        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+        <div style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
           {tab === 'contracts' && (
             <ContractsPage
@@ -245,7 +245,9 @@ export function App() {
           {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
           {tab === 'clients' && <ClientAdminPage />}
           {tab === 'chat' && user && (
-            <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+            <div style={{ flex: '1 1 auto', minHeight: 0 }}>
+              <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+            </div>
           )}
           {tab === 'settings' && (
             <UserSettingsPage user={user} prefs={prefs} onPrefsChange={(next) => setPrefs(next)} onLogout={() => void doLogout()} />
@@ -343,7 +345,7 @@ export function App() {
           )}
         </div>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'right' && tab !== 'chat' && (
-          <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden' }}>
+          <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
             <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
           </div>
         )}

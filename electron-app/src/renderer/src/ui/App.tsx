@@ -45,6 +45,10 @@ export function App() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
+  const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
+    selectedUserId: null,
+    adminMode: false,
+  });
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }>({
@@ -362,6 +366,8 @@ export function App() {
     const engineId = link?.engineId ? String(link.engineId) : null;
     const requestId = link?.requestId ? String(link.requestId) : null;
     const partId = link?.partId ? String(link.partId) : null;
+    const contractId = link?.contractId ? String(link.contractId) : null;
+    const employeeId = link?.employeeId ? String(link.employeeId) : null;
 
     // Prefer opening specific entities if IDs are present.
     if (engineId) {
@@ -376,19 +382,94 @@ export function App() {
       await openPart(partId);
       return;
     }
+    if (contractId) {
+      await openContract(contractId);
+      return;
+    }
+    if (employeeId) {
+      await openEmployee(employeeId);
+      return;
+    }
     setTab(tabId);
+  }
+
+  function shortId(id: string | null) {
+    if (!id) return '';
+    return id.length > 10 ? `${id.slice(0, 8)}…` : id;
+  }
+
+  function buildChatBreadcrumbs() {
+    const labels: Record<string, string> = {
+      masterdata: 'Справочники',
+      contracts: 'Контракты',
+      contract: 'Карточка контракта',
+      changes: 'Изменения',
+      engines: 'Двигатели',
+      engine: 'Карточка двигателя',
+      requests: 'Заявки',
+      request: 'Карточка заявки',
+      parts: 'Детали',
+      part: 'Карточка детали',
+      employees: 'Сотрудники',
+      employee: 'Карточка сотрудника',
+      reports: 'Отчёты',
+      admin: 'Админ',
+      audit: 'Журнал',
+      settings: 'Настройки',
+      auth: 'Вход',
+    };
+    const parent: Record<string, string> = {
+      engine: 'Двигатели',
+      request: 'Заявки',
+      part: 'Детали',
+      contract: 'Контракты',
+      employee: 'Сотрудники',
+    };
+
+    const crumbs: string[] = [];
+    const parentLabel = parent[tab];
+    if (parentLabel) crumbs.push(parentLabel);
+    const label = labels[tab] ?? String(tab);
+    if (label) crumbs.push(label);
+
+    if (tab === 'engine') {
+      const number = String((engineDetails?.attributes as any)?.engine_number ?? '').trim();
+      if (number) crumbs.push(`№ ${number}`);
+      else if (selectedEngineId) crumbs.push(`ID ${shortId(selectedEngineId)}`);
+    }
+    if (tab === 'request' && selectedRequestId) crumbs.push(`ID ${shortId(selectedRequestId)}`);
+    if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
+    if (tab === 'contract' && selectedContractId) crumbs.push(`ID ${shortId(selectedContractId)}`);
+    if (tab === 'employee' && selectedEmployeeId) crumbs.push(`ID ${shortId(selectedEmployeeId)}`);
+
+    return crumbs.filter(Boolean);
   }
 
   async function sendCurrentPositionToChat() {
     if (!authStatus.loggedIn || !canChat) return;
+    if (!chatOpen) {
+      setPostLoginSyncMsg('Чат закрыт: откройте чат и выберите диалог.');
+      setTimeout(() => setPostLoginSyncMsg(''), 6000);
+      return;
+    }
+    if (chatContext.adminMode) {
+      setPostLoginSyncMsg('Нельзя отправить ссылку в админ-режиме чата.');
+      setTimeout(() => setPostLoginSyncMsg(''), 6000);
+      return;
+    }
     const link = {
       kind: 'app_link',
       tab,
       engineId: selectedEngineId ?? null,
       requestId: selectedRequestId ?? null,
       partId: selectedPartId ?? null,
+      contractId: selectedContractId ?? null,
+      employeeId: selectedEmployeeId ?? null,
+      breadcrumbs: buildChatBreadcrumbs(),
     };
-    const r = await window.matrica.chat.sendDeepLink({ recipientUserId: null, link }).catch(() => null);
+    const r = await window.matrica.chat
+      .sendDeepLink({ recipientUserId: chatContext.selectedUserId ?? null, link })
+      .catch(() => null);
     if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
   }
 
@@ -478,7 +559,7 @@ export function App() {
             </Button>
           )}
           {authStatus.loggedIn && canChat && (
-            <Button variant="ghost" onClick={() => void sendCurrentPositionToChat()} title="Отправить ссылку на текущий раздел в общий чат">
+            <Button variant="ghost" onClick={() => void sendCurrentPositionToChat()} title="Отправить ссылку на текущий раздел в текущий чат">
               Отправить ссылку
             </Button>
           )}
@@ -497,7 +578,17 @@ export function App() {
     >
       <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
-          <div style={{ flex: '0 0 25%', minWidth: 320, borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
+          <div
+            style={{
+              flex: '0 0 25%',
+              minWidth: 320,
+              borderRight: '1px solid var(--border)',
+              overflow: 'hidden',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
             <ChatPanel
               meUserId={authStatus.user?.id ?? ''}
               meRole={authStatus.user?.role ?? ''}
@@ -505,6 +596,7 @@ export function App() {
               canAdminViewAll={canChatAdminView}
               viewMode={viewMode}
               onHide={() => setChatOpen(false)}
+              onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
               }}
@@ -762,13 +854,25 @@ export function App() {
         </div>
 
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide !== 'left' && (
-          <div style={{ flex: '0 0 25%', minWidth: 320, borderLeft: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+          <div
+            style={{
+              flex: '0 0 25%',
+              minWidth: 320,
+              borderLeft: '1px solid rgba(0,0,0,0.08)',
+              overflow: 'hidden',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
             <ChatPanel
               meUserId={authStatus.user?.id ?? ''}
+              meRole={authStatus.user?.role ?? ''}
               canExport={canChatExport}
               canAdminViewAll={canChatAdminView}
               viewMode={viewMode}
               onHide={() => setChatOpen(false)}
+              onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
               }}

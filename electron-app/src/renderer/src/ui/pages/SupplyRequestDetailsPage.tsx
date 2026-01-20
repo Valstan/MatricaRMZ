@@ -7,6 +7,7 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { openPrintPreview } from '../utils/printPreview.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -127,79 +128,51 @@ function printSupplyRequest(
     )}</div>
   </div>`;
 
-  const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Заявка ${escapeHtml(p.requestNumber)}</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 12px 0; font-size: 20px; }
-    .meta { margin-bottom: 14px; color: #111; }
-    .meta div { margin: 4px 0; }
-    table { width: 100%; border-collapse: collapse; }
-    table.items th, table.items td { border: 1px solid #ddd; padding: 9px 10px; text-align: left; font-size: 14px; vertical-align: top; }
-    th { background: #f5f5f5; }
-    .muted { color: #666; }
-    @media print { .no-print { display: none; } }
-  </style>
-</head>
-<body>
-  <div class="no-print" style="margin-bottom:12px;">
-    <button onclick="window.print()">Печать</button>
-  </div>
-  <h1>Заявка в снабжение: ${escapeHtml(p.requestNumber)}</h1>
-  <div class="meta">
+  const mainHtml = `
     <div><b>Дата составления:</b> ${escapeHtml(new Date(p.compiledAt).toLocaleDateString('ru-RU'))}</div>
     <div><b>Статус:</b> ${escapeHtml(statusLabel(p.status))}</div>
     <div><b>Подразделение:</b> ${escapeHtml(departmentLabel || p.departmentId || '-')}</div>
     <div><b>Цех:</b> ${escapeHtml(workshopLabel || p.workshopId || '-')}</div>
     <div><b>Участок:</b> ${escapeHtml(sectionLabel || p.sectionId || '-')}</div>
     <div><b>Описание:</b> ${escapeHtml(p.title || '-')}</div>
-  </div>
-  <table class="items">
-    <thead>
-      ${
-        mode === 'short'
-          ? `<tr>
-        <th>№</th>
-        <th>Наименование</th>
-        <th>Кол-во</th>
-        <th>Ед.</th>
-        <th>Примечание</th>
-      </tr>`
-          : `<tr>
-        <th>№</th>
-        <th>Наименование</th>
-        <th>Кол-во</th>
-        <th>Ед.</th>
-        <th>Примечание</th>
-        <th>Привезено</th>
-        <th>Осталось</th>
-        <th>Факт поставок</th>
-      </tr>`
-      }
-    </thead>
-    <tbody>
-      ${
-        rowsHtml ||
-        (mode === 'short'
-          ? '<tr><td colspan="5" class="muted">Нет позиций</td></tr>'
-          : '<tr><td colspan="8" class="muted">Нет позиций</td></tr>')
-      }
-    </tbody>
-  </table>
+  `;
+  const headHtml =
+    mode === 'short'
+      ? `<tr>
+  <th>№</th>
+  <th>Наименование</th>
+  <th>Кол-во</th>
+  <th>Ед.</th>
+  <th>Примечание</th>
+</tr>`
+      : `<tr>
+  <th>№</th>
+  <th>Наименование</th>
+  <th>Кол-во</th>
+  <th>Ед.</th>
+  <th>Примечание</th>
+  <th>Привезено</th>
+  <th>Осталось</th>
+  <th>Факт поставок</th>
+</tr>`;
+  const emptyRow =
+    mode === 'short'
+      ? '<tr><td colspan="5" class="muted">Нет позиций</td></tr>'
+      : '<tr><td colspan="8" class="muted">Нет позиций</td></tr>';
+  const itemsHtml = `<table>
+  <thead>${headHtml}</thead>
+  <tbody>${rowsHtml || emptyRow}</tbody>
+</table>`;
 
-  ${footer}
-</body>
-</html>`;
-
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  setTimeout(() => w.focus(), 200);
+  openPrintPreview({
+    title: `Заявка ${p.requestNumber}`,
+    subtitle: p.compiledAt ? `Дата: ${new Date(p.compiledAt).toLocaleDateString('ru-RU')}` : undefined,
+    sections: [
+      { id: 'main', title: 'Основное', html: mainHtml },
+      { id: 'items', title: 'Позиции', html: itemsHtml },
+      { id: 'sign', title: 'Подписи', html: footer },
+    ],
+  });
 }
 
 export function SupplyRequestDetailsPage(props: {
@@ -446,7 +419,7 @@ export function SupplyRequestDetailsPage(props: {
                 printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel, 'short');
               }}
             >
-              Печать (кратко)
+              Распечатать (кратко)
             </Button>
             <Button
               variant="ghost"
@@ -454,7 +427,7 @@ export function SupplyRequestDetailsPage(props: {
                 printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel, 'full');
               }}
             >
-              Печать (полно)
+              Распечатать (полно)
             </Button>
           </>
         )}

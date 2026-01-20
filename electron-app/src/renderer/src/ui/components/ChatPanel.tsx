@@ -36,13 +36,6 @@ function roleStyles(roleRaw: string) {
   return { background: 'var(--role-user-bg)', border: 'var(--role-user-border)', color: 'var(--role-user-text)' };
 }
 
-type MenuState = {
-  message: ChatMessageItem;
-  x: number;
-  y: number;
-  mode: 'hover' | 'context';
-};
-
 function formatMessageDate(ts: number) {
   const dt = new Date(ts);
   const parts = new Intl.DateTimeFormat('ru-RU', {
@@ -65,6 +58,7 @@ export function ChatPanel(props: {
   canAdminViewAll: boolean;
   onHide: () => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
+  onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
 }) {
   const [users, setUsers] = useState<ChatUserItem[]>([]);
@@ -77,9 +71,7 @@ export function ChatPanel(props: {
   const [exportRange, setExportRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [menu, setMenu] = useState<MenuState | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const hoverCloseTimer = useRef<number | null>(null);
+  const [openInfoId, setOpenInfoId] = useState<string | null>(null);
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
@@ -98,6 +90,10 @@ export function ChatPanel(props: {
   const role = String(props.meRole ?? '').toLowerCase();
   const isAdmin = ['admin', 'superadmin'].includes(role);
   const isPending = role === 'pending';
+
+  useEffect(() => {
+    props.onChatContextChange?.({ selectedUserId, adminMode });
+  }, [selectedUserId, adminMode, props.onChatContextChange]);
 
   async function refreshUsers() {
     const r = await window.matrica.chat.usersList().catch(() => null);
@@ -170,25 +166,6 @@ export function ChatPanel(props: {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages.length]);
 
-  useEffect(() => {
-    if (!menu) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node | null;
-      if (!t) return;
-      if (menuRef.current && menuRef.current.contains(t)) return;
-      setMenu(null);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [menu]);
-
-  function clearHoverCloseTimer() {
-    if (hoverCloseTimer.current != null) {
-      window.clearTimeout(hoverCloseTimer.current);
-      hoverCloseTimer.current = null;
-    }
-  }
-
   function getMessageUser(m: ChatMessageItem) {
     const u = usersById.get(m.senderUserId) ?? null;
     const displayName = u?.chatDisplayName?.trim() || u?.username?.trim() || '';
@@ -208,14 +185,10 @@ export function ChatPanel(props: {
     setTimeout(() => inputRef.current?.focus(), 0);
   }
 
-  function openMenuAt(message: ChatMessageItem, x: number, y: number, mode: MenuState['mode']) {
-    setMenu({ message, x, y, mode });
-  }
-
   function handleReply(message: ChatMessageItem) {
     const info = getMessageUser(message);
     insertMention(info.name);
-    setMenu(null);
+    setOpenInfoId(null);
   }
 
   function handleReplyPrivate(message: ChatMessageItem) {
@@ -226,17 +199,17 @@ export function ChatPanel(props: {
     setAdminMode(false);
     setSelectedUserId(targetUserId);
     insertMention(info.name);
-    setMenu(null);
+    setOpenInfoId(null);
   }
 
   async function handleDeleteMessage(message: ChatMessageItem) {
     const r = await window.matrica.chat.deleteMessage({ messageId: message.id }).catch(() => null);
     if (r && (r as any).ok) {
-      setMenu(null);
+      setOpenInfoId(null);
       await refreshMessages();
       await refreshUnread();
     } else {
-      setMenu(null);
+      setOpenInfoId(null);
     }
   }
 
@@ -378,27 +351,25 @@ export function ChatPanel(props: {
         </div>
       </div>
 
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: 10 }}>
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 10 }}>
         {messages.length === 0 && <div style={{ color: theme.colors.muted }}>Сообщений пока нет.</div>}
         {messages.map((m) => {
           const mine = m.senderUserId === props.meUserId;
           const info = getMessageUser(m);
           const roleStyle = roleStyles(info.role);
           const canDelete = (mine || isAdmin) && !props.viewMode;
-          const menuOpen = menu?.message.id === m.id;
-          const infoText =
-            m.messageType === 'file'
-              ? m.bodyText || 'Файл'
-              : m.messageType === 'deep_link'
-                ? 'Ссылка на раздел'
-                : m.bodyText || '';
+          const infoOpen = openInfoId === m.id;
+          const linkPayload = m.messageType === 'deep_link' ? (m.payload as any) : null;
+          const breadcrumbsRaw = Array.isArray(linkPayload?.breadcrumbs) ? linkPayload.breadcrumbs : [];
+          const breadcrumbs = breadcrumbsRaw.map((x: any) => String(x ?? '').trim()).filter(Boolean);
+          const breadcrumbText = breadcrumbs.join(' / ');
           const isClickable = m.messageType === 'file' || m.messageType === 'deep_link';
           return (
             <div key={m.id} style={{ marginBottom: 6 }}>
               <div
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  openMenuAt(m, e.clientX + 6, e.clientY + 6, 'context');
+                  setOpenInfoId((prev) => (prev === m.id ? null : m.id));
                 }}
                 style={{
                   display: 'flex',
@@ -447,20 +418,9 @@ export function ChatPanel(props: {
                   </span>
                   <span style={{ flex: 1 }} />
                   <button
-                    onMouseEnter={(e) => {
-                      clearHoverCloseTimer();
-                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                      openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'hover');
-                    }}
-                    onMouseLeave={() => {
-                      if (menu?.mode === 'hover' && menu?.message.id === m.id) {
-                        hoverCloseTimer.current = window.setTimeout(() => setMenu(null), 120);
-                      }
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                      openMenuAt(m, Math.round(rect.right + 8), Math.round(rect.top), 'context');
+                      setOpenInfoId((prev) => (prev === m.id ? null : m.id));
                     }}
                     title="Доп. сведения"
                     style={{
@@ -499,30 +459,31 @@ export function ChatPanel(props: {
                     textDecoration: isClickable ? 'underline' : 'none',
                   }}
                 >
-                  {infoText}
+                  {m.messageType === 'text' && (m.bodyText || '')}
+                  {m.messageType === 'file' && (m.bodyText || 'Файл')}
+                  {m.messageType === 'deep_link' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span>Ссылка на раздел</span>
+                      {breadcrumbText ? <span style={{ fontSize: 12, color: theme.colors.muted }}>{breadcrumbText}</span> : null}
+                    </div>
+                  )}
                 </div>
               </div>
-              {menuOpen && (
+              {infoOpen && (
                 <div
-                  ref={menuRef}
-                  onMouseEnter={() => clearHoverCloseTimer()}
-                  onMouseLeave={() => {
-                    if (menu?.mode === 'hover') setMenu(null);
-                  }}
                   style={{
-                    position: 'fixed',
-                    left: menu?.x ?? 0,
-                    top: menu?.y ?? 0,
-                    minWidth: 220,
-                    background: theme.colors.chatMenuBg,
+                    marginTop: 6,
                     border: `1px solid ${theme.colors.chatMenuBorder}`,
+                    background: theme.colors.chatMenuBg,
                     boxShadow: theme.colors.chatMenuShadow,
                     padding: 10,
-                    zIndex: 1000,
                   }}
                 >
-                  <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 8 }}>{formatMessageDate(m.createdAt)}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 6 }}>{formatMessageDate(m.createdAt)}</div>
+                  {breadcrumbText ? (
+                    <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 8 }}>Путь: {breadcrumbText}</div>
+                  ) : null}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     <Button variant="ghost" onClick={() => handleReply(m)}>
                       Ответить
                     </Button>
