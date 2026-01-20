@@ -49,23 +49,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     }
   });
 
-  startClientSettingsPolling({
-    db: sysDb,
-    apiBaseUrl: mgr.getApiBaseUrl(),
-    clientId: opts.clientId,
-    version: app.getVersion(),
-    log: logToFile,
-    onApplied: (settings) => {
-      const updatesEnabled = settings.updatesEnabled !== false;
-      const torrentEnabled = updatesEnabled && settings.torrentEnabled !== false;
-      if (torrentEnabled) {
-        void startTorrentSeeding();
-      } else {
-        void stopTorrentSeeding();
-      }
-    },
-  });
-
   async function currentActor(): Promise<string> {
     const s = await getSession(db).catch(() => null);
     const u = s?.user?.username;
@@ -101,6 +84,23 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     currentActor,
     currentPermissions,
   };
+
+  startClientSettingsPolling({
+    db: sysDb,
+    apiBaseUrl: mgr.getApiBaseUrl(),
+    clientId: opts.clientId,
+    version: app.getVersion(),
+    log: logToFile,
+    onApplied: (settings) => {
+      const updatesEnabled = settings.updatesEnabled !== false;
+      const torrentEnabled = updatesEnabled && settings.torrentEnabled !== false;
+      if (torrentEnabled) {
+        void startTorrentSeeding();
+      } else {
+        void stopTorrentSeeding();
+      }
+    },
+  });
 
   // Register IPC domains
   registerLoggingIpc(ctx);
