@@ -48,7 +48,7 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
   const have = new Set(existing.map((r) => String(r.code)));
 
   const ts = nowMs();
-  async function ensure(code: string, name: string, dataType: string, sortOrder: number) {
+  async function ensure(code: string, name: string, dataType: string, sortOrder: number, metaJson?: string | null) {
     if (have.has(code)) return;
     await db.insert(attributeDefs).values({
       id: randomUUID(),
@@ -58,7 +58,7 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
       dataType,
       isRequired: false,
       sortOrder,
-      metaJson: null,
+      metaJson: metaJson ?? null,
       createdAt: ts,
       updatedAt: ts,
       deletedAt: null,
@@ -77,7 +77,8 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
 
   // Purchase
   await ensure('purchase_date', 'Дата покупки', AttributeDataType.Date, 50);
-  await ensure('supplier', 'Поставщик', AttributeDataType.Text, 60);
+  await ensure('supplier_id', 'Поставщик', AttributeDataType.Link, 59, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Customer }));
+  await ensure('supplier', 'Поставщик (legacy)', AttributeDataType.Text, 60);
 
   // Files (stored as FileRef[] in json)
   await ensure('drawings', 'Чертежи', AttributeDataType.Json, 200);

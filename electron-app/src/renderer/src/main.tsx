@@ -1,3 +1,4 @@
+/// <reference path="./types/matrica.d.ts" />
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 

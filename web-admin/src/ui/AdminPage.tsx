@@ -6,6 +6,12 @@ import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
 import * as masterdata from '../api/masterdata.js';
+import {
+  buildLinkTypeOptions,
+  normalizeForMatch,
+  suggestLinkTargetCodeWithRules,
+  type LinkRule,
+} from './utils/linkFieldRules.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -35,6 +41,7 @@ export function MasterdataPage(props: {
   const [entityQuery, setEntityQuery] = useState<string>('');
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   const [status, setStatus] = useState<string>('');
+  const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
 
   const [deleteDialog, setDeleteDialog] = useState<
     | {
@@ -171,6 +178,62 @@ export function MasterdataPage(props: {
       if (prev && nextVisible.some((t) => t.id === prev)) return prev;
       return nextVisible[0]?.id ?? '';
     });
+    if (rows.length > 0) void loadLinkRules(rows);
+  }
+
+  async function loadLinkRules(rows?: EntityTypeRow[]) {
+    try {
+      const list = rows ?? (await masterdata.listEntityTypes()).rows ?? [];
+      const ruleType = (list as any[]).find((t) => t.code === 'link_field_rule');
+      if (!ruleType?.id) {
+        setLinkRules([]);
+        return;
+      }
+      const items = await masterdata.listEntities(String(ruleType.id));
+      if (!items.ok) {
+        setLinkRules([]);
+        return;
+      }
+      const rules: LinkRule[] = [];
+      for (const row of items.rows ?? []) {
+        const details = await masterdata.getEntity(String(row.id));
+        if (!details.ok) continue;
+        const attrs = details.attributes ?? {};
+        const fieldName = String(attrs.field_name ?? '').trim();
+        const targetTypeCode = String(attrs.target_type_code ?? '').trim();
+        const priority = Number(attrs.priority ?? 0) || 0;
+        if (fieldName && targetTypeCode) rules.push({ fieldName, targetTypeCode, priority });
+      }
+      setLinkRules(rules);
+    } catch {
+      setLinkRules([]);
+    }
+  }
+
+  async function upsertLinkRule(fieldName: string, targetTypeCode: string) {
+    const ruleType = types.find((t) => t.code === 'link_field_rule');
+    if (!ruleType) return;
+    const list = await masterdata.listEntities(ruleType.id);
+    if (!list.ok) return;
+    const normalized = normalizeForMatch(fieldName);
+    for (const row of list.rows ?? []) {
+      const details = await masterdata.getEntity(String(row.id));
+      if (!details.ok) continue;
+      const attrs = details.attributes ?? {};
+      const existingName = normalizeForMatch(String(attrs.field_name ?? ''));
+      if (existingName && existingName === normalized) {
+        await masterdata.setEntityAttr(String(row.id), 'target_type_code', targetTypeCode);
+        if (!attrs.priority) await masterdata.setEntityAttr(String(row.id), 'priority', 100);
+        await loadLinkRules();
+        return;
+      }
+    }
+    const created = await masterdata.createEntity(ruleType.id);
+    if (!created.ok || !created.id) return;
+    await masterdata.setEntityAttr(created.id, 'field_name', fieldName);
+    await masterdata.setEntityAttr(created.id, 'target_type_code', targetTypeCode);
+    await masterdata.setEntityAttr(created.id, 'priority', 100);
+    await loadLinkRules();
   }
 
   async function refreshDefs(typeId: string) {
@@ -528,6 +591,10 @@ export function MasterdataPage(props: {
                     <NewAttrDefForm
                       entityTypeId={selectedTypeId}
                       types={types}
+                      linkRules={linkRules}
+                      onStandardLink={async (fieldName, targetTypeCode) => {
+                        await upsertLinkRule(fieldName, targetTypeCode);
+                      }}
                       onSubmit={async (payload) => {
                         setStatus('Сохранение свойства...');
                         const r = await masterdata.upsertAttributeDef(payload);
@@ -1121,9 +1188,11 @@ function NewEntityTypeForm(props: { existingCodes: string[]; onSubmit: (code: st
   function suggestCode(name: string): string {
     const dict: Record<string, string> = {
       услуга: 'service',
-      услуги: 'services',
+      услуги: 'service',
       товар: 'product',
-      товары: 'products',
+      товары: 'product',
+      категория: 'category',
+      категории: 'category',
       деталь: 'part',
       детали: 'parts',
       заказчик: 'customer',
@@ -1170,6 +1239,8 @@ function NewEntityTypeForm(props: { existingCodes: string[]; onSubmit: (code: st
 function NewAttrDefForm(props: {
   entityTypeId: string;
   types: EntityTypeRow[];
+  linkRules: LinkRule[];
+  onStandardLink: (fieldName: string, targetTypeCode: string) => Promise<void>;
   onSubmit: (payload: {
     entityTypeId: string;
     code: string;
@@ -1187,10 +1258,36 @@ function NewAttrDefForm(props: {
   const [sortOrder, setSortOrder] = useState('0');
   const [metaJson, setMetaJson] = useState('');
   const [linkTargetTypeCode, setLinkTargetTypeCode] = useState('');
+  const [linkTouched, setLinkTouched] = useState(false);
 
   useEffect(() => {
     if (dataType !== 'link') setLinkTargetTypeCode('');
+    if (dataType !== 'link') setLinkTouched(false);
   }, [dataType]);
+
+  const recommendedLinkCode = useMemo(
+    () => suggestLinkTargetCodeWithRules(name, props.linkRules),
+    [name, props.linkRules],
+  );
+
+  useEffect(() => {
+    if (dataType !== 'link') return;
+    if (linkTouched) return;
+    if (recommendedLinkCode) setLinkTargetTypeCode(recommendedLinkCode);
+  }, [dataType, linkTouched, recommendedLinkCode]);
+
+  const standardType = useMemo(
+    () => (linkTouched ? props.types.find((t) => t.code === linkTargetTypeCode) ?? null : null),
+    [linkTouched, linkTargetTypeCode, props.types],
+  );
+  const recommendedType = useMemo(
+    () => props.types.find((t) => t.code === recommendedLinkCode) ?? null,
+    [props.types, recommendedLinkCode],
+  );
+  const linkTypeOptions = useMemo(
+    () => buildLinkTypeOptions(props.types, standardType?.code ?? null, recommendedType?.code ?? null),
+    [props.types, standardType?.code, recommendedType?.code],
+  );
 
   return (
     <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
@@ -1208,18 +1305,55 @@ function NewAttrDefForm(props: {
         </select>
         <Input value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} placeholder="sortOrder" />
         {dataType === 'link' && (
-          <select
-            value={linkTargetTypeCode}
-            onChange={(e) => setLinkTargetTypeCode(e.target.value)}
-            style={{ gridColumn: '1 / -1', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="">связь с (раздел)…</option>
-            {props.types.map((t) => (
-              <option key={t.id} value={t.code}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'grid', gap: 6, gridColumn: '1 / -1' }}>
+            <select
+              value={linkTargetTypeCode}
+              onChange={(e) => {
+                setLinkTargetTypeCode(e.target.value);
+                setLinkTouched(true);
+              }}
+              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            >
+              <option value="">связь с (раздел)…</option>
+              {linkTypeOptions.map((opt) => (
+                <option key={opt.type.id} value={opt.type.code}>
+                  {opt.tag === 'standard'
+                    ? `${opt.type.name} (стандартный)`
+                    : opt.tag === 'recommended'
+                      ? `${opt.type.name} (рекомендуется)`
+                      : opt.type.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setLinkTouched(false);
+                  if (recommendedLinkCode) setLinkTargetTypeCode(recommendedLinkCode);
+                }}
+                disabled={!recommendedLinkCode}
+              >
+                Сбросить к рекомендуемому
+              </Button>
+              {!recommendedLinkCode && <span style={{ color: '#6b7280', fontSize: 12 }}>Нет рекомендации</span>}
+            </div>
+            {(standardType || recommendedType) && (
+              <div style={{ color: '#6b7280', fontSize: 12 }}>
+                {standardType && (
+                  <>
+                    Стандартный: <strong>{standardType.name}</strong>
+                  </>
+                )}
+                {standardType && recommendedType && recommendedType.code !== standardType.code && ' • '}
+                {recommendedType && recommendedType.code !== standardType?.code && (
+                  <>
+                    Рекомендуется: <strong>{recommendedType.name}</strong>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         )}
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
           <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
@@ -1237,6 +1371,7 @@ function NewAttrDefForm(props: {
             onClick={() => {
               if (!code.trim() || !name.trim()) return;
               if (dataType === 'link' && !linkTargetTypeCode) return;
+              if (dataType === 'link' && linkTouched && linkTargetTypeCode) void props.onStandardLink(name, linkTargetTypeCode);
               void props.onSubmit({
                 entityTypeId: props.entityTypeId,
                 code,
@@ -1269,6 +1404,33 @@ function FieldEditor(props: {
   onSave: (v: unknown) => Promise<void>;
 }) {
   const dt = props.def.dataType;
+  const linkTargetTypeCode = useMemo(() => {
+    if (!props.def.metaJson) return '';
+    try {
+      const json = JSON.parse(String(props.def.metaJson));
+      return typeof json?.linkTargetTypeCode === 'string' ? json.linkTargetTypeCode : '';
+    } catch {
+      return '';
+    }
+  }, [props.def.metaJson]);
+
+  async function createLinkedEntity(label: string): Promise<string | null> {
+    if (!linkTargetTypeCode) return null;
+    const types = await masterdata.listEntityTypes();
+    if (!types.ok) return null;
+    const target = (types.rows ?? []).find((t: any) => String(t.code) === linkTargetTypeCode) ?? null;
+    if (!target?.id) return null;
+    const created = await masterdata.createEntity(String(target.id));
+    if (!created.ok || !created.id) return null;
+    const defs = await masterdata.listAttributeDefs(String(target.id));
+    if (!defs.ok) return created.id;
+    const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
+    const labelDef = (defs.rows ?? []).find((d: any) => labelKeys.includes(String(d.code))) ?? null;
+    if (labelDef?.code) {
+      await masterdata.setEntityAttr(created.id, String(labelDef.code), label);
+    }
+    return created.id;
+  }
 
   const toInputDate = (ms: number) => {
     const d = new Date(ms);
@@ -1380,6 +1542,20 @@ function FieldEditor(props: {
           props.onChange(next);
           void props.onSave(next);
         }}
+        onCreate={
+          props.canEdit && linkTargetTypeCode
+            ? async (label) => {
+                const id = await createLinkedEntity(label);
+                if (!id) return null;
+                props.onChange(id);
+                void props.onSave(id);
+                return id;
+              }
+            : undefined
+        }
+        createLabel={
+          linkTargetTypeCode ? (linkTargetTypeCode === 'category' ? 'Новая категория' : `Новая запись (${linkTargetTypeCode})`) : undefined
+        }
       />
     );
   }

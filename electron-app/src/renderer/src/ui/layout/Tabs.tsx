@@ -6,6 +6,8 @@ import { tabAccent, theme } from '../theme.js';
 export type TabId =
   | 'engines'
   | 'engine'
+  | 'contracts'
+  | 'contract'
   | 'requests'
   | 'request'
   | 'parts'
@@ -22,14 +24,14 @@ export type TabId =
 
 export function Tabs(props: {
   tab: TabId;
-  onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>) => void;
-  visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>[];
+  onTab: (t: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>) => void;
+  visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>[];
   userLabel: string;
-  userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>;
+  userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>;
   authStatus?: { online: boolean | null };
   right?: React.ReactNode;
 }) {
-  function tabButton(id: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>, label: string) {
+  function tabButton(id: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>, label: string) {
     const acc = theme.accents[tabAccent(id)];
     const active = props.tab === id;
     return (
@@ -76,6 +78,7 @@ export function Tabs(props: {
   return (
     <div style={{ display: 'flex', gap: 6, rowGap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
       {props.visibleTabs.includes('masterdata') && tabButton('masterdata', 'Справочники')}
+      {props.visibleTabs.includes('contracts') && tabButton('contracts', 'Контракты')}
       {props.visibleTabs.includes('changes') && tabButton('changes', 'Изменения')}
       {props.visibleTabs.includes('engines') && tabButton('engines', 'Двигатели')}
       {props.visibleTabs.includes('requests') && tabButton('requests', 'Заявки')}

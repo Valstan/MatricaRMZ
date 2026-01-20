@@ -8,6 +8,12 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 type Row = {
   id: string;
   displayName?: string;
+  position?: string | null;
+  departmentName?: string | null;
+  employmentStatus?: string | null;
+  accessEnabled?: boolean;
+  systemRole?: string | null;
+  personnelNumber?: string | null;
   updatedAt: number;
 };
 
@@ -47,7 +53,16 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     if (!q) return rows;
     return rows.filter((r) => {
       const name = (r.displayName ?? '').toLowerCase();
-      return name.includes(q) || r.id.toLowerCase().includes(q);
+      const dept = String(r.departmentName ?? '').toLowerCase();
+      const position = String(r.position ?? '').toLowerCase();
+      const personnel = String(r.personnelNumber ?? '').toLowerCase();
+      return (
+        name.includes(q) ||
+        dept.includes(q) ||
+        position.includes(q) ||
+        personnel.includes(q) ||
+        r.id.toLowerCase().includes(q)
+      );
     });
   }, [rows, query]);
 
@@ -59,7 +74,10 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Сотрудник</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Обновлено</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Должность</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Подразделение</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Статус</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Доступ</th>
       </tr>
     </thead>
   );
@@ -72,12 +90,20 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
                 </td>
               </tr>
             )}
             {items.map((row) => (
+              (() => {
+                const status = String(row.employmentStatus ?? '').toLowerCase();
+                const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
+                const role = String(row.systemRole ?? '').toLowerCase();
+                const hasAccess =
+                  row.accessEnabled === true && (role === 'user' || role === 'admin' || role === 'superadmin' || role === 'pending');
+                const accessLabel = hasAccess ? 'Пользователь системы' : 'Доступ запрещён';
+                return (
               <tr
                 key={row.id}
                 style={{
@@ -93,10 +119,13 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                 }}
               >
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без ФИО)'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
-                  {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
-                </td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.position || '—'}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.departmentName || '—'}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{statusLabel}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: hasAccess ? '#065f46' : '#b91c1c' }}>{accessLabel}</td>
               </tr>
+                );
+              })(),
             ))}
           </tbody>
         </table>

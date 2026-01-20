@@ -14,6 +14,7 @@ export type SupplyRequestDelivery = {
 
 export type SupplyRequestItem = {
   lineNo: number;
+  productId?: string | null;
   name: string;
   qty: number;
   unit: string;
@@ -38,7 +39,7 @@ import type { FileRef } from './fileStorage.js';
 
 export type SupplyRequestPayload = {
   kind: 'supply_request';
-  version: 1;
+  version: 2;
 
   // identity
   operationId: string; // operations.id

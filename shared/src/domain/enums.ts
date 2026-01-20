@@ -10,8 +10,11 @@ export const EntityTypeCode = {
   Section: 'section',
   Department: 'department',
   Product: 'product',
+  Service: 'service',
+  Category: 'category',
   Employee: 'employee',
   Part: 'part',
+  LinkFieldRule: 'link_field_rule',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];

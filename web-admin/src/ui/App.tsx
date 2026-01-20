@@ -8,6 +8,7 @@ import { MasterdataPage } from './AdminPage.js';
 import { AdminUsersPage } from './AdminUsersPage.js';
 import { ClientAdminPage } from './ClientAdminPage.js';
 import { ChatPanel } from './ChatPanel.js';
+import { ContractsPage } from './ContractsPage.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
@@ -54,7 +55,7 @@ export function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
-  const [tab, setTab] = useState<'masterdata' | 'admin' | 'clients' | 'chat' | 'settings' | 'auth'>('auth');
+  const [tab, setTab] = useState<'masterdata' | 'contracts' | 'admin' | 'clients' | 'chat' | 'settings' | 'auth'>('auth');
   const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
 
@@ -159,6 +160,7 @@ export function App() {
   const userLabel = user ? user.username : 'Вход';
   const visibleTabs = [
     ...(caps.canViewMasterData ? ([{ id: 'masterdata', label: 'Справочники' }] as const) : []),
+    ...(caps.canViewMasterData ? ([{ id: 'contracts', label: 'Контракты' }] as const) : []),
     ...(caps.canManageUsers ? ([{ id: 'admin', label: 'Админ' }] as const) : []),
     ...(caps.canManageClients ? ([{ id: 'clients', label: 'Клиенты' }] as const) : []),
     ...(caps.canChatUse ? ([{ id: 'chat', label: 'Чат' }] as const) : []),
@@ -232,6 +234,14 @@ export function App() {
         )}
         <div style={{ flex: '1 1 auto', minWidth: 0 }}>
           {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
+          {tab === 'contracts' && (
+            <ContractsPage
+              canViewMasterData={caps.canViewMasterData}
+              canEditMasterData={caps.canEditMasterData}
+              canViewFiles={caps.canViewFiles}
+              canUploadFiles={caps.canUploadFiles}
+            />
+          )}
           {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
           {tab === 'clients' && <ClientAdminPage />}
           {tab === 'chat' && user && (

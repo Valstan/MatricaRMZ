@@ -211,7 +211,7 @@ export async function createSupplyRequest(
 
     const payload: SupplyRequestPayload = {
       kind: 'supply_request',
-      version: 1,
+      version: 2,
       operationId: id,
       requestNumber,
       compiledAt: ts,

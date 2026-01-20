@@ -13,6 +13,8 @@ export function deriveCaps(perms: PermissionsMap | null | undefined) {
     canChatUse: has(perms, 'chat.use'),
     canChatExport: has(perms, 'chat.export'),
     canChatAdminView: has(perms, 'chat.admin.view'),
+    canViewFiles: has(perms, 'files.view'),
+    canUploadFiles: has(perms, 'files.upload'),
   };
 }
 

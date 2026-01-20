@@ -9,6 +9,8 @@ import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { MasterdataPage } from './pages/AdminPage.js';
+import { ContractsPage } from './pages/ContractsPage.js';
+import { ContractDetailsPage } from './pages/ContractDetailsPage.js';
 import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
@@ -41,6 +43,7 @@ export function App() {
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
@@ -89,6 +92,7 @@ export function App() {
     setSelectedEngineId(null);
     setEngineDetails(null);
     setOps([]);
+    setSelectedContractId(null);
     setSelectedRequestId(null);
     setSelectedPartId(null);
     setSelectedEmployeeId(null);
@@ -241,7 +245,8 @@ export function App() {
         canManageEmployees: false,
       }
     : capsBase;
-  const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'>[] = [
+  const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>[] = [
+    ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
@@ -252,7 +257,7 @@ export function App() {
     ...(caps.canViewAudit ? (['audit'] as const) : []),
   ];
   const visibleTabsKey = visibleTabs.join('|');
-  const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee'> = authStatus.loggedIn ? 'settings' : 'auth';
+  const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'> = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -294,7 +299,7 @@ export function App() {
 
   // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
   useEffect(() => {
-    if (tab === 'engine' || tab === 'request' || tab === 'part' || tab === 'employee') return;
+    if (tab === 'engine' || tab === 'request' || tab === 'part' || tab === 'employee' || tab === 'contract') return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
   }, [tab, visibleTabsKey, userTab]);
@@ -335,6 +340,11 @@ export function App() {
   async function openRequest(id: string) {
     setSelectedRequestId(id);
     setTab('request');
+  }
+
+  async function openContract(id: string) {
+    setSelectedContractId(id);
+    setTab('contract');
   }
 
   async function openPart(id: string) {
@@ -410,10 +420,14 @@ export function App() {
             ? 'Матрица РМЗ — Детали'
             : tab === 'part'
               ? 'Матрица РМЗ — Карточка детали'
-          : tab === 'employees'
-            ? 'Матрица РМЗ — Сотрудники'
-            : tab === 'employee'
-              ? 'Матрица РМЗ — Карточка сотрудника'
+          : tab === 'contracts'
+            ? 'Матрица РМЗ — Контракты'
+            : tab === 'contract'
+              ? 'Матрица РМЗ — Карточка контракта'
+            : tab === 'employees'
+              ? 'Матрица РМЗ — Сотрудники'
+              : tab === 'employee'
+                ? 'Матрица РМЗ — Карточка сотрудника'
         : tab === 'auth'
           ? 'Матрица РМЗ — Вход'
         : tab === 'settings'
@@ -573,6 +587,13 @@ export function App() {
           />
         )}
 
+        {tab === 'contracts' && (
+          <ContractsPage
+            onOpen={openContract}
+            canCreate={caps.canEditMasterData}
+          />
+        )}
+
         {tab === 'requests' && (
           <SupplyRequestsPage
             onOpen={openRequest}
@@ -656,6 +677,17 @@ export function App() {
           />
         )}
 
+        {tab === 'contract' && selectedContractId && (
+          <ContractDetailsPage
+            key={selectedContractId}
+            contractId={selectedContractId}
+            canEdit={caps.canEditMasterData}
+            canEditMasterData={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+          />
+        )}
+
         {tab === 'employee' && selectedEmployeeId && (
           <EmployeeDetailsPage
             key={selectedEmployeeId}
@@ -710,6 +742,10 @@ export function App() {
         {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
           <div style={{ color: 'var(--muted)' }}>Выберите двигатель из списка.</div>
       )}
+
+        {tab === 'contract' && !selectedContractId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите контракт из списка.</div>
+        )}
 
         {tab === 'request' && !selectedRequestId && (
           <div style={{ color: 'var(--muted)' }}>Выберите заявку из списка.</div>

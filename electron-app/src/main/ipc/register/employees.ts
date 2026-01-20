@@ -4,6 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute } from '../../services/entityService.js';
+import { listEmployeeAttributeDefs, listEmployeesSummary } from '../../services/employeeService.js';
 import { viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -21,9 +22,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {
   ipcMain.handle('employees:list', async () => {
     const gate = await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return [];
-    const typeId = await getEntityTypeIdByCode(ctx, 'employee');
-    if (!typeId) return [];
-    return listEntitiesByType(ctx.dataDb(), typeId);
+    return listEmployeesSummary(ctx.dataDb(), ctx.sysDb, ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('employees:get', async (_e, id: string) => {
@@ -54,6 +53,12 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     const typeId = await getEntityTypeIdByCode(ctx, 'department');
     if (!typeId) return [];
     return listEntitiesByType(ctx.dataDb(), typeId);
+  });
+
+  ipcMain.handle('employees:defs', async () => {
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return [];
+    return listEmployeeAttributeDefs(ctx.dataDb());
   });
 
   ipcMain.handle('employees:permissionsGet', async (_e, userId: string) => {

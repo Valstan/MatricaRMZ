@@ -3,7 +3,9 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '../utils/linkFieldRules.js';
 
 type Attribute = {
   id: string;
@@ -15,6 +17,10 @@ type Attribute = {
   sortOrder: number;
   metaJson?: unknown;
 };
+
+type LinkOpt = { id: string; label: string };
+
+type EntityTypeRow = { id: string; code: string; name: string };
 
 type Part = {
   id: string;
@@ -90,11 +96,19 @@ export function PartDetailsPage(props: {
   const [description, setDescription] = useState<string>('');
   const [purchaseDate, setPurchaseDate] = useState<string>(''); // yyyy-mm-dd
   const [supplier, setSupplier] = useState<string>('');
+  const [supplierId, setSupplierId] = useState<string>('');
+  const [customerOptions, setCustomerOptions] = useState<LinkOpt[]>([]);
+  const [customerStatus, setCustomerStatus] = useState<string>('');
 
   // Links: engine brands
   const [engineBrandOptions, setEngineBrandOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandIds, setEngineBrandIds] = useState<string[]>([]);
   const [engineBrandStatus, setEngineBrandStatus] = useState<string>('');
+
+  const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
+  const [entityTypes, setEntityTypes] = useState<EntityTypeRow[]>([]);
+  const [linkOptionsByCode, setLinkOptionsByCode] = useState<Record<string, LinkOpt[]>>({});
+  const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
 
   // Schema extension (add new fields)
   const [addFieldOpen, setAddFieldOpen] = useState(false);
@@ -104,6 +118,36 @@ export function PartDetailsPage(props: {
   const [newFieldSortOrder, setNewFieldSortOrder] = useState('100');
   const [newFieldIsRequired, setNewFieldIsRequired] = useState(false);
   const [newFieldMetaJson, setNewFieldMetaJson] = useState('');
+  const [newFieldLinkTarget, setNewFieldLinkTarget] = useState('');
+  const [newFieldLinkTouched, setNewFieldLinkTouched] = useState(false);
+
+  const recommendedLinkCode = useMemo(
+    () => suggestLinkTargetCodeWithRules(newFieldName, linkRules),
+    [newFieldName, linkRules],
+  );
+
+  useEffect(() => {
+    if (newFieldDataType !== 'link') {
+      setNewFieldLinkTarget('');
+      setNewFieldLinkTouched(false);
+      return;
+    }
+    if (newFieldLinkTouched) return;
+    if (recommendedLinkCode) setNewFieldLinkTarget(recommendedLinkCode);
+  }, [newFieldDataType, newFieldLinkTouched, recommendedLinkCode]);
+
+  const newFieldStandardType = useMemo(
+    () => (newFieldLinkTouched ? entityTypes.find((t) => t.code === newFieldLinkTarget) ?? null : null),
+    [newFieldLinkTouched, newFieldLinkTarget, entityTypes],
+  );
+  const newFieldRecommendedType = useMemo(
+    () => entityTypes.find((t) => t.code === recommendedLinkCode) ?? null,
+    [entityTypes, recommendedLinkCode],
+  );
+  const newFieldLinkOptions = useMemo(
+    () => buildLinkTypeOptions(entityTypes, newFieldStandardType?.code ?? null, newFieldRecommendedType?.code ?? null),
+    [entityTypes, newFieldStandardType?.code, newFieldRecommendedType?.code],
+  );
   const [addFieldStatus, setAddFieldStatus] = useState('');
 
   async function createNewField() {
@@ -123,10 +167,21 @@ export function PartDetailsPage(props: {
         setAddFieldStatus('Ошибка: название пустое');
         return;
       }
+      if (newFieldDataType === 'link' && !newFieldLinkTarget) {
+        setAddFieldStatus('Ошибка: выберите справочник');
+        return;
+      }
 
       setAddFieldStatus('Создание поля…');
       const sortOrder = Number(newFieldSortOrder) || 0;
-      const metaJson = newFieldMetaJson.trim() ? newFieldMetaJson.trim() : null;
+      const metaJson =
+        newFieldDataType === 'link'
+          ? newFieldLinkTarget
+            ? JSON.stringify({ linkTargetTypeCode: newFieldLinkTarget })
+            : null
+          : newFieldMetaJson.trim()
+            ? newFieldMetaJson.trim()
+            : null;
 
       const r = await window.matrica.parts.createAttributeDef({
         code,
@@ -140,6 +195,9 @@ export function PartDetailsPage(props: {
         setAddFieldStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
         return;
       }
+      if (newFieldDataType === 'link' && newFieldLinkTouched && newFieldLinkTarget) {
+        await upsertLinkRule(name, newFieldLinkTarget);
+      }
 
       setAddFieldStatus('Поле добавлено');
       setTimeout(() => setAddFieldStatus(''), 1200);
@@ -150,6 +208,8 @@ export function PartDetailsPage(props: {
       setNewFieldSortOrder('100');
       setNewFieldIsRequired(false);
       setNewFieldMetaJson('');
+      setNewFieldLinkTarget('');
+      setNewFieldLinkTouched(false);
       void load();
     } catch (e) {
       setAddFieldStatus(`Ошибка: ${String(e)}`);
@@ -180,6 +240,103 @@ export function PartDetailsPage(props: {
     }
   }
 
+  async function loadCustomers() {
+    try {
+      setCustomerStatus('Загрузка списка поставщиков…');
+      const types = await window.matrica.admin.entityTypes.list();
+      const type = (types as any[]).find((t) => String(t.code) === 'customer') ?? null;
+      if (!type?.id) {
+        setCustomerOptions([]);
+        setCustomerStatus('Справочник контрагентов не найден (customer).');
+        return;
+      }
+      const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
+      const opts = (rows as any[]).map((r) => ({
+        id: String(r.id),
+        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setCustomerOptions(opts);
+      setCustomerStatus('');
+    } catch (e) {
+      setCustomerOptions([]);
+      setCustomerStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function loadLinkRules() {
+    try {
+      const types = await window.matrica.admin.entityTypes.list();
+      setEntityTypes(types as any);
+      const type = (types as any[]).find((t) => String(t.code) === 'link_field_rule') ?? null;
+      if (!type?.id) {
+        setLinkRules([]);
+        return;
+      }
+      const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
+      const rules: LinkRule[] = [];
+      for (const row of rows as any[]) {
+        const details = await window.matrica.admin.entities.get(String(row.id));
+        const attrs = details.attributes ?? {};
+        const fieldName = String(attrs.field_name ?? '').trim();
+        const targetTypeCode = String(attrs.target_type_code ?? '').trim();
+        const priority = Number(attrs.priority ?? 0) || 0;
+        if (fieldName && targetTypeCode) rules.push({ fieldName, targetTypeCode, priority });
+      }
+      setLinkRules(rules);
+    } catch {
+      setLinkRules([]);
+    }
+  }
+
+  async function upsertLinkRule(fieldName: string, targetTypeCode: string) {
+    const ruleType = entityTypes.find((t) => t.code === 'link_field_rule');
+    if (!ruleType) return;
+    const list = await window.matrica.admin.entities.listByEntityType(String(ruleType.id));
+    const normalized = normalizeForMatch(fieldName);
+    for (const row of list as any[]) {
+      const details = await window.matrica.admin.entities.get(String(row.id));
+      const attrs = details.attributes ?? {};
+      const existingName = normalizeForMatch(String(attrs.field_name ?? ''));
+      if (existingName && existingName === normalized) {
+        await window.matrica.admin.entities.setAttr(String(row.id), 'target_type_code', targetTypeCode);
+        if (!attrs.priority) await window.matrica.admin.entities.setAttr(String(row.id), 'priority', 100);
+        await loadLinkRules();
+        return;
+      }
+    }
+    const created = await window.matrica.admin.entities.create(String(ruleType.id));
+    if (!created.ok || !created.id) return;
+    await window.matrica.admin.entities.setAttr(created.id, 'field_name', fieldName);
+    await window.matrica.admin.entities.setAttr(created.id, 'target_type_code', targetTypeCode);
+    await window.matrica.admin.entities.setAttr(created.id, 'priority', 100);
+    await loadLinkRules();
+  }
+
+  async function loadLinkOptions(typeCode: string, attrCode: string) {
+    if (!typeCode) return;
+    setLinkLoadingByCode((p) => ({ ...p, [attrCode]: true }));
+    try {
+      const types = await window.matrica.admin.entityTypes.list();
+      const type = (types as any[]).find((t) => String(t.code) === typeCode) ?? null;
+      if (!type?.id) {
+        setLinkOptionsByCode((p) => ({ ...p, [attrCode]: [] }));
+        return;
+      }
+      const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
+      const opts = (rows as any[]).map((r) => ({
+        id: String(r.id),
+        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setLinkOptionsByCode((p) => ({ ...p, [attrCode]: opts }));
+    } catch {
+      setLinkOptionsByCode((p) => ({ ...p, [attrCode]: [] }));
+    } finally {
+      setLinkLoadingByCode((p) => ({ ...p, [attrCode]: false }));
+    }
+  }
+
   async function load() {
     try {
       setStatus('Загрузка…');
@@ -203,6 +360,11 @@ export function PartDetailsPage(props: {
     void loadEngineBrands();
   }, []);
 
+  useEffect(() => {
+    void loadCustomers();
+    void loadLinkRules();
+  }, []);
+
   // Sync local fields from loaded part (important after reload/save)
   useEffect(() => {
     if (!part) return;
@@ -215,14 +377,55 @@ export function PartDetailsPage(props: {
     const vPurchase = byCode.purchase_date?.value;
     const vSupplier = byCode.supplier?.value;
     const vBrands = byCode.engine_brand_ids?.value;
+    const vSupplierId = byCode.supplier_id?.value;
 
     setName(typeof vName === 'string' ? vName : vName == null ? '' : String(vName));
     setArticle(typeof vArticle === 'string' ? vArticle : vArticle == null ? '' : String(vArticle));
     setDescription(typeof vDesc === 'string' ? vDesc : vDesc == null ? '' : String(vDesc));
     setPurchaseDate(typeof vPurchase === 'number' ? toInputDate(vPurchase) : '');
     setSupplier(typeof vSupplier === 'string' ? vSupplier : vSupplier == null ? '' : String(vSupplier));
+    setSupplierId(typeof vSupplierId === 'string' ? vSupplierId : vSupplierId == null ? '' : String(vSupplierId));
     setEngineBrandIds(Array.isArray(vBrands) ? vBrands.filter((x): x is string => typeof x === 'string') : []);
   }, [part?.id, part?.updatedAt]);
+
+  useEffect(() => {
+    if (!part) return;
+    if (supplierId || !supplier.trim() || customerOptions.length === 0) return;
+    const normalized = normalizeForMatch(supplier);
+    const match = customerOptions.find((c) => normalizeForMatch(c.label) === normalized);
+    if (!match) return;
+    setSupplierId(match.id);
+    if (props.canEdit) void saveAttribute('supplier_id', match.id);
+  }, [part?.id, supplierId, supplier, customerOptions, props.canEdit]);
+
+  function getLinkTargetTypeCode(attr: Attribute): string | null {
+    const meta = attr.metaJson;
+    if (meta && typeof meta === 'object' && 'linkTargetTypeCode' in meta) {
+      const code = (meta as any).linkTargetTypeCode;
+      if (typeof code === 'string' && code.trim()) return code.trim();
+    }
+    if (typeof meta === 'string') {
+      try {
+        const parsed = JSON.parse(meta);
+        const code = parsed?.linkTargetTypeCode;
+        if (typeof code === 'string' && code.trim()) return code.trim();
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  useEffect(() => {
+    if (!part) return;
+    for (const attr of part.attributes) {
+      if (attr.dataType !== 'link') continue;
+      const targetTypeCode = getLinkTargetTypeCode(attr);
+      if (!targetTypeCode) continue;
+      if (linkOptionsByCode[attr.code] || linkLoadingByCode[attr.code]) continue;
+      void loadLinkOptions(targetTypeCode, attr.code);
+    }
+  }, [part?.id, part?.updatedAt, linkOptionsByCode, linkLoadingByCode]);
 
   async function saveAttribute(code: string, value: unknown): Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }> {
     if (!props.canEdit) return { ok: false, error: 'no permission' };
@@ -251,12 +454,14 @@ export function PartDetailsPage(props: {
 
   async function saveCore() {
     if (!props.canEdit) return;
+    const supplierLabel = supplierId ? customerOptions.find((c) => c.id === supplierId)?.label ?? '' : '';
     // Save sequentially (simple + predictable)
     await saveAttribute('name', name);
     await saveAttribute('article', article);
     await saveAttribute('description', description);
     await saveAttribute('purchase_date', fromInputDate(purchaseDate));
-    await saveAttribute('supplier', supplier);
+    await saveAttribute('supplier_id', supplierId || null);
+    await saveAttribute('supplier', supplierLabel || supplier);
   }
 
   async function handleDelete() {
@@ -284,7 +489,7 @@ export function PartDetailsPage(props: {
   }
 
   const sortedAttrs = [...part.attributes].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
-  const coreCodes = new Set(['name', 'article', 'description', 'purchase_date', 'supplier']);
+  const coreCodes = new Set(['name', 'article', 'description', 'purchase_date', 'supplier', 'supplier_id', 'engine_brand_ids']);
   // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
   const hiddenFromExtra = new Set(['engine_brand_ids', 'drawings', 'tech_docs', 'attachments']);
   const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code) && !hiddenFromExtra.has(a.code));
@@ -357,12 +562,24 @@ export function PartDetailsPage(props: {
             />
 
             <div style={{ color: '#6b7280' }}>Поставщик</div>
-            <Input
-              value={supplier}
-              disabled={!props.canEdit}
-              onChange={(e) => setSupplier(e.target.value)}
-              onBlur={() => void saveAttribute('supplier', supplier)}
-            />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <SearchSelect
+                value={supplierId}
+                options={customerOptions}
+                placeholder="Выберите поставщика"
+                disabled={!props.canEdit}
+                onChange={(next) => {
+                  setSupplierId(next);
+                  const label = customerOptions.find((c) => c.id === next)?.label ?? '';
+                  setSupplier(label);
+                  void saveAttribute('supplier_id', next || null);
+                  void saveAttribute('supplier', label || supplier);
+                }}
+              />
+              {customerStatus && (
+                <span style={{ color: customerStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{customerStatus}</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -508,12 +725,64 @@ export function PartDetailsPage(props: {
                   обязательное
                 </label>
 
-                <Input
-                  value={newFieldMetaJson}
-                  onChange={(e) => setNewFieldMetaJson(e.target.value)}
-                  placeholder="metaJson (опц., JSON строка)"
-                  style={{ gridColumn: '1 / -1' }}
-                />
+                {newFieldDataType === 'link' ? (
+                  <div style={{ display: 'grid', gap: 6, gridColumn: '1 / -1' }}>
+                    <select
+                      value={newFieldLinkTarget}
+                      onChange={(e) => {
+                        setNewFieldLinkTarget(e.target.value);
+                        setNewFieldLinkTouched(true);
+                      }}
+                      style={{ padding: '9px 12px', borderRadius: 12, border: '1px solid rgba(15, 23, 42, 0.25)' }}
+                    >
+                      <option value="">связь с (раздел)…</option>
+                      {newFieldLinkOptions.map((opt) => (
+                        <option key={opt.type.id} value={opt.type.code}>
+                          {opt.tag === 'standard'
+                            ? `${opt.type.name} (стандартный)`
+                            : opt.tag === 'recommended'
+                              ? `${opt.type.name} (рекомендуется)`
+                              : opt.type.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setNewFieldLinkTouched(false);
+                          if (recommendedLinkCode) setNewFieldLinkTarget(recommendedLinkCode);
+                        }}
+                        disabled={!recommendedLinkCode}
+                      >
+                        Сбросить к рекомендуемому
+                      </Button>
+                      {!recommendedLinkCode && <span style={{ color: '#6b7280', fontSize: 12 }}>Нет рекомендации</span>}
+                    </div>
+                    {(newFieldStandardType || newFieldRecommendedType) && (
+                      <div style={{ color: '#6b7280', fontSize: 12 }}>
+                        {newFieldStandardType && (
+                          <>
+                            Стандартный: <strong>{newFieldStandardType.name}</strong>
+                          </>
+                        )}
+                        {newFieldStandardType && newFieldRecommendedType && newFieldRecommendedType.code !== newFieldStandardType.code && ' • '}
+                        {newFieldRecommendedType && newFieldRecommendedType.code !== newFieldStandardType?.code && (
+                          <>
+                            Рекомендуется: <strong>{newFieldRecommendedType.name}</strong>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <Input
+                    value={newFieldMetaJson}
+                    onChange={(e) => setNewFieldMetaJson(e.target.value)}
+                    placeholder="metaJson (опц., JSON строка)"
+                    style={{ gridColumn: '1 / -1' }}
+                  />
+                )}
 
                 <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}>
                   <Button onClick={() => void createNewField()}>Добавить</Button>
@@ -538,6 +807,10 @@ export function PartDetailsPage(props: {
               {extraAttrs.map((attr) => {
                 const value = editingAttr[attr.code] !== undefined ? editingAttr[attr.code] : attr.value;
                 const isEditing = editingAttr[attr.code] !== undefined;
+                const linkOpt =
+                  attr.dataType === 'link' && typeof value === 'string'
+                    ? (linkOptionsByCode[attr.code] ?? []).find((o) => o.id === value) ?? null
+                    : null;
 
                 return (
                   <div key={attr.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -565,7 +838,7 @@ export function PartDetailsPage(props: {
                         {value === null || value === undefined ? (
                           <span style={{ color: '#9ca3af' }}>—</span>
                         ) : typeof value === 'string' ? (
-                          value
+                          linkOpt?.label ?? value
                         ) : typeof value === 'number' ? (
                           String(value)
                         ) : typeof value === 'boolean' ? (
@@ -576,11 +849,19 @@ export function PartDetailsPage(props: {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: 8 }}>
-                        {attr.dataType === 'text' || attr.dataType === 'link' ? (
+                        {attr.dataType === 'text' ? (
                           <Input
                             value={String(value ?? '')}
                             onChange={(e) => setEditingAttr({ ...editingAttr, [attr.code]: e.target.value })}
                             style={{ flex: 1 }}
+                          />
+                        ) : attr.dataType === 'link' ? (
+                          <SearchSelect
+                            value={typeof value === 'string' ? value : ''}
+                            options={linkOptionsByCode[attr.code] ?? []}
+                            placeholder="Выберите значение"
+                            disabled={!props.canEdit || linkLoadingByCode[attr.code]}
+                            onChange={(next) => setEditingAttr({ ...editingAttr, [attr.code]: next })}
                           />
                         ) : attr.dataType === 'number' ? (
                           <Input

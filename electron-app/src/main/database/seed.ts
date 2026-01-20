@@ -54,8 +54,11 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   const workshopTypeId = await ensureEntityType(EntityTypeCode.Workshop, 'Цех');
   const sectionTypeId = await ensureEntityType(EntityTypeCode.Section, 'Участок');
   const departmentTypeId = await ensureEntityType(EntityTypeCode.Department, 'Подразделение / служба');
-  const productTypeId = await ensureEntityType(EntityTypeCode.Product, 'Номенклатура (товары/услуги)');
+  const productTypeId = await ensureEntityType(EntityTypeCode.Product, 'Продукты');
+  const serviceTypeId = await ensureEntityType(EntityTypeCode.Service, 'Услуги');
+  const categoryTypeId = await ensureEntityType(EntityTypeCode.Category, 'Категории');
   const employeeTypeId = await ensureEntityType(EntityTypeCode.Employee, 'Сотрудник');
+  const linkFieldRuleTypeId = await ensureEntityType(EntityTypeCode.LinkFieldRule, 'Подсказки link-полей');
 
   async function ensureAttrDef(
     entityTypeId: string,
@@ -135,50 +138,164 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(engineTypeId, 'section_id', 'Участок', AttributeDataType.Link, 70, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Section }));
 
   // Common attachments for all master-data entities (универсально, чтобы "везде" можно было прикреплять файлы).
+  // Category (global tree)
+  await ensureAttrDef(categoryTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(
+    categoryTypeId,
+    'parent_id',
+    'Родительская категория',
+    AttributeDataType.Link,
+    20,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
+
   // EngineBrand (марки двигателя) — минимум: имя + вложения.
   await ensureAttrDef(engineBrandTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(
+    engineBrandTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    15,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(engineBrandTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Customer
   await ensureAttrDef(customerTypeId, 'name', 'Название', AttributeDataType.Text, 10);
   await ensureAttrDef(customerTypeId, 'inn', 'ИНН', AttributeDataType.Text, 20);
   await ensureAttrDef(customerTypeId, 'kpp', 'КПП', AttributeDataType.Text, 30);
+  await ensureAttrDef(
+    customerTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    35,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(customerTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Contract (link to customer)
   await ensureAttrDef(contractTypeId, 'number', 'Номер договора', AttributeDataType.Text, 10);
   await ensureAttrDef(contractTypeId, 'date', 'Дата договора', AttributeDataType.Date, 20);
+  await ensureAttrDef(contractTypeId, 'internal_number', 'Внутренний номер', AttributeDataType.Text, 25);
+  await ensureAttrDef(
+    contractTypeId,
+    'engine_brand_id',
+    'Марка двигателя',
+    AttributeDataType.Link,
+    27,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineBrand }),
+  );
   await ensureAttrDef(contractTypeId, 'customer_id', 'Заказчик', AttributeDataType.Link, 30, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Customer }));
+  await ensureAttrDef(contractTypeId, 'engine_count_items', 'Количество двигателей (детализация)', AttributeDataType.Json, 40);
+  await ensureAttrDef(contractTypeId, 'engine_count_total', 'Количество двигателей (итого)', AttributeDataType.Number, 45);
+  await ensureAttrDef(contractTypeId, 'contract_amount_rub', 'Сумма контракта (₽)', AttributeDataType.Number, 50);
+  await ensureAttrDef(contractTypeId, 'unit_price_rub', 'Цена за единицу (₽)', AttributeDataType.Number, 55);
+  await ensureAttrDef(
+    contractTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    35,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(contractTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Work order (link to contract)
   await ensureAttrDef(workOrderTypeId, 'number', 'Номер наряда', AttributeDataType.Text, 10);
   await ensureAttrDef(workOrderTypeId, 'date', 'Дата наряда', AttributeDataType.Date, 20);
   await ensureAttrDef(workOrderTypeId, 'contract_id', 'Контракт', AttributeDataType.Link, 30, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Contract }));
+  await ensureAttrDef(
+    workOrderTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    35,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(workOrderTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Workshop / Section
   await ensureAttrDef(workshopTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(
+    workshopTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    15,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(workshopTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
   await ensureAttrDef(sectionTypeId, 'name', 'Название', AttributeDataType.Text, 10);
   await ensureAttrDef(sectionTypeId, 'workshop_id', 'Цех', AttributeDataType.Link, 20, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Workshop }));
+  await ensureAttrDef(
+    sectionTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    25,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(sectionTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Department (подразделение / служба)
   await ensureAttrDef(departmentTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(
+    departmentTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    15,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(departmentTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Products (номенклатура)
   await ensureAttrDef(productTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
   await ensureAttrDef(productTypeId, 'unit', 'Единица измерения', AttributeDataType.Text, 20);
+  await ensureAttrDef(
+    productTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    30,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(productTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
+
+  // Services
+  await ensureAttrDef(serviceTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
+  await ensureAttrDef(serviceTypeId, 'unit', 'Единица измерения', AttributeDataType.Text, 20);
+  await ensureAttrDef(
+    serviceTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    30,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
+  await ensureAttrDef(serviceTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Employee
   await ensureAttrDef(employeeTypeId, 'last_name', 'Фамилия', AttributeDataType.Text, 10);
   await ensureAttrDef(employeeTypeId, 'first_name', 'Имя', AttributeDataType.Text, 20);
   await ensureAttrDef(employeeTypeId, 'middle_name', 'Отчество', AttributeDataType.Text, 30);
   await ensureAttrDef(employeeTypeId, 'full_name', 'ФИО', AttributeDataType.Text, 40);
+  await ensureAttrDef(employeeTypeId, 'personnel_number', 'Табельный номер', AttributeDataType.Text, 45);
+  await ensureAttrDef(employeeTypeId, 'birth_date', 'Дата рождения', AttributeDataType.Date, 48);
   await ensureAttrDef(employeeTypeId, 'role', 'Должность', AttributeDataType.Text, 50);
+  await ensureAttrDef(employeeTypeId, 'employment_status', 'Статус (работает/уволен)', AttributeDataType.Text, 55);
+  await ensureAttrDef(employeeTypeId, 'hire_date', 'Дата приема на работу', AttributeDataType.Date, 56);
+  await ensureAttrDef(employeeTypeId, 'termination_date', 'Дата увольнения', AttributeDataType.Date, 57);
+  await ensureAttrDef(
+    employeeTypeId,
+    'category_id',
+    'Категория',
+    AttributeDataType.Link,
+    58,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+  );
   await ensureAttrDef(
     employeeTypeId,
     'department_id',
@@ -188,7 +305,14 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
     JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Department }),
   );
   await ensureAttrDef(employeeTypeId, 'section_id', 'Участок', AttributeDataType.Link, 70, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Section }));
+  await ensureAttrDef(employeeTypeId, 'transfers', 'Переводы', AttributeDataType.Json, 80);
   await ensureAttrDef(employeeTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
+
+  // Link field rules (admin-managed suggestions)
+  await ensureAttrDef(linkFieldRuleTypeId, 'field_name', 'Название поля', AttributeDataType.Text, 10);
+  await ensureAttrDef(linkFieldRuleTypeId, 'target_type_code', 'Код справочника', AttributeDataType.Text, 20);
+  await ensureAttrDef(linkFieldRuleTypeId, 'priority', 'Приоритет', AttributeDataType.Number, 30);
+  await ensureAttrDef(linkFieldRuleTypeId, 'note', 'Комментарий', AttributeDataType.Text, 40);
 }
 
 

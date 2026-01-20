@@ -10,6 +10,10 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 
 type LinkOpt = { id: string; label: string };
 
+function normalizeForMatch(s: string) {
+  return String(s ?? '').trim().toLowerCase();
+}
+
 function escapeHtml(s: string) {
   return String(s ?? '')
     .replaceAll('&', '&amp;')
@@ -217,42 +221,14 @@ export function SupplyRequestDetailsPage(props: {
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
-  const [productOptions, setProductOptions] = useState<{ name: string; unit: string }[]>([]);
+  const [productOptions, setProductOptions] = useState<Array<LinkOpt & { unit?: string }>>([]);
 
   const saveTimer = useRef<any>(null);
   const lastSavedJson = useRef<string>('');
   const initialSessionJson = useRef<string>('');
   const sessionHadChanges = useRef<boolean>(false);
   const payloadRef = useRef<SupplyRequestPayload | null>(null);
-  const activeField = useRef<{ kind: 'item_name'; idx: number } | null>(null);
-  const activeEl = useRef<HTMLInputElement | null>(null);
   const dragFromIdx = useRef<number | null>(null);
-
-  function insertSymbol(symbol: string) {
-    const field = activeField.current;
-    const el = activeEl.current;
-    if (!field || field.kind !== 'item_name' || !payload || !el) return;
-    const idx = field.idx;
-    const cur = payload.items?.[idx];
-    if (!cur) return;
-    const start = el.selectionStart ?? String(cur.name ?? '').length;
-    const end = el.selectionEnd ?? start;
-    const curText = String(cur.name ?? '');
-    const nextText = curText.slice(0, start) + symbol + curText.slice(end);
-    const nextItems = [...(payload.items ?? [])];
-    nextItems[idx] = { ...nextItems[idx], name: nextText };
-    scheduleSave({ ...payload, items: nextItems });
-
-    const pos = start + symbol.length;
-    setTimeout(() => {
-      try {
-        el.focus();
-        el.setSelectionRange(pos, pos);
-      } catch {
-        // ignore
-      }
-    }, 0);
-  }
 
   async function load() {
     setSaveStatus('Загрузка…');
@@ -294,12 +270,12 @@ export function SupplyRequestDetailsPage(props: {
     const productTid = typeIdByCode.get('product');
     if (productTid) {
       const rows = await window.matrica.admin.entities.listByEntityType(productTid);
-      // For MVP: use displayName as name (entityService picks 'name' if present).
-      // Unit can be fetched later by entity:get, but keep empty for now to avoid heavy N+1 calls.
+      // For MVP: use displayName as label (entityService picks 'name' if present).
+      // Unit can be fetched later by entity:get, keep empty for now to avoid heavy N+1 calls.
       setProductOptions(
         rows
-          .map((r: any) => ({ name: String(r.displayName ?? ''), unit: '' }))
-          .filter((x) => x.name.trim().length > 0),
+          .map((r: any) => ({ id: String(r.id), label: String(r.displayName ?? ''), unit: '' }))
+          .filter((x) => x.label.trim().length > 0),
       );
     } else {
       setProductOptions([]);
@@ -310,6 +286,24 @@ export function SupplyRequestDetailsPage(props: {
     void load();
     void loadLinkLists();
   }, [props.id]);
+
+  useEffect(() => {
+    if (!payload || productOptions.length === 0) return;
+    let changed = false;
+    const items = (payload.items ?? []).map((it) => {
+      if (it.productId) return it;
+      const match = productOptions.find((p) => normalizeForMatch(p.label) === normalizeForMatch(it.name));
+      if (!match) return it;
+      changed = true;
+      return {
+        ...it,
+        productId: match.id,
+        name: match.label,
+        unit: it.unit || match.unit || '',
+      };
+    });
+    if (changed || payload.version !== 2) scheduleSave({ ...payload, version: 2, items });
+  }, [payload, productOptions]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
@@ -627,28 +621,6 @@ export function SupplyRequestDetailsPage(props: {
       <div style={{ marginTop: 14 }}>
         <h2 style={{ margin: '8px 0' }}>Список товаров</h2>
 
-        <datalist id="supply-products">
-          {productOptions.map((p, i) => (
-            <option key={`${p.name}-${i}`} value={p.name} />
-          ))}
-        </datalist>
-
-        <div style={{ margin: '6px 0 10px 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ color: '#64748b', fontSize: 12 }}>Вставка символов:</div>
-          <Button variant="ghost" onClick={() => insertSymbol('⌀')}>
-            ⌀ диаметр
-          </Button>
-          <Button variant="ghost" onClick={() => insertSymbol('×')}>
-            ×
-          </Button>
-          <Button variant="ghost" onClick={() => insertSymbol('±')}>
-            ±
-          </Button>
-          <Button variant="ghost" onClick={() => insertSymbol('°')}>
-            °
-          </Button>
-        </div>
-
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <div style={{ flex: 1, color: '#6b7280' }}>Позиции заявки: наименование, количество, единица, примечание, фактические поставки.</div>
         </div>
@@ -738,22 +710,28 @@ export function SupplyRequestDetailsPage(props: {
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>{idx + 1}</td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
-                        <Input
-                          value={it.name}
-                          disabled={!props.canEdit}
-                          list="supply-products"
-                          onChange={(e) => {
-                            const items = [...(payload.items ?? [])];
-                            items[idx] = { ...items[idx], name: e.target.value };
-                            scheduleSave({ ...payload, items });
-                          }}
-                          onFocus={(e) => {
-                            activeEl.current = e.currentTarget;
-                            activeField.current = { kind: 'item_name', idx };
-                          }}
-                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
-                          placeholder="Наименование товара…"
-                        />
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <SearchSelect
+                            value={it.productId ?? ''}
+                            options={productOptions}
+                            disabled={!props.canEdit}
+                            placeholder="Выберите товар…"
+                            onChange={(next) => {
+                              const items = [...(payload.items ?? [])];
+                              const selected = productOptions.find((p) => p.id === next);
+                              items[idx] = {
+                                ...items[idx],
+                                productId: next || null,
+                                name: selected?.label ?? items[idx]?.name ?? '',
+                                unit: selected?.unit ?? items[idx]?.unit ?? '',
+                              };
+                              scheduleSave({ ...payload, items });
+                            }}
+                          />
+                          {!it.productId && it.name?.trim() && (
+                            <span style={{ color: '#b91c1c', fontSize: 12 }}>Нет совпадения: {it.name}</span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
                         <Input
@@ -768,28 +746,11 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...items[idx], qty: Number.isFinite(n) ? n : 0 };
                             scheduleSave({ ...payload, items });
                           }}
-                          onFocus={(e) => {
-                            activeEl.current = e.currentTarget;
-                            activeField.current = null;
-                          }}
                           style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
-                        <Input
-                          value={String(it.unit ?? '')}
-                          disabled={!props.canEdit}
-                          onChange={(e) => {
-                            const items = [...(payload.items ?? [])];
-                            items[idx] = { ...items[idx], unit: e.target.value };
-                            scheduleSave({ ...payload, items });
-                          }}
-                          onFocus={(e) => {
-                            activeEl.current = e.currentTarget;
-                            activeField.current = null;
-                          }}
-                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
-                        />
+                        <Input value={String(it.unit ?? '')} disabled style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }} />
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
                         <Input
@@ -799,10 +760,6 @@ export function SupplyRequestDetailsPage(props: {
                             const items = [...(payload.items ?? [])];
                             items[idx] = { ...items[idx], note: e.target.value };
                             scheduleSave({ ...payload, items });
-                          }}
-                          onFocus={(e) => {
-                            activeEl.current = e.currentTarget;
-                            activeField.current = null;
                           }}
                           style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
@@ -883,10 +840,6 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                onFocus={(e) => {
-                                  activeEl.current = e.currentTarget;
-                                  activeField.current = null;
-                                }}
                                 style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                               />
                               <Input
@@ -904,10 +857,6 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                onFocus={(e) => {
-                                  activeEl.current = e.currentTarget;
-                                  activeField.current = null;
-                                }}
                                 style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                               />
                               <Input
@@ -920,10 +869,6 @@ export function SupplyRequestDetailsPage(props: {
                                   deliveries[di] = { ...deliveries[di], note: e.target.value };
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
-                                }}
-                                onFocus={(e) => {
-                                  activeEl.current = e.currentTarget;
-                                  activeField.current = null;
                                 }}
                                 style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                                 placeholder="Примечание…"
@@ -972,6 +917,7 @@ export function SupplyRequestDetailsPage(props: {
               onClick={() => {
                 const nextItem: SupplyRequestItem = {
                   lineNo: (payload.items?.length ?? 0) + 1,
+                  productId: null,
                   name: '',
                   qty: 1,
                   unit: 'шт',

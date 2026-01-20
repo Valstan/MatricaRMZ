@@ -21,6 +21,7 @@ import { backupsRouter } from './routes/backups.js';
 import { updatesRouter } from './routes/updates.js';
 import { clientSettingsRouter } from './routes/clientSettings.js';
 import { adminClientsRouter } from './routes/adminClients.js';
+import { employeesRouter } from './routes/employees.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
@@ -50,6 +51,7 @@ app.use('/logs', logsRouter);
 app.use('/backups', backupsRouter);
 app.use('/updates', updatesRouter);
 app.use('/client', clientSettingsRouter);
+app.use('/employees', employeesRouter);
 
 // Web admin UI (served as static SPA from /admin-ui)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

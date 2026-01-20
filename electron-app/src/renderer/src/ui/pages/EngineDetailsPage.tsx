@@ -11,6 +11,10 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 
 type LinkOpt = { id: string; label: string };
 
+function normalizeForMatch(s: string) {
+  return String(s ?? '').trim().toLowerCase();
+}
+
 function escapeHtml(s: string) {
   return s
     .replaceAll('&', '&amp;')
@@ -168,6 +172,24 @@ export function EngineDetailsPage(props: {
     setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
     setSectionId(String(props.engine.attributes?.section_id ?? ''));
   }, [props.engineId, props.engine.updatedAt]);
+
+  useEffect(() => {
+    if (!engineBrandId || engineBrand) return;
+    const label = (linkLists.engine_brand ?? []).find((o) => o.id === engineBrandId)?.label ?? '';
+    if (!label) return;
+    setEngineBrand(label);
+    void saveAttr('engine_brand', label);
+  }, [engineBrandId, engineBrand, linkLists.engine_brand]);
+
+  useEffect(() => {
+    if (engineBrandId || !engineBrand.trim()) return;
+    const match = (linkLists.engine_brand ?? []).find(
+      (o) => normalizeForMatch(o.label) === normalizeForMatch(engineBrand),
+    );
+    if (!match) return;
+    setEngineBrandId(match.id);
+    void saveAttr('engine_brand_id', match.id);
+  }, [engineBrandId, engineBrand, linkLists.engine_brand]);
 
   useEffect(() => {
     // Reset “editing session” baseline on engine switch.
@@ -328,7 +350,7 @@ export function EngineDetailsPage(props: {
             onBlur={() => void saveEngineNumber()}
           />
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-          {(linkLists.engine_brand ?? []).length > 0 ? (
+          <div style={{ display: 'grid', gap: 6 }}>
             <SearchSelectWithCreate
               value={engineBrandId || null}
               options={linkLists.engine_brand ?? []}
@@ -354,15 +376,10 @@ export function EngineDetailsPage(props: {
                 return id;
               }}
             />
-          ) : (
-            <Input
-              value={engineBrand}
-              disabled={!props.canEditEngines}
-              onChange={(e) => setEngineBrand(e.target.value)}
-              onBlur={() => void saveAttr('engine_brand', engineBrand)}
-              placeholder="Нет справочника марок — введите вручную"
-            />
-          )}
+            {(linkLists.engine_brand ?? []).length === 0 && (
+              <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
+            )}
+          </div>
 
           {props.canViewMasterData && (
             <>

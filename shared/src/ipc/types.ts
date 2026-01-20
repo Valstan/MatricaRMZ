@@ -36,6 +36,30 @@ export type EntityDetails = {
   attributes: Record<string, unknown>;
 };
 
+export type EmployeeListItem = {
+  id: string;
+  displayName?: string;
+  position?: string | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  employmentStatus?: string | null;
+  accessEnabled?: boolean;
+  systemRole?: string | null;
+  personnelNumber?: string | null;
+  updatedAt: number;
+};
+
+export type EmployeeAttributeDef = {
+  id: string;
+  entityTypeId: string;
+  code: string;
+  name: string;
+  dataType: string;
+  isRequired: boolean;
+  sortOrder: number;
+  metaJson: string | null;
+};
+
 export type OperationItem = {
   id: string;
   engineEntityId: string;
@@ -440,11 +464,12 @@ export type MatricaApi = {
     };
   };
   employees: {
-    list: () => Promise<EntityListItem[]>;
+    list: () => Promise<EmployeeListItem[]>;
     get: (id: string) => Promise<EntityDetails>;
     create: () => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     setAttr: (employeeId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
     departmentsList: () => Promise<EntityListItem[]>;
+    defs: () => Promise<EmployeeAttributeDef[]>;
     permissionsGet: (userId: string) => Promise<
       | {
           ok: true;
