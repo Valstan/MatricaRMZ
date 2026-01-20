@@ -104,6 +104,14 @@ async function main() {
     // eslint-disable-next-line no-console
     console.log('No backend/web-admin/shared updates. Deploy skipped.');
   }
+
+  // Trigger Windows release build (best-effort).
+  try {
+    run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log('Windows build trigger skipped (gh not available or not authenticated).');
+  }
 }
 
 main().catch((e) => {
