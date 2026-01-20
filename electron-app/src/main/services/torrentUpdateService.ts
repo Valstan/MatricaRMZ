@@ -1,5 +1,4 @@
 import { app, net } from 'electron';
-import WebTorrent from 'webtorrent';
 import { createWriteStream } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
@@ -34,7 +33,9 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const NO_PROGRESS_TIMEOUT_MS = 20_000;
 const TOTAL_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 
-let seedingClient: WebTorrent | null = null;
+type WebTorrentCtor = new (opts: Record<string, unknown>) => any;
+
+let seedingClient: any | null = null;
 let seedingTorrent: any | null = null;
 
 async function fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -44,6 +45,15 @@ async function fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     return await net.fetch(url, { signal: controller.signal });
   } finally {
     clearTimeout(id);
+  }
+}
+
+async function loadWebTorrent(): Promise<WebTorrentCtor | null> {
+  try {
+    const mod = await import('webtorrent');
+    return (mod as any).default ?? (mod as any);
+  } catch {
+    return null;
   }
 }
 
@@ -91,6 +101,8 @@ export async function downloadTorrentUpdate(
   opts?: { onProgress?: (pct: number, peers: number) => void },
 ): Promise<TorrentDownloadResult> {
   try {
+    const WebTorrent = await loadWebTorrent();
+    if (!WebTorrent) return { ok: false, error: 'torrent engine unavailable' };
     const outDir = join(TORRENT_CACHE_ROOT(), manifest.version);
     await mkdir(outDir, { recursive: true });
     const torrentPath = await writeTorrentFile(outDir, manifest.torrentUrl);
@@ -165,6 +177,8 @@ export async function saveTorrentFileForVersion(version: string, torrentUrl: str
 export async function startTorrentSeeding(): Promise<void> {
   try {
     if (seedingClient) return;
+    const WebTorrent = await loadWebTorrent();
+    if (!WebTorrent) return;
     const seedRaw = await readFile(SEED_INFO_PATH(), 'utf8').catch(() => null);
     if (!seedRaw) return;
     const seed = JSON.parse(seedRaw) as TorrentSeedInfo;
