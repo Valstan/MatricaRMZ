@@ -643,6 +643,31 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   groups.chat_reads = dedupById(groups.chat_reads);
   groups.user_presence = dedupById(groups.user_presence);
 
+  if (groups.attribute_values.length > 0) {
+    const entityIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.entityId))));
+    const defIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.attributeDefId))));
+    if (entityIds.length > 0 && defIds.length > 0) {
+      const existing = await db
+        .select({ id: attributeValues.id, entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId })
+        .from(attributeValues)
+        .where(and(inArray(attributeValues.entityId, entityIds as any), inArray(attributeValues.attributeDefId, defIds as any)))
+        .limit(50_000);
+      const keyToId = new Map<string, string>();
+      for (const r of existing as any[]) {
+        keyToId.set(`${String(r.entityId)}::${String(r.attributeDefId)}`, String(r.id));
+      }
+      const remapped = groups.attribute_values.map((r: any) => {
+        const key = `${String(r.entityId)}::${String(r.attributeDefId)}`;
+        const existingId = keyToId.get(key);
+        if (existingId && existingId !== String(r.id)) {
+          return { ...r, id: existingId };
+        }
+        return r;
+      });
+      groups.attribute_values = dedupById(remapped);
+    }
+  }
+
   // IMPORTANT:
   // Drizzle (better-sqlite3) uses async query API. Running it inside better-sqlite3's native transaction
   // callback (which MUST be synchronous) is unsafe.
@@ -701,8 +726,10 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       .insert(attributeValues)
       .values(groups.attribute_values)
       .onConflictDoUpdate({
-        target: [attributeValues.entityId, attributeValues.attributeDefId],
+        target: attributeValues.id,
         set: {
+          entityId: sql`excluded.entity_id`,
+          attributeDefId: sql`excluded.attribute_def_id`,
           valueJson: sql`excluded.value_json`,
           updatedAt: sql`excluded.updated_at`,
           deletedAt: sql`excluded.deleted_at`,
