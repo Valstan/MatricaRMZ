@@ -2,7 +2,7 @@ import { app, BrowserWindow, net } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access } from 'node:fs/promises';
+import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -16,6 +16,7 @@ import {
   saveTorrentFileForVersion,
   saveTorrentSeedInfo,
   stopTorrentDownload,
+  stopTorrentSeeding,
   type TorrentUpdateManifest,
 } from './torrentUpdateService.js';
 
@@ -304,6 +305,38 @@ async function cacheInstaller(filePath: string, version?: string) {
   return outPath;
 }
 
+async function cleanupUpdateCache(keepVersion: string) {
+  const updatesDir = join(app.getPath('userData'), 'updates');
+  const entries = await readdir(updatesDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const entryPath = join(updatesDir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== keepVersion) {
+        await rm(entryPath, { recursive: true, force: true }).catch(() => {});
+      }
+      continue;
+    }
+    if (entry.isFile()) {
+      if (entry.name === 'pending-update.json') {
+        const pending = await readPendingUpdate();
+        if (pending?.version && pending.version !== keepVersion) {
+          await clearPendingUpdate();
+        }
+        continue;
+      }
+      if (entry.name === 'torrent-seed.json') {
+        const raw = await readFile(entryPath, 'utf8').catch(() => null);
+        const json = raw ? (JSON.parse(raw) as any) : null;
+        if (!json?.version || json.version !== keepVersion) {
+          await rm(entryPath, { force: true }).catch(() => {});
+        }
+        continue;
+      }
+      await rm(entryPath, { force: true }).catch(() => {});
+    }
+  }
+}
+
 function pendingUpdatePath() {
   return join(app.getPath('userData'), 'updates', 'pending-update.json');
 }
@@ -435,6 +468,9 @@ async function ensureTorrentSeedArtifacts(manifest: TorrentUpdateManifest | null
 
 async function backgroundTorrentDownload(manifest: TorrentUpdateManifest, version: string) {
   setUpdateState({ state: 'downloading', source: 'torrent', version, progress: 0, message: 'Скачиваем обновление…' });
+  await stopTorrentSeeding().catch(() => {});
+  await stopTorrentDownload().catch(() => {});
+  await cleanupUpdateCache(version);
   const tdl = await downloadTorrentUpdate(manifest, {
     onProgress: (pct, peers) => {
       setUpdateState({
@@ -530,6 +566,9 @@ export async function runAutoUpdateFlow(
     if (torrentCheck.ok && torrentCheck.updateAvailable && torrentCheck.manifest) {
       torrentManifest = torrentCheck.manifest;
       await stageUpdate(`Найдена новая версия (Torrent). Подключаемся…`, 5, torrentCheck.version);
+      await stopTorrentSeeding().catch(() => {});
+      await stopTorrentDownload().catch(() => {});
+      await cleanupUpdateCache(torrentCheck.version ?? torrentManifest.version);
       const tdl = await downloadTorrentUpdate(torrentManifest, {
         onProgress: (pct, peers) => {
           void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
@@ -553,6 +592,9 @@ export async function runAutoUpdateFlow(
     const check = await waitForUpdateCheck();
     if (check.ok && check.updateAvailable) {
       await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, check.version);
+      await stopTorrentSeeding().catch(() => {});
+      await stopTorrentDownload().catch(() => {});
+      await cleanupUpdateCache(check.version ?? 'latest');
       const download = await downloadUpdate(check.version);
       if (!download.ok || !download.filePath) {
         await setUpdateUi(`Ошибка скачивания: ${download.error ?? 'unknown'}`, 100, check.version);
@@ -569,6 +611,9 @@ export async function runAutoUpdateFlow(
     const gh = await checkGithubReleaseForUpdates();
     if (gh.ok && gh.updateAvailable && gh.downloadUrl) {
       await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, gh.version);
+      await stopTorrentSeeding().catch(() => {});
+      await stopTorrentDownload().catch(() => {});
+      await cleanupUpdateCache(gh.version ?? 'latest');
       const gdl = await downloadGithubUpdate(gh.downloadUrl, gh.version, {
         onProgress: (pct) => {
           void setUpdateUi(`Скачиваем (GitHub)…`, pct, gh.version);
@@ -604,6 +649,9 @@ export async function runAutoUpdateFlow(
       return { action: 'no_update' };
     }
     await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 5, fallback.version);
+    await stopTorrentSeeding().catch(() => {});
+    await stopTorrentDownload().catch(() => {});
+    await cleanupUpdateCache(fallback.version ?? 'latest');
     const ydl = await downloadYandexUpdate(fallback, {
       onProgress: (pct) => {
         void setUpdateUi(`Скачиваем (Yandex)…`, pct, fallback.version);

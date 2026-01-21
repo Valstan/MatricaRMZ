@@ -30,8 +30,8 @@ const TORRENT_CACHE_ROOT = () => join(app.getPath('userData'), 'updates');
 const SEED_INFO_PATH = () => join(TORRENT_CACHE_ROOT(), 'torrent-seed.json');
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const NO_PROGRESS_TIMEOUT_MS = 20_000;
-const TOTAL_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+const NO_PROGRESS_TIMEOUT_MS = 60_000;
+const TOTAL_DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
 
 type WebTorrentCtor = new (opts: Record<string, unknown>) => any;
 
@@ -63,7 +63,12 @@ async function ensureDownloadClient() {
   if (downloadClient) return downloadClient;
   const WebTorrent = await loadWebTorrent();
   if (!WebTorrent) return null;
-  downloadClient = new WebTorrent({ dht: true, tracker: true });
+  downloadClient = new WebTorrent({
+    dht: true,
+    tracker: true,
+    localDiscovery: true,
+    utp: true,
+  });
   return downloadClient;
 }
 
@@ -152,8 +157,15 @@ export async function downloadTorrentUpdate(
         // ignore remove errors
       }
 
-      const torrent = client.add(torrentBuf, { path: outDir });
+      const torrent = client.add(torrentBuf, {
+        path: outDir,
+        announce: manifest.trackers && manifest.trackers.length > 0 ? manifest.trackers : undefined,
+      });
       downloadTorrent = torrent;
+      if (typeof torrent?.maxConns === 'number') torrent.maxConns = 200;
+      torrent.on('download', () => {
+        lastProgressAt = Date.now();
+      });
       torrent.on('error', (err) => {
         try {
           if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
@@ -236,7 +248,12 @@ export async function startTorrentSeeding(): Promise<void> {
     if (!stInstaller || !stTorrent) return;
 
     const torrentBuf = await readFile(seed.torrentPath);
-    seedingClient = new WebTorrent({ dht: true, tracker: true });
+    seedingClient = new WebTorrent({
+      dht: true,
+      tracker: true,
+      localDiscovery: true,
+      utp: true,
+    });
     seedingTorrent = seedingClient.add(torrentBuf, { path: dirname(seed.installerPath) });
   } catch {
     // ignore seeding errors
