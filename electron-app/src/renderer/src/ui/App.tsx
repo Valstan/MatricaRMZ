@@ -561,11 +561,61 @@ export function App() {
   const showUpdateBanner =
     updateStatus &&
     ['downloading', 'downloaded', 'error', 'checking'].includes(String(updateStatus.state));
+  const updateBannerText = (() => {
+    if (!updateStatus) return '';
+    if (updateStatus.message) return String(updateStatus.message);
+    if (updateStatus.state === 'downloading') return 'Скачиваем обновление…';
+    if (updateStatus.state === 'downloaded') return 'Обновление скачано, установка после перезапуска.';
+    if (updateStatus.state === 'checking') return 'Проверяем обновления…';
+    if (updateStatus.state === 'error') return `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`;
+    return '';
+  })();
 
   return (
     <Page
       title={pageTitle}
       uiTheme={resolvedTheme}
+      topBanner={
+        showUpdateBanner ? (
+          <div
+            style={{
+              position: 'relative',
+              height: 24,
+              borderRadius: 999,
+              background: '#e2e8f0',
+              overflow: 'hidden',
+              border: '1px solid rgba(37, 99, 235, 0.35)',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
+                background: '#2563eb',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0 12px',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{updateBannerText}</span>
+              <span style={{ marginLeft: 12 }}>{updateStatus.version ? `v${String(updateStatus.version)}` : ''}</span>
+            </div>
+          </div>
+        ) : null
+      }
       right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
           {authStatus.loggedIn && canChat && !chatOpen && (
@@ -650,52 +700,6 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
-          {showUpdateBanner && (
-            <div style={{ marginBottom: 8 }}>
-              <div
-                style={{
-                  position: 'relative',
-                  height: 26,
-                  borderRadius: 999,
-                  background: '#e2e8f0',
-                  overflow: 'hidden',
-                  border: '1px solid rgba(37, 99, 235, 0.35)',
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
-                    background: '#2563eb',
-                  }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0 12px',
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: 12,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span>
-                    {updateStatus.state === 'downloading' && 'Скачивание обновления по торренту…'}
-                    {updateStatus.state === 'downloaded' && 'Обновление скачано, установка после перезапуска.'}
-                    {updateStatus.state === 'checking' && 'Проверяем обновления…'}
-                    {updateStatus.state === 'error' && `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`}
-                  </span>
-                  <span>{updateStatus.version ? `v${String(updateStatus.version)}` : ''}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
           <Tabs
             tab={tab}
             onTab={(t) => {
