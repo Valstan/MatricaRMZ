@@ -340,6 +340,21 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
     await clearPendingUpdate();
     return false;
   }
+  if (pending.version) {
+    try {
+      const baseUrl = getUpdateApiBaseUrl();
+      const manifest = await fetchTorrentManifest(baseUrl);
+      if (manifest?.version && compareSemver(manifest.version, pending.version) > 0) {
+        await writeUpdaterLog(
+          `pending-update superseded by server: pending=${pending.version} latest=${manifest.version}`,
+        );
+        await clearPendingUpdate();
+        return false;
+      }
+    } catch (e) {
+      await writeUpdaterLog(`pending-update server check failed: ${String(e)}`);
+    }
+  }
   try {
     await access(pending.installerPath);
   } catch {
