@@ -651,40 +651,48 @@ export function App() {
             </div>
           )}
           {showUpdateBanner && (
-            <div
-              style={{
-                marginBottom: 10,
-                padding: 10,
-                borderRadius: 12,
-                border: '1px solid rgba(59, 130, 246, 0.35)',
-                background: 'rgba(59, 130, 246, 0.12)',
-                color: 'var(--text)',
-                fontWeight: 700,
-              }}
-            >
-              <div>
-                {updateStatus.state === 'downloading' && 'Обновление скачивается по торренту…'}
-                {updateStatus.state === 'downloaded' && 'Обновление скачано и будет установлено после перезапуска.'}
-                {updateStatus.state === 'checking' && 'Проверяем обновления в фоне…'}
-                {updateStatus.state === 'error' && `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`}
-              </div>
-              {updateStatus.version ? (
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>Новая версия: {String(updateStatus.version)}</div>
-              ) : null}
-              {typeof updateStatus.progress === 'number' ? (
-                <div style={{ marginTop: 6 }}>
-                  <div style={{ height: 8, background: '#e2e8f0', borderRadius: 999 }}>
-                    <div
-                      style={{
-                        height: 8,
-                        width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress)))}%`,
-                        background: '#2563eb',
-                        borderRadius: 999,
-                      }}
-                    />
-                  </div>
+            <div style={{ marginBottom: 8 }}>
+              <div
+                style={{
+                  position: 'relative',
+                  height: 26,
+                  borderRadius: 999,
+                  background: '#e2e8f0',
+                  overflow: 'hidden',
+                  border: '1px solid rgba(37, 99, 235, 0.35)',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
+                    background: '#2563eb',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0 12px',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>
+                    {updateStatus.state === 'downloading' && 'Скачивание обновления по торренту…'}
+                    {updateStatus.state === 'downloaded' && 'Обновление скачано, установка после перезапуска.'}
+                    {updateStatus.state === 'checking' && 'Проверяем обновления…'}
+                    {updateStatus.state === 'error' && `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`}
+                  </span>
+                  <span>{updateStatus.version ? `v${String(updateStatus.version)}` : ''}</span>
                 </div>
-              ) : null}
+              </div>
             </div>
           )}
 

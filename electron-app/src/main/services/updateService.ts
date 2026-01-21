@@ -371,7 +371,6 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
   async function tick() {
     if (updateInFlight || backgroundInFlight) return;
     const pending = await readPendingUpdate();
-    if (pending?.installerPath) return;
     if (!app.isPackaged) return;
     backgroundInFlight = true;
     try {
@@ -386,6 +385,16 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       const updateAvailable = compareSemver(manifest.version, current) > 0;
       if (!updateAvailable) {
         setUpdateState({ state: 'idle' });
+        return;
+      }
+      if (pending?.version && compareSemver(manifest.version, pending.version) <= 0) {
+        setUpdateState({
+          state: 'downloaded',
+          source: 'torrent',
+          version: pending.version,
+          progress: 100,
+          message: 'Обновление скачано. Установится после перезапуска.',
+        });
         return;
       }
       const prepared = { ...manifest, torrentUrl: buildTorrentManifestUrl(baseUrl, manifest.torrentUrl) };
