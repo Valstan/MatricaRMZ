@@ -72,22 +72,40 @@ function downloadWindowsInstaller(tag, pattern, destDir) {
   run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir}`);
 }
 
-function checkUpdatesStatus(expectedVersion) {
-  const base =
-    String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001')
-      .trim()
-      .replace(/\/+$/, '');
+function fetchUpdatesStatus(base) {
   const raw = out(`curl -s ${base}/updates/status`);
   const json = JSON.parse(raw);
   const status = json?.status ?? {};
   const lastError = status?.lastError ?? null;
   const version = status?.latest?.version ?? null;
-  if (lastError) {
-    throw new Error(`updates/status lastError=${String(lastError)}`);
+  return { lastError, version };
+}
+
+async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 12 * 60_000) {
+  const base =
+    String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001')
+      .trim()
+      .replace(/\/+$/, '');
+  const started = Date.now();
+  let lastSeen = { lastError: null, version: null };
+  while (Date.now() - started < maxWaitMs) {
+    try {
+      lastSeen = fetchUpdatesStatus(base);
+      if (!lastSeen.lastError && expectedVersion && String(lastSeen.version) === String(expectedVersion)) {
+        // eslint-disable-next-line no-console
+        console.log(`updates/status ok: ${expectedVersion}`);
+        return { ok: true };
+      }
+    } catch (e) {
+      lastSeen = { lastError: String(e), version: null };
+    }
+    await sleep(20_000);
   }
-  if (expectedVersion && String(version) !== String(expectedVersion)) {
-    throw new Error(`updates/status version mismatch: expected ${expectedVersion}, got ${version ?? 'null'}`);
-  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `updates/status not ready: expected ${expectedVersion}, got ${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
+  );
+  return { ok: false, ...lastSeen };
 }
 
 function hasServerUpdatesSince(ref) {
@@ -167,7 +185,7 @@ async function main() {
       if (assetName) {
         const destDir = '/opt/matricarmz/updates';
         downloadWindowsInstaller(tag, assetName, destDir);
-        checkUpdatesStatus(version);
+        await waitForUpdatesStatus(version);
       } else {
         // eslint-disable-next-line no-console
         console.log('Windows release asset not found within timeout.');
