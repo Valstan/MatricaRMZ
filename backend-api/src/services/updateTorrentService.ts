@@ -174,7 +174,11 @@ async function rescanAndSeed() {
       currentState = null;
       return;
     }
-    if (currentState?.version === latest.version && currentState.fileName === latest.name) {
+    if (
+      currentState?.version === latest.version &&
+      currentState.fileName === latest.name &&
+      currentState.size === latest.size
+    ) {
       lastError = null;
       return;
     }
