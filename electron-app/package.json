@@ -71,7 +71,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "runAfterFinish": true,
-      "include": "installer/installer.nsh"
+      "include": "installer/installer.nsh",
+      "language": "Russian"
     },
     "publish": [
       {
