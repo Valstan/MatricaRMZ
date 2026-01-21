@@ -992,7 +992,18 @@ async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPat
       return { helperExePath, launchPath, resourcesPath: resourcesDir };
     }
   }
-  throw new Error(`Invalid helper package: missing app.asar or app/ in resources (${candidates.join(', ')})`);
+
+  if (appPath) {
+    if (appPath.endsWith('.asar')) {
+      return { helperExePath, launchPath, resourcesPath: dirname(appPath) };
+    }
+    if (basename(appPath).toLowerCase() === 'app') {
+      return { helperExePath, launchPath, resourcesPath: dirname(appPath) };
+    }
+  }
+
+  const fallback = process.resourcesPath || join(appDir, 'resources');
+  return { helperExePath, launchPath, resourcesPath: fallback };
 }
 
 function spawnUpdateHelper(args: { helperExePath: string; installerPath: string; launchPath: string; resourcesPath: string; version?: string }) {

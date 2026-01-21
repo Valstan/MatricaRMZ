@@ -688,6 +688,31 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         }
       }
 
+      const rowTypeIds = Array.from(new Set(rows.map((r) => String(r.entity_type_id))));
+      if (rowTypeIds.length > 0) {
+        const existingTypes = await tx
+          .select({ id: entityTypes.id })
+          .from(entityTypes)
+          .where(inArray(entityTypes.id, rowTypeIds as any))
+          .limit(50_000);
+        const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
+        const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
+        if (missingRows.length > 0) {
+          for (const r of missingRows) {
+            await createChangeRequest({
+              tableName: SyncTableName.AttributeDefs,
+              rowId: String(r.id),
+              beforeJson: null,
+              afterJson: JSON.stringify(r),
+              recordOwnerUserId: null,
+              recordOwnerUsername: null,
+              note: `missing entity_type_id ${String(r.entity_type_id)}`,
+            });
+          }
+          rows = rows.filter((r) => existingTypeIds.has(String(r.entity_type_id)));
+        }
+      }
+
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.AttributeDefs, ids);
       const existing = await tx
@@ -800,7 +825,31 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const mappedDefId = attributeDefIdRemap.get(String(r.attribute_def_id));
         return mappedDefId ? { ...r, attribute_def_id: mappedDefId } : r;
       });
-      const rows = await filterStaleByUpdatedAt(attributeValues, remapped);
+      let rows = await filterStaleByUpdatedAt(attributeValues, remapped);
+      const defIds = Array.from(new Set(rows.map((r) => String(r.attribute_def_id))));
+      if (defIds.length > 0) {
+        const existingDefs = await tx
+          .select({ id: attributeDefs.id })
+          .from(attributeDefs)
+          .where(inArray(attributeDefs.id, defIds as any))
+          .limit(50_000);
+        const existingDefIds = new Set<string>((existingDefs as any[]).map((r) => String(r.id)));
+        const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
+        if (missingRows.length > 0) {
+          for (const r of missingRows) {
+            await createChangeRequest({
+              tableName: SyncTableName.AttributeValues,
+              rowId: String(r.id),
+              beforeJson: null,
+              afterJson: JSON.stringify(r),
+              recordOwnerUserId: null,
+              recordOwnerUsername: null,
+              note: `missing attribute_def_id ${String(r.attribute_def_id)}`,
+            });
+          }
+          rows = rows.filter((r) => existingDefIds.has(String(r.attribute_def_id)));
+        }
+      }
       const ids = rows.map((r) => r.id);
       const entityIds = rows.map((r) => r.entity_id);
       const defIds = rows.map((r) => r.attribute_def_id);
