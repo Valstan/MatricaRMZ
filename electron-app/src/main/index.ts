@@ -130,7 +130,9 @@ function getUpdateHelperArgs(argv: string[]) {
   const launchPath = getArgValue(argv, '--launch');
   if (!installerPath || !launchPath) return null;
   const version = getArgValue(argv, '--version') ?? undefined;
-  return { installerPath, launchPath, version };
+  const parentPidRaw = getArgValue(argv, '--parent-pid');
+  const parentPid = parentPidRaw ? Number.parseInt(parentPidRaw, 10) : undefined;
+  return { installerPath, launchPath, version, parentPid };
 }
 
 app.whenReady().then(() => {

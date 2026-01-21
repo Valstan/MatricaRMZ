@@ -33,6 +33,7 @@ export type UpdateHelperArgs = {
   installerPath: string;
   launchPath: string;
   version?: string;
+  parentPid?: number;
 };
 
 const autoUpdater = updater.autoUpdater;
@@ -153,6 +154,7 @@ async function installNow(args: { installerPath: string; version?: string }) {
     launchPath: helper.launchPath,
     resourcesPath: helper.resourcesPath,
     version: args.version,
+    parentPid: process.pid,
   });
   await stageUpdate('Запускаем установку…', 80, args.version);
   quitMainAppSoon();
@@ -662,6 +664,21 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     showUpdateWindow(null);
     lockUpdateUi(true);
     await writeUpdaterLog(`update-helper flow start version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
+    if (args.parentPid) {
+      await writeUpdaterLog(`update-helper waiting for parent pid=${args.parentPid}`);
+      await setUpdateUi('Ожидаем закрытия программы…', 72, args.version);
+      const startedAt = Date.now();
+      let lastLogAt = 0;
+      while (isProcessAlive(args.parentPid)) {
+        const now = Date.now();
+        if (now - lastLogAt > 5000) {
+          await writeUpdaterLog(`update-helper waiting: parent still running (${Math.round((now - startedAt) / 1000)}s)`);
+          lastLogAt = now;
+        }
+        await sleep(1000);
+      }
+      await writeUpdaterLog(`update-helper parent exited after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+    }
     await setUpdateUi('Подготовка установки…', 70, args.version);
     await sleep(800);
     await setUpdateUi('Удаляем старую версию…', 75, args.version);
@@ -1090,9 +1107,17 @@ async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPat
   return { helperExePath, launchPath, resourcesPath: fallback };
 }
 
-function spawnUpdateHelper(args: { helperExePath: string; installerPath: string; launchPath: string; resourcesPath: string; version?: string }) {
+function spawnUpdateHelper(args: {
+  helperExePath: string;
+  installerPath: string;
+  launchPath: string;
+  resourcesPath: string;
+  version?: string;
+  parentPid?: number;
+}) {
   const spawnArgs = ['--update-helper', '--installer', args.installerPath, '--launch', args.launchPath];
   if (args.version) spawnArgs.push('--version', args.version);
+  if (args.parentPid) spawnArgs.push('--parent-pid', String(args.parentPid));
   const child = spawn(args.helperExePath, spawnArgs, {
     detached: true,
     stdio: 'ignore',
@@ -1103,6 +1128,16 @@ function spawnUpdateHelper(args: { helperExePath: string; installerPath: string;
     },
   });
   child.unref();
+}
+
+function isProcessAlive(pid: number) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function runInstaller(installerPath: string): Promise<number> {
