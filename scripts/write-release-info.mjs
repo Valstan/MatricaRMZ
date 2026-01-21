@@ -83,14 +83,19 @@ async function main() {
   const info = { releaseDate };
 
   if (token && folder) {
-    const publicUrl = await ensurePublished(token, folder);
-    info.update = {
-      provider: 'yandex',
-      // В electron-app мы будем использовать это как public_key
-      yandexPublicKey: publicUrl,
-      // А путь внутри public ресурса будет относительным: latest/latest.yml
-      yandexBasePath: 'latest',
-    };
+    try {
+      const publicUrl = await ensurePublished(token, folder);
+      info.update = {
+        provider: 'yandex',
+        // В electron-app мы будем использовать это как public_key
+        yandexPublicKey: publicUrl,
+        // А путь внутри public ресурса будет относительным: latest/latest.yml
+        yandexBasePath: 'latest',
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`Yandex publish skipped: ${String(err)}`);
+    }
   }
 
   const outPath = join(process.cwd(), 'electron-app', 'release-info.json');
