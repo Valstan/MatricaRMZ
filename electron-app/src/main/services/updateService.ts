@@ -665,7 +665,7 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     await setUpdateUi('Подготовка установки…', 70, args.version);
     await sleep(800);
     await setUpdateUi('Удаляем старую версию…', 75, args.version);
-    const exitCode = await runSilentInstaller(args.installerPath);
+    const exitCode = await runInstaller(args.installerPath);
     await writeUpdaterLog(`update-helper installer exitCode=${exitCode}`);
     if (exitCode !== 0) {
       await setUpdateUi(`Ошибка установки: code=${exitCode}`, 100, args.version);
@@ -1105,9 +1105,9 @@ function spawnUpdateHelper(args: { helperExePath: string; installerPath: string;
   child.unref();
 }
 
-async function runSilentInstaller(installerPath: string): Promise<number> {
+async function runInstaller(installerPath: string): Promise<number> {
   return await new Promise<number>((resolve) => {
-    const child = spawn(installerPath, ['/S'], { windowsHide: true, stdio: 'ignore' });
+    const child = spawn(installerPath, [], { windowsHide: false, stdio: 'ignore' });
     child.on('close', (code) => resolve(code ?? 0));
     child.on('error', () => resolve(1));
   });

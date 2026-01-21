@@ -12,6 +12,13 @@ function run(cmd) {
   execSync(cmd, { cwd: process.cwd(), stdio: 'inherit' });
 }
 
+function envInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 async function readText(path) {
   return await readFile(path, 'utf8');
 }
@@ -49,15 +56,23 @@ function hasGh() {
   }
 }
 
-async function waitForReleaseAsset(tag, pattern, maxWaitMs = 20 * 60_000) {
+async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000) {
   const started = Date.now();
+  // eslint-disable-next-line no-console
+  console.log(`Waiting for release asset: ${tag} (timeout=${Math.ceil(maxWaitMs / 1000)}s)`);
   while (Date.now() - started < maxWaitMs) {
     try {
       const raw = out(`gh release view ${tag} --repo Valstan/MatricaRMZ --json assets`);
       const json = JSON.parse(raw);
       const assets = Array.isArray(json?.assets) ? json.assets : [];
       const found = assets.find((a) => typeof a?.name === 'string' && a.name.match(pattern));
-      if (found?.name) return found.name;
+      if (found?.name) {
+        // eslint-disable-next-line no-console
+        console.log(`Release asset found: ${found.name}`);
+        return found.name;
+      }
+      // eslint-disable-next-line no-console
+      console.log(`Release asset not ready yet (assets=${assets.length})`);
     } catch {
       // ignore and retry
     }
@@ -69,7 +84,9 @@ async function waitForReleaseAsset(tag, pattern, maxWaitMs = 20 * 60_000) {
 function downloadWindowsInstaller(tag, pattern, destDir) {
   run(`sudo mkdir -p ${destDir}`);
   run(`sudo chown -R $USER:$USER ${destDir}`);
-  run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir}`);
+  // eslint-disable-next-line no-console
+  console.log(`Downloading Windows installer: ${pattern} -> ${destDir}`);
+  run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir} --skip-existing`);
 }
 
 function fetchUpdatesStatus(base) {
@@ -81,13 +98,20 @@ function fetchUpdatesStatus(base) {
   return { lastError, version };
 }
 
-async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 12 * 60_000) {
+async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000) {
+  if (process.env.MATRICA_RELEASE_SKIP_STATUS_WAIT === 'true') {
+    // eslint-disable-next-line no-console
+    console.log('updates/status wait skipped via MATRICA_RELEASE_SKIP_STATUS_WAIT=true');
+    return { ok: true, skipped: true };
+  }
   const base =
     String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001')
       .trim()
       .replace(/\/+$/, '');
   const started = Date.now();
   let lastSeen = { lastError: null, version: null };
+  // eslint-disable-next-line no-console
+  console.log(`Waiting for updates/status=${expectedVersion} (timeout=${Math.ceil(maxWaitMs / 1000)}s)`);
   while (Date.now() - started < maxWaitMs) {
     try {
       lastSeen = fetchUpdatesStatus(base);
@@ -96,14 +120,20 @@ async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 12 * 60_000) {
         console.log(`updates/status ok: ${expectedVersion}`);
         return { ok: true };
       }
+      // eslint-disable-next-line no-console
+      console.log(
+        `updates/status tick: expected=${expectedVersion} current=${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
+      );
     } catch (e) {
       lastSeen = { lastError: String(e), version: null };
+      // eslint-disable-next-line no-console
+      console.log(`updates/status tick error: ${lastSeen.lastError}`);
     }
     await sleep(20_000);
   }
   // eslint-disable-next-line no-console
   console.log(
-    `updates/status not ready: expected ${expectedVersion}, got ${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
+    `updates/status not ready (background): expected ${expectedVersion}, got ${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
   );
   return { ok: false, ...lastSeen };
 }
@@ -181,11 +211,13 @@ async function main() {
   if (hasGh()) {
     try {
       run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
-      const assetName = await waitForReleaseAsset(tag, /\.exe$/i);
+      const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 6 * 60_000);
+      const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
+      const assetName = await waitForReleaseAsset(tag, /\.exe$/i, assetWaitMs);
       if (assetName) {
         const destDir = '/opt/matricarmz/updates';
         downloadWindowsInstaller(tag, assetName, destDir);
-        await waitForUpdatesStatus(version);
+        await waitForUpdatesStatus(version, statusWaitMs);
       } else {
         // eslint-disable-next-line no-console
         console.log('Windows release asset not found within timeout.');
