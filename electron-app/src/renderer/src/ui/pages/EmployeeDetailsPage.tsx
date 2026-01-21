@@ -230,6 +230,7 @@ export function EmployeeDetailsPage(props: {
   }, [accountPerms?.user]);
   const canEditAccount =
     props.canManageUsers && (meRole === 'superadmin' || (meRole === 'admin' && String(accountUser?.role ?? '') === 'user'));
+  const canToggleAccess = props.canManageUsers && (meRole === 'admin' || meRole === 'superadmin');
   const canEditPermissions = canEditAccount;
 
   useEffect(() => {
@@ -794,7 +795,7 @@ export function EmployeeDetailsPage(props: {
             const next = e.target.value === 'fired' ? 'fired' : 'working';
             setEmploymentStatus(next);
             await saveAttr('employment_status', next);
-            if (next === 'fired' && props.canManageUsers) {
+            if (next === 'fired' && canToggleAccess) {
               const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
               setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
               await loadAccountPerms();
@@ -1075,15 +1076,16 @@ export function EmployeeDetailsPage(props: {
                     type="checkbox"
                     checked={accountActive}
                     onChange={async (e) => {
+                      if (!canToggleAccess) return;
                       const next = e.target.checked;
                       setAccountStatus('Обновление активности...');
                       const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: next });
                       setAccountStatus(r.ok ? 'Активность обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
                       await loadAccountPerms();
                     }}
-                    disabled={!canEditAccount}
+                    disabled={!canToggleAccess}
                   />
-                  активен
+                  доступ к программе
                 </label>
               </div>
 
@@ -1140,8 +1142,8 @@ export function EmployeeDetailsPage(props: {
                 </select>
                 <div style={{ color: '#6b7280' }}>Активность</div>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input type="checkbox" checked={createActive} onChange={(e) => setCreateActive(e.target.checked)} disabled={!canEditAccount} />
-                  активен
+                  <input type="checkbox" checked={createActive} onChange={(e) => setCreateActive(e.target.checked)} disabled={!canToggleAccess} />
+                  доступ к программе
                 </label>
               </div>
               <div>
