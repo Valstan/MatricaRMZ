@@ -826,12 +826,12 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         return mappedDefId ? { ...r, attribute_def_id: mappedDefId } : r;
       });
       let rows = await filterStaleByUpdatedAt(attributeValues, remapped);
-      const defIds = Array.from(new Set(rows.map((r) => String(r.attribute_def_id))));
-      if (defIds.length > 0) {
+      const defIdsToCheck = Array.from(new Set(rows.map((r) => String(r.attribute_def_id))));
+      if (defIdsToCheck.length > 0) {
         const existingDefs = await tx
           .select({ id: attributeDefs.id })
           .from(attributeDefs)
-          .where(inArray(attributeDefs.id, defIds as any))
+          .where(inArray(attributeDefs.id, defIdsToCheck as any))
           .limit(50_000);
         const existingDefIds = new Set<string>((existingDefs as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
