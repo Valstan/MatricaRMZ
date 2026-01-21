@@ -14,6 +14,7 @@ type TorrentState = {
   fileName: string;
   filePath: string;
   size: number;
+  isSetup: boolean;
   infoHash: string | null;
   trackers: string[];
   torrentBuffer: Buffer;
@@ -64,22 +65,33 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-async function pickLatestInstaller(dir: string): Promise<{ path: string; version: string; name: string; size: number } | null> {
+function isSetupInstaller(name: string) {
+  return /(setup|installer)/i.test(name);
+}
+
+async function pickLatestInstaller(
+  dir: string,
+): Promise<{ path: string; version: string; name: string; size: number; isSetup: boolean } | null> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
   const exeNames = entries.filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.exe')).map((e) => e.name);
   if (!exeNames.length) return null;
-  const withVer = exeNames.map((name) => ({ name, version: extractVersionFromFileName(name) }));
-  withVer.sort((a, b) => {
+  const withVer = exeNames.map((name) => ({
+    name,
+    version: extractVersionFromFileName(name),
+    isSetup: isSetupInstaller(name),
+  }));
+  const preferred = withVer.some((x) => x.isSetup) ? withVer.filter((x) => x.isSetup) : withVer;
+  preferred.sort((a, b) => {
     if (a.version && b.version) return compareSemver(b.version, a.version);
     return a.name.localeCompare(b.name);
   });
-  const chosen = withVer[0];
+  const chosen = preferred[0];
   if (!chosen) return null;
   const version = chosen.version ?? '0.0.0';
   const path = join(dir, chosen.name);
   const st = await stat(path).catch(() => null);
   if (!st) return null;
-  return { path, version, name: chosen.name, size: st.size };
+  return { path, version, name: chosen.name, size: st.size, isSetup: chosen.isSetup };
 }
 
 async function createTorrentBuffer(filePath: string, trackers: string[], webSeedUrl?: string | null): Promise<Buffer> {
@@ -100,7 +112,7 @@ async function createTorrentBuffer(filePath: string, trackers: string[], webSeed
   });
 }
 
-async function seedLatestInstaller(latest: { path: string; version: string; name: string; size: number }) {
+async function seedLatestInstaller(latest: { path: string; version: string; name: string; size: number; isSetup: boolean }) {
   const trackers = getTrackerUrls();
   const publicBase = getPublicBaseUrl();
   const webSeedUrl = publicBase ? `${publicBase}/updates/file/${encodeURIComponent(latest.name)}` : null;
@@ -123,6 +135,7 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
       fileName: latest.name,
       filePath: latest.path,
       size: latest.size,
+      isSetup: latest.isSetup,
       infoHash: currentTorrent?.infoHash ?? null,
       trackers,
       torrentBuffer,
@@ -134,6 +147,7 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
     fileName: latest.name,
     filePath: latest.path,
     size: latest.size,
+    isSetup: latest.isSetup,
     infoHash: currentTorrent?.infoHash ?? null,
     trackers,
     torrentBuffer,
@@ -148,6 +162,7 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
         version: latest.version,
         fileName: latest.name,
         size: latest.size,
+        isSetup: latest.isSetup,
         infoHash: currentState.infoHash,
         trackers,
         torrentFile: 'latest.torrent',
@@ -231,6 +246,7 @@ export function getUpdateTorrentStatus() {
           version: currentState.version,
           fileName: currentState.fileName,
           size: currentState.size,
+          isSetup: currentState.isSetup,
           infoHash: currentState.infoHash,
           trackers: currentState.trackers,
         }

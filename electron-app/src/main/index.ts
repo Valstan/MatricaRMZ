@@ -223,7 +223,7 @@ app.whenReady().then(() => {
           app.quit();
           return;
         }
-        const delay = updateResult?.action === 'error' ? 3800 : 800;
+        const delay = updateResult?.action === 'error' ? 3800 : updateResult?.action === 'update_downloaded' ? 1400 : 800;
         scheduleShowMainWindow(delay);
         if (torrentEnabled) startBackgroundUpdatePolling();
       } else {

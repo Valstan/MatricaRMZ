@@ -54,6 +54,8 @@
 - Клиент локально: `app.getPath('userData')/matricarmz.log`
   - Пишется из `electron-app/src/main/ipc/registerIpc.ts`
   - Sync пишет из `electron-app/src/main/services/syncService.ts`
+- Логи обновлятора: `app.getPath('userData')/matricarmz-updater.log`
+  - Пишется из `electron-app/src/main/services/updateService.ts`
 - Клиент → сервер:
   - Endpoint: `POST /logs/client`
   - Путь: `backend-api/logs/client-YYYY-MM-DD.log`

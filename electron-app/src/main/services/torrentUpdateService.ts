@@ -37,6 +37,8 @@ type WebTorrentCtor = new (opts: Record<string, unknown>) => any;
 
 let seedingClient: any | null = null;
 let seedingTorrent: any | null = null;
+let downloadClient: any | null = null;
+let downloadTorrent: any | null = null;
 
 async function fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -55,6 +57,14 @@ async function loadWebTorrent(): Promise<WebTorrentCtor | null> {
   } catch {
     return null;
   }
+}
+
+async function ensureDownloadClient() {
+  if (downloadClient) return downloadClient;
+  const WebTorrent = await loadWebTorrent();
+  if (!WebTorrent) return null;
+  downloadClient = new WebTorrent({ dht: true, tracker: true });
+  return downloadClient;
 }
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -114,14 +124,12 @@ export async function downloadTorrentUpdate(
   opts?: { onProgress?: (pct: number, peers: number) => void },
 ): Promise<TorrentDownloadResult> {
   try {
-    const WebTorrent = await loadWebTorrent();
-    if (!WebTorrent) return { ok: false, error: 'torrent engine unavailable' };
+    const client = await ensureDownloadClient();
+    if (!client) return { ok: false, error: 'torrent engine unavailable' };
     const outDir = join(TORRENT_CACHE_ROOT(), manifest.version);
     await mkdir(outDir, { recursive: true });
     const torrentPath = await writeTorrentFile(outDir, manifest.torrentUrl);
     const torrentBuf = await readFile(torrentPath);
-
-    const client = new WebTorrent({ dht: true, tracker: true });
 
     return await new Promise<TorrentDownloadResult>((resolve) => {
       let done = false;
@@ -133,11 +141,27 @@ export async function downloadTorrentUpdate(
         if (done) return;
         done = true;
         clearInterval(progressTimer);
-        client.destroy(() => resolve(result));
+        resolve(result);
       };
 
+      try {
+        if (downloadTorrent?.infoHash) {
+          client.remove(downloadTorrent.infoHash, () => {});
+        }
+      } catch {
+        // ignore remove errors
+      }
+
       const torrent = client.add(torrentBuf, { path: outDir });
-      torrent.on('error', (err) => finish({ ok: false, error: String(err) }));
+      downloadTorrent = torrent;
+      torrent.on('error', (err) => {
+        try {
+          if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
+        } catch {
+          // ignore
+        }
+        finish({ ok: false, error: String(err) });
+      });
 
       const progressTimer = setInterval(() => {
         const pct = Math.max(0, Math.min(100, Math.floor(torrent.progress * 100)));
@@ -149,10 +173,20 @@ export async function downloadTorrentUpdate(
 
         const now = Date.now();
         if (now - lastProgressAt > NO_PROGRESS_TIMEOUT_MS) {
+          try {
+            if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
+          } catch {
+            // ignore
+          }
           finish({ ok: false, error: 'torrent download stalled (no peers)' });
           return;
         }
         if (now - startedAt > TOTAL_DOWNLOAD_TIMEOUT_MS) {
+          try {
+            if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
+          } catch {
+            // ignore
+          }
           finish({ ok: false, error: 'torrent download timeout' });
         }
       }, 900);
@@ -226,6 +260,27 @@ export async function stopTorrentSeeding(): Promise<void> {
   seedingClient.destroy(() => {
     seedingClient = null;
     seedingTorrent = null;
+  });
+}
+
+export async function stopTorrentDownload(): Promise<void> {
+  const client = downloadClient;
+  if (!client) return;
+  await new Promise<void>((resolve) => {
+    try {
+      if (downloadTorrent?.infoHash) {
+        client.remove(downloadTorrent.infoHash, () => resolve());
+        downloadTorrent = null;
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    resolve();
+  });
+  client.destroy(() => {
+    downloadClient = null;
+    downloadTorrent = null;
   });
 }
 

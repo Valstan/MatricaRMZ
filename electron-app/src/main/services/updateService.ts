@@ -2,7 +2,7 @@ import { app, BrowserWindow, net } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { copyFile, mkdir, readFile, stat, writeFile, access } from 'node:fs/promises';
+import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -15,6 +15,7 @@ import {
   fetchTorrentStatus,
   saveTorrentFileForVersion,
   saveTorrentSeedInfo,
+  stopTorrentDownload,
   type TorrentUpdateManifest,
 } from './torrentUpdateService.js';
 
@@ -25,6 +26,7 @@ export type UpdateCheckResult =
 export type UpdateFlowResult =
   | { action: 'no_update' }
   | { action: 'update_started' }
+  | { action: 'update_downloaded'; version?: string; source?: 'torrent' | 'github' | 'yandex' }
   | { action: 'error'; error: string };
 
 export type UpdateHelperArgs = {
@@ -82,6 +84,19 @@ type UpdateRuntimeState = {
 
 let updateState: UpdateRuntimeState = { state: 'idle', updatedAt: Date.now() };
 
+function updaterLogPath() {
+  return join(app.getPath('userData'), 'matricarmz-updater.log');
+}
+
+async function writeUpdaterLog(message: string) {
+  try {
+    const ts = new Date().toISOString();
+    await appendFile(updaterLogPath(), `[${ts}] ${message}\n`, 'utf8');
+  } catch {
+    // ignore log write failures
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -89,6 +104,41 @@ function escapeHtml(value: string) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function isSetupInstallerName(name: string) {
+  return /(setup|installer)/i.test(name);
+}
+
+async function validateInstallerPath(
+  installerPath: string,
+  expectedName?: string,
+): Promise<{ ok: true; isSetup: boolean; size: number } | { ok: false; error: string }> {
+  const st = await stat(installerPath).catch(() => null);
+  if (!st || !st.isFile()) return { ok: false, error: 'installer file is missing' };
+  if (st.size <= 0) return { ok: false, error: 'installer file is empty' };
+  const actualName = basename(installerPath);
+  const expected = expectedName ? basename(expectedName) : '';
+  const expectedRequiresSetup = expected ? isSetupInstallerName(expected) : false;
+  const actualIsSetup = isSetupInstallerName(actualName);
+  if (expectedRequiresSetup && !actualIsSetup) {
+    return { ok: false, error: `installer mismatch: expected setup, got ${actualName}` };
+  }
+  return { ok: true, isSetup: actualIsSetup, size: st.size };
+}
+
+async function queuePendingUpdate(args: {
+  version: string;
+  installerPath: string;
+  expectedName?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const validation = await validateInstallerPath(args.installerPath, args.expectedName);
+  if (!validation.ok) return validation;
+  await writePendingUpdate({ version: args.version, installerPath: args.installerPath });
+  await writeUpdaterLog(
+    `pending-update saved version=${args.version} installer=${args.installerPath} size=${validation.size}`,
+  );
+  return { ok: true };
 }
 
 async function renderUpdateLog() {
@@ -267,16 +317,29 @@ async function clearPendingUpdate() {
 export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | null): Promise<boolean> {
   const pending = await readPendingUpdate();
   if (!pending?.installerPath) return false;
+  const currentVersion = app.getVersion();
+  if (pending.version && compareSemver(pending.version, currentVersion) <= 0) {
+    await writeUpdaterLog(`pending-update ignored: version=${pending.version} current=${currentVersion}`);
+    await clearPendingUpdate();
+    return false;
+  }
   try {
     await access(pending.installerPath);
   } catch {
+    await writeUpdaterLog(`pending-update missing installer: ${pending.installerPath}`);
     await clearPendingUpdate();
     return false;
   }
   showUpdateWindow(parentWindow ?? null);
   lockUpdateUi(true);
   await setUpdateUi('Найдена скачанная версия. Устанавливаем…', 80, pending.version);
+  await writeUpdaterLog(`update-helper start version=${pending.version} installer=${pending.installerPath}`);
+  await addUpdateLog(`update helper: stopping torrent download`);
+  await stopTorrentDownload().catch(() => {});
+  await addUpdateLog(`update helper: resolving resources path`);
   const helper = await prepareUpdateHelper();
+  await addUpdateLog(`update helper: resources=${helper.resourcesPath}`);
+  await writeUpdaterLog(`update-helper resources=${helper.resourcesPath} launch=${helper.launchPath}`);
   spawnUpdateHelper({
     helperExePath: helper.helperExePath,
     installerPath: pending.installerPath,
@@ -353,7 +416,11 @@ async function backgroundTorrentDownload(manifest: TorrentUpdateManifest, versio
   }
   const cachedPath = await cacheInstaller(tdl.installerPath, version);
   await saveTorrentSeedInfo({ version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
-  await writePendingUpdate({ version, installerPath: cachedPath });
+  const queued = await queuePendingUpdate({ version, installerPath: cachedPath, expectedName: manifest.fileName });
+  if (!queued.ok) {
+    setUpdateState({ state: 'error', source: 'torrent', version, message: queued.error });
+    return;
+  }
   setUpdateState({
     state: 'downloaded',
     source: 'torrent',
@@ -436,20 +503,19 @@ export async function runAutoUpdateFlow(
         const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
         lastDownloadedInstallerPath = cachedPath;
         await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
-        await stageUpdate('Скачивание завершено. Готовим установку…', 60, torrentCheck.version);
-        lockUpdateUi(true);
-        await stageUpdate('Подготовка установщика…', 70, torrentCheck.version);
-        const helper = await prepareUpdateHelper();
-        spawnUpdateHelper({
-          helperExePath: helper.helperExePath,
+        const queued = await queuePendingUpdate({
+          version: torrentCheck.version ?? torrentManifest.version,
           installerPath: cachedPath,
-          launchPath: helper.launchPath,
-          resourcesPath: helper.resourcesPath,
-          version: torrentCheck.version,
+          expectedName: torrentManifest.fileName,
         });
-        await stageUpdate('Запускаем установку…', 80, torrentCheck.version);
-        quitMainAppSoon();
-        return { action: 'update_started' };
+        if (!queued.ok) {
+          await setUpdateUi(`Ошибка обновления: ${queued.error}`, 100, torrentCheck.version);
+          closeUpdateWindowSoon(3500);
+          return { action: 'error', error: queued.error };
+        }
+        await stageUpdate('Обновление скачано. Установится при следующем запуске.', 100, torrentCheck.version);
+        closeUpdateWindowSoon(1500);
+        return { action: 'update_downloaded', version: torrentCheck.version, source: 'torrent' };
       }
       await stageUpdate(`Торрент недоступен, пробуем GitHub…`, 15, torrentCheck.version);
     } else if (!torrentCheck.ok) {
@@ -471,20 +537,19 @@ export async function runAutoUpdateFlow(
       const cachedPath = await cacheInstaller(download.filePath, check.version);
       lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, check.version);
-      await stageUpdate('Скачивание завершено. Готовим установку…', 60, check.version);
-      lockUpdateUi(true);
-      await stageUpdate('Подготовка установщика…', 70, check.version);
-      const helper = await prepareUpdateHelper();
-      spawnUpdateHelper({
-        helperExePath: helper.helperExePath,
+      const queued = await queuePendingUpdate({
+        version: check.version ?? 'latest',
         installerPath: cachedPath,
-        launchPath: helper.launchPath,
-        resourcesPath: helper.resourcesPath,
-        version: check.version,
+        expectedName: check.version ? basename(cachedPath) : undefined,
       });
-      await stageUpdate('Запускаем установку…', 80, check.version);
-      quitMainAppSoon();
-      return { action: 'update_started' };
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка обновления: ${queued.error}`, 100, check.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: queued.error };
+      }
+      await stageUpdate('Обновление скачано. Установится при следующем запуске.', 100, check.version);
+      closeUpdateWindowSoon(1500);
+      return { action: 'update_downloaded', version: check.version, source: 'github' };
     }
 
     const gh = await checkGithubReleaseForUpdates();
@@ -503,20 +568,19 @@ export async function runAutoUpdateFlow(
       const cachedPath = await cacheInstaller(gdl.filePath, gh.version);
       lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, gh.version);
-      await stageUpdate('Скачивание завершено. Готовим установку…', 60, gh.version);
-      lockUpdateUi(true);
-      await stageUpdate('Подготовка установщика…', 70, gh.version);
-      const helper = await prepareUpdateHelper();
-      spawnUpdateHelper({
-        helperExePath: helper.helperExePath,
+      const queued = await queuePendingUpdate({
+        version: gh.version ?? 'latest',
         installerPath: cachedPath,
-        launchPath: helper.launchPath,
-        resourcesPath: helper.resourcesPath,
-        version: gh.version,
+        expectedName: basename(cachedPath),
       });
-      await stageUpdate('Запускаем установку…', 80, gh.version);
-      quitMainAppSoon();
-      return { action: 'update_started' };
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка обновления: ${queued.error}`, 100, gh.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: queued.error };
+      }
+      await stageUpdate('Обновление скачано. Установится при следующем запуске.', 100, gh.version);
+      closeUpdateWindowSoon(1500);
+      return { action: 'update_downloaded', version: gh.version, source: 'github' };
     }
 
     await stageUpdate('Проверяем Яндекс.Диск…', 30);
@@ -550,20 +614,19 @@ export async function runAutoUpdateFlow(
     const cachedPath = await cacheInstaller(ydl.filePath, fallback.version);
     lastDownloadedInstallerPath = cachedPath;
     await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, fallback.version);
-    await stageUpdate('Скачивание завершено. Готовим установку…', 60, fallback.version);
-    lockUpdateUi(true);
-    await stageUpdate('Подготовка установщика…', 70, fallback.version);
-    const helper = await prepareUpdateHelper();
-    spawnUpdateHelper({
-      helperExePath: helper.helperExePath,
+    const queued = await queuePendingUpdate({
+      version: fallback.version ?? 'latest',
       installerPath: cachedPath,
-      launchPath: helper.launchPath,
-      resourcesPath: helper.resourcesPath,
-      version: fallback.version,
+      expectedName: basename(cachedPath),
     });
-    await stageUpdate('Запускаем установку…', 80, fallback.version);
-    quitMainAppSoon();
-    return { action: 'update_started' };
+    if (!queued.ok) {
+      await setUpdateUi(`Ошибка обновления: ${queued.error}`, 100, fallback.version);
+      closeUpdateWindowSoon(3500);
+      return { action: 'error', error: queued.error };
+    }
+    await stageUpdate('Обновление скачано. Установится при следующем запуске.', 100, fallback.version);
+    closeUpdateWindowSoon(1500);
+    return { action: 'update_downloaded', version: fallback.version, source: 'yandex' };
   } catch (e) {
     const message = String(e);
     await setUpdateUi(`Ошибка обновления: ${message}`, 100);
@@ -748,10 +811,12 @@ function extractVersionFromFileName(fileName: string): string | null {
 function pickNewestInstaller(items: string[]): string | null {
   const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
   if (exes.length === 0) return null;
-  const parsed = exes
+  const preferred = exes.filter((n) => isSetupInstallerName(n));
+  const candidates = preferred.length > 0 ? preferred : exes;
+  const parsed = candidates
     .map((n) => ({ n, v: extractVersionFromFileName(n) }))
     .filter((x) => x.v);
-  if (parsed.length === 0) return exes[0];
+  if (parsed.length === 0) return candidates[0];
   parsed.sort((a, b) => compareSemver(b.v!, a.v!));
   return parsed[0].n;
 }
@@ -808,6 +873,7 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
     const items = await listPublicFolder(publicKey, basePath);
     const exe = pickNewestInstaller(items);
     if (!exe) return { ok: false, error: 'no installer found in yandex folder' };
+    await writeUpdaterLog(`yandex pick installer=${exe}`);
     const version = extractVersionFromFileName(exe);
     if (!version) return { ok: false, error: 'cannot extract version from installer name' };
     const current = app.getVersion();
@@ -844,9 +910,14 @@ async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | Githu
     const updateAvailable = compareSemver(version, current) > 0;
     if (!updateAvailable) return { ok: true, updateAvailable: false };
     const assets = Array.isArray(json?.assets) ? json.assets : [];
-    const exe = assets.find((a: any) => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.exe'));
+    const exeCandidates = assets
+      .filter((a: any) => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.exe'))
+      .map((a: any) => a as { name: string; browser_download_url?: string });
+    const preferred = exeCandidates.find((a) => isSetupInstallerName(a.name));
+    const exe = preferred ?? exeCandidates[0];
     const downloadUrl = exe?.browser_download_url ? String(exe.browser_download_url) : undefined;
     if (!downloadUrl) return { ok: false, error: 'github release missing exe asset' };
+    await writeUpdaterLog(`github pick installer=${exe?.name ?? 'unknown'}`);
     return { ok: true, updateAvailable: true, version, downloadUrl, source: 'github' };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -927,7 +998,15 @@ async function waitForUpdateCheck(): Promise<UpdateCheckResult> {
     };
     const onAvailable = (info: any) => {
       cleanup();
-      resolve({ ok: true, updateAvailable: true, version: String(info?.version ?? '') || undefined, source: 'github' });
+      const version = String(info?.version ?? '') || undefined;
+      const current = app.getVersion();
+      if (!version || compareSemver(version, current) <= 0) {
+        void writeUpdaterLog(`autoUpdater reports ${version ?? 'unknown'} <= current ${current}`);
+        resolve({ ok: true, updateAvailable: false });
+        return;
+      }
+      void writeUpdaterLog(`autoUpdater update available=${version} current=${current}`);
+      resolve({ ok: true, updateAvailable: true, version, source: 'github' });
     };
     const onNotAvailable = () => {
       cleanup();

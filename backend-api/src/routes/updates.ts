@@ -20,6 +20,7 @@ updatesRouter.get('/latest', (req, res) => {
     version: st.version,
     fileName: st.fileName,
     size: st.size,
+    isSetup: st.isSetup,
     infoHash: st.infoHash,
     trackers: st.trackers,
     torrentUrl: `${base}/updates/latest.torrent`,
