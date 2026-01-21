@@ -71,7 +71,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "runAfterFinish": true,
-      "include": "build/installer.nsh"
+      "include": "installer/installer.nsh"
     },
     "publish": [
       {

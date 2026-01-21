@@ -56,6 +56,34 @@ function hasGh() {
   }
 }
 
+function diagnoseWindowsRelease(tag) {
+  try {
+    const runRaw = out(
+      `gh run list --workflow release-electron-windows.yml --repo Valstan/MatricaRMZ --limit 1 --json status,conclusion,htmlUrl,createdAt`,
+    );
+    const runs = JSON.parse(runRaw);
+    const run = Array.isArray(runs) ? runs[0] : null;
+    // eslint-disable-next-line no-console
+    console.log(`Windows release run: ${run?.status ?? 'unknown'} conclusion=${run?.conclusion ?? 'n/a'}`);
+    if (run?.htmlUrl) {
+      // eslint-disable-next-line no-console
+      console.log(`Windows release run URL: ${run.htmlUrl}`);
+    }
+    const relRaw = out(`gh release view ${tag} --repo Valstan/MatricaRMZ --json url,assets`);
+    const rel = JSON.parse(relRaw);
+    const assets = Array.isArray(rel?.assets) ? rel.assets.map((a) => a?.name).filter(Boolean) : [];
+    // eslint-disable-next-line no-console
+    console.log(`Release assets: ${assets.join(', ') || '(none)'}`);
+    if (rel?.url) {
+      // eslint-disable-next-line no-console
+      console.log(`Release URL: ${rel.url}`);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log(`Diagnostics failed: ${String(e)}`);
+  }
+}
+
 async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000) {
   const started = Date.now();
   // eslint-disable-next-line no-console
@@ -211,16 +239,24 @@ async function main() {
   if (hasGh()) {
     try {
       run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
-      const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 6 * 60_000);
+      const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 100_000);
       const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
-      const assetName = await waitForReleaseAsset(tag, /\.exe$/i, assetWaitMs);
+      let assetName = null;
+      const maxAttempts = envInt('MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS', 4);
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // eslint-disable-next-line no-console
+        console.log(`Asset wait attempt ${attempt}/${maxAttempts}`);
+        assetName = await waitForReleaseAsset(tag, /\.exe$/i, assetWaitMs);
+        if (assetName) break;
+      }
       if (assetName) {
         const destDir = '/opt/matricarmz/updates';
         downloadWindowsInstaller(tag, assetName, destDir);
         await waitForUpdatesStatus(version, statusWaitMs);
       } else {
         // eslint-disable-next-line no-console
-        console.log('Windows release asset not found within timeout.');
+        console.log('Windows release asset not found within timeout. Investigate GitHub Actions status.');
+        diagnoseWindowsRelease(tag);
       }
     } catch (e) {
       // eslint-disable-next-line no-console
