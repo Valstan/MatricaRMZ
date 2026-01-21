@@ -38,6 +38,8 @@ pnpm release:auto
 1) Обновить `VERSION` (если нужен переход MAJOR/MINOR).
 2) Запустить `pnpm release:auto` один раз.
 3) Дождаться артефактов Windows в GitHub Actions (см. ниже).
+4) Автоматически скачать `MatricaRMZ-Setup-X.Y.Z.exe` в `/opt/matricarmz/updates` (как только артефакт появился).
+5) Автоматически проверить `/updates/status` → `lastError=null`, версия соответствует `X.Y.Z`.
 
 ## Backend / Web‑admin после релиза (автоматически)
 `pnpm release:auto` сам проверяет, были ли изменения в `backend-api`/`web-admin`/`shared`.  
@@ -63,6 +65,10 @@ sudo systemctl restart matricarmz-backend.service
 ```bash
 gh workflow run release-electron-windows.yml --ref vX.Y.Z
 ```
+
+После завершения сборки Windows (автоматически):
+- скачивается `MatricaRMZ-Setup-X.Y.Z.exe` в `/opt/matricarmz/updates`;
+- проверяется `/updates/status` (ожидается `lastError=null` и версия `X.Y.Z`).
 
 ## Обновления клиента (Windows)
 
