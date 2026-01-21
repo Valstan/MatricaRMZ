@@ -1,6 +1,6 @@
 import { EntityTypeCode, SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
 import { app, net } from 'electron';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
