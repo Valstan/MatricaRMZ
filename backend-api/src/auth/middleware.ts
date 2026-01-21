@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { AuthUser } from './jwt.js';
 import { verifyAccessToken } from './jwt.js';
 import { hasPermission } from './permissions.js';
+import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 
 export type AuthenticatedRequest = Request & { user: AuthUser };
 
@@ -18,6 +19,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const token = extractBearerToken(req);
     if (!token) return res.status(401).json({ ok: false, error: 'missing bearer token' });
     const user = await verifyAccessToken(token);
+    const auth = await getEmployeeAuthById(user.id);
+    if (!auth?.accessEnabled) {
+      return res.status(403).json({ ok: false, error: 'user disabled' });
+    }
     (req as AuthenticatedRequest).user = user;
     return next();
   } catch {

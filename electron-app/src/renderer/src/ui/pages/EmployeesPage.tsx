@@ -17,7 +17,7 @@ type Row = {
   updatedAt: number;
 };
 
-export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean }) {
+export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; refreshKey?: number }) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
@@ -47,6 +47,10 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       if (queryTimer.current) window.clearTimeout(queryTimer.current);
     };
   }, [query]);
+
+  useEffect(() => {
+    void refresh();
+  }, [props.refreshKey]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -99,10 +103,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
               (() => {
                 const status = String(row.employmentStatus ?? '').toLowerCase();
                 const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
-                const role = String(row.systemRole ?? '').toLowerCase();
-                const hasAccess =
-                  row.accessEnabled === true && (role === 'user' || role === 'admin' || role === 'superadmin' || role === 'pending');
-                const accessLabel = hasAccess ? 'Пользователь системы' : 'Доступ запрещён';
+                const hasAccess = row.accessEnabled === true;
+                const accessLabel = hasAccess ? 'Доступ разрешён' : 'Доступ запрещён';
                 return (
               <tr
                 key={row.id}

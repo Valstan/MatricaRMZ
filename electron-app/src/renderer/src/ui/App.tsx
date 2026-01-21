@@ -51,6 +51,7 @@ export function App() {
   });
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
+  const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
   const [updateStatus, setUpdateStatus] = useState<any>(null);
   const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }>({
     theme: 'auto',
@@ -506,6 +507,10 @@ export function App() {
     setAudit(a);
   }
 
+  function triggerEmployeesRefresh() {
+    setEmployeesRefreshKey((prev) => prev + 1);
+  }
+
   const pageTitle =
     tab === 'engines'
       ? 'Матрица РМЗ — Двигатели'
@@ -829,6 +834,7 @@ export function App() {
               setTab('employee');
             }}
             canCreate={caps.canManageEmployees}
+            refreshKey={employeesRefreshKey}
           />
         )}
 
@@ -862,6 +868,7 @@ export function App() {
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
             canManageUsers={caps.canManageUsers}
+            onAccessChanged={triggerEmployeesRefresh}
             me={authStatus.user}
           />
         )}

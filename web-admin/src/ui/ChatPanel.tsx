@@ -94,6 +94,7 @@ export function ChatPanel(props: {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [othersOpen, setOthersOpen] = useState(false);
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
@@ -102,6 +103,14 @@ export function ChatPanel(props: {
     if (!unread || unread.ok !== true) return {};
     return unread.byUser as Record<string, number>;
   }, [unread]);
+  const onlineUsers = useMemo(() => {
+    const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
+    return base.filter((u) => u.isActive && u.online);
+  }, [users, isPending]);
+  const otherUsers = useMemo(() => {
+    const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
+    return base.filter((u) => u.isActive && !u.online);
+  }, [users, isPending]);
 
   async function refreshUsers() {
     const r = await chatApi.listChatUsers().catch(() => null);
@@ -318,6 +327,65 @@ export function ChatPanel(props: {
             {adminMode ? 'Обычный режим' : 'Админ режим'}
           </Button>
         )}
+        {!adminMode && (
+          <div style={{ position: 'relative' }}>
+            <Button variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
+              Другие
+            </Button>
+            {othersOpen && otherUsers.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 34,
+                  zIndex: 10,
+                  minWidth: 220,
+                  maxWidth: 320,
+                  maxHeight: 360,
+                  overflowY: 'auto',
+                  background: '#ffffff',
+                  border: '1px solid #e5e7eb',
+                  boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+                  borderRadius: 10,
+                  padding: 8,
+                }}
+              >
+                {otherUsers.map((u) => {
+                  const uUnread = byUserUnread[u.id] ?? 0;
+                  const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
+                  const roleStyle = roleStyles(u.role);
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        setSelectedUserId(u.id);
+                        setOthersOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        marginBottom: 6,
+                        padding: '6px 8px',
+                        border: `1px solid ${roleStyle.border}`,
+                        background: roleStyle.background,
+                        color: roleStyle.color,
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                      title="Оффлайн"
+                    >
+                      {dot('#dc2626', false)}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ padding: 10, borderBottom: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -328,11 +396,11 @@ export function ChatPanel(props: {
                 Общий чат{unread && unread.ok === true && unread.global > 0 ? ` (${unread.global})` : ''}
               </Button>
             )}
-            {(isPending ? users.filter((u) => u.role === 'superadmin') : users.filter((u) => u.isActive))
+            {onlineUsers
               .map((u) => {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;
-                const indicator = u.online ? dot('#16a34a', true) : dot('#dc2626', false);
+                const indicator = dot('#16a34a', true);
                 const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
                 const roleStyle = roleStyles(u.role);
                 return (

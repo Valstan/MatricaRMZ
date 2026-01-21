@@ -13,13 +13,7 @@ export function SettingsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [authUser, setAuthUser] = useState<{ id: string; username: string; role: string } | null>(null);
-  const [profileStatus, setProfileStatus] = useState<string>('');
-  const [profileForm, setProfileForm] = useState<{ fullName: string; chatDisplayName: string; position: string; sectionName: string }>({
-    fullName: '',
-    chatDisplayName: '',
-    position: '',
-    sectionName: '',
-  });
+  const [profileUser, setProfileUser] = useState<{ login: string; role: string } | null>(null);
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [pwCurrent, setPwCurrent] = useState<string>('');
@@ -58,12 +52,12 @@ export function SettingsPage(props: {
         const p = await window.matrica.auth.profileGet().catch(() => null);
         if (p && (p as any).ok && (p as any).profile) {
           const profile = (p as any).profile;
-          setProfileForm({
-            fullName: String(profile.fullName ?? ''),
-            chatDisplayName: String(profile.chatDisplayName ?? ''),
-            position: String(profile.position ?? ''),
-            sectionName: String(profile.sectionName ?? ''),
+          setProfileUser({
+            login: String(profile.login ?? auth.user?.username ?? ''),
+            role: String(profile.role ?? auth.user?.role ?? ''),
           });
+        } else if (auth.user) {
+          setProfileUser({ login: String(auth.user.username ?? ''), role: String(auth.user.role ?? '') });
         }
       }
     } catch (e) {
@@ -163,32 +157,6 @@ export function SettingsPage(props: {
     }
   }
 
-  async function handleSaveProfile() {
-    if (!authUser?.id) {
-      setProfileStatus('Требуется вход в систему.');
-      return;
-    }
-    setProfileStatus('Сохранение профиля...');
-    const r = await window.matrica.auth.profileUpdate({
-      fullName: profileForm.fullName.trim() || null,
-      chatDisplayName: profileForm.chatDisplayName.trim() || null,
-      position: profileForm.position.trim() || null,
-      sectionName: profileForm.sectionName.trim() || null,
-    });
-    if (r && (r as any).ok) {
-      const profile = (r as any).profile ?? null;
-      setProfileForm({
-        fullName: String(profile?.fullName ?? profileForm.fullName),
-        chatDisplayName: String(profile?.chatDisplayName ?? profileForm.chatDisplayName),
-        position: String(profile?.position ?? profileForm.position),
-        sectionName: String(profile?.sectionName ?? profileForm.sectionName),
-      });
-      setProfileStatus('Профиль сохранён.');
-    } else {
-      setProfileStatus(`Ошибка: ${formatError((r as any)?.error ?? 'unknown error')}`);
-    }
-  }
-
   async function handleSaveUiPrefs() {
     const r = await window.matrica.settings.uiSet({ theme: uiTheme, chatSide });
     if (r && (r as any).ok) {
@@ -218,47 +186,13 @@ export function SettingsPage(props: {
       <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Профиль пользователя</h3>
         <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
-          Эти данные видны в системе и могут быть обновлены вами.
+          Данные берутся из карточки сотрудника.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 680 }}>
           <div style={{ color: 'var(--muted)' }}>Логин</div>
-          <div style={{ fontWeight: 700 }}>{authUser?.username ?? '—'}</div>
+          <div style={{ fontWeight: 700 }}>{profileUser?.login ?? authUser?.username ?? '—'}</div>
           <div style={{ color: 'var(--muted)' }}>Роль</div>
-          <div style={{ fontWeight: 700 }}>{authUser?.role ?? '—'}</div>
-          <div style={{ color: 'var(--muted)' }}>ФИО</div>
-          <input
-            value={profileForm.fullName}
-            onChange={(e) => setProfileForm((p) => ({ ...p, fullName: e.target.value }))}
-            placeholder="Фамилия Имя Отчество"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-          />
-          <div style={{ color: 'var(--muted)' }}>Имя в чате</div>
-          <input
-            value={profileForm.chatDisplayName}
-            onChange={(e) => setProfileForm((p) => ({ ...p, chatDisplayName: e.target.value }))}
-            placeholder="Например: Саша, Мастер участка"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-          />
-          <div style={{ color: 'var(--muted)' }}>Должность</div>
-          <input
-            value={profileForm.position}
-            onChange={(e) => setProfileForm((p) => ({ ...p, position: e.target.value }))}
-            placeholder="Должность"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-          />
-          <div style={{ color: 'var(--muted)' }}>Цех / участок</div>
-          <input
-            value={profileForm.sectionName}
-            onChange={(e) => setProfileForm((p) => ({ ...p, sectionName: e.target.value }))}
-            placeholder="Например: Цех № 4"
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-          />
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
-          <Button variant="ghost" onClick={() => void handleSaveProfile()} disabled={!authUser?.id}>
-            Сохранить профиль
-          </Button>
-          {profileStatus && <span style={{ color: 'var(--muted)' }}>{profileStatus}</span>}
+          <div style={{ fontWeight: 700 }}>{profileUser?.role ?? authUser?.role ?? '—'}</div>
         </div>
       </div>
 

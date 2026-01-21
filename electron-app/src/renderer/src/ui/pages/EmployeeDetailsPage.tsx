@@ -160,6 +160,7 @@ export function EmployeeDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   canManageUsers: boolean;
+  onAccessChanged?: () => void;
   me?: { id: string; role: string; username: string } | null;
 }) {
   const [employee, setEmployee] = useState<Employee | null>(null);
@@ -799,6 +800,7 @@ export function EmployeeDetailsPage(props: {
               const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
               setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
               await loadAccountPerms();
+              if (r.ok) props.onAccessChanged?.();
             }
           }}
           disabled={!props.canEdit}
@@ -1082,6 +1084,7 @@ export function EmployeeDetailsPage(props: {
                       const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: next });
                       setAccountStatus(r.ok ? 'Активность обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
                       await loadAccountPerms();
+                      if (r.ok) props.onAccessChanged?.();
                     }}
                     disabled={!canToggleAccess}
                   />
@@ -1168,6 +1171,7 @@ export function EmployeeDetailsPage(props: {
                       setCreateLogin('');
                       setCreatePassword('');
                       await loadAccountPerms();
+                      props.onAccessChanged?.();
                     }
                   }}
                   disabled={!canEditAccount}

@@ -75,6 +75,13 @@ export async function authSync(db: BetterSQLite3Database, args: { apiBaseUrl: st
       method: 'GET',
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
+    if (r.status === 401 || r.status === 403) {
+      const t = await r.text().catch(() => '');
+      if (t.includes('user disabled')) {
+        await clearSession(db);
+        return { loggedIn: false, user: null, permissions: null };
+      }
+    }
     if (r.ok) {
       const json = (await r.json().catch(() => null)) as any;
       if (json?.ok && json?.user && json?.permissions) {
@@ -198,6 +205,11 @@ export async function authRefresh(
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
+      if (r.status === 401 || r.status === 403) {
+        if (t.includes('user disabled')) {
+          await clearSession(db);
+        }
+      }
       return { ok: false, error: `refresh HTTP ${r.status}: ${t || 'no body'}` };
     }
     const json = (await r.json().catch(() => null)) as any;

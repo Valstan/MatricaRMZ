@@ -72,6 +72,7 @@ export function ChatPanel(props: {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [openInfoId, setOpenInfoId] = useState<string | null>(null);
+  const [othersOpen, setOthersOpen] = useState<boolean>(false);
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
@@ -90,6 +91,14 @@ export function ChatPanel(props: {
   const role = String(props.meRole ?? '').toLowerCase();
   const isAdmin = ['admin', 'superadmin'].includes(role);
   const isPending = role === 'pending';
+  const onlineUsers = useMemo(() => {
+    const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
+    return base.filter((u) => u.isActive && u.online);
+  }, [users, isPending]);
+  const otherUsers = useMemo(() => {
+    const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
+    return base.filter((u) => u.isActive && !u.online);
+  }, [users, isPending]);
 
   useEffect(() => {
     props.onChatContextChange?.({ selectedUserId, adminMode });
@@ -256,6 +265,65 @@ export function ChatPanel(props: {
             {adminMode ? 'Обычный режим' : 'Админ режим'}
           </Button>
         )}
+        {!adminMode && (
+          <div style={{ position: 'relative' }}>
+            <Button variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
+              Другие
+            </Button>
+            {othersOpen && otherUsers.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 34,
+                  zIndex: 10,
+                  minWidth: 220,
+                  maxWidth: 320,
+                  maxHeight: 360,
+                  overflowY: 'auto',
+                  background: theme.colors.surface,
+                  border: `1px solid ${theme.colors.border}`,
+                  boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+                  borderRadius: 10,
+                  padding: 8,
+                }}
+              >
+                {otherUsers.map((u) => {
+                  const uUnread = byUserUnread[u.id] ?? 0;
+                  const label = `${u.chatDisplayName || u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
+                  const roleStyle = roleStyles(u.role);
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        setSelectedUserId(u.id);
+                        setOthersOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        marginBottom: 6,
+                        padding: '6px 8px',
+                        border: `1px solid ${roleStyle.border}`,
+                        background: roleStyle.background,
+                        color: roleStyle.color,
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                      title="Оффлайн"
+                    >
+                      {dot('var(--danger)')}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         <Button variant="ghost" onClick={props.onHide}>
           Скрыть Чат
         </Button>
@@ -273,11 +341,11 @@ export function ChatPanel(props: {
                 Общий чат{unread && (unread as any).ok === true && (unread as any).global > 0 ? ` (${(unread as any).global})` : ''}
               </Button>
             )}
-            {(isPending ? users.filter((u) => u.role === 'superadmin') : users.filter((u) => u.isActive))
+            {onlineUsers
               .map((u) => {
                 const uUnread = byUserUnread[u.id] ?? 0;
                 const isSel = selectedUserId === u.id;
-                const indicator = u.online ? dot('var(--success)') : dot('var(--danger)');
+                const indicator = dot('var(--success)');
                 const display = u.chatDisplayName || u.username;
                 const label = `${display}${uUnread > 0 ? ` (${uUnread})` : ''}`;
                 const roleStyle = roleStyles(u.role);
