@@ -5,6 +5,17 @@ function env(name) {
   return process.env[name] ?? '';
 }
 
+function envInt(name, fallback) {
+  const raw = env(name);
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function yreq(url, token, options = {}) {
   const res = await fetch(url, {
     ...options,
@@ -21,27 +32,47 @@ async function yreq(url, token, options = {}) {
 }
 
 async function ensurePublished(token, folderPath) {
+  const attempts = Math.max(1, envInt('YANDEX_PUBLISH_ATTEMPTS', 4));
+  const waitMs = Math.max(1000, envInt('YANDEX_PUBLISH_WAIT_MS', 5000));
   const publishUrl =
     'https://cloud-api.yandex.net/v1/disk/resources/publish?' +
     new URLSearchParams({ path: folderPath }).toString();
 
-  // publish может вернуть 409 если уже опубликовано — это нормально
-  const res = await fetch(publishUrl, {
-    method: 'PUT',
-    headers: { Authorization: `OAuth ${token}` },
-  });
-  if (!res.ok && res.status !== 409) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Yandex publish failed ${res.status}: ${text}`);
-  }
-
   const infoUrl =
     'https://cloud-api.yandex.net/v1/disk/resources?' +
     new URLSearchParams({ path: folderPath, fields: 'public_url' }).toString();
-  const infoRes = await yreq(infoUrl, token, { method: 'GET' });
-  const json = await infoRes.json();
-  if (!json?.public_url) throw new Error('Yandex did not return public_url');
-  return String(json.public_url);
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    // eslint-disable-next-line no-console
+    console.log(`Yandex publish attempt ${attempt}/${attempts}`);
+    try {
+      // publish может вернуть 409 если уже опубликовано — это нормально
+      const res = await fetch(publishUrl, {
+        method: 'PUT',
+        headers: { Authorization: `OAuth ${token}` },
+      });
+      if (!res.ok && res.status !== 409) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Yandex publish failed ${res.status}: ${text}`);
+      }
+    } catch (err) {
+      lastError = err;
+    }
+
+    try {
+      const infoRes = await yreq(infoUrl, token, { method: 'GET' });
+      const json = await infoRes.json();
+      if (json?.public_url) return String(json.public_url);
+      lastError = new Error('Yandex did not return public_url');
+    } catch (err) {
+      lastError = err;
+    }
+
+    if (attempt < attempts) await sleep(waitMs);
+  }
+
+  throw lastError ?? new Error('Yandex publish failed');
 }
 
 async function main() {
