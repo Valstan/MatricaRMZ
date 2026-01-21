@@ -20,6 +20,23 @@ type TorrentDownloadResult =
   | { ok: true; installerPath: string; torrentPath: string }
   | { ok: false; error: string };
 
+export type TorrentPeerInfo = {
+  address: string;
+  port?: number;
+  downloadSpeed?: number;
+  uploadSpeed?: number;
+  peerId?: string;
+  client?: string;
+};
+
+export type TorrentClientStats = {
+  progressPct: number;
+  downloadSpeed: number;
+  uploadSpeed: number;
+  numPeers: number;
+  peers: TorrentPeerInfo[];
+};
+
 type TorrentSeedInfo = {
   version: string;
   installerPath: string;
@@ -126,7 +143,7 @@ export async function fetchTorrentStatus(baseUrl: string): Promise<{ ok: true; s
 
 export async function downloadTorrentUpdate(
   manifest: TorrentUpdateManifest,
-  opts?: { onProgress?: (pct: number, peers: number) => void },
+  opts?: { onProgress?: (pct: number, peers: number) => void; onStats?: (stats: TorrentClientStats) => void },
 ): Promise<TorrentDownloadResult> {
   try {
     const client = await ensureDownloadClient();
@@ -182,6 +199,34 @@ export async function downloadTorrentUpdate(
           lastProgressAt = Date.now();
         }
         opts?.onProgress?.(pct, torrent.numPeers ?? 0);
+        if (opts?.onStats) {
+          const peers: TorrentPeerInfo[] = [];
+          const wires = Array.isArray(torrent?.wires) ? torrent.wires : [];
+          for (const wire of wires) {
+            const address = String((wire as any)?.remoteAddress ?? '').trim();
+            const port = Number((wire as any)?.remotePort ?? 0) || undefined;
+            if (!address) continue;
+            const dl = (wire as any)?.downloadSpeed;
+            const ul = (wire as any)?.uploadSpeed;
+            const downloadSpeed = typeof dl === 'function' ? Number(dl()) : Number(dl ?? 0);
+            const uploadSpeed = typeof ul === 'function' ? Number(ul()) : Number(ul ?? 0);
+            peers.push({
+              address,
+              port,
+              downloadSpeed: Number.isFinite(downloadSpeed) ? downloadSpeed : undefined,
+              uploadSpeed: Number.isFinite(uploadSpeed) ? uploadSpeed : undefined,
+              peerId: (wire as any)?.peerId ? String((wire as any).peerId) : undefined,
+              client: (wire as any)?.client ? String((wire as any).client) : undefined,
+            });
+          }
+          opts.onStats({
+            progressPct: pct,
+            downloadSpeed: Number(torrent.downloadSpeed ?? 0),
+            uploadSpeed: Number(torrent.uploadSpeed ?? 0),
+            numPeers: Number(torrent.numPeers ?? peers.length),
+            peers: peers.slice(0, 12),
+          });
+        }
 
         const now = Date.now();
         if (now - lastProgressAt > NO_PROGRESS_TIMEOUT_MS) {

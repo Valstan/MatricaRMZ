@@ -17,6 +17,7 @@ import {
   saveTorrentSeedInfo,
   stopTorrentDownload,
   stopTorrentSeeding,
+  type TorrentClientStats,
   type TorrentUpdateManifest,
 } from './torrentUpdateService.js';
 
@@ -85,6 +86,8 @@ type UpdateRuntimeState = {
 };
 
 let updateState: UpdateRuntimeState = { state: 'idle', updatedAt: Date.now() };
+let torrentDebugInfo: TorrentClientStats | null = null;
+let torrentDebugUpdatedAt = 0;
 
 function updaterLogPath() {
   return join(app.getPath('userData'), 'matricarmz-updater.log');
@@ -186,6 +189,50 @@ async function addUpdateLog(line: string) {
   await renderUpdateLog();
 }
 
+function formatBytesPerSec(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B/s';
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  let v = value;
+  let idx = 0;
+  while (v >= 1024 && idx < units.length - 1) {
+    v /= 1024;
+    idx += 1;
+  }
+  return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+async function renderTorrentDebug() {
+  const w = updateUiWindow;
+  if (!w || w.isDestroyed()) return;
+  const info = torrentDebugInfo;
+  if (!info) {
+    const js = `document.getElementById('torrentDebug').innerText='';`;
+    await w.webContents.executeJavaScript(js, true).catch(() => {});
+    return;
+  }
+  const lines: string[] = [];
+  lines.push(
+    `Torrent: ${info.progressPct}% · peers=${info.numPeers} · down=${formatBytesPerSec(info.downloadSpeed)} · up=${formatBytesPerSec(info.uploadSpeed)}`,
+  );
+  for (const peer of info.peers) {
+    const addr = peer.port ? `${peer.address}:${peer.port}` : peer.address;
+    const dl = formatBytesPerSec(peer.downloadSpeed ?? 0);
+    const ul = formatBytesPerSec(peer.uploadSpeed ?? 0);
+    lines.push(`${addr} · down=${dl} · up=${ul}`);
+  }
+  const safe = lines.map((line) => line.replace(/'/g, "\\'")).join('\\n');
+  const js = `document.getElementById('torrentDebug').innerText='${safe}';`;
+  await w.webContents.executeJavaScript(js, true).catch(() => {});
+}
+
+async function setTorrentDebug(info: TorrentClientStats | null) {
+  torrentDebugInfo = info;
+  const now = Date.now();
+  if (now - torrentDebugUpdatedAt < 900) return;
+  torrentDebugUpdatedAt = now;
+  await renderTorrentDebug();
+}
+
 function setUpdateState(next: Partial<UpdateRuntimeState>) {
   updateState = {
     ...updateState,
@@ -201,6 +248,7 @@ export function getUpdateState(): UpdateRuntimeState {
 function showUpdateWindow(parent?: BrowserWindow | null) {
   if (updateUiWindow && !updateUiWindow.isDestroyed()) return updateUiWindow;
   updateLog.length = 0;
+  torrentDebugInfo = null;
   updateUiWindow = new BrowserWindow({
     width: 640,
     height: 360,
@@ -233,6 +281,7 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
     .fill{height:10px;background:#0f172a;width:0%}
     .row{display:flex;gap:8px;align-items:center;margin-top:8px}
     .pct{font-variant-numeric:tabular-nums}
+    .torrent{margin-top:10px;font-size:12px;color:#0f172a;background:#f8fafc;border:1px dashed #cbd5f5;padding:8px;border-radius:8px;white-space:pre-wrap}
     .log{margin-top:10px; font-size:12px; color:#4b5563}
     .log-item{margin-top:4px}
   </style></head>
@@ -241,6 +290,7 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
     <div id="msg" class="muted" style="margin-top:8px">Проверяем обновления…</div>
     <div class="row"><div class="pct" id="pct">0%</div><div class="muted" id="ver"></div></div>
     <div class="bar"><div class="fill" id="fill"></div></div>
+    <div id="torrentDebug" class="torrent"></div>
     <div id="log" class="log"></div>
   </body></html>`;
   void updateUiWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
@@ -573,6 +623,9 @@ export async function runAutoUpdateFlow(
         onProgress: (pct, peers) => {
           void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
         },
+        onStats: (stats) => {
+          void setTorrentDebug(stats);
+        },
       });
       if (tdl.ok) {
         const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
@@ -588,6 +641,7 @@ export async function runAutoUpdateFlow(
       await stageUpdate('Торрент обновлений не найден. Пробуем GitHub…', 15);
     }
 
+    await setTorrentDebug(null);
     await stageUpdate('Проверяем обновления через GitHub…', 20);
     const check = await waitForUpdateCheck();
     if (check.ok && check.updateAvailable) {
