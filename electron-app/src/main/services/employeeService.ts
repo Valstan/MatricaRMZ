@@ -1,10 +1,11 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
+import type { EmployeeAccessInfo } from '@matricarmz/shared';
 import { httpAuthed } from './httpClient.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
 
-type EmployeeAccessRow = { id: string; accessEnabled: boolean; systemRole: string };
+type EmployeeAccessRow = EmployeeAccessInfo;
 
 function safeJsonParse(value: string | null): unknown {
   if (value == null) return null;

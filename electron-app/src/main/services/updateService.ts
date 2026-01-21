@@ -152,7 +152,7 @@ async function installNow(args: { installerPath: string; version?: string }) {
   await stageUpdate('Подготовка установщика…', 70, args.version);
   const helper = await prepareUpdateHelper();
   await writeUpdaterLog(`update-helper spawn version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
-  spawnUpdateHelper({
+  const spawned = await spawnUpdateHelper({
     helperExePath: helper.helperExePath,
     installerPath: args.installerPath,
     launchPath: helper.launchPath,
@@ -160,6 +160,13 @@ async function installNow(args: { installerPath: string; version?: string }) {
     version: args.version,
     parentPid: process.pid,
   });
+  if (!spawned) {
+    await writeUpdaterLog('update-helper spawn failed, keeping pending update');
+    await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+    await stageUpdate('Не удалось запустить установщик. Повторим при следующем запуске.', 100, args.version);
+    closeUpdateWindowSoon(4000);
+    return;
+  }
   await stageUpdate('Запускаем установку…', 80, args.version);
   quitMainAppSoon();
 }
@@ -484,19 +491,26 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
   await writeUpdaterLog(`update-helper start version=${pending.version} installer=${pending.installerPath}`);
   await addUpdateLog(`update helper: stopping torrent download`);
   await stopTorrentDownload().catch(() => {});
-  await writeUpdaterLog('pending-update cleared before install');
-  await clearPendingUpdate();
+  await writeUpdaterLog('pending-update will be cleared after helper spawn');
   await addUpdateLog(`update helper: resolving resources path`);
   const helper = await prepareUpdateHelper();
   await addUpdateLog(`update helper: resources=${helper.resourcesPath}`);
   await writeUpdaterLog(`update-helper resources=${helper.resourcesPath} launch=${helper.launchPath}`);
-  spawnUpdateHelper({
+  const spawned = await spawnUpdateHelper({
     helperExePath: helper.helperExePath,
     installerPath: pending.installerPath,
     launchPath: helper.launchPath,
     resourcesPath: helper.resourcesPath,
     version: pending.version,
   });
+  if (!spawned) {
+    await writeUpdaterLog('update-helper spawn failed, pending update retained');
+    await setUpdateUi('Ошибка запуска установщика. Повторим при следующем запуске.', 100, pending.version);
+    closeUpdateWindowSoon(4000);
+    return false;
+  }
+  await writeUpdaterLog('pending-update cleared after helper spawn');
+  await clearPendingUpdate();
   quitMainAppSoon();
   return true;
 }
@@ -816,7 +830,15 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     await sleep(800);
     await setUpdateUi('Запускаем установку…', 80, args.version);
     await writeUpdaterLog(`update-helper launching installer (detached)`);
-    spawnInstallerDetached(args.installerPath, 1400);
+    const ok = await spawnInstallerDetached(args.installerPath, 1400);
+    if (!ok) {
+      await writeUpdaterLog('installer launch failed, returning to app');
+      await setUpdateUi('Ошибка запуска установщика. Возвращаемся в приложение…', 100, args.version);
+      closeUpdateWindowSoon(4000);
+      spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
+      setTimeout(() => app.quit(), 4200);
+      return;
+    }
     await sleep(300);
     app.quit();
   } catch (e) {
@@ -1230,27 +1252,49 @@ async function prepareUpdateHelper(): Promise<{ helperExePath: string; launchPat
   return { helperExePath, launchPath, resourcesPath: fallback };
 }
 
-function spawnUpdateHelper(args: {
+async function spawnUpdateHelper(args: {
   helperExePath: string;
   installerPath: string;
   launchPath: string;
   resourcesPath: string;
   version?: string;
   parentPid?: number;
-}) {
+}): Promise<boolean> {
   const spawnArgs = ['--update-helper', '--installer', args.installerPath, '--launch', args.launchPath];
   if (args.version) spawnArgs.push('--version', args.version);
   if (args.parentPid) spawnArgs.push('--parent-pid', String(args.parentPid));
-  const child = spawn(args.helperExePath, spawnArgs, {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-    env: {
-      ...process.env,
-      ELECTRON_OVERRIDE_RESOURCES_PATH: args.resourcesPath,
-    },
-  });
-  child.unref();
+  try {
+    const child = spawn(args.helperExePath, spawnArgs, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        ELECTRON_OVERRIDE_RESOURCES_PATH: args.resourcesPath,
+      },
+    });
+    child.unref();
+    return await new Promise<boolean>((resolve) => {
+      let done = false;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        resolve(ok);
+      };
+      child.once('spawn', () => {
+        void writeUpdaterLog('update-helper spawned');
+        finish(true);
+      });
+      child.once('error', (err) => {
+        void writeUpdaterLog(`update-helper spawn error: ${String(err)}`);
+        finish(false);
+      });
+      setTimeout(() => finish(true), 200);
+    });
+  } catch (e) {
+    void writeUpdaterLog(`update-helper spawn exception: ${String(e)}`);
+    return false;
+  }
 }
 
 function isProcessAlive(pid: number) {
@@ -1271,16 +1315,34 @@ async function runInstaller(installerPath: string): Promise<number> {
   });
 }
 
-function spawnInstallerDetached(installerPath: string, delayMs = 1200) {
-  if (process.platform === 'win32') {
-    const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
-    const cmd = `timeout /t ${delaySeconds} /nobreak > nul & start "" "${installerPath}"`;
-    const child = spawn('cmd.exe', ['/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true });
+async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Promise<boolean> {
+  const delay = Math.max(200, delayMs);
+  await writeUpdaterLog(`installer launch scheduled in ${Math.round(delay / 1000)}s`);
+  await sleep(delay);
+  try {
+    const child = spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
     child.unref();
-    return;
+    return await new Promise<boolean>((resolve) => {
+      let done = false;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        resolve(ok);
+      };
+      child.once('spawn', () => {
+        void writeUpdaterLog('installer spawned (detached)');
+        finish(true);
+      });
+      child.once('error', (err) => {
+        void writeUpdaterLog(`installer spawn error: ${String(err)}`);
+        finish(false);
+      });
+      setTimeout(() => finish(true), 200);
+    });
+  } catch (e) {
+    await writeUpdaterLog(`installer spawn exception: ${String(e)}`);
+    return false;
   }
-  const child = spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
-  child.unref();
 }
 
 function sleep(ms: number) {

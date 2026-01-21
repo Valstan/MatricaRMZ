@@ -5,7 +5,7 @@ import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
-import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '../utils/linkFieldRules.js';
+import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type Attribute = {

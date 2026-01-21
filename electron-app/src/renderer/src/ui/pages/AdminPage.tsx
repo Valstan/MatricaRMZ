@@ -5,12 +5,7 @@ import type { IncomingLinkInfo } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
-import {
-  buildLinkTypeOptions,
-  normalizeForMatch,
-  suggestLinkTargetCodeWithRules,
-  type LinkRule,
-} from '../utils/linkFieldRules.js';
+import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {

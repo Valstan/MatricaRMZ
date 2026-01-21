@@ -145,7 +145,7 @@
 
 ## Permissions (права доступа)
 - Backend список прав: `backend-api/src/auth/permissions.ts`
-- UI каталог прав (RU подписи): `electron-app/src/renderer/src/ui/auth/permissionCatalog.ts`
+- UI каталог прав (RU подписи): `shared/src/domain/permissions.ts`
 - UI‑гейт по правам: `electron-app/src/renderer/src/ui/auth/permissions.ts`
 
 ## ENV переменные (ключевые)

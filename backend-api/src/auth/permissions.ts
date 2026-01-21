@@ -1,73 +1,12 @@
 import { and, eq, gt, isNull, lt } from 'drizzle-orm';
 
+import { PermissionCode as SharedPermissionCode, type PermissionCode as SharedPermissionCodeType } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { permissionDelegations, userPermissions } from '../database/schema.js';
 import { getEmployeeAuthById, isSuperadminLogin, normalizeRole } from '../services/employeeAuthService.js';
 
-export const PermissionCode = {
-  // system / admin
-  AdminUsersManage: 'admin.users.manage',
-  EmployeesCreate: 'employees.create',
-  ClientsManage: 'clients.manage',
-
-  // master-data (EAV справочники)
-  MasterDataView: 'masterdata.view',
-  MasterDataEdit: 'masterdata.edit',
-
-  // supply requests (заявки в снабжение)
-  SupplyRequestsView: 'supply_requests.view',
-  SupplyRequestsCreate: 'supply_requests.create',
-  SupplyRequestsEdit: 'supply_requests.edit',
-  SupplyRequestsSign: 'supply_requests.sign',
-  SupplyRequestsDirectorApprove: 'supply_requests.director_approve',
-  SupplyRequestsAccept: 'supply_requests.accept',
-  SupplyRequestsFulfill: 'supply_requests.fulfill',
-  SupplyRequestsPrint: 'supply_requests.print',
-
-  // engines & operations
-  EnginesView: 'engines.view',
-  EnginesEdit: 'engines.edit',
-  OperationsView: 'operations.view',
-  OperationsEdit: 'operations.edit',
-
-  // defect act (будущий модуль)
-  DefectActView: 'defect_act.view',
-  DefectActEdit: 'defect_act.edit',
-  DefectActPrint: 'defect_act.print',
-
-  // reports
-  ReportsView: 'reports.view',
-  ReportsExport: 'reports.export',
-  ReportsPrint: 'reports.print',
-
-  // sync & updates
-  SyncUse: 'sync.use',
-  UpdatesUse: 'updates.use',
-
-  // files
-  FilesView: 'files.view',
-  FilesUpload: 'files.upload',
-  FilesDelete: 'files.delete',
-
-  // backups
-  BackupsView: 'backups.view',
-  BackupsRun: 'backups.run',
-
-  // parts (детали)
-  PartsView: 'parts.view',
-  PartsCreate: 'parts.create',
-  PartsEdit: 'parts.edit',
-  PartsDelete: 'parts.delete',
-  PartsFilesUpload: 'parts.files.upload',
-  PartsFilesDelete: 'parts.files.delete',
-
-  // chat
-  ChatUse: 'chat.use',
-  ChatExport: 'chat.export',
-  ChatAdminView: 'chat.admin.view',
-} as const;
-
-export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
+export const PermissionCode = SharedPermissionCode;
+export type PermissionCode = SharedPermissionCodeType;
 
 export function defaultPermissionsForRole(role: string): Record<string, boolean> {
   const r = String(role || '').toLowerCase();

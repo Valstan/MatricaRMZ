@@ -99,36 +99,36 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                 </td>
               </tr>
             )}
-            {items.map((row) => (
-              (() => {
-                const status = String(row.employmentStatus ?? '').toLowerCase();
-                const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
-                const hasAccess = row.accessEnabled === true;
-                const accessLabel = hasAccess ? 'Доступ разрешён' : 'Доступ запрещён';
-                return (
-              <tr
-                key={row.id}
-                style={{
-                  borderBottom: '1px solid #f3f4f6',
-                  cursor: 'pointer',
-                }}
-                onClick={() => void props.onOpen(row.id)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#f9fafb';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без ФИО)'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.position || '—'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.departmentName || '—'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{statusLabel}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: hasAccess ? '#065f46' : '#b91c1c' }}>{accessLabel}</td>
-              </tr>
-                );
-              })(),
-            ))}
+            {items.map((row) => {
+              const status = String(row.employmentStatus ?? '').toLowerCase();
+              const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
+              const hasAccess = row.accessEnabled === true;
+              const accessLabel = hasAccess ? 'Доступ разрешён' : 'Доступ запрещён';
+              return (
+                <tr
+                  key={row.id}
+                  style={{
+                    borderBottom: '1px solid #f3f4f6',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => void props.onOpen(row.id)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f9fafb';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без ФИО)'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.position || '—'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.departmentName || '—'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{statusLabel}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: hasAccess ? '#065f46' : '#b91c1c' }}>
+                    {accessLabel}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

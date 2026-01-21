@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
+import type { AdminUserPermissionsPayload, AdminUserSummary, PermissionDelegation } from '@matricarmz/shared';
+import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
-import { permAdminOnly, permGroupRu, permTitleRu } from '../auth/permissionCatalog.js';
 
 export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: string; role: string; username: string } | null }) {
   const canManageUsers = props.canManageUsers;
@@ -10,34 +11,11 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const meRole = String(me?.role ?? '').toLowerCase();
   const [status, setStatus] = useState<string>('');
 
-  const [users, setUsers] = useState<
-    { id: string; username: string; login?: string; fullName?: string; role: string; isActive: boolean }[]
-  >([]);
+  const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
-  const [userPerms, setUserPerms] = useState<{
-    user: { id: string; username: string; login?: string; role: string; isActive?: boolean };
-    allCodes: string[];
-    base: Record<string, boolean>;
-    overrides: Record<string, boolean>;
-    effective: Record<string, boolean>;
-  } | null>(null);
+  const [userPerms, setUserPerms] = useState<AdminUserPermissionsPayload | null>(null);
   const [permQuery, setPermQuery] = useState<string>('');
-  const [delegations, setDelegations] = useState<
-    {
-      id: string;
-      fromUserId: string;
-      toUserId: string;
-      permCode: string;
-      startsAt: number;
-      endsAt: number;
-      note: string | null;
-      createdAt: number;
-      createdByUserId: string;
-      revokedAt: number | null;
-      revokedByUserId: string | null;
-      revokeNote: string | null;
-    }[]
-  >([]);
+  const [delegations, setDelegations] = useState<PermissionDelegation[]>([]);
   const [newDelegation, setNewDelegation] = useState<{ fromUserId: string; permCode: string; endsAt: string; note: string }>({
     fromUserId: '',
     permCode: 'supply_requests.sign',

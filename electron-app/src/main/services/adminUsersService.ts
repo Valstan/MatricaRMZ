@@ -1,4 +1,9 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import type {
+  AdminDelegationsListResponse,
+  AdminUserPermissionsResponse,
+  AdminUsersListResponse,
+} from '@matricarmz/shared';
 import { httpAuthed } from './httpClient.js';
 
 function formatHttpError(r: { status: number; json?: any; text?: string }): string {
@@ -14,7 +19,7 @@ function formatHttpError(r: { status: number; json?: any; text?: string }): stri
   return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
 }
 
-export async function adminListUsers(db: BetterSQLite3Database, apiBaseUrl: string) {
+export async function adminListUsers(db: BetterSQLite3Database, apiBaseUrl: string): Promise<AdminUsersListResponse> {
   const r = await httpAuthed(db, apiBaseUrl, '/admin/users', { method: 'GET' });
   if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
@@ -63,7 +68,11 @@ export async function adminPendingApprove(
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
-export async function adminGetUserPermissions(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+export async function adminGetUserPermissions(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  userId: string,
+): Promise<AdminUserPermissionsResponse> {
   const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/permissions`, { method: 'GET' });
   if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
@@ -85,7 +94,11 @@ export async function adminSetUserPermissions(db: BetterSQLite3Database, apiBase
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
-export async function adminListUserDelegations(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+export async function adminListUserDelegations(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  userId: string,
+): Promise<AdminDelegationsListResponse> {
   const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/delegations`, { method: 'GET' });
   if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };

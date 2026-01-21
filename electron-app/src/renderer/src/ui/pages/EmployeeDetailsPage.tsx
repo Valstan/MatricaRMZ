@@ -4,13 +4,8 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
-import { permAdminOnly, permGroupRu, permTitleRu } from '../auth/permissionCatalog.js';
-import {
-  buildLinkTypeOptions,
-  normalizeForMatch,
-  suggestLinkTargetCodeWithRules,
-  type LinkRule,
-} from '../utils/linkFieldRules.js';
+import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type EmployeeAccount = {
@@ -524,14 +519,14 @@ export function EmployeeDetailsPage(props: {
         <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input
             type="checkbox"
-            checked={Boolean(value)}
+            checked={value === true}
             disabled={!props.canEdit}
             onChange={(e) => {
               if (!props.canEdit) return;
               void saveAttr(def.code, e.target.checked);
             }}
           />
-          <span style={{ color: '#6b7280', fontSize: 12 }}>{Boolean(value) ? 'да' : 'нет'}</span>
+          <span style={{ color: '#6b7280', fontSize: 12 }}>{value === true ? 'да' : 'нет'}</span>
         </label>
       );
     }
