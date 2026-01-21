@@ -11,16 +11,7 @@
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
-; Override electron-builder app-running check:
-; do not close the app, only warn and ask to retry.
+; Disable electron-builder app-running check completely.
 !macro customCheckAppRunning
-  check_app_running:
-    !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
-    ${if} $R0 == 0
-      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-        "Программа ${PRODUCT_NAME} сейчас запущена. Закройте ее и нажмите 'Повторить' для продолжения установки." \
-        /SD IDCANCEL IDRETRY check_app_running
-      Quit
-    ${endif}
 !macroend
 
