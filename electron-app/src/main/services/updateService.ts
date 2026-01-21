@@ -681,20 +681,10 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     }
     await setUpdateUi('Подготовка установки…', 70, args.version);
     await sleep(800);
-    await setUpdateUi('Удаляем старую версию…', 75, args.version);
-    const exitCode = await runInstaller(args.installerPath);
-    await writeUpdaterLog(`update-helper installer exitCode=${exitCode}`);
-    if (exitCode !== 0) {
-      await setUpdateUi(`Ошибка установки: code=${exitCode}`, 100, args.version);
-      closeUpdateWindowSoon(4000);
-      // fallback: try to launch existing app to avoid silent exit
-      spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
-      setTimeout(() => app.quit(), 4200);
-      return;
-    }
-    await setUpdateUi('Установка завершена. Запускаем программу…', 95, args.version);
-    spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
-    await sleep(800);
+    await setUpdateUi('Запускаем установку…', 80, args.version);
+    await writeUpdaterLog(`update-helper launching installer (detached)`);
+    spawnInstallerDetached(args.installerPath, 1400);
+    await sleep(300);
     app.quit();
   } catch (e) {
     await writeUpdaterLog(`update-helper error: ${String(e)}`);
@@ -1146,6 +1136,18 @@ async function runInstaller(installerPath: string): Promise<number> {
     child.on('close', (code) => resolve(code ?? 0));
     child.on('error', () => resolve(1));
   });
+}
+
+function spawnInstallerDetached(installerPath: string, delayMs = 1200) {
+  if (process.platform === 'win32') {
+    const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
+    const cmd = `timeout /t ${delaySeconds} /nobreak > nul & start "" "${installerPath}"`;
+    const child = spawn('cmd.exe', ['/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+    return;
+  }
+  const child = spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
+  child.unref();
 }
 
 function sleep(ms: number) {
