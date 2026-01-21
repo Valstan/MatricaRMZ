@@ -122,7 +122,12 @@ export function AttachmentsPanel(props: {
       for (const f of added) {
         if (!merged.find((x) => x.id === f.id)) merged.push(f);
       }
-      const r = await props.onChange(merged);
+      const r = await props.onChange(merged).catch((e) => ({ ok: false as const, error: String(e) }));
+      if (!r) {
+        setBusy('Готово');
+        setTimeout(() => setBusy(''), 700);
+        return;
+      }
       if (!r.ok) {
         setBusy(`Ошибка: ${r.error}`);
         setTimeout(() => setBusy(''), 3000);

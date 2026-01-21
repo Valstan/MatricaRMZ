@@ -510,7 +510,33 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const mappedTypeId = entityTypeIdRemap.get(String(r.type_id));
         return mappedTypeId ? { ...r, type_id: mappedTypeId } : r;
       });
-      const rows = await filterStaleByUpdatedAt(entities, remapped);
+      let rows = await filterStaleByUpdatedAt(entities, remapped);
+      const rowTypeIds = Array.from(new Set(rows.map((r) => String(r.type_id))));
+      if (rowTypeIds.length > 0) {
+        const existingTypes = await tx
+          .select({ id: entityTypes.id })
+          .from(entityTypes)
+          .where(inArray(entityTypes.id, rowTypeIds as any))
+          .limit(50_000);
+        const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
+        const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.type_id)));
+        if (missingRows.length > 0) {
+          for (const r of missingRows) {
+            await createChangeRequest({
+              tableName: SyncTableName.Entities,
+              rowId: String(r.id),
+              rootEntityId: String(r.id),
+              beforeJson: null,
+              afterJson: JSON.stringify(r),
+              recordOwnerUserId: null,
+              recordOwnerUsername: null,
+              note: `missing entity_type_id ${String(r.type_id)}`,
+            });
+          }
+          rows = rows.filter((r) => existingTypeIds.has(String(r.type_id)));
+        }
+      }
+
       const ids = rows.map((r) => r.id);
       const owners = await getOwnersMap(SyncTableName.Entities, ids);
       const existing = await tx
