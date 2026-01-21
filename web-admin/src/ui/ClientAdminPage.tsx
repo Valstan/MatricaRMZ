@@ -33,6 +33,20 @@ export function ClientAdminPage() {
   const [rows, setRows] = useState<ClientRow[]>([]);
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
+  const [query, setQuery] = useState<string>('');
+
+  function normalize(s: string | null | undefined) {
+    return String(s ?? '')
+      .toLowerCase()
+      .replaceAll('ё', 'е')
+      .replaceAll(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isOnline(lastSeenAt: number | null) {
+    if (!lastSeenAt) return false;
+    return Date.now() - lastSeenAt < 5 * 60_000;
+  }
 
   async function refresh() {
     setLoading(true);
@@ -48,6 +62,11 @@ export function ClientAdminPage() {
 
   useEffect(() => {
     void refresh();
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => void refresh(), 20_000);
+    return () => clearInterval(id);
   }, []);
 
   async function patchClient(clientId: string, patch: Partial<ClientRow>) {
@@ -69,10 +88,28 @@ export function ClientAdminPage() {
     return <div className="card">Загрузка…</div>;
   }
 
+  const filtered = rows.filter((row) => {
+    const q = normalize(query);
+    if (!q) return true;
+    return (
+      normalize(row.clientId).includes(q) ||
+      normalize(row.lastHostname).includes(q) ||
+      normalize(row.lastIp).includes(q)
+    );
+  });
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Клиенты</h2>
+        <div style={{ width: 280 }}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по Client ID / Hostname / IP…"
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          />
+        </div>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
@@ -85,6 +122,7 @@ export function ClientAdminPage() {
             <thead>
               <tr style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 120%)', color: '#fff' }}>
                 <th style={{ textAlign: 'left', padding: 10 }}>Client ID</th>
+                <th style={{ textAlign: 'left', padding: 10 }}>Статус</th>
                 <th style={{ textAlign: 'left', padding: 10 }}>Версия</th>
                 <th style={{ textAlign: 'left', padding: 10 }}>Последний раз</th>
                 <th style={{ textAlign: 'left', padding: 10 }}>IP</th>
@@ -96,12 +134,28 @@ export function ClientAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {filtered.map((row) => {
                 const loggingUi = toLoggingUi(row);
+                const online = isOnline(row.lastSeenAt);
                 return (
                   <tr key={row.clientId}>
                     <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
                       {row.clientId}
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <span
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 999,
+                            display: 'inline-block',
+                            background: online ? '#16a34a' : '#dc2626',
+                            boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
+                          }}
+                        />
+                        <span>{online ? 'Онлайн' : 'Оффлайн'}</span>
+                      </span>
                     </td>
                     <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>{row.lastVersion ?? '—'}</td>
                     <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>{formatDate(row.lastSeenAt)}</td>
@@ -159,9 +213,9 @@ export function ClientAdminPage() {
                   </tr>
                 );
               })}
-              {rows.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 12, color: '#6b7280' }}>
+                  <td colSpan={10} style={{ padding: 12, color: '#6b7280' }}>
                     Клиенты ещё не зарегистрированы.
                   </td>
                 </tr>
