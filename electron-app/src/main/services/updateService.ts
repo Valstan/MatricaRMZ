@@ -2,7 +2,7 @@ import { app, BrowserWindow, net } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -66,9 +66,21 @@ export function initAutoUpdate() {
 }
 
 let updateInFlight = false;
+let backgroundInFlight = false;
 let updateUiWindow: BrowserWindow | null = null;
 let updateUiLocked = false;
 const updateLog: string[] = [];
+
+type UpdateRuntimeState = {
+  state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
+  source?: 'torrent' | 'github' | 'yandex';
+  version?: string;
+  progress?: number;
+  message?: string;
+  updatedAt: number;
+};
+
+let updateState: UpdateRuntimeState = { state: 'idle', updatedAt: Date.now() };
 
 function escapeHtml(value: string) {
   return value
@@ -102,6 +114,18 @@ async function addUpdateLog(line: string) {
   updateLog.push(line);
   while (updateLog.length > 18) updateLog.shift();
   await renderUpdateLog();
+}
+
+function setUpdateState(next: Partial<UpdateRuntimeState>) {
+  updateState = {
+    ...updateState,
+    ...next,
+    updatedAt: Date.now(),
+  };
+}
+
+export function getUpdateState(): UpdateRuntimeState {
+  return updateState;
 }
 
 function showUpdateWindow(parent?: BrowserWindow | null) {
@@ -211,6 +235,59 @@ async function cacheInstaller(filePath: string, version?: string) {
   return outPath;
 }
 
+function pendingUpdatePath() {
+  return join(app.getPath('userData'), 'updates', 'pending-update.json');
+}
+
+async function writePendingUpdate(data: { version: string; installerPath: string }) {
+  const outDir = join(app.getPath('userData'), 'updates');
+  await mkdir(outDir, { recursive: true });
+  await writeFile(pendingUpdatePath(), JSON.stringify(data, null, 2), 'utf8');
+}
+
+async function readPendingUpdate(): Promise<{ version: string; installerPath: string } | null> {
+  try {
+    const raw = await readFile(pendingUpdatePath(), 'utf8');
+    const json = JSON.parse(raw) as any;
+    if (!json?.version || !json?.installerPath) return null;
+    return { version: String(json.version), installerPath: String(json.installerPath) };
+  } catch {
+    return null;
+  }
+}
+
+async function clearPendingUpdate() {
+  try {
+    await writeFile(pendingUpdatePath(), '', 'utf8');
+  } catch {
+    // ignore
+  }
+}
+
+export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | null): Promise<boolean> {
+  const pending = await readPendingUpdate();
+  if (!pending?.installerPath) return false;
+  try {
+    await access(pending.installerPath);
+  } catch {
+    await clearPendingUpdate();
+    return false;
+  }
+  showUpdateWindow(parentWindow ?? null);
+  lockUpdateUi(true);
+  await setUpdateUi('Найдена скачанная версия. Устанавливаем…', 80, pending.version);
+  const helper = await prepareUpdateHelper();
+  spawnUpdateHelper({
+    helperExePath: helper.helperExePath,
+    installerPath: pending.installerPath,
+    launchPath: helper.launchPath,
+    resourcesPath: helper.resourcesPath,
+    version: pending.version,
+  });
+  quitMainAppSoon();
+  return true;
+}
+
 function formatTorrentStatusError(status: any) {
   const lastError = String(status?.lastError ?? '').trim();
   const updatesDir = status?.updatesDir ? String(status.updatesDir) : '';
@@ -255,6 +332,70 @@ async function ensureTorrentSeedArtifacts(manifest: TorrentUpdateManifest | null
   const torrentPath = await saveTorrentFileForVersion(version, manifest.torrentUrl);
   if (!torrentPath) return;
   await saveTorrentSeedInfo({ version, installerPath, torrentPath });
+}
+
+async function backgroundTorrentDownload(manifest: TorrentUpdateManifest, version: string) {
+  setUpdateState({ state: 'downloading', source: 'torrent', version, progress: 0, message: 'Скачиваем обновление…' });
+  const tdl = await downloadTorrentUpdate(manifest, {
+    onProgress: (pct, peers) => {
+      setUpdateState({
+        state: 'downloading',
+        source: 'torrent',
+        version,
+        progress: pct,
+        message: `Скачиваем обновление… Пиры: ${peers}`,
+      });
+    },
+  });
+  if (!tdl.ok) {
+    setUpdateState({ state: 'error', source: 'torrent', version, message: String(tdl.error ?? 'torrent download failed') });
+    return;
+  }
+  const cachedPath = await cacheInstaller(tdl.installerPath, version);
+  await saveTorrentSeedInfo({ version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
+  await writePendingUpdate({ version, installerPath: cachedPath });
+  setUpdateState({
+    state: 'downloaded',
+    source: 'torrent',
+    version,
+    progress: 100,
+    message: 'Обновление скачано. Установится после перезапуска.',
+  });
+}
+
+export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {}) {
+  const intervalMs = Math.max(5 * 60_000, opts.intervalMs ?? 30 * 60_000);
+  setTimeout(() => void tick(), 90_000);
+  setInterval(() => void tick(), intervalMs);
+
+  async function tick() {
+    if (updateInFlight || backgroundInFlight) return;
+    const pending = await readPendingUpdate();
+    if (pending?.installerPath) return;
+    if (!app.isPackaged) return;
+    backgroundInFlight = true;
+    try {
+      setUpdateState({ state: 'checking', source: 'torrent', message: 'Проверяем обновления (torrent)…' });
+      const baseUrl = getUpdateApiBaseUrl();
+      const manifest = await fetchTorrentManifest(baseUrl);
+      if (!manifest) {
+        setUpdateState({ state: 'idle' });
+        return;
+      }
+      const current = app.getVersion();
+      const updateAvailable = compareSemver(manifest.version, current) > 0;
+      if (!updateAvailable) {
+        setUpdateState({ state: 'idle' });
+        return;
+      }
+      const prepared = { ...manifest, torrentUrl: buildTorrentManifestUrl(baseUrl, manifest.torrentUrl) };
+      await backgroundTorrentDownload(prepared, manifest.version);
+    } catch (e) {
+      setUpdateState({ state: 'error', source: 'torrent', message: String(e) });
+    } finally {
+      backgroundInFlight = false;
+    }
+  }
 }
 
 export async function runAutoUpdateFlow(

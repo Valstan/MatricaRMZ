@@ -51,6 +51,7 @@ export function App() {
   });
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<any>(null);
   const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }>({
     theme: 'auto',
     chatSide: 'right',
@@ -120,6 +121,25 @@ export function App() {
       }
     };
     const id = setInterval(() => void poll(), 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await window.matrica.update.status();
+        if (!alive) return;
+        if (r && (r as any).ok) setUpdateStatus((r as any).status ?? null);
+      } catch {
+        // ignore
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 5000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -538,6 +558,10 @@ export function App() {
     };
   }
 
+  const showUpdateBanner =
+    updateStatus &&
+    ['downloading', 'downloaded', 'error', 'checking'].includes(String(updateStatus.state));
+
   return (
     <Page
       title={pageTitle}
@@ -626,6 +650,44 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
+          {showUpdateBanner && (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 12,
+                border: '1px solid rgba(59, 130, 246, 0.35)',
+                background: 'rgba(59, 130, 246, 0.12)',
+                color: 'var(--text)',
+                fontWeight: 700,
+              }}
+            >
+              <div>
+                {updateStatus.state === 'downloading' && 'Обновление скачивается по торренту…'}
+                {updateStatus.state === 'downloaded' && 'Обновление скачано и будет установлено после перезапуска.'}
+                {updateStatus.state === 'checking' && 'Проверяем обновления в фоне…'}
+                {updateStatus.state === 'error' && `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`}
+              </div>
+              {updateStatus.version ? (
+                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>Новая версия: {String(updateStatus.version)}</div>
+              ) : null}
+              {typeof updateStatus.progress === 'number' ? (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ height: 8, background: '#e2e8f0', borderRadius: 999 }}>
+                    <div
+                      style={{
+                        height: 8,
+                        width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress)))}%`,
+                        background: '#2563eb',
+                        borderRadius: 999,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           <Tabs
             tab={tab}
             onTab={(t) => {

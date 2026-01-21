@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
-import { initAutoUpdate, runAutoUpdateFlow, runUpdateHelperFlow } from './services/updateService.js';
+import { applyPendingUpdateIfAny, initAutoUpdate, runAutoUpdateFlow, runUpdateHelperFlow, startBackgroundUpdatePolling } from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings } from './services/clientAdminService.js';
 import { startTorrentSeeding, stopTorrentSeeding } from './services/torrentUpdateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
@@ -216,6 +216,8 @@ app.whenReady().then(() => {
       const torrentEnabled = updatesEnabled && cached.torrentEnabled !== false;
 
       if (updatesEnabled) {
+        const pendingApplied = await applyPendingUpdateIfAny(mainWindow);
+        if (pendingApplied) return;
         const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: mainWindow });
         if (updateResult?.action === 'update_started') {
           app.quit();
@@ -223,6 +225,7 @@ app.whenReady().then(() => {
         }
         const delay = updateResult?.action === 'error' ? 3800 : 800;
         scheduleShowMainWindow(delay);
+        if (torrentEnabled) startBackgroundUpdatePolling();
       } else {
         scheduleShowMainWindow(0);
       }

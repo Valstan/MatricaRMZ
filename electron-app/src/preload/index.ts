@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   update: {
     check: async () => ipcRenderer.invoke('update:check'),
+    status: async () => ipcRenderer.invoke('update:status'),
   },
   checklists: {
     templatesList: async (args?: { stage?: string }) => ipcRenderer.invoke('checklists:templates:list', args),
