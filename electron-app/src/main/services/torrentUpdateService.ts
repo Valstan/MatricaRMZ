@@ -27,6 +27,11 @@ export type TorrentPeerInfo = {
   uploadSpeed?: number;
   peerId?: string;
   client?: string;
+  local?: boolean;
+  amChoking?: boolean;
+  peerChoking?: boolean;
+  amInterested?: boolean;
+  peerInterested?: boolean;
 };
 
 export type TorrentClientStats = {
@@ -34,6 +39,11 @@ export type TorrentClientStats = {
   downloadSpeed: number;
   uploadSpeed: number;
   numPeers: number;
+  numSeeds?: number;
+  timeRemainingMs?: number;
+  ratio?: number;
+  downloaded?: number;
+  uploaded?: number;
   peers: TorrentPeerInfo[];
 };
 
@@ -217,6 +227,11 @@ export async function downloadTorrentUpdate(
               uploadSpeed: Number.isFinite(uploadSpeed) ? uploadSpeed : undefined,
               peerId: (wire as any)?.peerId ? String((wire as any).peerId) : undefined,
               client: (wire as any)?.client ? String((wire as any).client) : undefined,
+              local: Boolean((wire as any)?.local ?? (wire as any)?.peer?.local),
+              amChoking: Boolean((wire as any)?.amChoking),
+              peerChoking: Boolean((wire as any)?.peerChoking),
+              amInterested: Boolean((wire as any)?.amInterested),
+              peerInterested: Boolean((wire as any)?.peerInterested),
             });
           }
           opts.onStats({
@@ -224,6 +239,11 @@ export async function downloadTorrentUpdate(
             downloadSpeed: Number(torrent.downloadSpeed ?? 0),
             uploadSpeed: Number(torrent.uploadSpeed ?? 0),
             numPeers: Number(torrent.numPeers ?? peers.length),
+            numSeeds: Number(torrent.numSeeds ?? 0),
+            timeRemainingMs: Number(torrent.timeRemaining ?? 0),
+            ratio: Number(torrent.ratio ?? 0),
+            downloaded: Number(torrent.downloaded ?? 0),
+            uploaded: Number(torrent.uploaded ?? 0),
             peers: peers.slice(0, 12),
           });
         }

@@ -201,6 +201,27 @@ function formatBytesPerSec(value: number) {
   return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = value;
+  let idx = 0;
+  while (v >= 1024 && idx < units.length - 1) {
+    v /= 1024;
+    idx += 1;
+  }
+  return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function formatDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0s';
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min <= 0) return `${sec}s`;
+  return `${min}m ${sec}s`;
+}
+
 async function renderTorrentDebug() {
   const w = updateUiWindow;
   if (!w || w.isDestroyed()) return;
@@ -212,13 +233,23 @@ async function renderTorrentDebug() {
   }
   const lines: string[] = [];
   lines.push(
-    `Torrent: ${info.progressPct}% · peers=${info.numPeers} · down=${formatBytesPerSec(info.downloadSpeed)} · up=${formatBytesPerSec(info.uploadSpeed)}`,
+    `Torrent: ${info.progressPct}% · peers=${info.numPeers} · seeds=${info.numSeeds ?? 0} · down=${formatBytesPerSec(info.downloadSpeed)} · up=${formatBytesPerSec(info.uploadSpeed)}`,
+  );
+  lines.push(
+    `Total: downloaded=${formatBytes(info.downloaded ?? 0)} · uploaded=${formatBytes(info.uploaded ?? 0)} · ratio=${(info.ratio ?? 0).toFixed(2)} · ETA=${formatDuration(info.timeRemainingMs ?? 0)}`,
   );
   for (const peer of info.peers) {
     const addr = peer.port ? `${peer.address}:${peer.port}` : peer.address;
     const dl = formatBytesPerSec(peer.downloadSpeed ?? 0);
     const ul = formatBytesPerSec(peer.uploadSpeed ?? 0);
-    lines.push(`${addr} · down=${dl} · up=${ul}`);
+    const flags = [
+      peer.local ? 'LAN' : 'WAN',
+      peer.peerChoking ? 'choking' : 'open',
+      peer.peerInterested ? 'interested' : 'idle',
+    ]
+      .filter(Boolean)
+      .join(',');
+    lines.push(`${addr} · down=${dl} · up=${ul} · ${flags}`);
   }
   const safe = lines.map((line) => line.replace(/'/g, "\\'")).join('\\n');
   const js = `document.getElementById('torrentDebug').innerText='${safe}';`;
