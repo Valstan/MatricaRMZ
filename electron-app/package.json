@@ -72,7 +72,7 @@
       "allowToChangeInstallationDirectory": false,
       "runAfterFinish": true,
       "include": "installer/installer.nsh",
-      "language": "ru-RU"
+      "language": 1049
     },
     "publish": [
       {
