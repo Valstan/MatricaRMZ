@@ -976,7 +976,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.Operations) ?? [];
       const parsed = raw.map((x) => operationRowSchema.parse(x));
-      const rows = await filterStaleByUpdatedAt(operations, parsed);
+      let rows = await filterStaleByUpdatedAt(operations, parsed);
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()
@@ -987,8 +987,36 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
       const supplyOps = rows.filter((r) => r.operation_type === 'supply_request');
-      const engineOps = rows.filter((r) => r.operation_type !== 'supply_request');
+      let engineOps = rows.filter((r) => r.operation_type !== 'supply_request');
 
+      if (engineOps.length > 0) {
+        const engineIds = Array.from(new Set(engineOps.map((r) => String(r.engine_entity_id))));
+        const existingEngines = await tx
+          .select({ id: entities.id })
+          .from(entities)
+          .where(inArray(entities.id, engineIds as any))
+          .limit(50_000);
+        const existingEngineIds = new Set<string>((existingEngines as any[]).map((r) => String(r.id)));
+        const missingOps = engineOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
+        if (missingOps.length > 0) {
+          for (const r of missingOps) {
+            const cur = existingMap.get(String(r.id));
+            await createChangeRequest({
+              tableName: SyncTableName.Operations,
+              rowId: String(r.id),
+              rootEntityId: String(r.engine_entity_id),
+              beforeJson: cur ? JSON.stringify(toBeforeOperation(cur)) : null,
+              afterJson: JSON.stringify(r),
+              recordOwnerUserId: null,
+              recordOwnerUsername: null,
+              note: `missing engine_entity_id ${String(r.engine_entity_id)}`,
+            });
+          }
+        }
+        engineOps = engineOps.filter((r) => existingEngineIds.has(String(r.engine_entity_id)));
+      }
+
+      rows = [...supplyOps, ...engineOps];
       const supplyOwners = await getOwnersMap(SyncTableName.Operations, supplyOps.map((r) => r.id));
       const engineOwners = await getOwnersMap(SyncTableName.Entities, engineOps.map((r) => r.engine_entity_id));
 

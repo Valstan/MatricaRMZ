@@ -482,11 +482,11 @@ export function App() {
     const link = {
       kind: 'app_link',
       tab,
-      engineId: selectedEngineId ?? null,
-      requestId: selectedRequestId ?? null,
-      partId: selectedPartId ?? null,
-      contractId: selectedContractId ?? null,
-      employeeId: selectedEmployeeId ?? null,
+      engineId: tab === 'engine' ? selectedEngineId ?? null : null,
+      requestId: tab === 'request' ? selectedRequestId ?? null : null,
+      partId: tab === 'part' ? selectedPartId ?? null : null,
+      contractId: tab === 'contract' ? selectedContractId ?? null : null,
+      employeeId: tab === 'employee' ? selectedEmployeeId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     };
     const r = await window.matrica.chat

@@ -6,8 +6,17 @@
 !insertmacro MUI_PAGE_INSTFILES
 
 ; Terminate any running client instances before install.
-!macro customCheckAppRunning
+!macro KillClientProcesses
   ; Ignore errors if process is not running.
-  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C "$SYSDIR\taskkill.exe" /F /T /IM "MatricaRMZ.exe" >NUL 2>NUL"'
+  nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /T /IM "MatricaRMZ.exe"'
+  Sleep 300
+!macroend
+
+!macro customInit
+  !insertmacro KillClientProcesses
+!macroend
+
+!macro customCheckAppRunning
+  !insertmacro KillClientProcesses
 !macroend
 
