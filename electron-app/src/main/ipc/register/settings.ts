@@ -6,24 +6,79 @@ import { SettingsKey, settingsGetString, settingsSetString } from '../../service
 const THEMES = new Set(['auto', 'light', 'dark']);
 const CHAT_SIDES = new Set(['left', 'right']);
 
+type TabsLayoutPrefs = {
+  order?: string[];
+  hidden?: string[];
+  trashIndex?: number | null;
+};
+
+function parseTabsLayout(raw: string | null): Record<string, TabsLayoutPrefs> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, TabsLayoutPrefs>;
+  } catch {
+    // ignore invalid data
+  }
+  return {};
+}
+
+function safeTabsLayout(value: unknown): TabsLayoutPrefs | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as TabsLayoutPrefs;
+  const order = Array.isArray(raw.order) ? raw.order.map((x) => String(x)) : undefined;
+  const hidden = Array.isArray(raw.hidden) ? raw.hidden.map((x) => String(x)) : undefined;
+  const trashIndex = raw.trashIndex == null ? null : Number(raw.trashIndex);
+  return {
+    order,
+    hidden,
+    trashIndex: Number.isFinite(trashIndex ?? NaN) ? trashIndex : null,
+  };
+}
+
 export function registerSettingsIpc(ctx: IpcContext) {
-  ipcMain.handle('ui:prefs:get', async () => {
+  ipcMain.handle('ui:prefs:get', async (_e, args?: { userId?: string }) => {
     const theme = (await settingsGetString(ctx.sysDb, SettingsKey.UiTheme)) ?? 'auto';
     const chatSide = (await settingsGetString(ctx.sysDb, SettingsKey.UiChatSide)) ?? 'right';
+    const userId = String(args?.userId ?? '').trim();
+    let tabsLayout: TabsLayoutPrefs | null = null;
+    if (userId) {
+      const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiTabsLayout);
+      const data = parseTabsLayout(raw);
+      tabsLayout = data[userId] ?? null;
+    }
     return {
       ok: true,
       theme: THEMES.has(theme) ? theme : 'auto',
       chatSide: CHAT_SIDES.has(chatSide) ? chatSide : 'right',
+      tabsLayout,
     };
   });
 
-  ipcMain.handle('ui:prefs:set', async (_e, args: { theme?: string; chatSide?: string }) => {
-    const theme = String(args.theme ?? '').trim() || 'auto';
-    const chatSide = String(args.chatSide ?? '').trim() || 'right';
-    const safeTheme = THEMES.has(theme) ? theme : 'auto';
-    const safeChatSide = CHAT_SIDES.has(chatSide) ? chatSide : 'right';
-    await settingsSetString(ctx.sysDb, SettingsKey.UiTheme, safeTheme);
-    await settingsSetString(ctx.sysDb, SettingsKey.UiChatSide, safeChatSide);
-    return { ok: true, theme: safeTheme, chatSide: safeChatSide };
-  });
+  ipcMain.handle(
+    'ui:prefs:set',
+    async (_e, args: { theme?: string; chatSide?: string; userId?: string; tabsLayout?: TabsLayoutPrefs | null }) => {
+      const currentTheme = (await settingsGetString(ctx.sysDb, SettingsKey.UiTheme)) ?? 'auto';
+      const currentChatSide = (await settingsGetString(ctx.sysDb, SettingsKey.UiChatSide)) ?? 'right';
+      const theme =
+        args.theme == null ? String(currentTheme).trim() || 'auto' : String(args.theme ?? '').trim() || 'auto';
+      const chatSide =
+        args.chatSide == null ? String(currentChatSide).trim() || 'right' : String(args.chatSide ?? '').trim() || 'right';
+      const safeTheme = THEMES.has(theme) ? theme : 'auto';
+      const safeChatSide = CHAT_SIDES.has(chatSide) ? chatSide : 'right';
+      await settingsSetString(ctx.sysDb, SettingsKey.UiTheme, safeTheme);
+      await settingsSetString(ctx.sysDb, SettingsKey.UiChatSide, safeChatSide);
+
+      const userId = String(args.userId ?? '').trim();
+      const nextLayout = safeTabsLayout(args.tabsLayout);
+      if (userId && nextLayout) {
+        const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiTabsLayout);
+        const data = parseTabsLayout(raw);
+        data[userId] = nextLayout;
+        await settingsSetString(ctx.sysDb, SettingsKey.UiTabsLayout, JSON.stringify(data));
+      }
+
+      return { ok: true, theme: safeTheme, chatSide: safeChatSide, tabsLayout: nextLayout };
+    },
+  );
 }

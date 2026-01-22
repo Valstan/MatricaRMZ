@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, OperationItem, ServerHealthResult, SyncStatus } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type TabId } from './layout/Tabs.js';
+import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
 import { EnginesPage } from './pages/EnginesPage.js';
 import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
@@ -57,6 +57,7 @@ export function App() {
     theme: 'auto',
     chatSide: 'right',
   });
+  const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
   useEffect(() => {
@@ -68,6 +69,25 @@ export function App() {
       if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right' });
     });
   }, []);
+
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
+    if (!userId) {
+      setTabsLayout(null);
+      return;
+    }
+    let alive = true;
+    void window.matrica.settings
+      .uiGet({ userId })
+      .then((r: any) => {
+        if (!alive) return;
+        if (r?.ok) setTabsLayout((r.tabsLayout as TabsLayoutPrefs | null) ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [authStatus.loggedIn, authStatus.user?.id]);
 
   useEffect(() => {
     let alive = true;
@@ -271,7 +291,7 @@ export function App() {
         canViewEmployees: false,
       }
     : capsBase;
-  const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>[] = [
+  const availableTabs: MenuTabId[] = [
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
@@ -282,6 +302,8 @@ export function App() {
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewAudit ? (['audit'] as const) : []),
   ];
+  const menuState = deriveMenuState(availableTabs, tabsLayout);
+  const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');
   const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'> = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
@@ -323,12 +345,19 @@ export function App() {
     };
   }, [authStatus.loggedIn, canChat, viewMode]);
 
-  // Gate: если вкладка скрылась по permissions — переключаем на первую доступную.
+  // Gate: если вкладка скрылась по permissions/настройкам — переключаем на первую доступную.
   useEffect(() => {
     if (tab === 'engine' || tab === 'request' || tab === 'part' || tab === 'employee' || tab === 'contract') return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
   }, [tab, visibleTabsKey, userTab]);
+
+  async function persistTabsLayout(next: TabsLayoutPrefs) {
+    setTabsLayout(next);
+    const userId = authStatus.user?.id;
+    if (!userId) return;
+    await window.matrica.settings.uiSet({ userId, tabsLayout: next }).catch(() => {});
+  }
 
   useEffect(() => {
     let alive = true;
@@ -718,7 +747,9 @@ export function App() {
               setTab(t);
               if (t === 'audit') void refreshAudit();
             }}
-            visibleTabs={visibleTabs}
+            availableTabs={availableTabs}
+            layout={tabsLayout}
+            onLayoutChange={persistTabsLayout}
             userLabel={userLabel}
             userTab={userTab}
             authStatus={presence ? { online: presence.online } : undefined}

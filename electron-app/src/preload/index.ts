@@ -189,8 +189,9 @@ contextBridge.exposeInMainWorld('matrica', {
     setMode: async (mode: 'dev' | 'prod') => ipcRenderer.invoke('logging:setMode', mode),
   },
   settings: {
-    uiGet: async () => ipcRenderer.invoke('ui:prefs:get'),
-    uiSet: async (args: { theme?: string; chatSide?: string }) => ipcRenderer.invoke('ui:prefs:set', args),
+    uiGet: async (args?: { userId?: string }) => ipcRenderer.invoke('ui:prefs:get', args),
+    uiSet: async (args: { theme?: string; chatSide?: string; userId?: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }) =>
+      ipcRenderer.invoke('ui:prefs:set', args),
   },
   backups: {
     status: async () => ipcRenderer.invoke('backups:status'),

@@ -287,8 +287,21 @@ export type MatricaApi = {
     setMode: (mode: 'dev' | 'prod') => Promise<{ ok: true; mode: 'dev' | 'prod' } | { ok: false; error: string }>;
   };
   settings: {
-    uiGet: () => Promise<{ ok: true; theme: string; chatSide: string } | { ok: false; error: string }>;
-    uiSet: (args: { theme?: string; chatSide?: string }) => Promise<{ ok: true; theme: string; chatSide: string } | { ok: false; error: string }>;
+    uiGet: (args?: {
+      userId?: string;
+    }) => Promise<
+      | { ok: true; theme: string; chatSide: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }
+      | { ok: false; error: string }
+    >;
+    uiSet: (args: {
+      theme?: string;
+      chatSide?: string;
+      userId?: string;
+      tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+    }) => Promise<
+      | { ok: true; theme: string; chatSide: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }
+      | { ok: false; error: string }
+    >;
   };
   backups: {
     status: () => Promise<{ ok: true; mode: 'live' | 'backup'; backupDate: string | null } | { ok: false; error: string }>;
