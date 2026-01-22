@@ -1,7 +1,7 @@
-import { net } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { authRefresh, clearSession, getSession } from './authService.js';
+import { fetchWithRetry } from './netFetch.js';
 
 export type HttpResult = {
   ok: boolean;
@@ -23,13 +23,13 @@ async function readBody(r: Response): Promise<Pick<HttpResult, 'json' | 'text'>>
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(new Error('timeout')), timeoutMs);
-  try {
-    return await net.fetch(url, { ...init, signal: ac.signal as any });
-  } finally {
-    clearTimeout(t);
-  }
+  return await fetchWithRetry(url, init, {
+    attempts: 3,
+    timeoutMs,
+    backoffMs: 500,
+    maxBackoffMs: 4000,
+    jitterMs: 200,
+  });
 }
 
 export async function httpAuthed(

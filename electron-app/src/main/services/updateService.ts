@@ -1,12 +1,9 @@
-import { app, BrowserWindow, net } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
 import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
 
 import {
   buildTorrentManifestUrl,
@@ -20,6 +17,8 @@ import {
   type TorrentClientStats,
   type TorrentUpdateManifest,
 } from './torrentUpdateService.js';
+import { getNetworkState } from './networkService.js';
+import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string; source?: 'torrent' | 'github' | 'yandex'; downloadUrl?: string }
@@ -53,16 +52,7 @@ function getUpdateApiBaseUrl() {
   return 'http://a6fd55b8e0ae.vps.myjino.ru';
 }
 
-async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = UPDATE_CHECK_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await net.fetch(url, { ...opts, signal: controller.signal });
-    return res;
-  } finally {
-    clearTimeout(id);
-  }
-}
+const NETWORK_GRACE_MS = 120_000;
 
 export function initAutoUpdate() {
   autoUpdater.autoDownload = false;
@@ -95,6 +85,35 @@ function updaterLogPath() {
 
 function getUpdatesRootDir() {
   return join(app.getPath('downloads'), 'MatricaRMZ-Updates');
+}
+
+function updateLockPath() {
+  return join(getUpdatesRootDir(), 'update.lock');
+}
+
+async function acquireUpdateLock(tag: string): Promise<boolean> {
+  const outDir = getUpdatesRootDir();
+  await mkdir(outDir, { recursive: true });
+  const lock = updateLockPath();
+  try {
+    const st = await stat(lock).catch(() => null);
+    if (st?.isFile()) {
+      const ageMs = Date.now() - Number(st.mtimeMs ?? 0);
+      if (ageMs > 2 * 60 * 60 * 1000) {
+        await rm(lock, { force: true }).catch(() => {});
+      } else {
+        return false;
+      }
+    }
+    await writeFile(lock, JSON.stringify({ pid: process.pid, tag, ts: Date.now() }), { flag: 'wx' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function releaseUpdateLock() {
+  await rm(updateLockPath(), { force: true }).catch(() => {});
 }
 
 async function writeUpdaterLog(message: string) {
@@ -458,6 +477,61 @@ async function clearPendingUpdate() {
   }
 }
 
+async function findCachedInstaller(): Promise<{ version: string; installerPath: string } | null> {
+  const root = getUpdatesRootDir();
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const versions = entries
+    .filter((e) => e.isDirectory() && /^\d+\.\d+\.\d+$/.test(e.name))
+    .map((e) => e.name);
+  if (versions.length === 0) return null;
+  versions.sort((a, b) => compareSemver(b, a));
+  for (const ver of versions) {
+    const dir = join(root, ver);
+    const files = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    const candidates = files.filter((f) => f.isFile() && f.name.toLowerCase().endsWith('.exe')).map((f) => f.name);
+    if (candidates.length === 0) continue;
+    const preferred = candidates.find((n) => isSetupInstallerName(n)) ?? candidates[0];
+    const installerPath = join(dir, preferred);
+    const validation = await validateInstallerPath(installerPath, preferred);
+    if (!validation.ok) continue;
+    return { version: ver, installerPath };
+  }
+  return null;
+}
+
+async function resolveLocalInstaller(currentVersion: string, serverVersion: string | null) {
+  const pending = await readPendingUpdate();
+  if (pending?.version && compareSemver(pending.version, currentVersion) > 0) {
+    const validation = await validateInstallerPath(pending.installerPath, pending.installerPath);
+    if (!validation.ok) {
+      await clearPendingUpdate();
+    } else if (!serverVersion || compareSemver(pending.version, serverVersion) >= 0) {
+      return { action: 'install' as const, version: pending.version, installerPath: pending.installerPath };
+    }
+  }
+
+  const cached = await findCachedInstaller();
+  if (cached && compareSemver(cached.version, currentVersion) > 0) {
+    if (!serverVersion || compareSemver(cached.version, serverVersion) >= 0) {
+      await queuePendingUpdate({ version: cached.version, installerPath: cached.installerPath });
+      return { action: 'install' as const, version: cached.version, installerPath: cached.installerPath };
+    }
+  }
+
+  return { action: 'none' as const };
+}
+
+async function getServerVersion(): Promise<string | null> {
+  try {
+    const baseUrl = getUpdateApiBaseUrl();
+    const manifest = await fetchTorrentManifest(baseUrl);
+    if (manifest?.version) return manifest.version;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | null): Promise<boolean> {
   const pending = await readPendingUpdate();
   if (!pending?.installerPath) return false;
@@ -526,6 +600,27 @@ function formatTorrentStatusError(status: any) {
   if (lastError === 'updates_dir_not_set') return 'updates_dir_not_set: set MATRICA_UPDATES_DIR';
   if (lastError === 'no_installer_found') return 'no_installer_found: put latest .exe into updates dir';
   return updatesDir ? `${lastError} (dir=${updatesDir})` : lastError;
+}
+
+function isTransientMessage(msg: string) {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('timeout') ||
+    m.includes('network') ||
+    m.includes('offline') ||
+    m.includes('enotfound') ||
+    m.includes('econnreset') ||
+    m.includes('eai_again') ||
+    m.includes('stalled')
+  );
+}
+
+function shouldHoldSource(error?: string) {
+  const state = getNetworkState();
+  if (!state.online) return true;
+  if (Date.now() - state.lastChangeAt < NETWORK_GRACE_MS) return true;
+  if (error && isTransientMessage(error)) return true;
+  return false;
 }
 
 async function checkTorrentForUpdates(): Promise<
@@ -611,7 +706,17 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     const pending = await readPendingUpdate();
     if (!app.isPackaged) return;
     backgroundInFlight = true;
+    const lockAcquired = await acquireUpdateLock('background');
+    if (!lockAcquired) {
+      backgroundInFlight = false;
+      return;
+    }
     try {
+      const netState = getNetworkState();
+      if (!netState.online) {
+        setUpdateState({ state: 'error', source: 'torrent', message: 'Нет сети, повторим позже.' });
+        return;
+      }
       setUpdateState({ state: 'checking', source: 'torrent', message: 'Проверяем обновления (torrent)…' });
       const baseUrl = getUpdateApiBaseUrl();
       const manifest = await fetchTorrentManifest(baseUrl);
@@ -641,6 +746,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       setUpdateState({ state: 'error', source: 'torrent', message: String(e) });
     } finally {
       backgroundInFlight = false;
+      await releaseUpdateLock();
     }
   }
 }
@@ -650,6 +756,7 @@ export async function runAutoUpdateFlow(
 ): Promise<UpdateFlowResult> {
   if (updateInFlight) return { action: 'error', error: 'update already in progress' };
   updateInFlight = true;
+  let lockAcquired = false;
   try {
     showUpdateWindow(opts.parentWindow ?? null);
     await stageUpdate('Проверяем обновления…', 0);
@@ -657,6 +764,22 @@ export async function runAutoUpdateFlow(
     if (!app.isPackaged) {
       closeUpdateWindowSoon(300);
       return { action: 'no_update' };
+    }
+
+    lockAcquired = await acquireUpdateLock('foreground');
+    if (!lockAcquired) {
+      await setUpdateUi('Обновление уже выполняется на этом ПК.', 100);
+      closeUpdateWindowSoon(2500);
+      return { action: 'error', error: 'update lock exists' };
+    }
+
+    await stageUpdate('Проверяем локальные обновления…', 2);
+    const current = app.getVersion();
+    const serverVersion = await getServerVersion();
+    const local = await resolveLocalInstaller(current, serverVersion);
+    if (local.action === 'install') {
+      await installNow({ installerPath: local.installerPath, version: local.version });
+      return { action: 'update_started' };
     }
 
     await stageUpdate('Проверяем торрент-обновления…', 2);
@@ -682,6 +805,24 @@ export async function runAutoUpdateFlow(
         await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
         await installNow({ installerPath: cachedPath, version: torrentCheck.version ?? torrentManifest.version });
         return { action: 'update_started' };
+      }
+      if (shouldHoldSource(tdl.error)) {
+        await stageUpdate(`Сеть меняется, повторяем Torrent…`, 12, torrentCheck.version);
+        const retry = await downloadTorrentUpdate(torrentManifest, {
+          onProgress: (pct, peers) => {
+            void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
+          },
+          onStats: (stats) => {
+            void setTorrentDebug(stats);
+          },
+        });
+        if (retry.ok) {
+          const cachedPath = await cacheInstaller(retry.installerPath, torrentCheck.version);
+          lastDownloadedInstallerPath = cachedPath;
+          await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: retry.torrentPath });
+          await installNow({ installerPath: cachedPath, version: torrentCheck.version ?? torrentManifest.version });
+          return { action: 'update_started' };
+        }
       }
       await stageUpdate(`Торрент недоступен, пробуем GitHub…`, 15, torrentCheck.version);
     } else if (!torrentCheck.ok) {
@@ -777,6 +918,7 @@ export async function runAutoUpdateFlow(
     return { action: 'error', error: message };
   } finally {
     updateInFlight = false;
+    if (lockAcquired) await releaseUpdateLock();
   }
 }
 
@@ -944,7 +1086,11 @@ async function getYandexDownloadHref(publicKey: string, path: string): Promise<s
   const url =
     'https://cloud-api.yandex.net/v1/disk/public/resources/download?' +
     new URLSearchParams({ public_key: publicKey, path: normalizePublicPath(path) }).toString();
-  const res = await fetchWithTimeout(url, { method: 'GET' });
+  const res = await fetchWithRetry(
+    url,
+    { method: 'GET' },
+    { attempts: 3, timeoutMs: UPDATE_CHECK_TIMEOUT_MS, backoffMs: 500, maxBackoffMs: 3000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+  );
   if (!res.ok) return null;
   const json = (await res.json().catch(() => null)) as any;
   return typeof json?.href === 'string' ? json.href : null;
@@ -958,7 +1104,11 @@ async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<
       path: normalizePublicPath(pathOnDisk),
       limit: '200',
     }).toString();
-  const r = await fetchWithTimeout(api);
+  const r = await fetchWithRetry(
+    api,
+    { method: 'GET' },
+    { attempts: 3, timeoutMs: UPDATE_CHECK_TIMEOUT_MS, backoffMs: 500, maxBackoffMs: 3000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+  );
   if (!r.ok) throw new Error(`Yandex list failed ${r.status}`);
   const json = (await r.json().catch(() => null)) as any;
   const items = (json?._embedded?.items ?? []) as any[];
@@ -983,27 +1133,7 @@ function pickNewestInstaller(items: string[]): string | null {
   return parsed[0].n;
 }
 
-async function downloadToFileWithProgress(
-  res: Response,
-  outPath: string,
-  opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
-) {
-  if (!res.body) throw new Error('response has no body');
-  const total = Number(res.headers.get('content-length') ?? 0) || null;
-  let downloaded = 0;
-  const stream = Readable.fromWeb(res.body as any);
-  stream.on('data', (chunk) => {
-    downloaded += chunk.length ?? 0;
-    if (total && total > 0) {
-      const pct = Math.max(0, Math.min(99, Math.floor((downloaded / total) * 100)));
-      opts?.onProgress?.(pct, downloaded, total);
-    } else {
-      opts?.onProgress?.(0, downloaded, null);
-    }
-  });
-  await pipeline(stream, createWriteStream(outPath));
-  opts?.onProgress?.(100, downloaded, total ?? downloaded);
-}
+// download helper moved to netFetch.ts
 
 function parseLatestYml(text: string): { version?: string; path?: string } {
   const ver = text.match(/^version:\s*["']?([^\n"']+)["']?/m)?.[1];
@@ -1019,7 +1149,11 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
     const latestPath = joinPosix(basePath, 'latest.yml');
     const href = await getYandexDownloadHref(publicKey, latestPath);
     if (href) {
-      const res = await fetchWithTimeout(href);
+      const res = await fetchWithRetry(
+        href,
+        { method: 'GET' },
+        { attempts: 3, timeoutMs: UPDATE_CHECK_TIMEOUT_MS, backoffMs: 500, maxBackoffMs: 3000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+      );
       if (res.ok) {
         const text = await res.text();
         const parsed = parseLatestYml(text);
@@ -1051,7 +1185,7 @@ async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | Githu
   if (!cfg) return { ok: false, error: 'github update is not configured' };
   const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/releases/latest`;
   try {
-    const res = await fetchWithTimeout(
+    const res = await fetchWithRetry(
       url,
       {
         method: 'GET',
@@ -1060,7 +1194,7 @@ async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | Githu
           'User-Agent': 'MatricaRMZ-Updater',
         },
       },
-      10_000,
+      { attempts: 3, timeoutMs: 10_000, backoffMs: 600, maxBackoffMs: 4000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
     );
     if (!res.ok) return { ok: false, error: `github release HTTP ${res.status}` };
     const json = (await res.json().catch(() => null)) as any;
@@ -1104,13 +1238,17 @@ async function downloadYandexUpdate(
     const filePath = joinPosix(basePath, fileName);
     const href = await getYandexDownloadHref(publicKey, filePath);
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
-    const res = await fetchWithTimeout(href, { method: 'GET' }, UPDATE_DOWNLOAD_TIMEOUT_MS);
-    if (!res.ok || !res.body) return { ok: false as const, error: `yandex download HTTP ${res.status}` };
     const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
     await mkdir(outDir, { recursive: true });
     const outPath = join(outDir, fileName);
-    await downloadToFileWithProgress(res, outPath, opts);
-    return { ok: true as const, filePath: outPath };
+    return await downloadWithResume(href, outPath, {
+      attempts: 4,
+      timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+      backoffMs: 800,
+      maxBackoffMs: 6000,
+      jitterMs: 300,
+      onProgress: opts?.onProgress,
+    });
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
@@ -1122,24 +1260,18 @@ async function downloadGithubUpdate(
   opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
 ) {
   try {
-    const res = await fetchWithTimeout(
-      url,
-      {
-        method: 'GET',
-        headers: {
-          Accept: 'application/octet-stream',
-          'User-Agent': 'MatricaRMZ-Updater',
-        },
-      },
-      UPDATE_DOWNLOAD_TIMEOUT_MS,
-    );
-    if (!res.ok || !res.body) return { ok: false as const, error: `github download HTTP ${res.status}` };
     const fileName = basename(new URL(url).pathname) || `MatricaRMZ-${version ?? 'update'}.exe`;
     const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
     await mkdir(outDir, { recursive: true });
     const outPath = join(outDir, fileName);
-    await downloadToFileWithProgress(res, outPath, opts);
-    return { ok: true as const, filePath: outPath };
+    return await downloadWithResume(url, outPath, {
+      attempts: 4,
+      timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+      backoffMs: 800,
+      maxBackoffMs: 6000,
+      jitterMs: 300,
+      onProgress: opts?.onProgress,
+    });
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }

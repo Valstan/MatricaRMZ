@@ -1,9 +1,10 @@
-import { app, net } from 'electron';
+import { app } from 'electron';
 import { createWriteStream } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { fetchWithRetry } from './netFetch.js';
 
 export type TorrentUpdateManifest = {
   ok: true;
@@ -56,9 +57,9 @@ type TorrentSeedInfo = {
 const TORRENT_CACHE_ROOT = () => join(app.getPath('downloads'), 'MatricaRMZ-Updates');
 const SEED_INFO_PATH = () => join(TORRENT_CACHE_ROOT(), 'torrent-seed.json');
 
-const DEFAULT_TIMEOUT_MS = 10_000;
-const NO_PROGRESS_TIMEOUT_MS = 60_000;
-const TOTAL_DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
+const DEFAULT_TIMEOUT_MS = 12_000;
+const NO_PROGRESS_TIMEOUT_MS = 120_000;
+const TOTAL_DOWNLOAD_TIMEOUT_MS = 45 * 60_000;
 
 type WebTorrentCtor = new (opts: Record<string, unknown>) => any;
 
@@ -66,15 +67,42 @@ let seedingClient: any | null = null;
 let seedingTorrent: any | null = null;
 let downloadClient: any | null = null;
 let downloadTorrent: any | null = null;
+let networkEpoch = 0;
+
+function isPrivateIp(address: string): boolean {
+  const v4 = address.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 169 && b === 254) return true;
+  }
+  if (address === '::1') return true;
+  if (address.startsWith('fe80:')) return true;
+  if (address.startsWith('fc') || address.startsWith('fd')) return true;
+  return false;
+}
+
+export function notifyNetworkChanged() {
+  networkEpoch += 1;
+  try {
+    if (downloadClient && downloadTorrent?.infoHash) {
+      downloadClient.remove(downloadTorrent.infoHash, () => {});
+    }
+  } catch {
+    // ignore
+  }
+}
 
 async function fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await net.fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(id);
-  }
+  return await fetchWithRetry(
+    url,
+    { method: 'GET' },
+    { attempts: 3, timeoutMs, backoffMs: 600, maxBackoffMs: 4000, jitterMs: 250, retryOnStatuses: [502, 503, 504] },
+  );
 }
 
 async function loadWebTorrent(): Promise<WebTorrentCtor | null> {
@@ -168,6 +196,7 @@ export async function downloadTorrentUpdate(
       let lastProgressAt = Date.now();
       let lastProgress = 0;
       const startedAt = Date.now();
+      const startEpoch = networkEpoch;
 
       const finish = (result: TorrentDownloadResult) => {
         if (done) return;
@@ -203,6 +232,15 @@ export async function downloadTorrentUpdate(
       });
 
       const progressTimer = setInterval(() => {
+        if (networkEpoch !== startEpoch) {
+          try {
+            if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
+          } catch {
+            // ignore
+          }
+          finish({ ok: false, error: 'network changed' });
+          return;
+        }
         const pct = Math.max(0, Math.min(100, Math.floor(torrent.progress * 100)));
         if (pct > lastProgress) {
           lastProgress = pct;
@@ -227,7 +265,7 @@ export async function downloadTorrentUpdate(
               uploadSpeed: Number.isFinite(uploadSpeed) ? uploadSpeed : undefined,
               peerId: (wire as any)?.peerId ? String((wire as any).peerId) : undefined,
               client: (wire as any)?.client ? String((wire as any).client) : undefined,
-              local: Boolean((wire as any)?.local ?? (wire as any)?.peer?.local),
+              local: Boolean((wire as any)?.local ?? (wire as any)?.peer?.local) || isPrivateIp(address),
               amChoking: Boolean((wire as any)?.amChoking),
               peerChoking: Boolean((wire as any)?.peerChoking),
               amInterested: Boolean((wire as any)?.amInterested),
@@ -343,6 +381,12 @@ export async function stopTorrentSeeding(): Promise<void> {
     seedingClient = null;
     seedingTorrent = null;
   });
+}
+
+export async function restartTorrentClients(): Promise<void> {
+  await stopTorrentDownload().catch(() => {});
+  await stopTorrentSeeding().catch(() => {});
+  await startTorrentSeeding().catch(() => {});
 }
 
 export async function stopTorrentDownload(): Promise<void> {

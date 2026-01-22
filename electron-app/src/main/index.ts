@@ -6,9 +6,10 @@ import { mkdirSync } from 'node:fs';
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
+import { initNetworkService, onNetworkChange } from './services/networkService.js';
 import { applyPendingUpdateIfAny, initAutoUpdate, runAutoUpdateFlow, runUpdateHelperFlow, startBackgroundUpdatePolling } from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings } from './services/clientAdminService.js';
-import { startTorrentSeeding, stopTorrentSeeding } from './services/torrentUpdateService.js';
+import { notifyNetworkChanged, restartTorrentClients, startTorrentSeeding, stopTorrentSeeding } from './services/torrentUpdateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -140,6 +141,14 @@ app.whenReady().then(() => {
   app.commandLine.appendSwitch('enable-logging');
   app.commandLine.appendSwitch('v', '1');
 
+  // Network bootstrap: proxy/PAC + ipv4first + online monitor.
+  const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
+  void initNetworkService({ probeUrl: `${apiBaseUrl.replace(/\/+$/, '')}/health` });
+  onNetworkChange(() => {
+    notifyNetworkChanged();
+    void restartTorrentClients();
+  });
+
   initAutoUpdate();
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
   process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
@@ -151,15 +160,23 @@ app.whenReady().then(() => {
     return;
   }
 
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
   // В проде обычно ходим через reverse-proxy (nginx) на 80/443, поэтому порт 3001 не указываем.
-  const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
+  // apiBaseUrl defined above for network/bootstrap and IPC.
 
-  // Создаём окно как можно раньше, чтобы пользователь видел ошибку, если DB не поднялась.
-  createWindow();
-
-  // Инициализируем SQLite + IPC асинхронно (после создания окна).
+  // Инициализируем SQLite + IPC асинхронно (до создания окна).
   void (async () => {
     try {
       const { openSqlite } = await import('./database/db.js');
@@ -218,18 +235,14 @@ app.whenReady().then(() => {
       const torrentEnabled = updatesEnabled && cached.torrentEnabled !== false;
 
       if (updatesEnabled) {
-        const pendingApplied = await applyPendingUpdateIfAny(mainWindow);
+        const pendingApplied = await applyPendingUpdateIfAny(null);
         if (pendingApplied) return;
-        const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: mainWindow });
+        const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: null });
         if (updateResult?.action === 'update_started') {
           app.quit();
           return;
         }
-        const delay = updateResult?.action === 'error' ? 3800 : updateResult?.action === 'update_downloaded' ? 1400 : 800;
-        scheduleShowMainWindow(delay);
         if (torrentEnabled) startBackgroundUpdatePolling();
-      } else {
-        scheduleShowMainWindow(0);
       }
 
       if (torrentEnabled) {
@@ -237,6 +250,11 @@ app.whenReady().then(() => {
       } else {
         await stopTorrentSeeding();
       }
+
+      // Создаём окно только после завершения update-flow.
+      createWindow();
+      const delay = updatesEnabled ? 800 : 0;
+      scheduleShowMainWindow(delay);
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);
       await dialog.showMessageBox({

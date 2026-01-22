@@ -1,5 +1,5 @@
 import { EntityTypeCode, SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
-import { app, net } from 'electron';
+import { app } from 'electron';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -10,6 +10,7 @@ import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
 import { logMessage } from './logService.js';
+import { fetchWithRetry } from './netFetch.js';
 
 const PUSH_TIMEOUT_MS = 120_000;
 const PULL_TIMEOUT_MS = 30_000;
@@ -60,34 +61,28 @@ function formatError(e: unknown): string {
   return `${name ? name + ': ' : ''}${message}${code}${cause}${stack}`;
 }
 
-async function fetchWithRetry(
+async function fetchWithRetryLogged(
   url: string,
   init: RequestInit,
   opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull' },
 ): Promise<Response> {
-  let lastErr: unknown = null;
-  for (let attempt = 1; attempt <= opts.attempts; attempt++) {
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
-    try {
-      const started = nowMs();
-      const r = await net.fetch(url, { ...init, signal: ac.signal as any });
-      const dur = nowMs() - started;
-      logSync(`${opts.label} attempt=${attempt}/${opts.attempts} status=${r.status} durMs=${dur} url=${url}`);
-      return r;
-    } catch (e) {
-      lastErr = e;
-      const dur = opts.timeoutMs;
-      logSync(`${opts.label} attempt=${attempt}/${opts.attempts} failed durMs=${dur} url=${url} err=${formatError(e)}`);
-      if (attempt < opts.attempts) {
-        const backoff = attempt === 1 ? 1000 : 3000;
-        await new Promise((r) => setTimeout(r, backoff));
-      }
-    } finally {
-      clearTimeout(t);
-    }
+  const started = nowMs();
+  try {
+    const res = await fetchWithRetry(url, init, {
+      attempts: opts.attempts,
+      timeoutMs: opts.timeoutMs,
+      backoffMs: 800,
+      maxBackoffMs: 6000,
+      jitterMs: 250,
+    });
+    const dur = nowMs() - started;
+    logSync(`${opts.label} attempt=ok status=${res.status} durMs=${dur} url=${url}`);
+    return res;
+  } catch (e) {
+    const dur = nowMs() - started;
+    logSync(`${opts.label} attempt=failed durMs=${dur} url=${url} err=${formatError(e)}`);
+    throw e;
   }
-  throw lastErr ?? new Error('fetch failed');
 }
 
 function withAuthHeader(init: RequestInit, accessToken: string | null): RequestInit {
@@ -105,7 +100,7 @@ async function fetchAuthed(
   opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull' },
 ): Promise<Response> {
   const session = await getSession(db).catch(() => null);
-  const first = await fetchWithRetry(url, withAuthHeader(init, session?.accessToken ?? null), opts);
+  const first = await fetchWithRetryLogged(url, withAuthHeader(init, session?.accessToken ?? null), opts);
 
   // Если токен протух/невалиден — пробуем refresh один раз и повторяем запрос.
   if ((first.status === 401 || first.status === 403) && session?.refreshToken) {
@@ -117,7 +112,7 @@ async function fetchAuthed(
       return first;
     }
     logSync(`${opts.label} refresh ok, retrying`);
-    return await fetchWithRetry(url, withAuthHeader(init, refreshed.accessToken), opts);
+    return await fetchWithRetryLogged(url, withAuthHeader(init, refreshed.accessToken), opts);
   }
 
   return first;
@@ -857,7 +852,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         apiBaseUrl,
         pushUrl,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
-        { attempts: 3, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
+        { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
       );
       if (!r.ok) {
         const body = await safeBodyText(r);
@@ -887,7 +882,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     }
 
     const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
-    const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 3, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
+    const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
     if (!pull.ok) {
       const body = await safeBodyText(pull);
       logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
