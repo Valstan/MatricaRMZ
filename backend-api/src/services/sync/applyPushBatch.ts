@@ -521,18 +521,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.type_id)));
         if (missingRows.length > 0) {
-          for (const r of missingRows) {
-            await createChangeRequest({
-              tableName: SyncTableName.Entities,
-              rowId: String(r.id),
-              rootEntityId: String(r.id),
-              beforeJson: null,
-              afterJson: JSON.stringify(r),
-              recordOwnerUserId: null,
-              recordOwnerUsername: null,
-              note: `missing entity_type_id ${String(r.type_id)}`,
-            });
-          }
           rows = rows.filter((r) => existingTypeIds.has(String(r.type_id)));
         }
       }
@@ -724,17 +712,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
         if (missingRows.length > 0) {
-          for (const r of missingRows) {
-            await createChangeRequest({
-              tableName: SyncTableName.AttributeDefs,
-              rowId: String(r.id),
-              beforeJson: null,
-              afterJson: JSON.stringify(r),
-              recordOwnerUserId: null,
-              recordOwnerUsername: null,
-              note: `missing entity_type_id ${String(r.entity_type_id)}`,
-            });
-          }
           rows = rows.filter((r) => existingTypeIds.has(String(r.entity_type_id)));
         }
       }
@@ -862,17 +839,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const existingDefIds = new Set<string>((existingDefs as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
         if (missingRows.length > 0) {
-          for (const r of missingRows) {
-            await createChangeRequest({
-              tableName: SyncTableName.AttributeValues,
-              rowId: String(r.id),
-              beforeJson: null,
-              afterJson: JSON.stringify(r),
-              recordOwnerUserId: null,
-              recordOwnerUsername: null,
-              note: `missing attribute_def_id ${String(r.attribute_def_id)}`,
-            });
-          }
           rows = rows.filter((r) => existingDefIds.has(String(r.attribute_def_id)));
         }
       }
@@ -998,21 +964,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           .limit(50_000);
         const existingEngineIds = new Set<string>((existingEngines as any[]).map((r) => String(r.id)));
         const missingOps = engineOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
-        if (missingOps.length > 0) {
-          for (const r of missingOps) {
-            const cur = existingMap.get(String(r.id));
-            await createChangeRequest({
-              tableName: SyncTableName.Operations,
-              rowId: String(r.id),
-              rootEntityId: String(r.engine_entity_id),
-              beforeJson: cur ? JSON.stringify(toBeforeOperation(cur)) : null,
-              afterJson: JSON.stringify(r),
-              recordOwnerUserId: null,
-              recordOwnerUsername: null,
-              note: `missing engine_entity_id ${String(r.engine_entity_id)}`,
-            });
-          }
-        }
         engineOps = engineOps.filter((r) => existingEngineIds.has(String(r.engine_entity_id)));
       }
 

@@ -110,6 +110,13 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
       return hay.includes(q);
     });
   }, [rows, query]);
+  const visible = useMemo(() => {
+    return filtered.filter((c) => {
+      const note = String(c.note ?? '');
+      if (note.startsWith('missing ')) return false;
+      return true;
+    });
+  }, [filtered]);
 
   function canDecide(c: ChangeRequestRow): boolean {
     if (props.canDecideAsAdmin) return true;
@@ -140,7 +147,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
         </Button>
         <div style={{ flex: 1 }} />
         <div style={{ color: '#6b7280', fontSize: 12 }}>
-          Всего: <span style={{ fontWeight: 800, color: '#111827' }}>{filtered.length}</span>
+          Всего: <span style={{ fontWeight: 800, color: '#111827' }}>{visible.length}</span>
         </div>
       </div>
 
@@ -159,17 +166,24 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c) => {
+            {visible.map((c) => {
               const allow = canDecide(c);
               const owner = c.recordOwnerUsername ?? '—';
               const changer = c.changeAuthorUsername ?? '—';
               const before = tryParseJson(c.beforeJson);
               const after = tryParseJson(c.afterJson);
               const diffs = diffLines(before, after);
+              const sectionLabel = (c as any).sectionLabel ?? c.tableName;
+              const entityLabel =
+                (c as any).entityLabel ??
+                (c.rootEntityId ? `ID ${String(c.rootEntityId).slice(0, 8)}` : `ID ${String(c.rowId).slice(0, 8)}`);
+              const fieldLabel = (c as any).fieldLabel ?? null;
               return (
                 <tr key={c.id}>
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
-                    <div style={{ fontWeight: 800, color: '#111827' }}>{c.tableName}</div>
+                    <div style={{ fontWeight: 800, color: '#111827' }}>{sectionLabel}</div>
+                    <div style={{ fontSize: 12, color: '#0f172a', marginTop: 4 }}>{entityLabel}</div>
+                    {fieldLabel && <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{fieldLabel}</div>}
                     {c.note && <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{c.note}</div>}
                     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#6b7280' }}>
                       {c.rootEntityId ? `root=${c.rootEntityId.slice(0, 8)} ` : ''}
@@ -237,7 +251,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
                 </tr>
               );
             })}
-            {filtered.length === 0 && (
+            {visible.length === 0 && (
               <tr>
                 <td style={{ padding: 12, color: '#6b7280' }} colSpan={6}>
                   Изменений нет

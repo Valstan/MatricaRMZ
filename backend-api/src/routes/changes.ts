@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, like, or } from 'drizzle-orm';
 
 import {
   SyncTableName,
@@ -48,6 +48,20 @@ changesRouter.get('/', async (req, res) => {
     const includeNoise =
       q.data.includeNoise === '1' || q.data.includeNoise === 'true' || q.data.includeNoise === 'yes' || q.data.includeNoise === 'on';
 
+    await db
+      .delete(changeRequests)
+      .where(
+        and(
+          eq(changeRequests.status, 'pending'),
+          isNotNull(changeRequests.note),
+          or(
+            like(changeRequests.note, 'missing entity_type_id%'),
+            like(changeRequests.note, 'missing attribute_def_id%'),
+            like(changeRequests.note, 'missing engine_entity_id%'),
+          ),
+        ),
+      );
+
     const rows = await db
       .select()
       .from(changeRequests)
@@ -92,7 +106,193 @@ changesRouter.get('/', async (req, res) => {
 
     const filtered = includeNoise ? rows : rows.filter((r: any) => meaningfulChange(String(r.tableName), r.beforeJson ?? null, String(r.afterJson)));
 
-    return res.json({ ok: true, changes: filtered });
+    const parsedAfter = new Map<string, any>();
+    const entityIds = new Set<string>();
+    const entityTypeIds = new Set<string>();
+    const attrDefIds = new Set<string>();
+
+    for (const r of filtered as any[]) {
+      let after: any = null;
+      try {
+        after = JSON.parse(String(r.afterJson ?? ''));
+      } catch {
+        after = null;
+      }
+      if (after) parsedAfter.set(String(r.id), after);
+
+      if (r.rootEntityId) entityIds.add(String(r.rootEntityId));
+      const table = String(r.tableName);
+      if (table === SyncTableName.Entities) {
+        entityIds.add(String(r.rowId));
+        if (after?.type_id) entityTypeIds.add(String(after.type_id));
+      } else if (table === SyncTableName.AttributeValues) {
+        if (after?.entity_id) entityIds.add(String(after.entity_id));
+        if (after?.attribute_def_id) attrDefIds.add(String(after.attribute_def_id));
+      } else if (table === SyncTableName.AttributeDefs) {
+        if (after?.entity_type_id) entityTypeIds.add(String(after.entity_type_id));
+        if (after?.id) attrDefIds.add(String(after.id));
+      } else if (table === SyncTableName.Operations) {
+        if (after?.engine_entity_id) entityIds.add(String(after.engine_entity_id));
+      } else if (table === SyncTableName.EntityTypes) {
+        if (after?.id) entityTypeIds.add(String(after.id));
+      }
+    }
+
+    const entityRows =
+      entityIds.size === 0
+        ? []
+        : await db
+            .select({ id: entities.id, typeId: entities.typeId })
+            .from(entities)
+            .where(inArray(entities.id, Array.from(entityIds) as any))
+            .limit(50_000);
+    for (const e of entityRows as any[]) {
+      if (e?.typeId) entityTypeIds.add(String(e.typeId));
+    }
+
+    const typeRows =
+      entityTypeIds.size === 0
+        ? []
+        : await db
+            .select({ id: entityTypes.id, code: entityTypes.code, name: entityTypes.name })
+            .from(entityTypes)
+            .where(inArray(entityTypes.id, Array.from(entityTypeIds) as any))
+            .limit(50_000);
+    const typeById = new Map<string, { code: string; name: string }>();
+    for (const t of typeRows as any[]) {
+      typeById.set(String(t.id), { code: String(t.code), name: String(t.name) });
+    }
+
+    const defRows =
+      entityTypeIds.size === 0
+        ? []
+        : await db
+            .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code, name: attributeDefs.name })
+            .from(attributeDefs)
+            .where(inArray(attributeDefs.entityTypeId, Array.from(entityTypeIds) as any))
+            .limit(50_000);
+    const defById = new Map<string, { code: string; name: string; entityTypeId: string }>();
+    const defIdsForValues = new Set<string>();
+    for (const d of defRows as any[]) {
+      defById.set(String(d.id), { code: String(d.code), name: String(d.name), entityTypeId: String(d.entityTypeId) });
+      defIdsForValues.add(String(d.id));
+    }
+
+    const valueRows =
+      entityIds.size === 0 || defIdsForValues.size === 0
+        ? []
+        : await db
+            .select({ entityId: attributeValues.entityId, defId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+            .from(attributeValues)
+            .where(
+              and(
+                inArray(attributeValues.entityId, Array.from(entityIds) as any),
+                inArray(attributeValues.attributeDefId, Array.from(defIdsForValues) as any),
+                isNull(attributeValues.deletedAt),
+              ),
+            )
+            .limit(200_000);
+
+    const attrByEntity = new Map<string, Map<string, unknown>>();
+    for (const v of valueRows as any[]) {
+      const def = defById.get(String(v.defId));
+      if (!def) continue;
+      let val: unknown = v.valueJson ?? null;
+      if (typeof val === 'string') {
+        try {
+          val = JSON.parse(val);
+        } catch {
+          // keep as string
+        }
+      }
+      const map = attrByEntity.get(String(v.entityId)) ?? new Map<string, unknown>();
+      map.set(def.code, val);
+      attrByEntity.set(String(v.entityId), map);
+    }
+
+    function valueToString(v: unknown): string {
+      if (v == null) return '';
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    }
+
+    function entityLabel(typeCode: string | null, attrs: Map<string, unknown> | undefined, fallbackId: string) {
+      const get = (code: string) => valueToString(attrs?.get(code));
+      if (typeCode === 'engine') return get('engine_number') || get('name') || `ID ${fallbackId.slice(0, 8)}`;
+      if (typeCode === 'part') return get('name') || get('article') || `ID ${fallbackId.slice(0, 8)}`;
+      if (typeCode === 'employee') {
+        const full = get('full_name');
+        if (full) return full;
+        const ln = get('last_name');
+        const fn = get('first_name');
+        const mn = get('middle_name');
+        const combined = [ln, fn, mn].filter(Boolean).join(' ');
+        return combined || get('personnel_number') || `ID ${fallbackId.slice(0, 8)}`;
+      }
+      if (typeCode === 'contract') return get('name') || get('contract_number') || `ID ${fallbackId.slice(0, 8)}`;
+      if (typeCode === 'supply_request') return get('name') || `ID ${fallbackId.slice(0, 8)}`;
+      return get('name') || get('title') || get('code') || `ID ${fallbackId.slice(0, 8)}`;
+    }
+
+    const sectionLabels: Record<string, string> = {
+      engine: 'Двигатели',
+      part: 'Детали',
+      employee: 'Сотрудники',
+      contract: 'Контракты',
+      supply_request: 'Заявки',
+    };
+
+    const enriched = (filtered as any[]).map((r) => {
+      const after = parsedAfter.get(String(r.id)) ?? null;
+      const table = String(r.tableName);
+      let entityId = r.rootEntityId ? String(r.rootEntityId) : null;
+      let typeId: string | null = null;
+      let fieldLabel: string | null = null;
+
+      if (table === SyncTableName.Entities) {
+        entityId = String(r.rowId);
+        typeId = after?.type_id ? String(after.type_id) : null;
+      } else if (table === SyncTableName.AttributeValues) {
+        entityId = after?.entity_id ? String(after.entity_id) : entityId;
+        const defId = after?.attribute_def_id ? String(after.attribute_def_id) : null;
+        if (defId) {
+          const def = defById.get(defId);
+          fieldLabel = def?.name ?? def?.code ?? null;
+          if (def?.entityTypeId) typeId = def.entityTypeId;
+        }
+      } else if (table === SyncTableName.AttributeDefs) {
+        typeId = after?.entity_type_id ? String(after.entity_type_id) : null;
+        fieldLabel = after?.name ? String(after.name) : after?.code ? String(after.code) : null;
+      } else if (table === SyncTableName.Operations) {
+        entityId = after?.engine_entity_id ? String(after.engine_entity_id) : entityId;
+        fieldLabel = after?.operation_type ? `Операция: ${String(after.operation_type)}` : 'Операция';
+      } else if (table === SyncTableName.EntityTypes) {
+        typeId = after?.id ? String(after.id) : null;
+        fieldLabel = after?.name ? String(after.name) : after?.code ? String(after.code) : null;
+      }
+
+      const entityRow = entityId ? (entityRows as any[]).find((e) => String(e.id) === entityId) : null;
+      if (!typeId && entityRow?.typeId) typeId = String(entityRow.typeId);
+      const type = typeId ? typeById.get(typeId) ?? null : null;
+      const typeCode = type?.code ?? null;
+      const sectionLabel = typeCode && sectionLabels[typeCode] ? sectionLabels[typeCode] : type?.name ?? r.tableName;
+      const entityAttrs = entityId ? attrByEntity.get(entityId) : undefined;
+      const entityName = entityId ? entityLabel(typeCode, entityAttrs, entityId) : null;
+
+      return {
+        ...r,
+        sectionLabel,
+        entityLabel: entityName,
+        fieldLabel,
+      };
+    });
+
+    return res.json({ ok: true, changes: enriched });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
