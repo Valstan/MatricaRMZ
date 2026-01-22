@@ -53,7 +53,7 @@ type TorrentSeedInfo = {
   torrentPath: string;
 };
 
-const TORRENT_CACHE_ROOT = () => join(app.getPath('userData'), 'updates');
+const TORRENT_CACHE_ROOT = () => join(app.getPath('downloads'), 'MatricaRMZ-Updates');
 const SEED_INFO_PATH = () => join(TORRENT_CACHE_ROOT(), 'torrent-seed.json');
 
 const DEFAULT_TIMEOUT_MS = 10_000;

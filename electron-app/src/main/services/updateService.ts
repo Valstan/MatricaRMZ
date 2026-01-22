@@ -93,6 +93,10 @@ function updaterLogPath() {
   return join(app.getPath('userData'), 'matricarmz-updater.log');
 }
 
+function getUpdatesRootDir() {
+  return join(app.getPath('downloads'), 'MatricaRMZ-Updates');
+}
+
 async function writeUpdaterLog(message: string) {
   try {
     const ts = new Date().toISOString();
@@ -385,7 +389,7 @@ async function stageUpdate(msg: string, pct?: number, version?: string) {
 
 async function cacheInstaller(filePath: string, version?: string) {
   const ver = version?.trim() || 'latest';
-  const outDir = join(app.getPath('userData'), 'updates', ver);
+  const outDir = join(getUpdatesRootDir(), ver);
   await mkdir(outDir, { recursive: true });
   const outPath = join(outDir, basename(filePath));
   if (outPath === filePath) return outPath;
@@ -394,7 +398,7 @@ async function cacheInstaller(filePath: string, version?: string) {
 }
 
 async function cleanupUpdateCache(keepVersion: string) {
-  const updatesDir = join(app.getPath('userData'), 'updates');
+  const updatesDir = getUpdatesRootDir();
   const entries = await readdir(updatesDir, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     const entryPath = join(updatesDir, entry.name);
@@ -426,11 +430,11 @@ async function cleanupUpdateCache(keepVersion: string) {
 }
 
 function pendingUpdatePath() {
-  return join(app.getPath('userData'), 'updates', 'pending-update.json');
+  return join(getUpdatesRootDir(), 'pending-update.json');
 }
 
 async function writePendingUpdate(data: { version: string; installerPath: string }) {
-  const outDir = join(app.getPath('userData'), 'updates');
+  const outDir = getUpdatesRootDir();
   await mkdir(outDir, { recursive: true });
   await writeFile(pendingUpdatePath(), JSON.stringify(data, null, 2), 'utf8');
 }
