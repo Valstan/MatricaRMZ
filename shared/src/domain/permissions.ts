@@ -1,6 +1,7 @@
 export const PermissionCode = {
   // system / admin
   AdminUsersManage: 'admin.users.manage',
+  EmployeesView: 'employees.view',
   EmployeesCreate: 'employees.create',
   ClientsManage: 'clients.manage',
 
@@ -88,7 +89,8 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     adminOnly: true,
   },
 
-  { code: PermissionCode.EmployeesCreate, group: 'Сотрудники', titleRu: 'Добавление сотрудников' },
+  { code: PermissionCode.EmployeesView, group: 'Сотрудники', titleRu: 'Просмотр сотрудников' },
+  { code: PermissionCode.EmployeesCreate, group: 'Сотрудники', titleRu: 'Добавление/редактирование сотрудников' },
 
   { code: PermissionCode.MasterDataView, group: 'Справочники', titleRu: 'Просмотр справочников (мастер-данные)' },
   { code: PermissionCode.MasterDataEdit, group: 'Справочники', titleRu: 'Редактирование справочников (мастер-данные)' },

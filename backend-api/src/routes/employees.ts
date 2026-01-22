@@ -7,9 +7,8 @@ import { listEmployeesAuth } from '../services/employeeAuthService.js';
 export const employeesRouter = Router();
 
 employeesRouter.use(requireAuth);
-employeesRouter.use(requirePermission(PermissionCode.EmployeesCreate));
 
-employeesRouter.get('/access', async (_req, res) => {
+employeesRouter.get('/access', requirePermission(PermissionCode.EmployeesView), async (_req, res) => {
   try {
     const list = await listEmployeesAuth();
     if (!list.ok) return res.status(500).json({ ok: false, error: list.error });

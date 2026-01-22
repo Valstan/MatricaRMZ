@@ -102,8 +102,10 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             {items.map((row) => {
               const status = String(row.employmentStatus ?? '').toLowerCase();
               const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
-              const hasAccess = row.accessEnabled === true;
-              const accessLabel = hasAccess ? 'Доступ разрешён' : 'Доступ запрещён';
+              const accessState = row.accessEnabled;
+              const hasAccess = accessState === true;
+              const accessLabel = accessState === true ? 'Доступ разрешён' : accessState === false ? 'Доступ запрещён' : 'Нет данных';
+              const accessColor = accessState === true ? '#065f46' : accessState === false ? '#b91c1c' : '#6b7280';
               return (
                 <tr
                   key={row.id}
@@ -123,7 +125,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.position || '—'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.departmentName || '—'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{statusLabel}</td>
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: hasAccess ? '#065f46' : '#b91c1c' }}>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: accessColor }}>
                     {accessLabel}
                   </td>
                 </tr>

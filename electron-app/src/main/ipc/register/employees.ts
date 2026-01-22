@@ -20,13 +20,13 @@ async function getEntityTypeIdByCode(ctx: IpcContext, code: string): Promise<str
 
 export function registerEmployeesIpc(ctx: IpcContext) {
   ipcMain.handle('employees:list', async () => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return [];
     return listEmployeesSummary(ctx.dataDb(), ctx.sysDb, ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('employees:get', async (_e, id: string) => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) throw new Error(gate.error);
     return getEntityDetails(ctx.dataDb(), id);
   });
@@ -48,7 +48,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {
   });
 
   ipcMain.handle('employees:departments:list', async () => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return [];
     const typeId = await getEntityTypeIdByCode(ctx, 'department');
     if (!typeId) return [];
@@ -56,13 +56,13 @@ export function registerEmployeesIpc(ctx: IpcContext) {
   });
 
   ipcMain.handle('employees:defs', async () => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return [];
     return listEmployeeAttributeDefs(ctx.dataDb());
   });
 
   ipcMain.handle('employees:permissionsGet', async (_e, userId: string) => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return { ok: false as const, error: gate.error };
     return viewUserPermissions(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId);
   });

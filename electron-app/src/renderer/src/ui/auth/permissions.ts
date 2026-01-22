@@ -5,6 +5,7 @@ export function has(perms: PermissionsMap | null | undefined, code: string): boo
 }
 
 export type UiCaps = {
+  canViewEmployees: boolean;
   canViewEngines: boolean;
   canEditEngines: boolean;
   canViewOperations: boolean;
@@ -73,9 +74,11 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canCreateParts = has(perms, 'parts.create');
   const canEditParts = has(perms, 'parts.edit');
   const canDeleteParts = has(perms, 'parts.delete');
+  const canViewEmployees = has(perms, 'employees.view');
   const canManageEmployees = has(perms, 'employees.create');
 
   return {
+    canViewEmployees,
     canViewEngines,
     canEditEngines,
     canViewOperations,

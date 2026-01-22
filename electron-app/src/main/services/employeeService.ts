@@ -180,7 +180,7 @@ export async function listEmployeesSummary(
       employmentStatus,
       personnelNumber,
       updatedAt: Number(row.updatedAt ?? 0),
-      accessEnabled: access?.accessEnabled ?? false,
+      accessEnabled: access?.accessEnabled,
       systemRole: access?.systemRole ?? '',
     };
   });

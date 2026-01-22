@@ -268,6 +268,7 @@ export function App() {
         canEditMasterData: false,
         canViewParts: false,
         canManageEmployees: false,
+        canViewEmployees: false,
       }
     : capsBase;
   const visibleTabs: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>[] = [
@@ -275,7 +276,7 @@ export function App() {
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
-    ...(caps.canManageEmployees ? (['employees'] as const) : []),
+    ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),

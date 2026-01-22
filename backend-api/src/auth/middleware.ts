@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { AuthUser } from './jwt.js';
 import { verifyAccessToken } from './jwt.js';
 import { hasPermission } from './permissions.js';
-import { getEmployeeAuthById } from '../services/employeeAuthService.js';
+import { getEmployeeAuthById, normalizeRole } from '../services/employeeAuthService.js';
 
 export type AuthenticatedRequest = Request & { user: AuthUser };
 
@@ -23,7 +23,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!auth?.accessEnabled) {
       return res.status(403).json({ ok: false, error: 'user disabled' });
     }
-    (req as AuthenticatedRequest).user = user;
+    const login = auth.login?.trim() ? auth.login.trim() : user.username;
+    const role = normalizeRole(login, auth.systemRole);
+    (req as AuthenticatedRequest).user = { id: user.id, username: login, role };
     return next();
   } catch {
     return res.status(401).json({ ok: false, error: 'invalid token' });

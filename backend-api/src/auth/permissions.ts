@@ -55,6 +55,7 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     [PermissionCode.EnginesView]: true,
     [PermissionCode.OperationsView]: true,
     [PermissionCode.ReportsView]: true,
+    [PermissionCode.EmployeesView]: true,
     [PermissionCode.SyncUse]: true,
 
     // files (просмотр/скачивание по ссылке)
