@@ -104,17 +104,28 @@ async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000) {
     } catch {
       // ignore and retry
     }
-    await sleep(20_000);
+    await sleep(5_000);
   }
   return null;
 }
 
-function downloadWindowsInstaller(tag, pattern, destDir) {
+function downloadWindowsInstaller(tag, pattern, destDir, attempts = 3) {
   run(`sudo mkdir -p ${destDir}`);
   run(`sudo chown -R $USER:$USER ${destDir}`);
-  // eslint-disable-next-line no-console
-  console.log(`Downloading Windows installer: ${pattern} -> ${destDir}`);
-  run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir} --skip-existing`);
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`Downloading Windows installer (attempt ${attempt}/${attempts}): ${pattern} -> ${destDir}`);
+      run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir} --skip-existing`);
+      return;
+    } catch (e) {
+      lastError = e;
+      // eslint-disable-next-line no-console
+      console.log(`Download failed: ${String(e)}`);
+    }
+  }
+  throw lastError ?? new Error('Download failed');
 }
 
 function fetchUpdatesStatus(base) {
@@ -239,10 +250,11 @@ async function main() {
   if (hasGh()) {
     try {
       run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
-      const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 100_000);
+      const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 30_000);
       const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
       let assetName = null;
-      const maxAttempts = envInt('MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS', 4);
+      const maxAttempts = envInt('MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS', 6);
+      const downloadAttempts = envInt('MATRICA_RELEASE_DOWNLOAD_ATTEMPTS', 3);
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         // eslint-disable-next-line no-console
         console.log(`Asset wait attempt ${attempt}/${maxAttempts}`);
@@ -251,12 +263,20 @@ async function main() {
       }
       if (assetName) {
         const destDir = '/opt/matricarmz/updates';
-        downloadWindowsInstaller(tag, assetName, destDir);
-        await waitForUpdatesStatus(version, statusWaitMs);
+        try {
+          downloadWindowsInstaller(tag, assetName, destDir, downloadAttempts);
+          await waitForUpdatesStatus(version, statusWaitMs);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.log(`Windows installer download failed: ${String(e)}`);
+          diagnoseWindowsRelease(tag);
+          throw e;
+        }
       } else {
         // eslint-disable-next-line no-console
         console.log('Windows release asset not found within timeout. Investigate GitHub Actions status.');
         diagnoseWindowsRelease(tag);
+        throw new Error('Windows release asset not found');
       }
     } catch (e) {
       // eslint-disable-next-line no-console
