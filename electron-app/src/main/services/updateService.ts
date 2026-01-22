@@ -697,9 +697,73 @@ async function backgroundTorrentDownload(manifest: TorrentUpdateManifest, versio
 }
 
 export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {}) {
-  const intervalMs = Math.max(5 * 60_000, opts.intervalMs ?? 30 * 60_000);
+  const intervalMs = Math.max(5 * 60_000, opts.intervalMs ?? 5 * 60_000);
   setTimeout(() => void tick(), 90_000);
   setInterval(() => void tick(), intervalMs);
+
+  async function tryGithubDownload(targetVersion?: string, torrentManifest?: TorrentUpdateManifest | null) {
+    setUpdateState({ state: 'checking', source: 'github', message: 'Проверяем обновления (GitHub)…' });
+    const gh = await checkGithubReleaseForUpdates();
+    if (!gh.ok || !gh.updateAvailable || !gh.downloadUrl) return false;
+    if (targetVersion && gh.version && compareSemver(gh.version, targetVersion) !== 0) return false;
+    const version = gh.version ?? targetVersion;
+    if (!version) return false;
+    await stopTorrentSeeding().catch(() => {});
+    await stopTorrentDownload().catch(() => {});
+    await cleanupUpdateCache(version);
+    const gdl = await downloadGithubUpdate(gh.downloadUrl, version);
+    if (!gdl.ok || !gdl.filePath) {
+      setUpdateState({ state: 'error', source: 'github', version, message: gdl.error ?? 'download failed' });
+      return false;
+    }
+    const cachedPath = await cacheInstaller(gdl.filePath, version);
+    await ensureTorrentSeedArtifacts(torrentManifest ?? null, cachedPath, version);
+    const queued = await queuePendingUpdate({ version, installerPath: cachedPath });
+    if (!queued.ok) {
+      setUpdateState({ state: 'error', source: 'github', version, message: queued.error });
+      return false;
+    }
+    setUpdateState({
+      state: 'downloaded',
+      source: 'github',
+      version,
+      progress: 100,
+      message: 'Обновление скачано. Установится после перезапуска.',
+    });
+    return true;
+  }
+
+  async function tryYandexDownload(targetVersion?: string, torrentManifest?: TorrentUpdateManifest | null) {
+    setUpdateState({ state: 'checking', source: 'yandex', message: 'Проверяем обновления (Yandex)…' });
+    const y = await checkYandexForUpdates();
+    if (!y.ok || !y.updateAvailable) return false;
+    if (targetVersion && y.version && compareSemver(y.version, targetVersion) !== 0) return false;
+    const version = y.version ?? targetVersion;
+    if (!version) return false;
+    await stopTorrentSeeding().catch(() => {});
+    await stopTorrentDownload().catch(() => {});
+    await cleanupUpdateCache(version);
+    const ydl = await downloadYandexUpdate(y);
+    if (!ydl.ok || !ydl.filePath) {
+      setUpdateState({ state: 'error', source: 'yandex', version, message: ydl.error ?? 'download failed' });
+      return false;
+    }
+    const cachedPath = await cacheInstaller(ydl.filePath, version);
+    await ensureTorrentSeedArtifacts(torrentManifest ?? null, cachedPath, version);
+    const queued = await queuePendingUpdate({ version, installerPath: cachedPath });
+    if (!queued.ok) {
+      setUpdateState({ state: 'error', source: 'yandex', version, message: queued.error });
+      return false;
+    }
+    setUpdateState({
+      state: 'downloaded',
+      source: 'yandex',
+      version,
+      progress: 100,
+      message: 'Обновление скачано. Установится после перезапуска.',
+    });
+    return true;
+  }
 
   async function tick() {
     if (updateInFlight || backgroundInFlight) return;
@@ -717,20 +781,16 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         setUpdateState({ state: 'error', source: 'torrent', message: 'Нет сети, повторим позже.' });
         return;
       }
-      setUpdateState({ state: 'checking', source: 'torrent', message: 'Проверяем обновления (torrent)…' });
-      const baseUrl = getUpdateApiBaseUrl();
-      const manifest = await fetchTorrentManifest(baseUrl);
-      if (!manifest) {
-        setUpdateState({ state: 'idle' });
-        return;
-      }
       const current = app.getVersion();
-      const updateAvailable = compareSemver(manifest.version, current) > 0;
-      if (!updateAvailable) {
+      const baseUrl = getUpdateApiBaseUrl();
+      setUpdateState({ state: 'checking', source: 'torrent', message: 'Проверяем обновления (torrent)…' });
+      const manifest = await fetchTorrentManifest(baseUrl);
+      const targetVersion = manifest?.version ?? null;
+      if (targetVersion && compareSemver(targetVersion, current) <= 0) {
         setUpdateState({ state: 'idle' });
         return;
       }
-      if (pending?.version && compareSemver(manifest.version, pending.version) <= 0) {
+      if (pending?.version && targetVersion && compareSemver(targetVersion, pending.version) <= 0) {
         setUpdateState({
           state: 'downloaded',
           source: 'torrent',
@@ -740,8 +800,20 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         });
         return;
       }
-      const prepared = { ...manifest, torrentUrl: buildTorrentManifestUrl(baseUrl, manifest.torrentUrl) };
-      await backgroundTorrentDownload(prepared, manifest.version);
+      const prepared = manifest ? { ...manifest, torrentUrl: buildTorrentManifestUrl(baseUrl, manifest.torrentUrl) } : null;
+      if (prepared && targetVersion) {
+        await backgroundTorrentDownload(prepared, targetVersion);
+        const updated = await readPendingUpdate();
+        if (updated?.version && compareSemver(updated.version, current) > 0) return;
+      }
+
+      const ghOk = await tryGithubDownload(targetVersion ?? undefined, prepared);
+      if (ghOk) return;
+
+      const yOk = await tryYandexDownload(targetVersion ?? undefined, prepared);
+      if (yOk) return;
+
+      setUpdateState({ state: 'idle' });
     } catch (e) {
       setUpdateState({ state: 'error', source: 'torrent', message: String(e) });
     } finally {
@@ -776,6 +848,11 @@ export async function runAutoUpdateFlow(
     await stageUpdate('Проверяем локальные обновления…', 2);
     const current = app.getVersion();
     const serverVersion = await getServerVersion();
+    if (serverVersion && compareSemver(serverVersion, current) <= 0) {
+      await stageUpdate('Обновлений нет. Запускаем приложение…', 100);
+      closeUpdateWindowSoon(700);
+      return { action: 'no_update' };
+    }
     const local = await resolveLocalInstaller(current, serverVersion);
     if (local.action === 'install') {
       await installNow({ installerPath: local.installerPath, version: local.version });
@@ -1120,6 +1197,18 @@ function extractVersionFromFileName(fileName: string): string | null {
   return m ? m[1] : null;
 }
 
+function resolveUpdateVersion(version?: string, fileName?: string) {
+  const cleaned = version?.trim();
+  if (cleaned) return cleaned;
+  const fromName = fileName ? extractVersionFromFileName(fileName) : null;
+  return fromName ?? 'latest';
+}
+
+function getUpdateDownloadDir(version?: string, fileName?: string) {
+  const ver = resolveUpdateVersion(version, fileName);
+  return join(getUpdatesRootDir(), ver);
+}
+
 function pickNewestInstaller(items: string[]): string | null {
   const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
   if (exes.length === 0) return null;
@@ -1238,7 +1327,7 @@ async function downloadYandexUpdate(
     const filePath = joinPosix(basePath, fileName);
     const href = await getYandexDownloadHref(publicKey, filePath);
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
-    const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
+    const outDir = getUpdateDownloadDir(info.version, fileName);
     await mkdir(outDir, { recursive: true });
     const outPath = join(outDir, fileName);
     return await downloadWithResume(href, outPath, {
@@ -1261,7 +1350,7 @@ async function downloadGithubUpdate(
 ) {
   try {
     const fileName = basename(new URL(url).pathname) || `MatricaRMZ-${version ?? 'update'}.exe`;
-    const outDir = join(tmpdir(), 'MatricaRMZ-Updates');
+    const outDir = getUpdateDownloadDir(version, fileName);
     await mkdir(outDir, { recursive: true });
     const outPath = join(outDir, fileName);
     return await downloadWithResume(url, outPath, {
