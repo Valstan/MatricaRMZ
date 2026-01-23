@@ -39,7 +39,7 @@ export const theme = {
 export type AccentKey = keyof typeof theme.accents;
 
 export function tabAccent(tab: string): AccentKey {
-  if (tab === 'engines' || tab === 'engine') return 'engines';
+  if (tab === 'engines' || tab === 'engine' || tab === 'engine_brands' || tab === 'engine_brand') return 'engines';
   if (tab === 'auth') return 'auth';
   if (tab === 'reports') return 'reports';
   if (tab === 'requests' || tab === 'request') return 'requests';

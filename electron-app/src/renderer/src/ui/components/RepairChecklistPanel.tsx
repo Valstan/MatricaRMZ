@@ -15,6 +15,15 @@ function safeJsonStringify(v: unknown) {
   }
 }
 
+function escapeHtml(s: string) {
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 function csvEscape(s: string) {
   const t = String(s ?? '');
   if (/[",\n\r]/.test(t)) return `"${t.replaceAll('"', '""')}"`;
@@ -300,52 +309,91 @@ export function RepairChecklistPanel(props: {
 
   function printChecklist() {
     if (!activeTemplate) return;
+    const formatBool = (val: unknown) => (val ? 'Да' : 'Нет');
+    const renderTable = (it: any, a: any) => {
+      const rows: any[] = Array.isArray(a?.rows) ? a.rows : [];
+      const cols =
+        Array.isArray(it?.columns) && it.columns.length > 0
+          ? it.columns
+          : rows[0]
+            ? Object.keys(rows[0]).map((id) => ({ id, label: id }))
+            : [{ id: 'value', label: 'Значение' }];
+      const head = cols.map((c: any) => `<th>${escapeHtml(c.label ?? c.id)}</th>`).join('');
+      const body =
+        rows.length === 0
+          ? `<tr><td colspan="${cols.length}" class="muted">Нет данных</td></tr>`
+          : rows
+              .map((row) => {
+                const tds = cols
+                  .map((c: any) => {
+                    const raw = (row as any)?.[c.id];
+                    const isBool = c.kind === 'boolean' || typeof raw === 'boolean';
+                    const value = isBool ? formatBool(raw) : raw == null ? '—' : String(raw);
+                    return `<td>${escapeHtml(value)}</td>`;
+                  })
+                  .join('');
+                return `<tr>${tds}</tr>`;
+              })
+              .join('');
+      return `<table class="doc-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    };
     const html = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
   <title>${panelTitle}</title>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 12px 0; font-size: 20px; }
-    .meta { color: #444; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; vertical-align: top; }
-    th { background: #f5f5f5; }
-    .muted { color: #666; }
+    @page { size: A4; margin: 12mm; }
+    body { font-family: "Times New Roman", "Liberation Serif", serif; margin: 0; color: #0b1220; }
+    h1 { margin: 0 0 6px 0; font-size: 18px; text-transform: uppercase; letter-spacing: 0.2px; }
+    .doc { padding: 12mm; }
+    .meta { color: #111827; margin-bottom: 12px; font-size: 12px; line-height: 1.35; }
+    .doc-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .doc-table th, .doc-table td { border: 1px solid #111827; padding: 6px 8px; font-size: 12px; vertical-align: top; }
+    .doc-table th { background: #f3f4f6; font-weight: 700; }
+    .muted { color: #6b7280; }
+    .section-title { margin: 12px 0 6px; font-size: 13px; font-weight: 700; }
+    .signature { margin-top: 10px; font-size: 12px; }
+    .signature-line { display: inline-block; border-bottom: 1px solid #111827; min-width: 220px; height: 14px; vertical-align: bottom; }
     @media print { .no-print { display: none; } }
   </style>
 </head>
 <body>
-  <div class="no-print" style="margin-bottom:12px;">
+  <div class="no-print" style="margin:12px;">
     <button onclick="window.print()">Печать</button>
   </div>
-  <h1>${panelTitle}</h1>
-  <div class="meta">
-    <div><b>Двигатель:</b> ${String(props.engineBrand ?? '')} ${String(props.engineNumber ?? '')}</div>
-    <div><b>Шаблон:</b> ${activeTemplate.name} (v${activeTemplate.version})</div>
-    <div><b>Дата:</b> ${new Date().toLocaleString('ru-RU')}</div>
+  <div class="doc">
+    <h1>${panelTitle}</h1>
+    <div class="meta">
+      <div><b>Двигатель:</b> ${escapeHtml(String(props.engineBrand ?? ''))} ${escapeHtml(String(props.engineNumber ?? ''))}</div>
+      <div><b>Шаблон:</b> ${escapeHtml(activeTemplate.name)} (v${escapeHtml(String(activeTemplate.version))})</div>
+      <div><b>Дата:</b> ${escapeHtml(new Date().toLocaleString('ru-RU'))}</div>
+    </div>
+    <table class="doc-table">
+      <thead><tr><th style="width:40%">Поле</th><th>Значение</th></tr></thead>
+      <tbody>
+        ${activeTemplate.items
+          .map((it) => {
+            const a: any = (answers as any)[it.id];
+            if (!a) return `<tr><td>${escapeHtml(it.label)}</td><td class="muted">—</td></tr>`;
+            if (a.kind === 'text') return `<tr><td>${escapeHtml(it.label)}</td><td>${escapeHtml(String(a.value ?? ''))}</td></tr>`;
+            if (a.kind === 'date') return `<tr><td>${escapeHtml(it.label)}</td><td>${a.value ? escapeHtml(new Date(a.value).toLocaleDateString('ru-RU')) : ''}</td></tr>`;
+            if (a.kind === 'boolean') return `<tr><td>${escapeHtml(it.label)}</td><td>${formatBool(a.value)}</td></tr>`;
+            if (a.kind === 'signature')
+              return `<tr><td>${escapeHtml(it.label)}</td><td>ФИО: ${escapeHtml(String(a.fio ?? ''))}<br/>Должность: ${escapeHtml(
+                String(a.position ?? ''),
+              )}<br/>Дата: ${a.signedAt ? escapeHtml(new Date(a.signedAt).toLocaleDateString('ru-RU')) : ''}</td></tr>`;
+            if (a.kind === 'table')
+              return `<tr><td>${escapeHtml(it.label)}</td><td>${renderTable(it, a)}</td></tr>`;
+            return `<tr><td>${escapeHtml(it.label)}</td><td class="muted">—</td></tr>`;
+          })
+          .join('\n')}
+      </tbody>
+    </table>
+    <div class="signature">
+      <div>Подпись: <span class="signature-line"></span></div>
+    </div>
   </div>
-  <table>
-    <thead><tr><th style="width:40%">Поле</th><th>Значение</th></tr></thead>
-    <tbody>
-      ${activeTemplate.items
-        .map((it) => {
-          const a: any = (answers as any)[it.id];
-          if (!a) return `<tr><td>${it.label}</td><td class="muted">—</td></tr>`;
-          if (a.kind === 'text') return `<tr><td>${it.label}</td><td>${String(a.value ?? '')}</td></tr>`;
-          if (a.kind === 'date') return `<tr><td>${it.label}</td><td>${a.value ? new Date(a.value).toLocaleDateString('ru-RU') : ''}</td></tr>`;
-          if (a.kind === 'boolean') return `<tr><td>${it.label}</td><td>${a.value ? 'да' : 'нет'}</td></tr>`;
-          if (a.kind === 'signature')
-            return `<tr><td>${it.label}</td><td>ФИО: ${String(a.fio ?? '')}<br/>Должность: ${String(a.position ?? '')}<br/>Дата: ${
-              a.signedAt ? new Date(a.signedAt).toLocaleDateString('ru-RU') : ''
-            }</td></tr>`;
-          if (a.kind === 'table') return `<tr><td>${it.label}</td><td><pre>${safeJsonStringify(a.rows ?? [])}</pre></td></tr>`;
-          return `<tr><td>${it.label}</td><td class="muted">—</td></tr>`;
-        })
-        .join('\n')}
-    </tbody>
-  </table>
 </body>
 </html>`;
     const w = window.open('', '_blank');

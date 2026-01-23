@@ -6,6 +6,8 @@ import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
 import { EnginesPage } from './pages/EnginesPage.js';
 import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
+import { EngineBrandsPage } from './pages/EngineBrandsPage.js';
+import { EngineBrandDetailsPage } from './pages/EngineBrandDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { MasterdataPage } from './pages/AdminPage.js';
@@ -39,6 +41,7 @@ export function App() {
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
   const [engineLoading, setEngineLoading] = useState<boolean>(false);
   const [engineOpenError, setEngineOpenError] = useState<string>('');
+  const [selectedEngineBrandId, setSelectedEngineBrandId] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditItem[]>([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
@@ -120,6 +123,7 @@ export function App() {
     setEngineDetails(null);
     setSelectedContractId(null);
     setSelectedRequestId(null);
+    setSelectedEngineBrandId(null);
     setSelectedPartId(null);
     setSelectedEmployeeId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
@@ -294,6 +298,7 @@ export function App() {
   const availableTabs: MenuTabId[] = [
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
+    ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
@@ -305,7 +310,8 @@ export function App() {
   const menuState = deriveMenuState(availableTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');
-  const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'> = authStatus.loggedIn ? 'settings' : 'auth';
+  const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand'> =
+    authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -347,7 +353,8 @@ export function App() {
 
   // Gate: если вкладка скрылась по permissions/настройкам — переключаем на первую доступную.
   useEffect(() => {
-    if (tab === 'engine' || tab === 'request' || tab === 'part' || tab === 'employee' || tab === 'contract') return;
+    if (tab === 'engine' || tab === 'engine_brand' || tab === 'request' || tab === 'part' || tab === 'employee' || tab === 'contract')
+      return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
   }, [tab, visibleTabsKey, userTab]);
@@ -404,6 +411,11 @@ export function App() {
     setTab('request');
   }
 
+  async function openEngineBrand(id: string) {
+    setSelectedEngineBrandId(id);
+    setTab('engine_brand');
+  }
+
   async function openContract(id: string) {
     setSelectedContractId(id);
     setTab('contract');
@@ -426,6 +438,7 @@ export function App() {
     const partId = link?.partId ? String(link.partId) : null;
     const contractId = link?.contractId ? String(link.contractId) : null;
     const employeeId = link?.employeeId ? String(link.employeeId) : null;
+    const engineBrandId = link?.engineBrandId ? String(link.engineBrandId) : null;
 
     // Prefer opening specific entities if IDs are present.
     if (engineId) {
@@ -448,6 +461,10 @@ export function App() {
       await openEmployee(employeeId);
       return;
     }
+    if (engineBrandId) {
+      await openEngineBrand(engineBrandId);
+      return;
+    }
     setTab(tabId);
   }
 
@@ -463,6 +480,8 @@ export function App() {
       contract: 'Карточка контракта',
       changes: 'Изменения',
       engines: 'Двигатели',
+      engine_brands: 'Марки двигателей',
+      engine_brand: 'Карточка марки двигателя',
       engine: 'Карточка двигателя',
       requests: 'Заявки',
       request: 'Карточка заявки',
@@ -478,6 +497,7 @@ export function App() {
     };
     const parent: Record<string, string> = {
       engine: 'Двигатели',
+      engine_brand: 'Марки двигателей',
       request: 'Заявки',
       part: 'Детали',
       contract: 'Контракты',
@@ -495,6 +515,7 @@ export function App() {
       if (number) crumbs.push(`№ ${number}`);
       else if (selectedEngineId) crumbs.push(`ID ${shortId(selectedEngineId)}`);
     }
+    if (tab === 'engine_brand' && selectedEngineBrandId) crumbs.push(`ID ${shortId(selectedEngineBrandId)}`);
     if (tab === 'request' && selectedRequestId) crumbs.push(`ID ${shortId(selectedRequestId)}`);
     if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
     if (tab === 'contract' && selectedContractId) crumbs.push(`ID ${shortId(selectedContractId)}`);
@@ -519,6 +540,7 @@ export function App() {
       kind: 'app_link',
       tab,
       engineId: tab === 'engine' ? selectedEngineId ?? null : null,
+      engineBrandId: tab === 'engine_brand' ? selectedEngineBrandId ?? null : null,
       requestId: tab === 'request' ? selectedRequestId ?? null : null,
       partId: tab === 'part' ? selectedPartId ?? null : null,
       contractId: tab === 'contract' ? selectedContractId ?? null : null,
@@ -558,8 +580,12 @@ export function App() {
   const pageTitle =
     tab === 'engines'
       ? 'Матрица РМЗ — Двигатели'
+      : tab === 'engine_brands'
+        ? 'Матрица РМЗ — Марки двигателей'
       : tab === 'engine'
         ? 'Матрица РМЗ — Карточка двигателя'
+        : tab === 'engine_brand'
+          ? 'Матрица РМЗ — Карточка марки двигателя'
         : tab === 'changes'
           ? 'Матрица РМЗ — Изменения'
         : tab === 'requests'
@@ -804,6 +830,14 @@ export function App() {
           />
         )}
 
+        {tab === 'engine_brands' && (
+          <EngineBrandsPage
+            onOpen={openEngineBrand}
+            canCreate={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
         {tab === 'contracts' && (
           <ContractsPage
             onOpen={openContract}
@@ -840,6 +874,16 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
           />
       )}
+
+        {tab === 'engine_brand' && selectedEngineBrandId && (
+          <EngineBrandDetailsPage
+            key={selectedEngineBrandId}
+            brandId={selectedEngineBrandId}
+            canEdit={caps.canEditMasterData}
+            canViewParts={caps.canViewParts}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
         {tab === 'engine' && selectedEngineId && !engineDetails && (
           <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Карточка двигателя</div>

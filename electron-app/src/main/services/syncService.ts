@@ -12,8 +12,8 @@ import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsSto
 import { logMessage } from './logService.js';
 import { fetchWithRetry } from './netFetch.js';
 
-const PUSH_TIMEOUT_MS = 120_000;
-const PULL_TIMEOUT_MS = 30_000;
+const PUSH_TIMEOUT_MS = 180_000;
+const PULL_TIMEOUT_MS = 60_000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 200,
@@ -124,6 +124,12 @@ async function getSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, f
 
 async function setSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, value: number) {
   await settingsSetNumber(db, key, value);
+}
+
+export async function resetSyncState(db: BetterSQLite3Database) {
+  await settingsSetNumber(db, SettingsKey.LastPulledServerSeq, 0);
+  await settingsSetNumber(db, SettingsKey.LastSyncAt, 0);
+  await settingsSetNumber(db, SettingsKey.LastAppliedAt, 0);
 }
 
 async function collectPending(db: BetterSQLite3Database) {
@@ -874,11 +880,23 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     // Self-heal: if cursor is advanced but local DB looks empty/corrupted, force a full pull.
     // This can happen if a previous client version updated cursor but failed to apply pulled rows.
     if (since > 0) {
-      const haveEngineType = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.code, EntityTypeCode.Engine)).limit(1);
-      if (!haveEngineType[0]?.id) {
-        logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.Engine}' while since=${since}`);
-        since = 0;
-      } else {
+      const requiredTypes = [
+        EntityTypeCode.Engine,
+        EntityTypeCode.EngineBrand,
+        EntityTypeCode.Part,
+        EntityTypeCode.Employee,
+        EntityTypeCode.Contract,
+        EntityTypeCode.Customer,
+      ];
+      for (const code of requiredTypes) {
+        const t = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.code, code)).limit(1);
+        if (!t[0]?.id) {
+          logSync(`force full pull (since=0): missing local entity_type '${code}' while since=${since}`);
+          since = 0;
+          break;
+        }
+      }
+      if (since > 0) {
         const engineBrandType = await db
           .select({ id: entityTypes.id })
           .from(entityTypes)

@@ -6,6 +6,8 @@ import { tabAccent, theme } from '../theme.js';
 export type TabId =
   | 'engines'
   | 'engine'
+  | 'engine_brands'
+  | 'engine_brand'
   | 'contracts'
   | 'contract'
   | 'requests'
@@ -22,7 +24,7 @@ export type TabId =
   | 'audit'
   | 'settings';
 
-export type MenuTabId = Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract'>;
+export type MenuTabId = Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand'>;
 export type TabsLayoutPrefs = {
   order?: MenuTabId[];
   hidden?: MenuTabId[];
@@ -86,6 +88,7 @@ export function Tabs(props: {
     contracts: 'Контракты',
     changes: 'Изменения',
     engines: 'Двигатели',
+    engine_brands: 'Марки двигателей',
     requests: 'Заявки',
     parts: 'Детали',
     employees: 'Сотрудники',

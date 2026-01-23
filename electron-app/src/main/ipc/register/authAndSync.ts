@@ -13,6 +13,7 @@ import {
   presenceMe,
 } from '../../services/authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import { resetSyncState } from '../../services/syncService.js';
 import { isViewMode } from '../ipcContext.js';
 
 export function registerAuthAndSyncIpc(ctx: IpcContext) {
@@ -45,6 +46,11 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     return ctx.mgr.runOnce();
   });
   ipcMain.handle('sync:status', async () => ctx.mgr.getStatus());
+  ipcMain.handle('sync:reset', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
+    await resetSyncState(ctx.sysDb);
+    return { ok: true as const };
+  });
   ipcMain.handle('sync:config:get', async () => {
     try {
       const v = await settingsGetString(ctx.sysDb, SettingsKey.ApiBaseUrl);
