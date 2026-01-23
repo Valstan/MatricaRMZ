@@ -125,6 +125,20 @@ async function writeUpdaterLog(message: string) {
   }
 }
 
+async function describePath(label: string, path: string) {
+  try {
+    const st = await stat(path).catch(() => null);
+    if (!st) {
+      await writeUpdaterLog(`path ${label}: missing (${path})`);
+      return;
+    }
+    const kind = st.isDirectory() ? 'dir' : st.isFile() ? 'file' : 'other';
+    await writeUpdaterLog(`path ${label}: ${kind} size=${st.size} (${path})`);
+  } catch (e) {
+    await writeUpdaterLog(`path ${label}: error ${String(e)} (${path})`);
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -201,7 +215,7 @@ async function renderUpdateLog() {
   const w = updateUiWindow;
   if (!w || w.isDestroyed()) return;
   const items = updateLog.map((line) => `<div class="log-item">${escapeHtml(line)}</div>`).join('');
-  const safe = items.replace(/'/g, "\\'");
+  const safe = items.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const js = `document.getElementById('log').innerHTML='${safe}';`;
   await w.webContents.executeJavaScript(js, true).catch(() => {});
   const lineCount = Math.min(updateLog.length, 18);
@@ -570,6 +584,7 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
   lockUpdateUi(true);
   await setUpdateUi('Найдена скачанная версия. Устанавливаем…', 80, pending.version);
   await writeUpdaterLog(`update-helper start version=${pending.version} installer=${pending.installerPath}`);
+  await describePath('pending-installer', pending.installerPath);
   await addUpdateLog(`update helper: stopping torrent download`);
   await stopTorrentDownload().catch(() => {});
   await writeUpdaterLog('pending-update will be cleared after helper spawn');
@@ -577,6 +592,9 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
   const helper = await prepareUpdateHelper();
   await addUpdateLog(`update helper: resources=${helper.resourcesPath}`);
   await writeUpdaterLog(`update-helper resources=${helper.resourcesPath} launch=${helper.launchPath}`);
+  await describePath('helper-exe', helper.helperExePath);
+  await describePath('helper-launch', helper.launchPath);
+  await describePath('helper-resources', helper.resourcesPath);
   const spawned = await spawnUpdateHelper({
     helperExePath: helper.helperExePath,
     installerPath: pending.installerPath,
@@ -1044,6 +1062,10 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     showUpdateWindow(null);
     lockUpdateUi(true);
     await writeUpdaterLog(`update-helper flow start version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
+    await describePath('helper-installer', args.installerPath);
+    await describePath('helper-launch', args.launchPath);
+    await writeUpdaterLog(`update-helper appPath=${app.getAppPath()}`);
+    await writeUpdaterLog(`update-helper resourcesPath=${process.resourcesPath}`);
     let parentTimedOut = false;
     if (args.parentPid) {
       await writeUpdaterLog(`update-helper waiting for parent pid=${args.parentPid}`);
@@ -1597,6 +1619,7 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
         });
         setTimeout(() => finish(true), 200);
       });
+      await writeUpdaterLog(`installer spawn result=${ok} (${attempt.label})`);
       if (ok) return true;
     } catch (e) {
       const msg = String(e);
