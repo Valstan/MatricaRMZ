@@ -92,6 +92,76 @@
       "when": 1768630000000,
       "tag": "0012_chat_module",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1769200000000,
+      "tag": "0011_change_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1769200001000,
+      "tag": "0013_employee_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1769200002000,
+      "tag": "0014_fix_refresh_tokens_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1769200003000,
+      "tag": "0015_drop_refresh_tokens_users_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1769200004000,
+      "tag": "0016_client_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1769200005000,
+      "tag": "0017_client_settings_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1769200006000,
+      "tag": "0018_change_requests_author_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1769200007000,
+      "tag": "0019_change_requests_fk_entities",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1769200008000,
+      "tag": "0020_file_assets_fk_entities",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1769200009000,
+      "tag": "0021_diagnostics_snapshots",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/supplyRequest.js';
 export * from './domain/part.js';
+export * from './domain/aiAgent.js';
 export * from './domain/systemIds.js';
 export * from './domain/permissions.js';
 export * from './domain/linkFieldRules.js';

@@ -184,6 +184,10 @@ contextBridge.exposeInMainWorld('matrica', {
     export: async (args: { startMs: number; endMs: number }) => ipcRenderer.invoke('chat:export', args),
     deleteMessage: async (args: { messageId: string }) => ipcRenderer.invoke('chat:deleteMessage', args),
   },
+  aiAgent: {
+    assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
+    logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),
+  },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),
     setEnabled: async (enabled: boolean) => ipcRenderer.invoke('logging:setEnabled', enabled),

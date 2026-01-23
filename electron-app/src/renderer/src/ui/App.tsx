@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 
-import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, ServerHealthResult, SyncStatus } from '@matricarmz/shared';
+import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, ServerHealthResult, SyncStatus, AiAgentContext, AiAgentEvent, AiAgentAssistResponse } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
@@ -25,6 +25,8 @@ import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
+import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
+import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 
 export function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -58,6 +60,11 @@ export function App() {
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
   const [updateStatus, setUpdateStatus] = useState<any>(null);
+  const [aiChatOpen, setAiChatOpen] = useState<boolean>(true);
+  const [aiMutedUntil, setAiMutedUntil] = useState<number | null>(null);
+  const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
+  const aiChatRef = useRef<AiAgentChatHandle | null>(null);
+  const aiLastAutoAssistAt = useRef<number>(0);
   const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }>({
     theme: 'auto',
     chatSide: 'right',
@@ -214,6 +221,10 @@ export function App() {
     setChatContext({ selectedUserId: null, adminMode: false });
     setPresence(null);
     setEmployeesRefreshKey((k) => k + 1);
+    setAiChatOpen(true);
+    setAiMutedUntil(null);
+    setAiLastEvent(null);
+    aiLastAutoAssistAt.current = 0;
   }
 
   // When user changes (logout or login as another user), reset state and force full sync.
@@ -301,6 +312,8 @@ export function App() {
   const canChat = !!authStatus.permissions?.['chat.use'];
   const canChatExport = !!authStatus.permissions?.['chat.export'];
   const canChatAdminView = !!authStatus.permissions?.['chat.admin.view'];
+  const canAiAgent = authStatus.loggedIn && canChat;
+  const isAiMuted = aiMutedUntil != null && aiMutedUntil > Date.now();
   const caps = viewMode
     ? {
         ...capsBase,
@@ -353,6 +366,23 @@ export function App() {
   useEffect(() => {
     if (!authStatus.loggedIn || !canChat) setChatOpen(false);
   }, [authStatus.loggedIn, canChat]);
+
+  useEffect(() => {
+    if (!canAiAgent) setAiChatOpen(false);
+  }, [canAiAgent]);
+
+  useEffect(() => {
+    if (!aiMutedUntil) return;
+    const remaining = aiMutedUntil - Date.now();
+    if (remaining <= 0) {
+      setAiMutedUntil(null);
+      return;
+    }
+    const id = setTimeout(() => {
+      setAiMutedUntil((prev) => (prev && prev > Date.now() ? prev : null));
+    }, remaining);
+    return () => clearTimeout(id);
+  }, [aiMutedUntil]);
 
   // For pending users: open chat automatically.
   useEffect(() => {
@@ -554,6 +584,89 @@ export function App() {
     return crumbs.filter(Boolean);
   }
 
+  const aiContext: AiAgentContext = useMemo(
+    () => ({
+      tab,
+      entityId:
+        tab === 'engine'
+          ? selectedEngineId ?? null
+          : tab === 'engine_brand'
+            ? selectedEngineBrandId ?? null
+            : tab === 'request'
+              ? selectedRequestId ?? null
+              : tab === 'part'
+                ? selectedPartId ?? null
+                : tab === 'contract'
+                  ? selectedContractId ?? null
+                  : tab === 'employee'
+                    ? selectedEmployeeId ?? null
+                    : null,
+      entityType:
+        tab === 'engine'
+          ? 'engine'
+          : tab === 'engine_brand'
+            ? 'engine_brand'
+            : tab === 'request'
+              ? 'supply_request'
+              : tab === 'part'
+                ? 'part'
+                : tab === 'contract'
+                  ? 'contract'
+                  : tab === 'employee'
+                    ? 'employee'
+                    : null,
+      breadcrumbs: buildChatBreadcrumbs(),
+    }),
+    [
+      tab,
+      selectedEngineId,
+      selectedEngineBrandId,
+      selectedRequestId,
+      selectedPartId,
+      selectedContractId,
+      selectedEmployeeId,
+      engineDetails,
+    ],
+  );
+
+  const aiLastAutoField = useRef<string>('');
+
+  useAiAgentTracker({
+    enabled: canAiAgent,
+    context: aiContext,
+    onEvent: (event) => {
+      setAiLastEvent(event);
+      if (event.type !== 'idle' || !event.idleMs) return;
+      if (event.idleMs < 20_000) return;
+      if (!canAiAgent || isAiMuted) return;
+      const now = Date.now();
+      if (now - aiLastAutoAssistAt.current < 120_000) return;
+      const fieldKey = `${event.field?.label ?? ''}|${event.field?.name ?? ''}|${event.entityId ?? ''}`;
+      if (fieldKey && fieldKey === aiLastAutoField.current && event.idleMs < 45_000) return;
+      aiLastAutoField.current = fieldKey;
+      aiLastAutoAssistAt.current = now;
+      if (!aiChatOpen) setAiChatOpen(true);
+      aiChatRef.current?.setLoading(true);
+      void (async () => {
+        const message =
+          event.field?.label || event.field?.name
+            ? `Пользователь задержался в поле "${event.field?.label ?? event.field?.name}". Предложи помощь или уточняющий вопрос.`
+            : 'Пользователь задержался при заполнении формы. Предложи помощь или уточняющий вопрос.';
+        const res = (await window.matrica.aiAgent.assist({
+          message,
+          context: aiContext,
+          lastEvent: event,
+        })) as AiAgentAssistResponse;
+        aiChatRef.current?.setLoading(false);
+        if (!res || !res.ok) {
+          aiChatRef.current?.appendAssistant('Не удалось получить ответ ИИ‑агента.');
+          return;
+        }
+        aiChatRef.current?.appendAssistant(res.reply.text, res.reply.kind);
+      })();
+    },
+  });
+
   async function sendCurrentPositionToChat() {
     if (!authStatus.loggedIn || !canChat) return;
     if (!chatOpen) {
@@ -581,6 +694,11 @@ export function App() {
       .sendDeepLink({ recipientUserId: chatContext.selectedUserId ?? null, link })
       .catch(() => null);
     if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
+  }
+
+  function muteAiFor(minutes: number) {
+    const safe = Math.max(1, Math.min(180, Math.floor(minutes)));
+    setAiMutedUntil(Date.now() + safe * 60_000);
   }
 
   async function reloadEngine() {
@@ -1085,6 +1203,43 @@ export function App() {
           </div>
         )}
       </div>
+
+      {canAiAgent && (
+        <>
+          {aiChatOpen ? (
+            <AiAgentChat
+              ref={aiChatRef}
+              visible={aiChatOpen}
+              context={aiContext}
+              lastEvent={aiLastEvent}
+              mutedUntil={aiMutedUntil}
+              onMuteFor={muteAiFor}
+              onClose={() => setAiChatOpen(false)}
+            />
+          ) : (
+            <button
+              onClick={() => setAiChatOpen(true)}
+              style={{
+                position: 'fixed',
+                right: 16,
+                bottom: 16,
+                borderRadius: 999,
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text)',
+                padding: '8px 14px',
+                fontWeight: 700,
+                boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
+                cursor: 'pointer',
+                zIndex: 20,
+              }}
+              title="Открыть чат ИИ‑агента"
+            >
+              ИИ‑агент
+            </button>
+          )}
+        </>
+      )}
     </Page>
   );
 }

@@ -37,82 +37,196 @@ END $$;
 --> statement-breakpoint
 
 ALTER TABLE "refresh_tokens" DROP CONSTRAINT IF EXISTS "refresh_tokens_user_id_users_id_fk";
-ALTER TABLE "refresh_tokens"
-  ADD CONSTRAINT "refresh_tokens_user_id_entities_id_fk"
-  FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'refresh_tokens_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "refresh_tokens"
+      ADD CONSTRAINT "refresh_tokens_user_id_entities_id_fk"
+      FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_user_id_users_id_fk";
-ALTER TABLE "user_permissions"
-  ADD CONSTRAINT "user_permissions_user_id_entities_id_fk"
-  FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'user_permissions_user_id_entities_id_fk'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM "user_permissions" p
+      LEFT JOIN "entities" e ON e.id = p.user_id
+      WHERE p.user_id IS NOT NULL AND e.id IS NULL
+    ) THEN
+      ALTER TABLE "user_permissions"
+        ADD CONSTRAINT "user_permissions_user_id_entities_id_fk"
+        FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id")
+        ON DELETE no action ON UPDATE no action;
+    END IF;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "permission_delegations" DROP CONSTRAINT IF EXISTS "permission_delegations_from_user_id_users_id_fk";
 ALTER TABLE "permission_delegations" DROP CONSTRAINT IF EXISTS "permission_delegations_to_user_id_users_id_fk";
 ALTER TABLE "permission_delegations" DROP CONSTRAINT IF EXISTS "permission_delegations_created_by_user_id_users_id_fk";
 ALTER TABLE "permission_delegations" DROP CONSTRAINT IF EXISTS "permission_delegations_revoked_by_user_id_users_id_fk";
-ALTER TABLE "permission_delegations"
-  ADD CONSTRAINT "permission_delegations_from_user_id_entities_id_fk"
-  FOREIGN KEY ("from_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "permission_delegations"
-  ADD CONSTRAINT "permission_delegations_to_user_id_entities_id_fk"
-  FOREIGN KEY ("to_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "permission_delegations"
-  ADD CONSTRAINT "permission_delegations_created_by_user_id_entities_id_fk"
-  FOREIGN KEY ("created_by_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "permission_delegations"
-  ADD CONSTRAINT "permission_delegations_revoked_by_user_id_entities_id_fk"
-  FOREIGN KEY ("revoked_by_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'permission_delegations_from_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "permission_delegations"
+      ADD CONSTRAINT "permission_delegations_from_user_id_entities_id_fk"
+      FOREIGN KEY ("from_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'permission_delegations_to_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "permission_delegations"
+      ADD CONSTRAINT "permission_delegations_to_user_id_entities_id_fk"
+      FOREIGN KEY ("to_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'permission_delegations_created_by_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "permission_delegations"
+      ADD CONSTRAINT "permission_delegations_created_by_user_id_entities_id_fk"
+      FOREIGN KEY ("created_by_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'permission_delegations_revoked_by_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "permission_delegations"
+      ADD CONSTRAINT "permission_delegations_revoked_by_user_id_entities_id_fk"
+      FOREIGN KEY ("revoked_by_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "file_assets" DROP CONSTRAINT IF EXISTS "file_assets_created_by_user_id_users_id_fk";
-ALTER TABLE "file_assets"
-  ADD CONSTRAINT "file_assets_created_by_user_id_entities_id_fk"
-  FOREIGN KEY ("created_by_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'file_assets_created_by_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "file_assets"
+      ADD CONSTRAINT "file_assets_created_by_user_id_entities_id_fk"
+      FOREIGN KEY ("created_by_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "row_owners" DROP CONSTRAINT IF EXISTS "row_owners_owner_user_id_users_id_fk";
-ALTER TABLE "row_owners"
-  ADD CONSTRAINT "row_owners_owner_user_id_entities_id_fk"
-  FOREIGN KEY ("owner_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'row_owners_owner_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "row_owners"
+      ADD CONSTRAINT "row_owners_owner_user_id_entities_id_fk"
+      FOREIGN KEY ("owner_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "change_requests" DROP CONSTRAINT IF EXISTS "change_requests_record_owner_user_id_users_id_fk";
 ALTER TABLE "change_requests" DROP CONSTRAINT IF EXISTS "change_requests_change_author_user_id_users_id_fk";
 ALTER TABLE "change_requests" DROP CONSTRAINT IF EXISTS "change_requests_decided_by_user_id_users_id_fk";
-ALTER TABLE "change_requests"
-  ADD CONSTRAINT "change_requests_record_owner_user_id_entities_id_fk"
-  FOREIGN KEY ("record_owner_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "change_requests"
-  ADD CONSTRAINT "change_requests_change_author_user_id_entities_id_fk"
-  FOREIGN KEY ("change_author_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "change_requests"
-  ADD CONSTRAINT "change_requests_decided_by_user_id_entities_id_fk"
-  FOREIGN KEY ("decided_by_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE "change_requests"
+      ADD CONSTRAINT "change_requests_record_owner_user_id_entities_id_fk"
+      FOREIGN KEY ("record_owner_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+  BEGIN
+    ALTER TABLE "change_requests"
+      ADD CONSTRAINT "change_requests_change_author_user_id_entities_id_fk"
+      FOREIGN KEY ("change_author_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+  BEGIN
+    ALTER TABLE "change_requests"
+      ADD CONSTRAINT "change_requests_decided_by_user_id_entities_id_fk"
+      FOREIGN KEY ("decided_by_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "chat_messages" DROP CONSTRAINT IF EXISTS "chat_messages_sender_user_id_users_id_fk";
 ALTER TABLE "chat_messages" DROP CONSTRAINT IF EXISTS "chat_messages_recipient_user_id_users_id_fk";
-ALTER TABLE "chat_messages"
-  ADD CONSTRAINT "chat_messages_sender_user_id_entities_id_fk"
-  FOREIGN KEY ("sender_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "chat_messages"
-  ADD CONSTRAINT "chat_messages_recipient_user_id_entities_id_fk"
-  FOREIGN KEY ("recipient_user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chat_messages_sender_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "chat_messages"
+      ADD CONSTRAINT "chat_messages_sender_user_id_entities_id_fk"
+      FOREIGN KEY ("sender_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chat_messages_recipient_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "chat_messages"
+      ADD CONSTRAINT "chat_messages_recipient_user_id_entities_id_fk"
+      FOREIGN KEY ("recipient_user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "chat_reads" DROP CONSTRAINT IF EXISTS "chat_reads_user_id_users_id_fk";
-ALTER TABLE "chat_reads"
-  ADD CONSTRAINT "chat_reads_user_id_entities_id_fk"
-  FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chat_reads_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "chat_reads"
+      ADD CONSTRAINT "chat_reads_user_id_entities_id_fk"
+      FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;
 --> statement-breakpoint
 
 ALTER TABLE "user_presence" DROP CONSTRAINT IF EXISTS "user_presence_id_users_id_fk";
 ALTER TABLE "user_presence" DROP CONSTRAINT IF EXISTS "user_presence_user_id_users_id_fk";
-ALTER TABLE "user_presence"
-  ADD CONSTRAINT "user_presence_id_entities_id_fk"
-  FOREIGN KEY ("id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
-ALTER TABLE "user_presence"
-  ADD CONSTRAINT "user_presence_user_id_entities_id_fk"
-  FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id") ON DELETE no action ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'user_presence_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "user_presence"
+      ADD CONSTRAINT "user_presence_id_entities_id_fk"
+      FOREIGN KEY ("id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'user_presence_user_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE "user_presence"
+      ADD CONSTRAINT "user_presence_user_id_entities_id_fk"
+      FOREIGN KEY ("user_id") REFERENCES "public"."entities"("id")
+      ON DELETE no action ON UPDATE no action;
+  END IF;
+END$$;

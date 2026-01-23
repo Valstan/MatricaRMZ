@@ -272,6 +272,7 @@ export type ChangeDecisionResult = { ok: true } | { ok: false; error: string };
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
 import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
 import type { FileRef } from '../domain/fileStorage.js';
+import type { AiAgentAssistRequest, AiAgentAssistResponse, AiAgentLogRequest, AiAgentLogResponse } from '../domain/aiAgent.js';
 
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
@@ -642,6 +643,10 @@ export type MatricaApi = {
     unreadCount: () => Promise<ChatUnreadCountResult>;
     export: (args: { startMs: number; endMs: number }) => Promise<ChatExportResult>;
     deleteMessage: (args: { messageId: string }) => Promise<ChatDeleteResult>;
+  };
+  aiAgent: {
+    assist: (args: AiAgentAssistRequest) => Promise<AiAgentAssistResponse>;
+    logEvent: (args: AiAgentLogRequest) => Promise<AiAgentLogResponse>;
   };
 };
 
