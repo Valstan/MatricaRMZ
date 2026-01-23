@@ -4,7 +4,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { fetchWithRetry } from './netFetch.js';
+import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 
 export type TorrentUpdateManifest = {
   ok: true;
@@ -60,6 +60,7 @@ const SEED_INFO_PATH = () => join(TORRENT_CACHE_ROOT(), 'torrent-seed.json');
 const DEFAULT_TIMEOUT_MS = 12_000;
 const NO_PROGRESS_TIMEOUT_MS = 120_000;
 const TOTAL_DOWNLOAD_TIMEOUT_MS = 45 * 60_000;
+const NEAR_COMPLETE_FALLBACK_MS = 30_000;
 
 type WebTorrentCtor = new (opts: Record<string, unknown>) => any;
 
@@ -135,6 +136,16 @@ function ensureHttp(url: string) {
   return url.startsWith('http://') || url.startsWith('https://') ? url : `http://${url}`;
 }
 
+function buildUpdateFileUrl(torrentUrl: string, fileName: string) {
+  try {
+    const u = new URL(torrentUrl);
+    return `${u.origin}/updates/file/${encodeURIComponent(fileName)}`;
+  } catch {
+    const base = ensureHttp(torrentUrl.replace(/\/updates\/latest\.torrent.*$/i, ''));
+    return `${base}/updates/file/${encodeURIComponent(fileName)}`;
+  }
+}
+
 function pickInstallerFile(files: Array<{ name: string; path: string }>, preferredName: string) {
   const byName = files.find((f) => f.name === preferredName || basename(f.name) === preferredName);
   if (byName) return byName;
@@ -197,12 +208,42 @@ export async function downloadTorrentUpdate(
       let lastProgress = 0;
       const startedAt = Date.now();
       const startEpoch = networkEpoch;
+      let fallbackAttempted = false;
+      let fallbackInFlight = false;
 
       const finish = (result: TorrentDownloadResult) => {
         if (done) return;
         done = true;
         clearInterval(progressTimer);
         resolve(result);
+      };
+
+      const tryHttpFallback = async (reason: string) => {
+        if (fallbackAttempted || fallbackInFlight) return;
+        fallbackAttempted = true;
+        fallbackInFlight = true;
+        try {
+          if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
+        } catch {
+          // ignore
+        }
+        const installerPath = join(outDir, manifest.fileName);
+        const fileUrl = buildUpdateFileUrl(manifest.torrentUrl, manifest.fileName);
+        const r = await downloadWithResume(fileUrl, installerPath, {
+          attempts: 3,
+          timeoutMs: 30_000,
+          backoffMs: 1000,
+          maxBackoffMs: 8000,
+          jitterMs: 300,
+          onProgress: (pct) => {
+            opts?.onProgress?.(Math.min(99, Math.max(0, pct)), 0);
+          },
+        });
+        if (r.ok) {
+          finish({ ok: true, installerPath: r.filePath, torrentPath });
+          return;
+        }
+        finish({ ok: false, error: `torrent stalled (${reason}); http fallback failed: ${r.error}` });
       };
 
       try {
@@ -287,13 +328,12 @@ export async function downloadTorrentUpdate(
         }
 
         const now = Date.now();
+        if (!fallbackAttempted && pct >= 99 && now - lastProgressAt > NEAR_COMPLETE_FALLBACK_MS) {
+          void tryHttpFallback('near-complete');
+          return;
+        }
         if (now - lastProgressAt > NO_PROGRESS_TIMEOUT_MS) {
-          try {
-            if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
-          } catch {
-            // ignore
-          }
-          finish({ ok: false, error: 'torrent download stalled (no peers)' });
+          void tryHttpFallback('no-progress');
           return;
         }
         if (now - startedAt > TOTAL_DOWNLOAD_TIMEOUT_MS) {
