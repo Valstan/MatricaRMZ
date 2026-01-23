@@ -5,6 +5,7 @@ import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTem
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
+import { SearchSelect } from './SearchSelect.js';
 
 function safeJsonStringify(v: unknown) {
   try {
@@ -80,6 +81,7 @@ export function RepairChecklistPanel(props: {
   const [answers, setAnswers] = useState<RepairChecklistAnswers>({});
   const [collapsed, setCollapsed] = useState<boolean>(props.defaultCollapsed === true);
   const prefillKey = useRef<string>('');
+  const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const panelTitle = props.stage === 'defect' ? 'Лист дефектовки' : 'Контрольный лист ремонта';
@@ -111,6 +113,26 @@ export function RepairChecklistPanel(props: {
   }, [props.engineId, props.stage]);
 
   useEffect(() => {
+    let alive = true;
+    void window.matrica.employees
+      .list()
+      .then((rows) => {
+        if (!alive) return;
+        const opts = (rows as any[]).map((r) => ({
+          id: String(r.id),
+          label: String(r.displayName ?? r.fullName ?? r.id),
+          position: r.position ?? null,
+        }));
+        opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setEmployeeOptions(opts);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     // При смене шаблона: если нет payload — инициализируем ответы под шаблон.
     if (!activeTemplate) return;
     if (payload?.templateId) return;
@@ -120,20 +142,42 @@ export function RepairChecklistPanel(props: {
   // Автоподстановка из свойств двигателя (только если поле в чек-листе пустое).
   useEffect(() => {
     if (!activeTemplate) return;
-    const key = 'engine_mark_number';
-    const a: any = (answers as any)[key];
-    const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-    if (current.trim()) return;
+    const hasItem = (id: string) => activeTemplate.items.some((it) => it.id === id);
     const brand = String(props.engineBrand ?? '').trim();
     const num = String(props.engineNumber ?? '').trim();
     if (!brand && !num) return;
-    const value = brand && num ? `${brand}, № ${num}` : brand || num;
-    setAnswers((prev) => ({ ...prev, [key]: { kind: 'text', value } } as RepairChecklistAnswers));
-    // сохраняем сразу, если есть права на редактирование
-    if (props.canEdit) {
-      const next = { ...answers, [key]: { kind: 'text', value } } as RepairChecklistAnswers;
-      void save(next);
+    const next = { ...answers } as RepairChecklistAnswers;
+    let changed = false;
+
+    if (hasItem('engine_brand')) {
+      const a: any = (answers as any).engine_brand;
+      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+      if (!current.trim() && brand) {
+        (next as any).engine_brand = { kind: 'text', value: brand };
+        changed = true;
+      }
     }
+    if (hasItem('engine_number')) {
+      const a: any = (answers as any).engine_number;
+      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+      if (!current.trim() && num) {
+        (next as any).engine_number = { kind: 'text', value: num };
+        changed = true;
+      }
+    }
+    if (hasItem('engine_mark_number')) {
+      const a: any = (answers as any).engine_mark_number;
+      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+      if (!current.trim()) {
+        const value = brand && num ? `${brand}, № ${num}` : brand || num;
+        (next as any).engine_mark_number = { kind: 'text', value };
+        changed = true;
+      }
+    }
+
+    if (!changed) return;
+    setAnswers(next);
+    if (props.canEdit) void save(next);
   }, [activeTemplate?.id, props.engineBrand, props.engineNumber]);
 
   useEffect(() => {
@@ -156,8 +200,8 @@ export function RepairChecklistPanel(props: {
       if (!r.ok) return;
       const rows = r.parts.map((p) => ({
         part_name: String(p.name ?? p.article ?? p.id),
-        reinstall: '',
-        replace: '',
+        reinstall: false,
+        replace: false,
         note: '',
       }));
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
@@ -427,27 +471,41 @@ export function RepairChecklistPanel(props: {
 
                   {it.kind === 'signature' && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 160px', gap: 8 }}>
-                      <Input
-                        value={a?.kind === 'signature' ? String(a.fio ?? '') : ''}
+                      {(() => {
+                        const fioValue = a?.kind === 'signature' ? String(a.fio ?? '') : '';
+                        const inList = fioValue ? employeeOptions.some((opt) => opt.label === fioValue || opt.id === fioValue) : false;
+                        const extra = fioValue && !inList ? [{ id: fioValue, label: fioValue, position: a?.position ?? null }] : [];
+                        const options = [...employeeOptions, ...extra];
+                        const valueId =
+                          fioValue && inList
+                            ? employeeOptions.find((opt) => opt.label === fioValue || opt.id === fioValue)?.id ?? fioValue
+                            : fioValue || null;
+                        return (
+                      <SearchSelect
+                        value={valueId}
+                        options={options}
                         disabled={!props.canEdit}
                         placeholder="ФИО"
-                        onChange={(e) => {
+                        onChange={(next) => {
+                          if (!props.canEdit) return;
                           const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
-                          const next = { ...answers, [it.id]: { kind: 'signature', fio: e.target.value, position: prev.position, signedAt: prev.signedAt } } as RepairChecklistAnswers;
-                          setAnswers(next);
+                          const chosen = options.find((opt) => opt.id === next) ?? null;
+                          const fio = chosen?.label ?? '';
+                          const position = chosen?.position ?? prev.position ?? '';
+                          const nextAnswers = {
+                            ...answers,
+                            [it.id]: { kind: 'signature', fio, position, signedAt: prev.signedAt },
+                          } as RepairChecklistAnswers;
+                          setAnswers(nextAnswers);
+                          void save(nextAnswers);
                         }}
-                        onBlur={() => void save(answers)}
                       />
+                        );
+                      })()}
                       <Input
                         value={a?.kind === 'signature' ? String(a.position ?? '') : ''}
-                        disabled={!props.canEdit}
+                        disabled
                         placeholder="Должность"
-                        onChange={(e) => {
-                          const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
-                          const next = { ...answers, [it.id]: { kind: 'signature', fio: prev.fio, position: e.target.value, signedAt: prev.signedAt } } as RepairChecklistAnswers;
-                          setAnswers(next);
-                        }}
-                        onBlur={() => void save(answers)}
                       />
                       <Input
                         type="date"
@@ -527,15 +585,15 @@ export function RepairChecklistPanel(props: {
 
 function TableEditor(props: {
   canEdit: boolean;
-  columns: { id: string; label: string }[];
-  rows: Record<string, string>[];
-  onChange: (rows: Record<string, string>[]) => void;
-  onSave: (rows: Record<string, string>[]) => void;
+  columns: { id: string; label: string; kind?: 'text' | 'boolean' }[];
+  rows: Record<string, string | boolean>[];
+  onChange: (rows: Record<string, string | boolean>[]) => void;
+  onSave: (rows: Record<string, string | boolean>[]) => void;
 }) {
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
 
-  function setCell(rowIdx: number, colId: string, value: string) {
+  function setCell(rowIdx: number, colId: string, value: string | boolean) {
     const next = rows.map((r, i) => (i === rowIdx ? { ...r, [colId]: value } : r));
     props.onChange(next);
   }
@@ -560,12 +618,29 @@ function TableEditor(props: {
             <tr key={idx}>
               {cols.map((c) => (
                 <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
-                  <Input
-                    value={String((r as any)[c.id] ?? '')}
-                    disabled={!props.canEdit}
-                    onChange={(e) => setCell(idx, c.id, e.target.value)}
-                    onBlur={() => props.canEdit && props.onSave(rows)}
-                  />
+                  {c.kind === 'boolean' ? (
+                    <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean((r as any)[c.id])}
+                        disabled={!props.canEdit}
+                        onChange={(e) => {
+                          if (!props.canEdit) return;
+                          const next = rows.map((row, i) => (i === idx ? { ...row, [c.id]: e.target.checked } : row));
+                          props.onChange(next);
+                          props.onSave(next);
+                        }}
+                      />
+                      <span style={{ color: '#6b7280', fontSize: 12 }}>{(r as any)[c.id] ? 'да' : 'нет'}</span>
+                    </label>
+                  ) : (
+                    <Input
+                      value={String((r as any)[c.id] ?? '')}
+                      disabled={!props.canEdit}
+                      onChange={(e) => setCell(idx, c.id, e.target.value)}
+                      onBlur={() => props.canEdit && props.onSave(rows)}
+                    />
+                  )}
                 </td>
               ))}
               {props.canEdit && (
@@ -598,7 +673,10 @@ function TableEditor(props: {
           <Button
             variant="ghost"
             onClick={() => {
-              const next = [...rows, Object.fromEntries(cols.map((c) => [c.id, '']))];
+              const next = [
+                ...rows,
+                Object.fromEntries(cols.map((c) => [c.id, c.kind === 'boolean' ? false : ''])),
+              ];
               props.onChange(next);
               props.onSave(next);
             }}

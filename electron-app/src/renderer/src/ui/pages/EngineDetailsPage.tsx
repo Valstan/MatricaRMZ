@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-import type { EngineDetails, OperationItem } from '@matricarmz/shared';
+import type { EngineDetails } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -31,44 +31,13 @@ function fileListHtml(list: unknown) {
   return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
 }
 
-function opLabel(type: string) {
-  switch (type) {
-    case 'acceptance':
-      return 'Приемка';
-    case 'kitting':
-      return 'Комплектовка';
-    case 'defect':
-      return 'Дефектовка';
-    case 'repair':
-      return 'Ремонт';
-    case 'test':
-      return 'Испытания';
-    case 'disassembly':
-      return 'Разборка';
-    case 'otk':
-      return 'ОТК';
-    case 'packaging':
-      return 'Упаковка';
-    case 'shipment':
-      return 'Отгрузка';
-    case 'customer_delivery':
-      return 'Доставка заказчику';
-    default:
-      return type;
-  }
-}
-
 function printEngineReport(
   engine: EngineDetails,
-  ops: OperationItem[],
   context?: {
     engineNumber?: string;
     engineBrand?: string;
     customer?: string;
     contract?: string;
-    workOrder?: string;
-    workshop?: string;
-    section?: string;
   },
 ) {
   const attrs = engine.attributes ?? {};
@@ -77,38 +46,13 @@ function printEngineReport(
     ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
     ['Заказчик', String(context?.customer ?? attrs.customer_id ?? '')],
     ['Контракт', String(context?.contract ?? attrs.contract_id ?? '')],
-    ['Наряд', String(context?.workOrder ?? attrs.work_order_id ?? '')],
-    ['Цех', String(context?.workshop ?? attrs.workshop_id ?? '')],
-    ['Участок', String(context?.section ?? attrs.section_id ?? '')],
   ];
-  const opsSorted = [...ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
-  const opsHtml =
-    opsSorted.length === 0
-      ? '<div class="muted">Операций пока нет</div>'
-      : `<table>
-  <thead>
-    <tr><th>Дата</th><th>Тип</th><th>Статус</th><th>Комментарий</th></tr>
-  </thead>
-  <tbody>
-    ${opsSorted
-      .map(
-        (o) => `<tr>
-  <td>${escapeHtml(new Date(o.performedAt ?? o.createdAt).toLocaleString('ru-RU'))}</td>
-  <td>${escapeHtml(opLabel(o.operationType))}</td>
-  <td>${escapeHtml(String(o.status ?? ''))}</td>
-  <td>${escapeHtml(String(o.note ?? ''))}</td>
-</tr>`,
-      )
-      .join('\n')}
-  </tbody>
-</table>`;
 
   openPrintPreview({
     title: `Карточка двигателя`,
     subtitle: (context?.engineNumber ?? attrs.engine_number) ? `Номер: ${String(context?.engineNumber ?? attrs.engine_number)}` : undefined,
     sections: [
       { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
-      { id: 'ops', title: 'Операции', html: opsHtml },
       { id: 'files', title: 'Файлы', html: fileListHtml(attrs.attachments) },
     ],
   });
@@ -117,10 +61,8 @@ function printEngineReport(
 export function EngineDetailsPage(props: {
   engineId: string;
   engine: EngineDetails;
-  ops: OperationItem[];
   onReload: () => Promise<void>;
   onEngineUpdated: () => Promise<void>;
-  onAddOp: (operationType: string, status: string, note?: string) => Promise<void>;
   canEditEngines: boolean;
   canViewOperations: boolean;
   canEditOperations: boolean;
@@ -137,29 +79,16 @@ export function EngineDetailsPage(props: {
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
-  const [workOrderId, setWorkOrderId] = useState(String(props.engine.attributes?.work_order_id ?? ''));
-  const [workshopId, setWorkshopId] = useState(String(props.engine.attributes?.workshop_id ?? ''));
-  const [sectionId, setSectionId] = useState(String(props.engine.attributes?.section_id ?? ''));
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
-
-  const [newOpType, setNewOpType] = useState<string>('acceptance');
-  const [newOpStatus, setNewOpStatus] = useState<string>('выполнено');
-  const [newOpNote, setNewOpNote] = useState<string>('');
 
   const [saveStatus, setSaveStatus] = useState<string>('');
   const sessionHadChanges = useRef<boolean>(false);
   const initialSnapshot = useRef<{
     engineNumber: string;
     engineBrand: string;
-    workshopId: string;
-    sectionId: string;
   } | null>(null);
-
-  const sortedOps = useMemo(() => {
-    return [...props.ops].sort((a, b) => (b.performedAt ?? b.createdAt) - (a.performedAt ?? a.createdAt));
-  }, [props.ops]);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
@@ -168,9 +97,6 @@ export function EngineDetailsPage(props: {
     setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
-    setWorkOrderId(String(props.engine.attributes?.work_order_id ?? ''));
-    setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
-    setSectionId(String(props.engine.attributes?.section_id ?? ''));
   }, [props.engineId, props.engine.updatedAt]);
 
   useEffect(() => {
@@ -196,8 +122,6 @@ export function EngineDetailsPage(props: {
     initialSnapshot.current = {
       engineNumber: String(props.engine.attributes?.engine_number ?? ''),
       engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
-      workshopId: String(props.engine.attributes?.workshop_id ?? ''),
-      sectionId: String(props.engine.attributes?.section_id ?? ''),
     };
     sessionHadChanges.current = false;
   }, [props.engineId]);
@@ -226,8 +150,6 @@ export function EngineDetailsPage(props: {
       };
       push('Номер', base?.engineNumber ?? '', String(engineNumber ?? ''));
       push('Марка', base?.engineBrand ?? '', String(engineBrand ?? ''));
-      push('Цех', base?.workshopId ?? '', String(workshopId ?? ''));
-      push('Участок', base?.sectionId ?? '', String(sectionId ?? ''));
       if (!fieldsChanged.length) return;
       await window.matrica.audit.add({
         action: 'ui.engine.edit_done',
@@ -237,8 +159,6 @@ export function EngineDetailsPage(props: {
           engineId: props.engineId,
           engineNumber: String(engineNumber || '').trim() || null,
           engineBrand: String(engineBrand || '').trim() || null,
-          workshopId: String(workshopId || '').trim() || null,
-          sectionId: String(sectionId || '').trim() || null,
           fieldsChanged,
           summaryRu: `Изменил: ${fieldsChanged.join(', ')}`,
         },
@@ -284,9 +204,6 @@ export function EngineDetailsPage(props: {
     await load('engine_brand', 'engine_brand');
     await load('customer', 'customer_id');
     await load('contract', 'contract_id');
-    await load('work_order', 'work_order_id');
-    await load('workshop', 'workshop_id');
-    await load('section', 'section_id');
   }
 
   useEffect(() => {
@@ -310,9 +227,6 @@ export function EngineDetailsPage(props: {
       engine_brand: 'name',
       customer: 'name',
       contract: 'number',
-      work_order: 'number',
-      workshop: 'name',
-      section: 'name',
     };
     const attr = attrByType[typeCode] ?? 'name';
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
@@ -328,14 +242,11 @@ export function EngineDetailsPage(props: {
             variant="ghost"
             onClick={() => {
               const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
-              printEngineReport(props.engine, props.ops, {
+              printEngineReport(props.engine, {
                 engineNumber,
                 engineBrand,
                 customer: pickLabel('customer_id', customerId),
                 contract: pickLabel('contract_id', contractId),
-                workOrder: pickLabel('work_order_id', workOrderId),
-                workshop: pickLabel('workshop_id', workshopId),
-                section: pickLabel('section_id', sectionId),
               });
             }}
           >
@@ -494,9 +405,6 @@ export function EngineDetailsPage(props: {
               setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
-              setWorkOrderId(String(props.engine.attributes?.work_order_id ?? ''));
-              setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
-              setSectionId(String(props.engine.attributes?.section_id ?? ''));
             }}
           >
             Отменить
@@ -509,79 +417,6 @@ export function EngineDetailsPage(props: {
           )}
         </div>
       </div>
-
-      {props.canViewOperations && (
-      <div style={{ marginTop: 14 }}>
-        <h2 style={{ margin: '8px 0' }}>Таймлайн / операции</h2>
-
-          {props.canEditOperations && (
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
-          <select
-            value={newOpType}
-            onChange={(e) => setNewOpType(e.target.value)}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-          >
-            <option value="acceptance">Приемка</option>
-            <option value="kitting">Комплектовка</option>
-            <option value="disassembly">Разборка</option>
-            <option value="defect">Дефектовка</option>
-            <option value="repair">Ремонт</option>
-            <option value="test">Испытания</option>
-            <option value="otk">ОТК</option>
-            <option value="packaging">Упаковка</option>
-            <option value="shipment">Отгрузка</option>
-            <option value="customer_delivery">Доставка заказчику</option>
-          </select>
-          <div style={{ width: 180 }}>
-            <Input value={newOpStatus} onChange={(e) => setNewOpStatus(e.target.value)} placeholder="Статус" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <Input value={newOpNote} onChange={(e) => setNewOpNote(e.target.value)} placeholder="Комментарий" />
-          </div>
-          <Button
-            onClick={() => {
-              void props.onAddOp(newOpType, newOpStatus, newOpNote || undefined);
-              setNewOpNote('');
-            }}
-          >
-            Добавить
-          </Button>
-        </div>
-          )}
-
-        <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-                <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Дата</th>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Статус</th>
-                  <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Комментарий</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedOps.map((o) => (
-                <tr key={o.id}>
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
-                    {new Date(o.performedAt ?? o.createdAt).toLocaleString('ru-RU')}
-                  </td>
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{opLabel(o.operationType)}</td>
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{o.status}</td>
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{o.note ?? ''}</td>
-                </tr>
-              ))}
-              {sortedOps.length === 0 && (
-                <tr>
-                  <td style={{ padding: 12, color: '#6b7280' }} colSpan={4}>
-                    Операций пока нет
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      )}
 
       {props.canViewOperations && (
         <RepairChecklistPanel

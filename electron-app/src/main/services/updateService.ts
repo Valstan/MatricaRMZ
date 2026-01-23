@@ -173,6 +173,9 @@ async function installNow(args: { installerPath: string; version?: string }) {
   await stageUpdate('Скачивание завершено. Готовим установку…', 60, args.version);
   lockUpdateUi(true);
   await stageUpdate('Подготовка установщика…', 70, args.version);
+  await addUpdateLog('Останавливаем торрент перед запуском установщика…');
+  await stopTorrentDownload().catch(() => {});
+  await stopTorrentSeeding().catch(() => {});
   const helper = await prepareUpdateHelper();
   await writeUpdaterLog(`update-helper spawn version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
   const spawned = await spawnUpdateHelper({
@@ -1039,8 +1042,19 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
       await setUpdateUi('Ожидаем закрытия программы…', 72, args.version);
       const startedAt = Date.now();
       let lastLogAt = 0;
+      const maxWaitMs = 30_000;
       while (isProcessAlive(args.parentPid)) {
         const now = Date.now();
+        if (now - startedAt >= maxWaitMs) {
+          await writeUpdaterLog(
+            `update-helper parent wait timeout ${Math.round((now - startedAt) / 1000)}s, returning to app`,
+          );
+          await setUpdateUi('Не удалось дождаться закрытия программы. Возвращаемся в приложение…', 100, args.version);
+          closeUpdateWindowSoon(4000);
+          spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
+          setTimeout(() => app.quit(), 4200);
+          return;
+        }
         if (now - lastLogAt > 5000) {
           await writeUpdaterLog(`update-helper waiting: parent still running (${Math.round((now - startedAt) / 1000)}s)`);
           lastLogAt = now;
@@ -1056,7 +1070,7 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     const ok = await spawnInstallerDetached(args.installerPath, 1400);
     if (!ok) {
       await writeUpdaterLog('installer launch failed, returning to app');
-      await setUpdateUi('Ошибка запуска установщика. Возвращаемся в приложение…', 100, args.version);
+      await setUpdateUi('Не удалось запустить установщик (возможно файл занят). Возвращаемся в приложение…', 100, args.version);
       closeUpdateWindowSoon(4000);
       spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
       setTimeout(() => app.quit(), 4200);
@@ -1541,33 +1555,47 @@ async function runInstaller(installerPath: string): Promise<number> {
 }
 
 async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Promise<boolean> {
-  const delay = Math.max(200, delayMs);
-  await writeUpdaterLog(`installer launch scheduled in ${Math.round(delay / 1000)}s`);
-  await sleep(delay);
-  try {
-    const child = spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-    return await new Promise<boolean>((resolve) => {
-      let done = false;
-      const finish = (ok: boolean) => {
-        if (done) return;
-        done = true;
-        resolve(ok);
-      };
-      child.once('spawn', () => {
-        void writeUpdaterLog('installer spawned (detached)');
-        finish(true);
+  const attempts = [
+    { delayMs: Math.max(200, delayMs), label: 'initial' },
+    { delayMs: 2000, label: 'retry-1' },
+    { delayMs: 5000, label: 'retry-2' },
+    { delayMs: 10_000, label: 'retry-3' },
+  ];
+
+  for (let i = 0; i < attempts.length; i += 1) {
+    const attempt = attempts[i];
+    await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
+    await sleep(attempt.delayMs);
+    try {
+      const child = spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
+      child.unref();
+      const ok = await new Promise<boolean>((resolve) => {
+        let done = false;
+        const finish = (result: boolean) => {
+          if (done) return;
+          done = true;
+          resolve(result);
+        };
+        child.once('spawn', () => {
+          void writeUpdaterLog('installer spawned (detached)');
+          finish(true);
+        });
+        child.once('error', (err) => {
+          void writeUpdaterLog(`installer spawn error: ${String(err)}`);
+          finish(false);
+        });
+        setTimeout(() => finish(true), 200);
       });
-      child.once('error', (err) => {
-        void writeUpdaterLog(`installer spawn error: ${String(err)}`);
-        finish(false);
-      });
-      setTimeout(() => finish(true), 200);
-    });
-  } catch (e) {
-    await writeUpdaterLog(`installer spawn exception: ${String(e)}`);
-    return false;
+      if (ok) return true;
+    } catch (e) {
+      const msg = String(e);
+      await writeUpdaterLog(`installer spawn exception: ${msg}`);
+      if (!msg.toLowerCase().includes('ebusy')) return false;
+    }
+    await writeUpdaterLog(`installer launch attempt ${attempt.label} failed, retrying`);
   }
+
+  return false;
 }
 
 function sleep(ms: number) {

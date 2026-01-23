@@ -5,6 +5,7 @@ import type { IncomingLinkInfo } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
@@ -37,6 +38,10 @@ export function MasterdataPage(props: {
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   const [status, setStatus] = useState<string>('');
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
+  const [engineBrandName, setEngineBrandName] = useState<string>('');
+  const [partsOptions, setPartsOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
+  const [partsStatus, setPartsStatus] = useState<string>('');
 
   const [deleteDialog, setDeleteDialog] = useState<
     | {
@@ -87,13 +92,15 @@ export function MasterdataPage(props: {
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
 
-  const excludedTypeCodes = new Set(['engine', 'part']);
+  const excludedTypeCodes = new Set(['engine', 'part', 'category']);
   const visibleTypes = useMemo(() => {
     return types
       .filter((t) => !excludedTypeCodes.has(t.code))
       .slice()
       .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
   }, [types]);
+
+  const visibleDefs = useMemo(() => defs.filter((d) => d.code !== 'category_id'), [defs]);
 
   const filteredEntities = useMemo(() => {
     const q = entityQuery.trim().toLowerCase();
@@ -139,7 +146,7 @@ export function MasterdataPage(props: {
   const [linkOptions, setLinkOptions] = useState<Record<string, { id: string; label: string }[]>>({});
 
   const outgoingLinks = useMemo(() => {
-    const linkDefs = defs.filter((d) => d.dataType === 'link');
+    const linkDefs = visibleDefs.filter((d) => d.dataType === 'link');
     return linkDefs.map((d) => {
       const targetTypeCode = getLinkTargetTypeCode(d);
       const targetType = targetTypeCode ? types.find((t) => t.code === targetTypeCode) ?? null : null;
@@ -157,7 +164,7 @@ export function MasterdataPage(props: {
         targetEntityLabel: opt?.label ?? null,
       };
     });
-  }, [defs, entityAttrs, linkOptions, types]);
+  }, [visibleDefs, entityAttrs, linkOptions, types]);
 
   async function refreshTypes() {
     const rows = await window.matrica.admin.entityTypes.list();
@@ -410,6 +417,63 @@ export function MasterdataPage(props: {
     setEntityAttrs(d.attributes ?? {});
   }
 
+  async function loadPartsOptions() {
+    setPartsStatus('Загрузка списка деталей...');
+    const r = await window.matrica.parts.list({ limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setPartsOptions([]);
+      setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      return;
+    }
+    const opts = r.parts.map((p) => ({
+      id: String(p.id),
+      label: String(p.name ?? p.article ?? p.id),
+    }));
+    opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    setPartsOptions(opts);
+    setPartsStatus('');
+  }
+
+  async function loadBrandParts(brandId: string) {
+    if (!brandId) return;
+    const r = await window.matrica.parts.list({ engineBrandId: brandId, limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setEngineBrandPartIds([]);
+      setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      return;
+    }
+    setEngineBrandPartIds(r.parts.map((p) => String(p.id)));
+  }
+
+  async function updateBrandParts(nextIds: string[]) {
+    const brandId = selectedEntityId;
+    if (!brandId) return;
+    const prev = new Set(engineBrandPartIds);
+    const next = new Set(nextIds);
+    const toAdd = nextIds.filter((id) => !prev.has(id));
+    const toRemove = engineBrandPartIds.filter((id) => !next.has(id));
+
+    for (const partId of toAdd) {
+      const pr = await window.matrica.parts.get(partId);
+      if (!pr.ok) continue;
+      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
+      const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
+      if (current.includes(brandId)) continue;
+      const updated = [...current, brandId];
+      await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+    }
+
+    for (const partId of toRemove) {
+      const pr = await window.matrica.parts.get(partId);
+      if (!pr.ok) continue;
+      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
+      const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
+      if (!current.includes(brandId)) continue;
+      const updated = current.filter((id) => id !== brandId);
+      await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+    }
+  }
+
   async function refreshIncomingLinks(entityId: string) {
     setIncomingLinks((p) => ({ ...p, loading: true, error: null }));
     const r = await window.matrica.admin.entities.deleteInfo(entityId).catch((e) => ({ ok: false as const, error: String(e) }));
@@ -469,9 +533,17 @@ export function MasterdataPage(props: {
   }, [selectedEntityId]);
 
   useEffect(() => {
+    if (selectedType?.code !== 'engine_brand') return;
+    if (!selectedEntityId) return;
+    setEngineBrandName(String(entityAttrs.name ?? ''));
+    void loadPartsOptions();
+    void loadBrandParts(selectedEntityId);
+  }, [selectedType?.code, selectedEntityId, entityAttrs.name]);
+
+  useEffect(() => {
     if (!selectedTypeId) return;
-    void refreshLinkOptions(defs);
-  }, [selectedTypeId, defs, types]);
+    void refreshLinkOptions(visibleDefs);
+  }, [selectedTypeId, visibleDefs, types]);
 
   return (
     <div>
@@ -595,7 +667,7 @@ export function MasterdataPage(props: {
                       </tr>
                     </thead>
                     <tbody>
-                      {defs.map((d) => (
+                      {visibleDefs.map((d) => (
                         <tr key={d.id}>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.code}</td>
                           <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.name}</td>
@@ -616,7 +688,7 @@ export function MasterdataPage(props: {
                           )}
                         </tr>
                       ))}
-                      {defs.length === 0 && (
+                      {visibleDefs.length === 0 && (
                         <tr>
                           <td style={{ padding: 12, color: '#6b7280' }} colSpan={props.canEditMasterData ? 5 : 4}>
                             Свойств нет
@@ -727,80 +799,129 @@ export function MasterdataPage(props: {
                     {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
-                    {defs.map((d) => (
-                      <React.Fragment key={d.id}>
-                        <div style={{ color: '#6b7280' }}>{d.name}</div>
-                        <FieldEditor
-                          def={d}
-                          canEdit={props.canEditMasterData}
-                          value={entityAttrs[d.code]}
-                          linkOptions={linkOptions[d.code] ?? []}
-                          onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
-                          onSave={async (v) => {
-                            const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
-                            if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                            else setStatus('Сохранено');
-                            await refreshEntities(selectedTypeId);
+                  {selectedType?.code === 'engine_brand' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                      <div style={{ color: '#6b7280' }}>Марка двигателя</div>
+                      <Input
+                        value={engineBrandName}
+                        disabled={!props.canEditMasterData}
+                        onChange={(e) => setEngineBrandName(e.target.value)}
+                        onBlur={async () => {
+                          const next = engineBrandName.trim();
+                          const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', next || null);
+                          if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                          else setStatus('Сохранено');
+                          await refreshEntities(selectedTypeId);
+                        }}
+                      />
+
+                      <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Детали</div>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <Button variant="ghost" onClick={() => void loadPartsOptions()}>
+                            Обновить список
+                          </Button>
+                          <span style={{ color: '#6b7280', fontSize: 12 }}>
+                            Выбрано: {engineBrandPartIds.length}
+                          </span>
+                        </div>
+                        <MultiSearchSelect
+                          values={engineBrandPartIds}
+                          options={partsOptions}
+                          disabled={!props.canEditMasterData}
+                          placeholder="Выберите детали для этой марки"
+                          onChange={(next) => {
+                            const labelById = new Map(partsOptions.map((o) => [o.id, o.label]));
+                            const sorted = [...next].sort((a, b) =>
+                              String(labelById.get(a) ?? a).localeCompare(String(labelById.get(b) ?? b), 'ru'),
+                            );
+                            setEngineBrandPartIds(sorted);
+                            if (props.canEditMasterData) void updateBrandParts(sorted);
                           }}
                         />
-                      </React.Fragment>
-                    ))}
-                  </div>
-
-                  <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <strong>Связи</strong>
-                      <span style={{ flex: 1 }} />
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          if (selectedEntityId) void refreshIncomingLinks(selectedEntityId);
-                        }}
-                      >
-                        Обновить
-                      </Button>
-                    </div>
-
-                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
-                        {outgoingLinks.length === 0 ? (
-                          <div style={{ color: '#6b7280' }}>В этом разделе нет связанных полей.</div>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                            {outgoingLinks.map((l) => (
-                              <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
-                                  <div style={{ fontSize: 12, color: '#6b7280' }}>
-                                    → {l.targetTypeName}
-                                    {l.targetEntityId ? (
-                                      <>
-                                        {' '}
-                                        | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>
-                                        {l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}
-                                      </>
-                                    ) : (
-                                      ' | (не выбрано)'
-                                    )}
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  disabled={!l.targetTypeId || !l.targetEntityId}
-                                  onClick={() => {
-                                    if (!l.targetTypeId || !l.targetEntityId) return;
-                                    void jumpToEntity(l.targetTypeId, l.targetEntityId);
-                                  }}
-                                >
-                                  Перейти
-                                </Button>
-                              </div>
-                            ))}
+                        {partsStatus && (
+                          <div style={{ color: partsStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>
+                            {partsStatus}
                           </div>
                         )}
                       </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                        {visibleDefs.map((d) => (
+                          <React.Fragment key={d.id}>
+                            <div style={{ color: '#6b7280' }}>{d.name}</div>
+                            <FieldEditor
+                              def={d}
+                              canEdit={props.canEditMasterData}
+                              value={entityAttrs[d.code]}
+                              linkOptions={linkOptions[d.code] ?? []}
+                              onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
+                              onSave={async (v) => {
+                                const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
+                                if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                                else setStatus('Сохранено');
+                                await refreshEntities(selectedTypeId);
+                              }}
+                            />
+                          </React.Fragment>
+                        ))}
+                      </div>
+
+                      <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <strong>Связи</strong>
+                          <span style={{ flex: 1 }} />
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              if (selectedEntityId) void refreshIncomingLinks(selectedEntityId);
+                            }}
+                          >
+                            Обновить
+                          </Button>
+                        </div>
+
+                        <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                            <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
+                            {outgoingLinks.length === 0 ? (
+                              <div style={{ color: '#6b7280' }}>В этом разделе нет связанных полей.</div>
+                            ) : (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                                {outgoingLinks.map((l) => (
+                                  <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
+                                      <div style={{ fontSize: 12, color: '#6b7280' }}>
+                                        → {l.targetTypeName}
+                                        {l.targetEntityId ? (
+                                          <>
+                                            {' '}
+                                            | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>
+                                            {l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}
+                                          </>
+                                        ) : (
+                                          ' | (не выбрано)'
+                                        )}
+                                      </div>
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      disabled={!l.targetTypeId || !l.targetEntityId}
+                                      onClick={() => {
+                                        if (!l.targetTypeId || !l.targetEntityId) return;
+                                        void jumpToEntity(l.targetTypeId, l.targetEntityId);
+                                      }}
+                                    >
+                                      Перейти
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
 
                       <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                         <div style={{ fontWeight: 800, marginBottom: 8 }}>Входящие</div>

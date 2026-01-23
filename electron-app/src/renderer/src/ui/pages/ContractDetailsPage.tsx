@@ -361,7 +361,9 @@ export function ContractDetailsPage(props: {
     'attachments',
   ]);
   const fileDefs = sortedDefs.filter((d) => d.dataType === 'json' && parseMetaJson(d.metaJson)?.ui === 'files');
-  const extraDefs = sortedDefs.filter((d) => !coreCodes.has(d.code) && !fileDefs.find((f) => f.code === d.code));
+  const extraDefs = sortedDefs.filter(
+    (d) => d.code !== 'category_id' && !coreCodes.has(d.code) && !fileDefs.find((f) => f.code === d.code),
+  );
 
   const engineTotal = calcEngineTotal(engineCountItems);
   const engineBrandLabel = engineBrandOptions.find((o) => o.id === engineBrandId)?.label ?? '';

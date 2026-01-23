@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, OperationItem, ServerHealthResult, SyncStatus } from '@matricarmz/shared';
+import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, ServerHealthResult, SyncStatus } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
@@ -37,7 +37,6 @@ export function App() {
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
-  const [ops, setOps] = useState<OperationItem[]>([]);
   const [audit, setAudit] = useState<AuditItem[]>([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
@@ -117,7 +116,6 @@ export function App() {
     // Reset opened details when data source changes.
     setSelectedEngineId(null);
     setEngineDetails(null);
-    setOps([]);
     setSelectedContractId(null);
     setSelectedRequestId(null);
     setSelectedPartId(null);
@@ -388,8 +386,6 @@ export function App() {
     setTab('engine');
     const d = await window.matrica.engines.get(id);
     setEngineDetails(d);
-    const o = await window.matrica.operations.list(id);
-    setOps(o);
   }
 
   async function openRequest(id: string) {
@@ -528,8 +524,6 @@ export function App() {
     if (!selectedEngineId) return;
     const d = await window.matrica.engines.get(selectedEngineId);
     setEngineDetails(d);
-    const o = await window.matrica.operations.list(selectedEngineId);
-    setOps(o);
   }
 
   async function refreshAudit() {
@@ -810,16 +804,11 @@ export function App() {
             key={selectedEngineId}
             engineId={selectedEngineId}
             engine={engineDetails}
-            ops={ops}
             onReload={reloadEngine}
             onEngineUpdated={async () => {
               await refreshEngines();
               await reloadEngine();
             }}
-            onAddOp={async (operationType, status, note) => {
-              await window.matrica.operations.add(selectedEngineId, operationType, status, note);
-              await reloadEngine();
-              }}
             canEditEngines={caps.canEditEngines}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}

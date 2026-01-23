@@ -4,7 +4,7 @@ export type RepairChecklistTemplateItem = {
   kind: 'text' | 'date' | 'boolean' | 'table' | 'signature';
   required?: boolean;
   // Для kind=table: колонки и дефолтные строки (если нужны)
-  columns?: { id: string; label: string }[];
+  columns?: { id: string; label: string; kind?: 'text' | 'boolean' }[];
 };
 
 export type RepairChecklistTemplate = {
@@ -18,7 +18,7 @@ export type RepairChecklistTemplate = {
   items: RepairChecklistTemplateItem[];
 };
 
-export type RepairChecklistTableRow = Record<string, string>;
+export type RepairChecklistTableRow = Record<string, string | boolean>;
 
 export type RepairChecklistAnswers = Record<
   string,
