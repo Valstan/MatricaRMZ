@@ -7,6 +7,7 @@ import {
   uuid,
   bigserial,
   bigint,
+  index,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -358,6 +359,24 @@ export const clientSettings = pgTable('client_settings', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 });
+
+// -----------------------------
+// Diagnostics snapshots (server-side only)
+// -----------------------------
+export const diagnosticsSnapshots = pgTable(
+  'diagnostics_snapshots',
+  {
+    id: uuid('id').primaryKey(),
+    scope: text('scope').notNull(), // server | client
+    clientId: text('client_id'),
+    payloadJson: text('payload_json').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    scopeCreatedIdx: index('diagnostics_snapshots_scope_created_idx').on(t.scope, t.createdAt),
+    clientScopeCreatedIdx: index('diagnostics_snapshots_client_scope_created_idx').on(t.clientId, t.scope, t.createdAt),
+  }),
+);
 
 // -----------------------------
 // Chat (sync tables)

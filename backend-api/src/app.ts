@@ -20,6 +20,8 @@ import { updatesRouter } from './routes/updates.js';
 import { clientSettingsRouter } from './routes/clientSettings.js';
 import { adminClientsRouter } from './routes/adminClients.js';
 import { employeesRouter } from './routes/employees.js';
+import { checklistsRouter } from './routes/checklists.js';
+import { diagnosticsRouter } from './routes/diagnostics.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -48,6 +50,8 @@ export function createApp() {
   app.use('/updates', updatesRouter);
   app.use('/client', clientSettingsRouter);
   app.use('/employees', employeesRouter);
+  app.use('/checklists', checklistsRouter);
+  app.use('/diagnostics', diagnosticsRouter);
 
   // Web admin UI (served as static SPA from /admin-ui)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

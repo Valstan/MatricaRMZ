@@ -1,9 +1,10 @@
 import { EntityTypeCode, SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
 import { app } from 'electron';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { attributeDefs, attributeValues, auditLog, chatMessages, chatReads, entities, entityTypes, operations, userPresence } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
@@ -26,6 +27,8 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.ChatReads]: 800,
   [SyncTableName.UserPresence]: 50,
 };
+
+const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
 
 function nowMs() {
   return Date.now();
@@ -59,6 +62,133 @@ function formatError(e: unknown): string {
   const code = anyE?.code ? ` code=${String(anyE.code)}` : '';
   const stack = anyE?.stack ? `\n${String(anyE.stack)}` : '';
   return `${name ? name + ': ' : ''}${message}${code}${cause}${stack}`;
+}
+
+type SnapshotSection = { count: number; maxUpdatedAt: number | null; checksum: string | null };
+
+function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: number | null) {
+  const raw = `${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`;
+  return createHash('md5').update(raw).digest('hex');
+}
+
+async function snapshotTable(
+  db: BetterSQLite3Database,
+  table: typeof entityTypes | typeof entities | typeof attributeDefs | typeof attributeValues | typeof operations,
+): Promise<SnapshotSection> {
+  const row = await db
+    .select({
+      count: sql<number>`count(*)`,
+      maxUpdatedAt: sql<number | null>`max(${table.updatedAt})`,
+      sumUpdatedAt: sql<number | null>`sum(${table.updatedAt})`,
+    })
+    .from(table)
+    .where(isNull(table.deletedAt))
+    .limit(1);
+  const r = row[0];
+  const count = Number(r?.count ?? 0);
+  const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
+  const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
+  return {
+    count,
+    maxUpdatedAt,
+    checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
+  };
+}
+
+async function snapshotEntityType(db: BetterSQLite3Database, typeId: string): Promise<SnapshotSection> {
+  const row = await db
+    .select({
+      count: sql<number>`count(*)`,
+      maxUpdatedAt: sql<number | null>`max(${entities.updatedAt})`,
+      sumUpdatedAt: sql<number | null>`sum(${entities.updatedAt})`,
+    })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
+    .limit(1);
+  const r = row[0];
+  const count = Number(r?.count ?? 0);
+  const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
+  const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
+  return {
+    count,
+    maxUpdatedAt,
+    checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
+  };
+}
+
+async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
+  const tables: Record<string, SnapshotSection> = {
+    entity_types: await snapshotTable(db, entityTypes),
+    entities: await snapshotTable(db, entities),
+    attribute_defs: await snapshotTable(db, attributeDefs),
+    attribute_values: await snapshotTable(db, attributeValues),
+    operations: await snapshotTable(db, operations),
+  };
+  const types = await db
+    .select({ id: entityTypes.id, code: entityTypes.code })
+    .from(entityTypes)
+    .where(isNull(entityTypes.deletedAt))
+    .limit(5000);
+  const typeByCode: Record<string, string> = {};
+  for (const t of types as any[]) {
+    const code = String(t.code);
+    if (['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee'].includes(code)) {
+      typeByCode[code] = String(t.id);
+    }
+  }
+  const entityTypesSnapshot: Record<string, SnapshotSection> = {};
+  for (const code of ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee']) {
+    const typeId = typeByCode[code];
+    entityTypesSnapshot[code] = typeId ? await snapshotEntityType(db, typeId) : { count: 0, maxUpdatedAt: null, checksum: null };
+  }
+  return { tables, entityTypes: entityTypesSnapshot };
+}
+
+async function sendDiagnosticsSnapshot(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  clientId: string,
+  serverSeq: number,
+) {
+  const lastSentAt = await getSyncStateNumber(db, SettingsKey.DiagnosticsLastSentAt, 0);
+  const now = nowMs();
+  if (now - lastSentAt < DIAGNOSTICS_SEND_INTERVAL_MS) return;
+  const snapshot = await buildDiagnosticsSnapshot(db);
+  const url = `${apiBaseUrl}/diagnostics/consistency/report`;
+  const r = await fetchAuthed(
+    db,
+    apiBaseUrl,
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, serverSeq, tables: snapshot.tables, entityTypes: snapshot.entityTypes }),
+    },
+    { attempts: 3, timeoutMs: 20_000, label: 'push' },
+  );
+  if (r.ok) {
+    await setSyncStateNumber(db, SettingsKey.DiagnosticsLastSentAt, now);
+  }
+}
+
+function isChatReadsDuplicateError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('chat_reads_message_user_uq') || text.includes('chat_reads_message_user_uq'.toLowerCase());
+}
+
+async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
+  const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
+  if (ids.length === 0) return 0;
+  const pending = 'pending';
+  const whereUser = userId ? eq(chatReads.userId, userId) : undefined;
+  if (whereUser) {
+    const res = await db
+      .delete(chatReads)
+      .where(and(eq(chatReads.syncStatus, pending), whereUser, inArray(chatReads.messageId, ids)));
+    return Number((res as any)?.changes ?? 0);
+  }
+  const res = await db.delete(chatReads).where(and(eq(chatReads.syncStatus, pending), inArray(chatReads.messageId, ids)));
+  return Number((res as any)?.changes ?? 0);
 }
 
 async function fetchWithRetryLogged(
@@ -844,35 +974,57 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     }
 
     logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
-    const upserts = await collectPending(db);
+    let upserts = await collectPending(db);
     let pushed = 0;
 
     if (upserts.length > 0) {
-      const summary = upserts.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
-      const total = upserts.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
-      logSync(`push pending total=${total} packs=[${summary}]`);
-      const pushBody: SyncPushRequest = { client_id: clientId, upserts };
-      const pushUrl = `${apiBaseUrl}/sync/push`;
-      const r = await fetchAuthed(
-        db,
-        apiBaseUrl,
-        pushUrl,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
-        { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
-      );
-      if (!r.ok) {
-        const body = await safeBodyText(r);
-        logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
-        if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
-        throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
-      }
-      const json = (await r.json()) as { ok: boolean; applied?: number };
-      pushed = json.applied ?? 0;
+      let attemptedChatReadsFix = false;
+      let pushedPacks = upserts;
 
-      // После успешного push помечаем отправленные строки как synced.
-      for (const pack of upserts) {
-        const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
-        await markAllSynced(db, pack.table, ids);
+      while (pushedPacks.length > 0) {
+        const summary = pushedPacks.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
+        const total = pushedPacks.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
+        logSync(`push pending total=${total} packs=[${summary}]`);
+        const pushBody: SyncPushRequest = { client_id: clientId, upserts: pushedPacks };
+        const pushUrl = `${apiBaseUrl}/sync/push`;
+        const r = await fetchAuthed(
+          db,
+          apiBaseUrl,
+          pushUrl,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
+          { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
+        );
+        if (!r.ok) {
+          const body = await safeBodyText(r);
+          logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
+          if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
+          if (!attemptedChatReadsFix && r.status >= 500 && isChatReadsDuplicateError(body)) {
+            const chatReadsPack = pushedPacks.find((p) => p.table === SyncTableName.ChatReads);
+            const messageIds = (chatReadsPack?.rows as any[] | undefined)
+              ?.map((row) => String((row as any).message_id ?? (row as any).messageId ?? ''))
+              .filter(Boolean);
+            const session = await getSession(db).catch(() => null);
+            const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
+            logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
+            attemptedChatReadsFix = true;
+            pushedPacks = await collectPending(db);
+            if (pushedPacks.length === 0) {
+              pushed = 0;
+              break;
+            }
+            continue;
+          }
+          throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
+        }
+        const json = (await r.json()) as { ok: boolean; applied?: number };
+        pushed = json.applied ?? 0;
+
+        // После успешного push помечаем отправленные строки как synced.
+        for (const pack of pushedPacks) {
+          const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
+          await markAllSynced(db, pack.table, ids);
+        }
+        break;
       }
     }
 
@@ -938,6 +1090,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
 
     logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
+    await sendDiagnosticsSnapshot(db, apiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
     return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
   } catch (e) {
     const err = formatError(e);

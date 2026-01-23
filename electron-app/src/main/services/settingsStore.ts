@@ -11,6 +11,7 @@ export const SettingsKey = {
   LastPulledServerSeq: 'lastPulledServerSeq',
   LastSyncAt: 'lastSyncAt',
   LastAppliedAt: 'lastAppliedAt',
+  DiagnosticsLastSentAt: 'diagnostics.lastSentAt',
 
   // Auth (encrypted JSON payload)
   AuthSession: 'auth.session',

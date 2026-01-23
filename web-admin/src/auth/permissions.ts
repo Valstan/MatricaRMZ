@@ -8,6 +8,12 @@ export function deriveCaps(perms: PermissionsMap | null | undefined) {
   return {
     canViewMasterData: has(perms, 'masterdata.view'),
     canEditMasterData: has(perms, 'masterdata.edit'),
+    canViewEngines: has(perms, 'engines.view'),
+    canEditEngines: has(perms, 'engines.edit'),
+    canViewOperations: has(perms, 'operations.view'),
+    canEditOperations: has(perms, 'operations.edit'),
+    canViewReports: has(perms, 'reports.view'),
+    canExportReports: has(perms, 'reports.export'),
     canManageUsers: has(perms, 'admin.users.manage'),
     canManageClients: has(perms, 'clients.manage'),
     canChatUse: has(perms, 'chat.use'),

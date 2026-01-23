@@ -13,6 +13,7 @@ import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUs
 import { userPermissions } from '../database/schema.js';
 import { logError } from '../utils/logger.js';
 import {
+  createEmployeeEntity,
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
   getEmployeeAuthByLogin,
@@ -62,14 +63,8 @@ authRouter.post('/login', async (req, res) => {
       const ts = Date.now();
       const employeeId = u?.id ?? randomUUID();
       if (!u) {
-        await db.insert(entities).values({
-          id: employeeId,
-          typeId: employeeTypeId,
-          createdAt: ts,
-          updatedAt: ts,
-          deletedAt: null,
-          syncStatus: 'synced',
-        });
+        const created = await createEmployeeEntity(employeeId, ts);
+        if (!created.ok) return res.status(500).json({ ok: false, error: created.error });
       }
       const passwordHash = await hashPassword(password);
       await setEmployeeAuth(employeeId, { login: username, passwordHash, systemRole: 'superadmin', accessEnabled: true });
@@ -118,20 +113,11 @@ authRouter.post('/register', async (req, res) => {
     if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'login already exists' });
     if (isSuperadminLogin(login)) return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
 
-    const employeeTypeId = await getEmployeeTypeId();
-    if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'employee type not found' });
-    await ensureEmployeeAuthDefs();
-
     const ts = Date.now();
     const employeeId = randomUUID();
-    await db.insert(entities).values({
-      id: employeeId,
-      typeId: employeeTypeId,
-      createdAt: ts,
-      updatedAt: ts,
-      deletedAt: null,
-      syncStatus: 'synced',
-    });
+    const created = await createEmployeeEntity(employeeId, ts);
+    if (!created.ok) return res.status(500).json({ ok: false, error: created.error });
+    await ensureEmployeeAuthDefs();
 
     const passwordHash = await hashPassword(password);
     await setEmployeeAuth(employeeId, { login, passwordHash, systemRole: 'pending', accessEnabled: true });

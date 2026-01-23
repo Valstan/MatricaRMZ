@@ -4,6 +4,7 @@ import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
 import { logError, logInfo } from './utils/logger.js';
 import { startUpdateTorrentService } from './services/updateTorrentService.js';
+import { startConsistencyDiagnostics } from './services/diagnosticsConsistencyService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -29,6 +30,8 @@ async function bootstrap() {
   });
 
   startUpdateTorrentService();
+  const intervalMs = Number(process.env.MATRICA_DIAGNOSTICS_INTERVAL_MS ?? 600_000);
+  startConsistencyDiagnostics(Number.isFinite(intervalMs) && intervalMs > 0 ? intervalMs : 600_000);
 
   app.listen(port, host, () => {
     logInfo(`listening on ${host}:${port}`, { host, port }, { critical: true });

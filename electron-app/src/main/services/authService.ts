@@ -93,7 +93,7 @@ export async function authSync(db: BetterSQLite3Database, args: { apiBaseUrl: st
           savedAt: nowMs(),
         };
         const stored = encryptJson(JSON.stringify(payload));
-        await setSyncState(db, KEY_SESSION, JSON.stringify(stored));
+        await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
         return { loggedIn: true, user: payload.user, permissions: payload.permissions };
       }
     }

@@ -9,6 +9,8 @@ import { hashPassword } from '../auth/password.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
 import {
+  createEmployeeEntity,
+  emitEmployeeSyncSnapshot,
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
   getEmployeeAuthByLogin,
@@ -127,14 +129,8 @@ adminUsersRouter.post('/users', async (req, res) => {
       const employeeTypeId = await getEmployeeTypeId();
       if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'employee type not found' });
       employeeId = randomUUID();
-      await db.insert(entities).values({
-        id: employeeId,
-        typeId: employeeTypeId,
-        createdAt: ts,
-        updatedAt: ts,
-        deletedAt: null,
-        syncStatus: 'synced',
-      });
+      const created = await createEmployeeEntity(employeeId, ts);
+      if (!created.ok) return res.status(500).json({ ok: false, error: created.error });
     }
 
     await ensureEmployeeAuthDefs();
@@ -178,6 +174,7 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
       const role = (parsed.data.role ?? 'user').toLowerCase();
       if (actorLevel === 1 && role !== 'user') return res.status(403).json({ ok: false, error: 'admin can approve only user role' });
       await setEmployeeAuth(pendingId, { systemRole: role, accessEnabled: true });
+      await emitEmployeeSyncSnapshot(pendingId);
       return res.json({ ok: true });
     }
 

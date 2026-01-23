@@ -31,7 +31,8 @@ export function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
   const [tab, setTab] = useState<TabId>('engines');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
-  const prevLoggedIn = useRef<boolean>(false);
+  const prevUserId = useRef<string | null>(null);
+  const [authReady, setAuthReady] = useState<boolean>(false);
   const [clientVersion, setClientVersion] = useState<string>('');
   const [serverInfo, setServerInfo] = useState<ServerHealthResult | null>(null);
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
@@ -66,7 +67,14 @@ export function App() {
 
   useEffect(() => {
     void refreshEngines();
-    void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
+    void window.matrica.auth
+      .status()
+      .then((s) => {
+        setAuthStatus(s);
+        prevUserId.current = s.loggedIn ? s.user?.id ?? null : null;
+      })
+      .catch(() => {})
+      .finally(() => setAuthReady(true));
     void window.matrica.app.version().then((r) => (r.ok ? setClientVersion(r.version) : setClientVersion(''))).catch(() => {});
     void refreshServerHealth();
     void window.matrica.settings.uiGet().then((r: any) => {
@@ -192,16 +200,38 @@ export function App() {
     }
   }
 
-  // After successful login: run one sync so the user immediately sees shared data (e.g. engines created by admins).
+  function resetUserScopedState() {
+    setEngines([]);
+    setEngineDetails(null);
+    setSelectedEngineId(null);
+    setSelectedEngineBrandId(null);
+    setSelectedContractId(null);
+    setSelectedRequestId(null);
+    setSelectedPartId(null);
+    setSelectedEmployeeId(null);
+    setAudit([]);
+    setChatUnreadTotal(0);
+    setChatContext({ selectedUserId: null, adminMode: false });
+    setPresence(null);
+    setEmployeesRefreshKey((k) => k + 1);
+  }
+
+  // When user changes (logout or login as another user), reset state and force full sync.
   useEffect(() => {
-    const was = prevLoggedIn.current;
-    const now = authStatus.loggedIn === true;
-    prevLoggedIn.current = now;
-    if (now && !was && backupMode?.mode !== 'backup') {
-      setPostLoginSyncMsg('После входа выполняю синхронизацию…');
-      void runSyncNow({ showStatusMessage: true });
-    }
-  }, [authStatus.loggedIn, backupMode?.mode]);
+    if (!authReady) return;
+    const currentId = authStatus.loggedIn ? authStatus.user?.id ?? null : null;
+    const prevId = prevUserId.current;
+    if (prevId === currentId) return;
+    prevUserId.current = currentId;
+    resetUserScopedState();
+    if (!currentId) return;
+    if (backupMode?.mode === 'backup') return;
+    setPostLoginSyncMsg('Смена пользователя: выполняю полную синхронизацию…');
+    void (async () => {
+      await window.matrica.sync.reset().catch(() => {});
+      await runSyncNow({ showStatusMessage: true });
+    })();
+  }, [authReady, authStatus.loggedIn, authStatus.user?.id, backupMode?.mode]);
 
   // Periodically sync auth permissions from server (important for delegated permissions).
   useEffect(() => {

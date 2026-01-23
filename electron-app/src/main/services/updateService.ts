@@ -790,6 +790,24 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       }
       const current = app.getVersion();
       const baseUrl = getUpdateApiBaseUrl();
+
+      if (pending?.version && compareSemver(pending.version, current) > 0) {
+        setUpdateState({
+          state: 'downloaded',
+          source: 'github',
+          version: pending.version,
+          progress: 100,
+          message: 'Обновление скачано. Установится после перезапуска.',
+        });
+        return;
+      }
+
+      const ghOk = await tryGithubDownload();
+      if (ghOk) return;
+
+      const yOk = await tryYandexDownload();
+      if (yOk) return;
+
       setUpdateState({ state: 'checking', source: 'torrent', message: 'Проверяем обновления (torrent)…' });
       const manifest = await fetchTorrentManifest(baseUrl);
       const targetVersion = manifest?.version ?? null;
@@ -813,12 +831,6 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         const updated = await readPendingUpdate();
         if (updated?.version && compareSemver(updated.version, current) > 0) return;
       }
-
-      const ghOk = await tryGithubDownload(targetVersion ?? undefined, prepared);
-      if (ghOk) return;
-
-      const yOk = await tryYandexDownload(targetVersion ?? undefined, prepared);
-      if (yOk) return;
 
       setUpdateState({ state: 'idle' });
     } catch (e) {
@@ -866,7 +878,79 @@ export async function runAutoUpdateFlow(
       return { action: 'update_started' };
     }
 
-    await stageUpdate('Проверяем торрент-обновления…', 2);
+    await stageUpdate('Проверяем обновления через GitHub…', 10);
+    const check = await waitForUpdateCheck();
+    if (check.ok && check.updateAvailable) {
+      await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, check.version);
+      await stopTorrentSeeding().catch(() => {});
+      await stopTorrentDownload().catch(() => {});
+      await cleanupUpdateCache(check.version ?? 'latest');
+      const download = await downloadUpdate(check.version);
+      if (!download.ok || !download.filePath) {
+        await setUpdateUi(`Ошибка скачивания: ${download.error ?? 'unknown'}`, 100, check.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: download.error ?? 'download failed' };
+      }
+      const cachedPath = await cacheInstaller(download.filePath, check.version);
+      lastDownloadedInstallerPath = cachedPath;
+      await ensureTorrentSeedArtifacts(null, cachedPath, check.version);
+      await installNow({ installerPath: cachedPath, version: check.version });
+      return { action: 'update_started' };
+    }
+
+    const gh = await checkGithubReleaseForUpdates();
+    if (gh.ok && gh.updateAvailable && gh.downloadUrl) {
+      await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, gh.version);
+      await stopTorrentSeeding().catch(() => {});
+      await stopTorrentDownload().catch(() => {});
+      await cleanupUpdateCache(gh.version ?? 'latest');
+      const gdl = await downloadGithubUpdate(gh.downloadUrl, gh.version, {
+        onProgress: (pct) => {
+          void setUpdateUi(`Скачиваем (GitHub)…`, pct, gh.version);
+        },
+      });
+      if (!gdl.ok || !gdl.filePath) {
+        await setUpdateUi(`Ошибка скачивания: ${gdl.error ?? 'unknown'}`, 100, gh.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: gdl.error ?? 'download failed' };
+      }
+      const cachedPath = await cacheInstaller(gdl.filePath, gh.version);
+      lastDownloadedInstallerPath = cachedPath;
+      await ensureTorrentSeedArtifacts(null, cachedPath, gh.version);
+      await installNow({ installerPath: cachedPath, version: gh.version });
+      return { action: 'update_started' };
+    }
+
+    await stageUpdate('Проверяем Яндекс.Диск…', 20);
+    const fallback = await checkYandexForUpdates();
+    if (!fallback.ok) {
+      // Continue to torrent fallback.
+    }
+    if (!fallback.updateAvailable) {
+      // Continue to torrent fallback.
+    } else {
+      await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 5, fallback.version);
+      await stopTorrentSeeding().catch(() => {});
+      await stopTorrentDownload().catch(() => {});
+      await cleanupUpdateCache(fallback.version ?? 'latest');
+      const ydl = await downloadYandexUpdate(fallback, {
+        onProgress: (pct) => {
+          void setUpdateUi(`Скачиваем (Yandex)…`, pct, fallback.version);
+        },
+      });
+      if (!ydl.ok || !ydl.filePath) {
+        await setUpdateUi(`Ошибка скачивания: ${ydl.error ?? 'unknown'}`, 100, fallback.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: ydl.error ?? 'download failed' };
+      }
+      const cachedPath = await cacheInstaller(ydl.filePath, fallback.version);
+      lastDownloadedInstallerPath = cachedPath;
+      await ensureTorrentSeedArtifacts(null, cachedPath, fallback.version);
+      await installNow({ installerPath: cachedPath, version: fallback.version });
+      return { action: 'update_started' };
+    }
+
+    await stageUpdate('Проверяем торрент-обновления…', 30);
     const torrentCheck = await checkTorrentForUpdates();
     let torrentManifest: TorrentUpdateManifest | null = null;
     if (torrentCheck.ok && torrentCheck.updateAvailable && torrentCheck.manifest) {
@@ -909,93 +993,11 @@ export async function runAutoUpdateFlow(
         }
         break;
       }
-      await stageUpdate(`Торрент недоступен, пробуем GitHub…`, 15, torrentCheck.version);
-    } else if (!torrentCheck.ok) {
-      await stageUpdate(`Торрент недоступен (${torrentCheck.error}). Пробуем GitHub…`, 15);
-    } else {
-      await stageUpdate('Торрент обновлений не найден. Пробуем GitHub…', 15);
     }
-
     await setTorrentDebug(null);
-    await stageUpdate('Проверяем обновления через GitHub…', 20);
-    const check = await waitForUpdateCheck();
-    if (check.ok && check.updateAvailable) {
-      await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, check.version);
-      await stopTorrentSeeding().catch(() => {});
-      await stopTorrentDownload().catch(() => {});
-      await cleanupUpdateCache(check.version ?? 'latest');
-      const download = await downloadUpdate(check.version);
-      if (!download.ok || !download.filePath) {
-        await setUpdateUi(`Ошибка скачивания: ${download.error ?? 'unknown'}`, 100, check.version);
-        closeUpdateWindowSoon(3500);
-        return { action: 'error', error: download.error ?? 'download failed' };
-      }
-      const cachedPath = await cacheInstaller(download.filePath, check.version);
-      lastDownloadedInstallerPath = cachedPath;
-      await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, check.version);
-      await installNow({ installerPath: cachedPath, version: check.version });
-      return { action: 'update_started' };
-    }
-
-    const gh = await checkGithubReleaseForUpdates();
-    if (gh.ok && gh.updateAvailable && gh.downloadUrl) {
-      await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, gh.version);
-      await stopTorrentSeeding().catch(() => {});
-      await stopTorrentDownload().catch(() => {});
-      await cleanupUpdateCache(gh.version ?? 'latest');
-      const gdl = await downloadGithubUpdate(gh.downloadUrl, gh.version, {
-        onProgress: (pct) => {
-          void setUpdateUi(`Скачиваем (GitHub)…`, pct, gh.version);
-        },
-      });
-      if (!gdl.ok || !gdl.filePath) {
-        await setUpdateUi(`Ошибка скачивания: ${gdl.error ?? 'unknown'}`, 100, gh.version);
-        closeUpdateWindowSoon(3500);
-        return { action: 'error', error: gdl.error ?? 'download failed' };
-      }
-      const cachedPath = await cacheInstaller(gdl.filePath, gh.version);
-      lastDownloadedInstallerPath = cachedPath;
-      await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, gh.version);
-      await installNow({ installerPath: cachedPath, version: gh.version });
-      return { action: 'update_started' };
-    }
-
-    await stageUpdate('Проверяем Яндекс.Диск…', 30);
-    const fallback = await checkYandexForUpdates();
-    if (!fallback.ok) {
-      if (!check.ok && !gh.ok) {
-        await setUpdateUi(`Ошибка проверки: ${check.error}`, 0);
-        closeUpdateWindowSoon(3500);
-        return { action: 'error', error: check.error };
-      }
-      await stageUpdate('Обновлений нет. Запускаем приложение…', 100);
-      closeUpdateWindowSoon(700);
-      return { action: 'no_update' };
-    }
-    if (!fallback.updateAvailable) {
-      await stageUpdate('Обновлений нет. Запускаем приложение…', 100);
-      closeUpdateWindowSoon(700);
-      return { action: 'no_update' };
-    }
-    await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 5, fallback.version);
-    await stopTorrentSeeding().catch(() => {});
-    await stopTorrentDownload().catch(() => {});
-    await cleanupUpdateCache(fallback.version ?? 'latest');
-    const ydl = await downloadYandexUpdate(fallback, {
-      onProgress: (pct) => {
-        void setUpdateUi(`Скачиваем (Yandex)…`, pct, fallback.version);
-      },
-    });
-    if (!ydl.ok || !ydl.filePath) {
-      await setUpdateUi(`Ошибка скачивания: ${ydl.error ?? 'unknown'}`, 100, fallback.version);
-      closeUpdateWindowSoon(3500);
-      return { action: 'error', error: ydl.error ?? 'download failed' };
-    }
-    const cachedPath = await cacheInstaller(ydl.filePath, fallback.version);
-    lastDownloadedInstallerPath = cachedPath;
-    await ensureTorrentSeedArtifacts(torrentManifest, cachedPath, fallback.version);
-    await installNow({ installerPath: cachedPath, version: fallback.version });
-    return { action: 'update_started' };
+    await stageUpdate('Обновлений нет. Запускаем приложение…', 100);
+    closeUpdateWindowSoon(700);
+    return { action: 'no_update' };
   } catch (e) {
     const message = String(e);
     await setUpdateUi(`Ошибка обновления: ${message}`, 100);
@@ -1010,10 +1012,6 @@ export async function runAutoUpdateFlow(
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     if (!app.isPackaged) return { ok: true, updateAvailable: false };
-    const torrent = await checkTorrentForUpdates();
-    if (torrent.ok && torrent.updateAvailable) {
-      return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
-    }
     const result = await autoUpdater.checkForUpdates();
     const latest = String((result as any)?.updateInfo?.version ?? '');
     const current = app.getVersion();
@@ -1023,16 +1021,20 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     if (gh.ok && gh.updateAvailable) return gh;
     const y = await checkYandexForUpdates();
     if (y.ok) return y;
-    return { ok: true, updateAvailable: false };
-  } catch (e) {
-    const torrent = await checkTorrentForUpdates().catch(() => null);
-    if (torrent && torrent.ok && torrent.updateAvailable) {
+    const torrent = await checkTorrentForUpdates();
+    if (torrent.ok && torrent.updateAvailable) {
       return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
     }
+    return { ok: true, updateAvailable: false };
+  } catch (e) {
     const gh = await checkGithubReleaseForUpdates().catch(() => null);
     if (gh) return gh;
     const y = await checkYandexForUpdates().catch(() => null);
     if (y) return y;
+    const torrent = await checkTorrentForUpdates().catch(() => null);
+    if (torrent && torrent.ok && torrent.updateAvailable) {
+      return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
+    }
     return { ok: false, error: String(e) };
   }
 }

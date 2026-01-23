@@ -2,7 +2,8 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
+import { changeLog, attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
+import { SyncTableName } from '@matricarmz/shared';
 
 const SUPERADMIN_LOGIN = 'valstan';
 
@@ -19,12 +20,76 @@ function nowMs() {
   return Date.now();
 }
 
+function normalizeOpFromDeletedAt(deletedAt: number | null | undefined) {
+  return deletedAt ? 'delete' : 'upsert';
+}
+
+function entityPayload(row: {
+  id: string;
+  typeId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    type_id: String(row.typeId),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+function attributeValuePayload(row: {
+  id: string;
+  entityId: string;
+  attributeDefId: string;
+  valueJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    entity_id: String(row.entityId),
+    attribute_def_id: String(row.attributeDefId),
+    value_json: row.valueJson == null ? null : String(row.valueJson),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+async function insertChange(tableName: SyncTableName, rowId: string, payload: unknown) {
+  await db.insert(changeLog).values({
+    tableName,
+    rowId: rowId as any,
+    op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
+    payloadJson: JSON.stringify(payload),
+    createdAt: nowMs(),
+  });
+}
+
 function safeJsonParse(value: string | null): unknown {
   if (value == null) return null;
   try {
     return JSON.parse(value);
   } catch {
     return value;
+  }
+}
+
+function isServerOnly(metaJson: string | null): boolean {
+  if (!metaJson) return false;
+  try {
+    const json = JSON.parse(metaJson);
+    return json?.serverOnly === true;
+  } catch {
+    return false;
   }
 }
 
@@ -119,6 +184,57 @@ export async function getEmployeeTypeId() {
     .where(and(eq(entityTypes.code, 'employee'), isNull(entityTypes.deletedAt)))
     .limit(1);
   return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+export async function createEmployeeEntity(employeeId: string, ts?: number) {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+  const createdAt = typeof ts === 'number' ? ts : nowMs();
+  await db
+    .insert(entities)
+    .values({
+      id: employeeId,
+      typeId: employeeTypeId,
+      createdAt,
+      updatedAt: createdAt,
+      deletedAt: null,
+      syncStatus: 'synced',
+    })
+    .onConflictDoNothing();
+
+  const row = await db.select().from(entities).where(eq(entities.id, employeeId as any)).limit(1);
+  if (row[0]) {
+    await insertChange(SyncTableName.Entities, String(row[0].id), entityPayload(row[0] as any));
+  }
+  return { ok: true as const, employeeTypeId };
+}
+
+export async function emitEmployeeSyncSnapshot(employeeId: string) {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+
+  const entityRow = await db.select().from(entities).where(eq(entities.id, employeeId as any)).limit(1);
+  if (entityRow[0]) {
+    await insertChange(SyncTableName.Entities, String(entityRow[0].id), entityPayload(entityRow[0] as any));
+  }
+
+  const defs = await db
+    .select({ id: attributeDefs.id, metaJson: attributeDefs.metaJson })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const defIds = defs.filter((d) => !isServerOnly(d.metaJson ?? null)).map((d) => String(d.id));
+  if (defIds.length === 0) return { ok: true as const };
+
+  const values = await db
+    .select()
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, employeeId as any), inArray(attributeValues.attributeDefId, defIds as any)))
+    .limit(50_000);
+  for (const v of values as any[]) {
+    await insertChange(SyncTableName.AttributeValues, String(v.id), attributeValuePayload(v));
+  }
+  return { ok: true as const };
 }
 
 export async function ensureEmployeeAuthDefs() {
@@ -345,6 +461,19 @@ async function upsertAttrValue(entityId: string, defId: string, value: unknown) 
     });
   }
   await db.update(entities).set({ updatedAt: ts, syncStatus: 'synced' }).where(eq(entities.id, entityId as any));
+
+  const attrRow = await db
+    .select()
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, entityId as any), eq(attributeValues.attributeDefId, defId as any)))
+    .limit(1);
+  if (attrRow[0]) {
+    await insertChange(SyncTableName.AttributeValues, String(attrRow[0].id), attributeValuePayload(attrRow[0] as any));
+  }
+  const entityRow = await db.select().from(entities).where(eq(entities.id, entityId as any)).limit(1);
+  if (entityRow[0]) {
+    await insertChange(SyncTableName.Entities, String(entityRow[0].id), entityPayload(entityRow[0] as any));
+  }
 }
 
 async function getSectionNameById(sectionId: string | null) {
