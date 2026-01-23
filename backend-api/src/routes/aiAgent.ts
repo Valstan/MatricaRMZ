@@ -78,6 +78,8 @@ function buildAccessPolicy(perms: Record<string, boolean>): AccessPolicy {
   if (can('engines.view') || can('parts.view') || can('employees.view')) {
     allow('entities');
     allow('attribute_values');
+    allow('entity_types');
+    allow('attribute_defs');
   }
   if (can('operations.view') || can('supply_requests.view')) {
     allow('operations');
@@ -145,6 +147,41 @@ async function runHeuristicQuery(message: string, policy: AccessPolicy) {
       'select count(*)::int as count from entities e ' +
       'join entity_types t on t.id = e.type_id ' +
       "where t.code = 'engine' and e.deleted_at is null";
+    const result = await runSqlQuery(sql, []);
+    return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs };
+  }
+  if (text.includes('список') && text.includes('двигател')) {
+    if (
+      !policy.allowedTables.has('entities') ||
+      !policy.allowedTables.has('entity_types') ||
+      !policy.allowedTables.has('attribute_defs') ||
+      !policy.allowedTables.has('attribute_values')
+    ) {
+      return { ok: false as const, error: 'no access for engine list' };
+    }
+    const sql = `
+      select
+        e.id,
+        (num.value_json::jsonb #>> '{}') as engine_number,
+        coalesce(
+          (brand_txt.value_json::jsonb #>> '{}'),
+          (brand_name.value_json::jsonb #>> '{}')
+        ) as engine_brand
+      from entities e
+      join entity_types t on t.id = e.type_id
+      left join attribute_defs d_num on d_num.entity_type_id = e.type_id and d_num.code = 'engine_number' and d_num.deleted_at is null
+      left join attribute_values num on num.entity_id = e.id and num.attribute_def_id = d_num.id and num.deleted_at is null
+      left join attribute_defs d_brand_txt on d_brand_txt.entity_type_id = e.type_id and d_brand_txt.code = 'engine_brand' and d_brand_txt.deleted_at is null
+      left join attribute_values brand_txt on brand_txt.entity_id = e.id and brand_txt.attribute_def_id = d_brand_txt.id and brand_txt.deleted_at is null
+      left join attribute_defs d_brand_id on d_brand_id.entity_type_id = e.type_id and d_brand_id.code = 'engine_brand_id' and d_brand_id.deleted_at is null
+      left join attribute_values brand_id on brand_id.entity_id = e.id and brand_id.attribute_def_id = d_brand_id.id and brand_id.deleted_at is null
+      left join entities eb on eb.id = (brand_id.value_json::jsonb #>> '{}')::uuid
+      left join attribute_defs d_brand_name on d_brand_name.entity_type_id = eb.type_id and d_brand_name.code = 'name' and d_brand_name.deleted_at is null
+      left join attribute_values brand_name on brand_name.entity_id = eb.id and brand_name.attribute_def_id = d_brand_name.id and brand_name.deleted_at is null
+      where t.code = 'engine' and e.deleted_at is null
+      order by e.updated_at desc
+      limit ${MAX_ROWS}
+    `;
     const result = await runSqlQuery(sql, []);
     return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs };
   }
@@ -400,7 +437,17 @@ aiAgentRouter.post('/assist', async (req, res) => {
         );
         return res.json({ ok: true, reply: { kind: 'info', text: userText } });
       }
-      const proposed = await proposeSql(message, policy);
+      let proposed;
+      try {
+        proposed = await proposeSql(message, policy);
+      } catch (e) {
+        const err = String(e ?? 'ollama error');
+        await logSnapshot('ai_agent_query_error', { actorId: actor.id, context: ctx, message, error: err }, actor.id);
+        return res.json({
+          ok: true,
+          reply: { kind: 'info', text: 'ИИ временно недоступен для построения запроса. Попробуйте позже.' },
+        });
+      }
       if (!proposed.ok) {
         return res.json({ ok: true, reply: { kind: 'info', text: `Не удалось сформировать запрос: ${proposed.error}` } });
       }
@@ -431,7 +478,14 @@ aiAgentRouter.post('/assist', async (req, res) => {
       `Сообщение пользователя: ${parsed.data.message}\n` +
       'Если нужно задать уточняющий вопрос, используй kind=question.';
 
-    const raw = await callOllama(systemPrompt, userPrompt);
+    let raw = '';
+    try {
+      raw = await callOllama(systemPrompt, userPrompt);
+    } catch (e) {
+      const err = String(e ?? 'ollama error');
+      await logSnapshot('ai_agent_assist_error', { actorId: actor.id, context: ctx, lastEvent, message, error: err }, actor.id);
+      return res.json({ ok: true, reply: { kind: 'info', text: 'ИИ временно недоступен. Попробуйте позже.' } });
+    }
     let reply = { kind: 'info' as const, text: raw, actions: undefined as string[] | undefined };
     try {
       const j = JSON.parse(raw);

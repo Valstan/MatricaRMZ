@@ -397,11 +397,25 @@ function closeUpdateWindowSoon(ms = 500) {
 function quitMainAppSoon(ms = 800) {
   setTimeout(() => {
     try {
+      for (const w of BrowserWindow.getAllWindows()) {
+        try {
+          w.destroy();
+        } catch {
+          // ignore
+        }
+      }
       app.quit();
     } catch {
       // ignore
     }
   }, ms);
+  setTimeout(() => {
+    try {
+      app.exit(0);
+    } catch {
+      // ignore
+    }
+  }, Math.max(ms + 8000, 10000));
 }
 
 async function setUpdateUi(msg: string, pct?: number, version?: string) {
