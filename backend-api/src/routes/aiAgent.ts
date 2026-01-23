@@ -17,7 +17,7 @@ aiAgentRouter.use(requirePermission(PermissionCode.ChatUse));
 
 const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 120_000);
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 100_000);
 
 const MAX_ROWS = 200;
 const PREVIEW_ROWS = 20;
