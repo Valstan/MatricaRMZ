@@ -345,62 +345,7 @@ export function EngineDetailsPage(props: {
             </>
           )}
 
-          {props.canViewMasterData && (
-            <>
-          <div style={{ color: '#6b7280' }}>Наряд</div>
-          <SearchSelectWithCreate
-            value={workOrderId || null}
-            options={linkLists.work_order_id ?? []}
-            disabled={!props.canEditEngines}
-            canCreate={props.canEditMasterData}
-            createLabel="Номер наряда"
-            onChange={(next) => {
-              const v = next ?? '';
-              setWorkOrderId(v);
-              void saveAttr('work_order_id', next ?? null);
-            }}
-            onCreate={async (label) => createMasterDataItem('work_order', label)}
-          />
-            </>
-          )}
-
-          {props.canViewMasterData && (
-            <>
-          <div style={{ color: '#6b7280' }}>Цех</div>
-          <SearchSelectWithCreate
-            value={workshopId || null}
-            options={linkLists.workshop_id ?? []}
-            disabled={!props.canEditEngines}
-            canCreate={props.canEditMasterData}
-            createLabel="Новый цех"
-            onChange={(next) => {
-              const v = next ?? '';
-              setWorkshopId(v);
-              void saveAttr('workshop_id', next ?? null);
-            }}
-            onCreate={async (label) => createMasterDataItem('workshop', label)}
-          />
-            </>
-          )}
-
-          {props.canViewMasterData && (
-            <>
-          <div style={{ color: '#6b7280' }}>Участок</div>
-          <SearchSelectWithCreate
-            value={sectionId || null}
-            options={linkLists.section_id ?? []}
-            disabled={!props.canEditEngines}
-            canCreate={props.canEditMasterData}
-            createLabel="Новый участок"
-            onChange={(next) => {
-              const v = next ?? '';
-              setSectionId(v);
-              void saveAttr('section_id', next ?? null);
-            }}
-            onCreate={async (label) => createMasterDataItem('section', label)}
-          />
-            </>
-          )}
+        
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
           <Button

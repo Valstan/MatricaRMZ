@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -69,6 +70,15 @@ let seedingTorrent: any | null = null;
 let downloadClient: any | null = null;
 let downloadTorrent: any | null = null;
 let networkEpoch = 0;
+
+async function writeTorrentLog(message: string) {
+  try {
+    const ts = new Date().toISOString();
+    await appendFile(join(app.getPath('userData'), 'matricarmz-updater.log'), `[${ts}] ${message}\n`, 'utf8');
+  } catch {
+    // ignore log failures
+  }
+}
 
 function isPrivateIp(address: string): boolean {
   const v4 = address.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
@@ -146,6 +156,31 @@ function buildUpdateFileUrl(torrentUrl: string, fileName: string) {
   }
 }
 
+function buildUpdatePeersUrl(torrentUrl: string) {
+  try {
+    const u = new URL(torrentUrl);
+    return `${u.origin}/updates/peers`;
+  } catch {
+    const base = ensureHttp(torrentUrl.replace(/\/updates\/latest\.torrent.*$/i, ''));
+    return `${base}/updates/peers`;
+  }
+}
+
+function listLocalPrivateIps(): string[] {
+  const nets = networkInterfaces();
+  const out: string[] = [];
+  for (const [_, infos] of Object.entries(nets)) {
+    for (const info of infos ?? []) {
+      if (!info || info.internal) continue;
+      if (info.family !== 'IPv4') continue;
+      const addr = String(info.address ?? '').trim();
+      if (!addr || !isPrivateIp(addr)) continue;
+      out.push(addr);
+    }
+  }
+  return Array.from(new Set(out));
+}
+
 function pickInstallerFile(files: Array<{ name: string; path: string }>, preferredName: string) {
   const byName = files.find((f) => f.name === preferredName || basename(f.name) === preferredName);
   if (byName) return byName;
@@ -210,11 +245,17 @@ export async function downloadTorrentUpdate(
       const startEpoch = networkEpoch;
       let fallbackAttempted = false;
       let fallbackInFlight = false;
+      let peerTimer: NodeJS.Timeout | null = null;
+      let peerRegisteredAt = 0;
+      const addedPeers = new Set<string>();
+      let lastPeerLogAt = 0;
+      const peersUrl = buildUpdatePeersUrl(manifest.torrentUrl);
 
       const finish = (result: TorrentDownloadResult) => {
         if (done) return;
         done = true;
         clearInterval(progressTimer);
+        if (peerTimer) clearInterval(peerTimer);
         resolve(result);
       };
 
@@ -345,6 +386,67 @@ export async function downloadTorrentUpdate(
           finish({ ok: false, error: 'torrent download timeout' });
         }
       }, 900);
+
+      async function syncLanPeers() {
+        if (done) return;
+        const infoHash = manifest.infoHash ?? torrent.infoHash;
+        if (!infoHash) return;
+        const torrentPort = Number((client as any)?.torrentPort ?? 0);
+        const now = Date.now();
+        let localIps: string[] = [];
+        if (torrentPort > 0 && now - peerRegisteredAt > 20_000) {
+          localIps = listLocalPrivateIps();
+          if (localIps.length > 0) {
+            const peers = localIps.map((ip) => ({ ip, port: torrentPort }));
+            await fetchWithRetry(
+              peersUrl,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ infoHash, peers }),
+              },
+              { attempts: 2, timeoutMs: DEFAULT_TIMEOUT_MS, backoffMs: 500, maxBackoffMs: 2000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+            ).catch(() => {});
+            peerRegisteredAt = now;
+          }
+        }
+        if (!torrent?.addPeer) return;
+        const params = new URLSearchParams({ infoHash });
+        if (torrentPort > 0) params.set('port', String(torrentPort));
+        if (localIps.length === 0) localIps = listLocalPrivateIps();
+        if (localIps[0]) params.set('ip', localIps[0]);
+        const listUrl = `${peersUrl}?${params.toString()}`;
+        const res = await fetchWithTimeout(listUrl, DEFAULT_TIMEOUT_MS).catch(() => null);
+        if (!res || !res.ok) return;
+        const json = (await res.json().catch(() => null)) as any;
+        const peers = Array.isArray(json?.peers) ? json.peers : [];
+        let addedNow = 0;
+        for (const p of peers) {
+          const ip = String(p?.ip ?? '').trim();
+          const port = Number(p?.port ?? 0);
+          if (!ip || !Number.isFinite(port) || port <= 0) continue;
+          const key = `${ip}:${port}`;
+          if (addedPeers.has(key)) continue;
+          addedPeers.add(key);
+          addedNow += 1;
+          try {
+            torrent.addPeer(key);
+          } catch {
+            // ignore addPeer errors
+          }
+        }
+        if (addedNow > 0) {
+          const now = Date.now();
+          if (now - lastPeerLogAt > 30_000) {
+            lastPeerLogAt = now;
+            void writeTorrentLog(`torrent peer-exchange added=${addedNow} total=${addedPeers.size}`);
+          }
+        }
+      }
+
+      peerTimer = setInterval(() => {
+        void syncLanPeers();
+      }, 7000);
 
       torrent.on('done', () => {
         void (async () => {

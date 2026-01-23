@@ -44,10 +44,6 @@ export async function pullChangesSince(
   const filtered = rows.filter((r) => {
     const table = String(r.table);
 
-    if (actorIsPending && !['chat_messages', 'chat_reads', 'user_presence'].includes(table)) {
-      return false;
-    }
-
     // Chat privacy filter:
     // - chat_messages: private messages are visible only to sender/recipient (or admin)
     // - chat_reads: visible only to the owning user (or admin)

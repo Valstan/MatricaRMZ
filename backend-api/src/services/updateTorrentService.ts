@@ -20,14 +20,22 @@ type TorrentState = {
   torrentBuffer: Buffer;
 };
 
+type LanPeer = {
+  ip: string;
+  port: number;
+  lastSeenAt: number;
+};
+
 let trackerServer: TrackerServer | null = null;
 let torrentClient: WebTorrentInstance | null = null;
 let currentTorrent: WebTorrentTorrent | null = null;
 let currentState: TorrentState | null = null;
 let lastScanAt: number | null = null;
 let lastError: string | null = null;
+const peerBook = new Map<string, Map<string, LanPeer>>();
 
 const RESCAN_INTERVAL_MS = 60_000;
+const LAN_PEER_TTL_MS = 120_000;
 
 function getUpdatesDir(): string | null {
   const raw = String(process.env.MATRICA_UPDATES_DIR ?? '').trim();
@@ -46,6 +54,87 @@ function getTrackerUrls(): string[] {
 function getPublicBaseUrl(): string | null {
   const base = String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? '').trim().replace(/\/+$/, '');
   return base || null;
+}
+
+function normalizeIp(raw: string) {
+  const ip = String(raw ?? '').trim();
+  if (!ip) return '';
+  if (ip.startsWith('::ffff:')) return ip.slice(7);
+  if (ip === '::1') return '127.0.0.1';
+  return ip;
+}
+
+function isPrivateIp(address: string): boolean {
+  const v4 = address.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 169 && b === 254) return true;
+  }
+  if (address === '::1') return true;
+  if (address.startsWith('fe80:')) return true;
+  if (address.startsWith('fc') || address.startsWith('fd')) return true;
+  return false;
+}
+
+function cleanupPeerBook(infoHash: string) {
+  const now = Date.now();
+  const book = peerBook.get(infoHash);
+  if (!book) return;
+  for (const [key, peer] of book.entries()) {
+    if (now - peer.lastSeenAt > LAN_PEER_TTL_MS) book.delete(key);
+  }
+  if (book.size === 0) peerBook.delete(infoHash);
+}
+
+export function registerUpdatePeers(infoHash: string, peers: Array<{ ip: string; port?: number }>) {
+  const cleanedHash = String(infoHash ?? '').trim();
+  if (!cleanedHash) return { ok: false as const, error: 'infoHash missing' };
+  const now = Date.now();
+  let book = peerBook.get(cleanedHash);
+  if (!book) {
+    book = new Map<string, LanPeer>();
+    peerBook.set(cleanedHash, book);
+  }
+  let added = 0;
+  for (const p of peers) {
+    const ip = normalizeIp(p.ip);
+    const port = Number(p.port ?? 0);
+    if (!ip || !isPrivateIp(ip) || !Number.isFinite(port) || port <= 0) continue;
+    const key = `${ip}:${port}`;
+    const prev = book.get(key);
+    if (!prev) added += 1;
+    book.set(key, { ip, port, lastSeenAt: now });
+  }
+  cleanupPeerBook(cleanedHash);
+  return { ok: true as const, added, total: book.size };
+}
+
+export function listUpdatePeers(infoHash: string, opts?: { limit?: number; exclude?: Array<{ ip: string; port?: number }> }) {
+  const cleanedHash = String(infoHash ?? '').trim();
+  if (!cleanedHash) return { ok: false as const, error: 'infoHash missing', peers: [] };
+  cleanupPeerBook(cleanedHash);
+  const book = peerBook.get(cleanedHash);
+  if (!book) return { ok: true as const, peers: [] };
+  const exclude = new Set<string>(
+    (opts?.exclude ?? [])
+      .map((p) => {
+        const ip = normalizeIp(p.ip);
+        const port = Number(p.port ?? 0);
+        return ip && port > 0 ? `${ip}:${port}` : '';
+      })
+      .filter(Boolean),
+  );
+  const limit = Math.max(1, Math.min(200, Number(opts?.limit ?? 50)));
+  const peers = Array.from(book.values())
+    .filter((p) => !exclude.has(`${p.ip}:${p.port}`))
+    .slice(0, limit)
+    .map((p) => ({ ip: p.ip, port: p.port }));
+  return { ok: true as const, peers };
 }
 
 function extractVersionFromFileName(fileName: string): string | null {

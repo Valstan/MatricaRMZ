@@ -11,62 +11,19 @@ export type PermissionCode = SharedPermissionCodeType;
 export function defaultPermissionsForRole(role: string): Record<string, boolean> {
   const r = String(role || '').toLowerCase();
 
-  // superadmin: полный доступ
-  if (r === 'superadmin') {
-    const all: Record<string, boolean> = {};
-    for (const code of Object.values(PermissionCode)) all[code] = true;
-    return all;
-  }
-
-  // admin: полный доступ
-  if (r === 'admin') {
-    const all: Record<string, boolean> = {};
-    for (const code of Object.values(PermissionCode)) all[code] = true;
-    return all;
-  }
-
   // employee: no access to the app
   if (r === 'employee') {
     return {};
   }
 
-  // user: по новой политике — все права включены по умолчанию,
-  // а админ уже отключает лишнее. Исключение: управление пользователями
-  // доступно только role=admin.
-  if (r === 'user') {
-    const all: Record<string, boolean> = {};
-    for (const code of Object.values(PermissionCode)) all[code] = true;
+  // Все роли (кроме employee) получают полный доступ.
+  const all: Record<string, boolean> = {};
+  for (const code of Object.values(PermissionCode)) all[code] = true;
+  if (r !== 'admin' && r !== 'superadmin') {
     all[PermissionCode.AdminUsersManage] = false;
     all[PermissionCode.ClientsManage] = false;
-    return all;
   }
-
-  // pending: минимальный доступ — только чат с админом
-  if (r === 'pending') {
-    return {
-      [PermissionCode.ChatUse]: true,
-      [PermissionCode.SyncUse]: true,
-    };
-  }
-
-  // default: только просмотр + sync
-  return {
-    [PermissionCode.SupplyRequestsView]: true,
-    [PermissionCode.EnginesView]: true,
-    [PermissionCode.OperationsView]: true,
-    [PermissionCode.ReportsView]: true,
-    [PermissionCode.EmployeesView]: true,
-    [PermissionCode.SyncUse]: true,
-
-    // files (просмотр/скачивание по ссылке)
-    [PermissionCode.FilesView]: true,
-
-    // parts (только просмотр)
-    [PermissionCode.PartsView]: true,
-
-    // chat (только пользование)
-    [PermissionCode.ChatUse]: true,
-  };
+  return all;
 }
 
 export async function getEffectivePermissionsForUser(userId: string): Promise<Record<string, boolean>> {

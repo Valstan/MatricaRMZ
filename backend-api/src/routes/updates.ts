@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { getLatestTorrentState, getUpdateTorrentStatus } from '../services/updateTorrentService.js';
+import { getLatestTorrentState, getUpdateTorrentStatus, listUpdatePeers, registerUpdatePeers } from '../services/updateTorrentService.js';
 
 export const updatesRouter = Router();
 
@@ -52,4 +52,34 @@ updatesRouter.get('/file/:name', (req, res) => {
     return res.status(404).json({ ok: false, error: 'file not found' });
   }
   return res.download(st.filePath, st.fileName);
+});
+
+updatesRouter.post('/peers', (req, res) => {
+  const st = getLatestTorrentState();
+  const infoHash = String(req.body?.infoHash ?? st?.infoHash ?? '').trim();
+  if (!infoHash || (st?.infoHash && infoHash !== st.infoHash)) {
+    return res.status(400).json({ ok: false, error: 'invalid infoHash' });
+  }
+  const peersRaw = Array.isArray(req.body?.peers) ? req.body.peers : [];
+  const peers = peersRaw
+    .map((p: any) => ({ ip: String(p?.ip ?? ''), port: Number(p?.port ?? 0) || undefined }))
+    .filter((p: any) => p.ip);
+  const result = registerUpdatePeers(infoHash, peers);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json({ ok: true, added: result.added, total: result.total });
+});
+
+updatesRouter.get('/peers', (req, res) => {
+  const st = getLatestTorrentState();
+  const infoHash = String(req.query?.infoHash ?? st?.infoHash ?? '').trim();
+  if (!infoHash || (st?.infoHash && infoHash !== st.infoHash)) {
+    return res.status(400).json({ ok: false, error: 'invalid infoHash' });
+  }
+  const exclude: Array<{ ip: string; port?: number }> = [];
+  const selfIp = String(req.query?.ip ?? '').trim();
+  const selfPort = Number(req.query?.port ?? 0) || undefined;
+  if (selfIp) exclude.push({ ip: selfIp, port: selfPort });
+  const list = listUpdatePeers(infoHash, { limit: 60, exclude });
+  if (!list.ok) return res.status(400).json(list);
+  return res.json({ ok: true, peers: list.peers });
 });

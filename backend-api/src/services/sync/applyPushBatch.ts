@@ -49,9 +49,9 @@ function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'u
 
 type SyncActor = { id: string; username: string; role: string };
 
-function isAdminRole(role: string): boolean {
+function canWriteAll(role: string): boolean {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'superadmin';
+  return r !== 'employee';
 }
 
 function safeActor(a: SyncActor): SyncActor {
@@ -71,7 +71,7 @@ function isBulkEntityTypeRow(r: { code?: unknown; name?: unknown }): boolean {
 export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor): Promise<{ applied: number }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
-  const actorIsAdmin = isAdminRole(actor.role);
+  const actorIsAdmin = canWriteAll(actor.role);
   const actorIsPending = String(actor.role ?? '').toLowerCase() === 'pending';
   const superadminUserId = actorIsPending ? await getSuperadminUserId().catch(() => null) : null;
 
