@@ -3,7 +3,6 @@ import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import type { AiAgentAssistResponse, AiAgentContext, AiAgentEvent, AiAgentSuggestion } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
-import { Input } from './Input.js';
 import { theme } from '../theme.js';
 
 type ChatItem =
@@ -145,11 +144,25 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       </div>
 
       <div style={{ padding: 10, borderTop: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <Input
+        <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Введите вопрос…"
-          onKeyDown={(e: any) => {
+          rows={2}
+          style={{
+            width: '100%',
+            padding: '7px 10px',
+            border: '1px solid var(--input-border)',
+            outline: 'none',
+            background: 'var(--input-bg)',
+            color: theme.colors.text,
+            fontSize: 14,
+            lineHeight: 1.2,
+            minHeight: 32,
+            boxShadow: 'var(--input-shadow)',
+            resize: 'vertical',
+          }}
+          onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               void send();
