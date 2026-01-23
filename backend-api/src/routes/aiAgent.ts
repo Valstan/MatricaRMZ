@@ -17,6 +17,7 @@ aiAgentRouter.use(requirePermission(PermissionCode.ChatUse));
 
 const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 120_000);
 
 const MAX_ROWS = 200;
 const PREVIEW_ROWS = 20;
@@ -124,6 +125,43 @@ function validateSql(sql: string, policy: AccessPolicy) {
     finalSql = `${finalSql} LIMIT ${MAX_ROWS}`;
   }
   return { ok: true as const, sql: finalSql };
+}
+
+function extractSearchTerm(message: string) {
+  const text = String(message ?? '').trim();
+  const match = text.match(/(\d{3,})/);
+  if (match) return match[1];
+  const words = text.split(/\s+/).filter((w) => w.length > 2);
+  return words.slice(-1)[0] ?? '';
+}
+
+async function runHeuristicQuery(message: string, policy: AccessPolicy) {
+  const text = String(message ?? '').toLowerCase();
+  if (text.includes('сколько') && text.includes('двигател')) {
+    if (!policy.allowedTables.has('entities') || !policy.allowedTables.has('entity_types')) {
+      return { ok: false as const, error: 'no access for engine count' };
+    }
+    const sql =
+      'select count(*)::int as count from entities e ' +
+      'join entity_types t on t.id = e.type_id ' +
+      "where t.code = 'engine' and e.deleted_at is null";
+    const result = await runSqlQuery(sql, []);
+    return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs };
+  }
+  if (text.includes('файл') || text.includes('файлы')) {
+    if (!policy.allowedTables.has('file_assets')) {
+      return { ok: false as const, error: 'no access for file search' };
+    }
+    const term = extractSearchTerm(message);
+    if (!term) return { ok: false as const, error: 'missing search term' };
+    const sql =
+      'select id, name, size, mime, created_at from file_assets ' +
+      'where deleted_at is null and name ilike $1 ' +
+      `order by created_at desc limit ${MAX_ROWS}`;
+    const result = await runSqlQuery(sql, [`%${term}%`]);
+    return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs };
+  }
+  return { ok: false as const, error: 'no heuristic match' };
 }
 
 function formatRows(rows: any[]) {
@@ -236,7 +274,7 @@ async function forwardToSuperadminFromUser(actor: { id: string; username: string
 
 async function callOllama(systemPrompt: string, userPrompt: string) {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), 180_000);
+  const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), OLLAMA_TIMEOUT_MS);
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: 'POST',
@@ -327,6 +365,20 @@ aiAgentRouter.post('/assist', async (req, res) => {
     if (isAnalyticsQuery(message)) {
       if (policy.allowedTables.size === 0) {
         return res.json({ ok: true, reply: { kind: 'info', text: 'Нет прав на чтение данных.' } });
+      }
+      const heuristic = await runHeuristicQuery(message, policy).catch((e) => ({ ok: false as const, error: String(e) }));
+      if (heuristic.ok) {
+        const resultText = `SQL: ${heuristic.sql}\n` + formatRows(heuristic.rows) + `\nВремя: ${heuristic.tookMs} ms`;
+        await logSnapshot(
+          'ai_agent_query',
+          { actorId: actor.id, context: ctx, message, sql: heuristic.sql, params: [], tookMs: heuristic.tookMs, rows: heuristic.rows.length },
+          actor.id,
+        );
+        await forwardToSuperadminFromUser(
+          { id: String(actor.id), username: String(actor.username ?? 'user') },
+          `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${resultText}`,
+        );
+        return res.json({ ok: true, reply: { kind: 'info', text: resultText } });
       }
       const proposed = await proposeSql(message, policy);
       if (!proposed.ok) {
