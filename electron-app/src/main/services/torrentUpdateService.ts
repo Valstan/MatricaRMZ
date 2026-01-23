@@ -347,14 +347,25 @@ export async function downloadTorrentUpdate(
       }, 900);
 
       torrent.on('done', () => {
-        const files = torrent.files?.map((f) => ({ name: f.name, path: f.path })) ?? [];
-        if (!files.length) {
-          finish({ ok: false, error: 'torrent has no files' });
-          return;
-        }
-        const target = pickInstallerFile(files, manifest.fileName);
-        const installerPath = join(outDir, target.path);
-        finish({ ok: true, installerPath, torrentPath });
+        void (async () => {
+          const files = torrent.files?.map((f) => ({ name: f.name, path: f.path })) ?? [];
+          if (!files.length) {
+            finish({ ok: false, error: 'torrent has no files' });
+            return;
+          }
+          const target = pickInstallerFile(files, manifest.fileName);
+          const installerPath = join(outDir, target.path);
+          const expectedSize = Number(manifest.size ?? 0);
+          if (expectedSize > 0) {
+            const st = await stat(installerPath).catch(() => null);
+            const actualSize = Number(st?.size ?? 0);
+            if (!st || actualSize < expectedSize) {
+              finish({ ok: false, error: `size_mismatch expected=${expectedSize} actual=${actualSize}` });
+              return;
+            }
+          }
+          finish({ ok: true, installerPath, torrentPath });
+        })();
       });
     });
   } catch (e) {

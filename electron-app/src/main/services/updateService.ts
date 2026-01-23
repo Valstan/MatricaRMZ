@@ -618,6 +618,10 @@ function isTransientMessage(msg: string) {
   );
 }
 
+function isSizeMismatchError(error?: string) {
+  return typeof error === 'string' && error.includes('size_mismatch');
+}
+
 function shouldHoldSource(error?: string) {
   const state = getNetworkState();
   if (!state.online) return true;
@@ -871,24 +875,10 @@ export async function runAutoUpdateFlow(
       await stopTorrentSeeding().catch(() => {});
       await stopTorrentDownload().catch(() => {});
       await cleanupUpdateCache(torrentCheck.version ?? torrentManifest.version);
-      const tdl = await downloadTorrentUpdate(torrentManifest, {
-        onProgress: (pct, peers) => {
-          void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
-        },
-        onStats: (stats) => {
-          void setTorrentDebug(stats);
-        },
-      });
-      if (tdl.ok) {
-        const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
-        lastDownloadedInstallerPath = cachedPath;
-        await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
-        await installNow({ installerPath: cachedPath, version: torrentCheck.version ?? torrentManifest.version });
-        return { action: 'update_started' };
-      }
-      if (shouldHoldSource(tdl.error)) {
-        await stageUpdate(`Сеть меняется, повторяем Torrent…`, 12, torrentCheck.version);
-        const retry = await downloadTorrentUpdate(torrentManifest, {
+      const maxAttempts = 3;
+      let lastError: string | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const tdl = await downloadTorrentUpdate(torrentManifest, {
           onProgress: (pct, peers) => {
             void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
           },
@@ -896,13 +886,28 @@ export async function runAutoUpdateFlow(
             void setTorrentDebug(stats);
           },
         });
-        if (retry.ok) {
-          const cachedPath = await cacheInstaller(retry.installerPath, torrentCheck.version);
+        if (tdl.ok) {
+          const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
           lastDownloadedInstallerPath = cachedPath;
-          await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: retry.torrentPath });
+          await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
           await installNow({ installerPath: cachedPath, version: torrentCheck.version ?? torrentManifest.version });
           return { action: 'update_started' };
         }
+        lastError = String(tdl.error ?? 'torrent download failed');
+        if (isSizeMismatchError(lastError)) {
+          await stageUpdate(`Файл скачан не полностью. Повторяем Torrent (${attempt}/${maxAttempts})…`, 12, torrentCheck.version);
+          await stopTorrentSeeding().catch(() => {});
+          await stopTorrentDownload().catch(() => {});
+          await cleanupUpdateCache(torrentCheck.version ?? torrentManifest.version);
+          continue;
+        }
+        if (shouldHoldSource(lastError) && attempt < maxAttempts) {
+          await stageUpdate(`Сеть меняется, повторяем Torrent (${attempt}/${maxAttempts})…`, 12, torrentCheck.version);
+          await stopTorrentSeeding().catch(() => {});
+          await stopTorrentDownload().catch(() => {});
+          continue;
+        }
+        break;
       }
       await stageUpdate(`Торрент недоступен, пробуем GitHub…`, 15, torrentCheck.version);
     } else if (!torrentCheck.ok) {
@@ -1037,6 +1042,7 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     showUpdateWindow(null);
     lockUpdateUi(true);
     await writeUpdaterLog(`update-helper flow start version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
+    let parentTimedOut = false;
     if (args.parentPid) {
       await writeUpdaterLog(`update-helper waiting for parent pid=${args.parentPid}`);
       await setUpdateUi('Ожидаем закрытия программы…', 72, args.version);
@@ -1046,14 +1052,11 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
       while (isProcessAlive(args.parentPid)) {
         const now = Date.now();
         if (now - startedAt >= maxWaitMs) {
+          parentTimedOut = true;
           await writeUpdaterLog(
-            `update-helper parent wait timeout ${Math.round((now - startedAt) / 1000)}s, returning to app`,
+            `update-helper parent wait timeout ${Math.round((now - startedAt) / 1000)}s, continue install`,
           );
-          await setUpdateUi('Не удалось дождаться закрытия программы. Возвращаемся в приложение…', 100, args.version);
-          closeUpdateWindowSoon(4000);
-          spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
-          setTimeout(() => app.quit(), 4200);
-          return;
+          break;
         }
         if (now - lastLogAt > 5000) {
           await writeUpdaterLog(`update-helper waiting: parent still running (${Math.round((now - startedAt) / 1000)}s)`);
@@ -1061,9 +1064,15 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
         }
         await sleep(1000);
       }
-      await writeUpdaterLog(`update-helper parent exited after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+      if (!parentTimedOut) {
+        await writeUpdaterLog(`update-helper parent exited after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+      }
     }
-    await setUpdateUi('Подготовка установки…', 70, args.version);
+    if (parentTimedOut) {
+      await setUpdateUi('Не удалось дождаться закрытия программы. Запускаем установку…', 80, args.version);
+    } else {
+      await setUpdateUi('Подготовка установки…', 70, args.version);
+    }
     await sleep(800);
     await setUpdateUi('Запускаем установку…', 80, args.version);
     await writeUpdaterLog(`update-helper launching installer (detached)`);
