@@ -54,7 +54,7 @@ checklistsRouter.post('/engine', requirePermission(PermissionCode.OperationsEdit
     filledBy: actor?.username ?? null,
     filledAt: Date.now(),
     answers: data.answers ?? {},
-    attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
+    attachments: Array.isArray(data.attachments) ? data.attachments : [],
   };
 
   const r = await saveRepairChecklistForEngine({
