@@ -960,6 +960,7 @@ export function MasterdataPage(props: {
                     </div>
                   </div>
                     </>
+                  )}
                 </div>
               ) : (
                 <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите запись</div>
