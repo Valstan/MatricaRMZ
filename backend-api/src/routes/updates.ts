@@ -62,7 +62,11 @@ updatesRouter.post('/peers', (req, res) => {
   }
   const peersRaw = Array.isArray(req.body?.peers) ? req.body.peers : [];
   const peers = peersRaw
-    .map((p: any) => ({ ip: String(p?.ip ?? ''), port: Number(p?.port ?? 0) || undefined }))
+    .map((p: any) => {
+      const ip = String(p?.ip ?? '');
+      const port = Number(p?.port ?? 0);
+      return Number.isFinite(port) && port > 0 ? { ip, port } : { ip };
+    })
     .filter((p: any) => p.ip);
   const result = registerUpdatePeers(infoHash, peers);
   if (!result.ok) return res.status(400).json(result);
@@ -77,8 +81,11 @@ updatesRouter.get('/peers', (req, res) => {
   }
   const exclude: Array<{ ip: string; port?: number }> = [];
   const selfIp = String(req.query?.ip ?? '').trim();
-  const selfPort = Number(req.query?.port ?? 0) || undefined;
-  if (selfIp) exclude.push({ ip: selfIp, port: selfPort });
+  const selfPort = Number(req.query?.port ?? 0);
+  if (selfIp) {
+    if (Number.isFinite(selfPort) && selfPort > 0) exclude.push({ ip: selfIp, port: selfPort });
+    else exclude.push({ ip: selfIp });
+  }
   const list = listUpdatePeers(infoHash, { limit: 60, exclude });
   if (!list.ok) return res.status(400).json(list);
   return res.json({ ok: true, peers: list.peers });
