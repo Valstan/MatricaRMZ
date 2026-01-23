@@ -175,13 +175,17 @@ function formatRows(rows: any[]) {
 
 function formatRowsForUser(rows: any[]) {
   if (!rows || rows.length === 0) return 'Нет данных.';
-  const keys = Object.keys(rows[0] ?? {});
-  if (keys.length === 1 && keys[0].toLowerCase() === 'count') {
-    const v = rows[0]?.[keys[0]];
+  const first = rows[0] as Record<string, unknown> | undefined;
+  if (!first) return 'Нет данных.';
+  const keys = Object.keys(first);
+  if (keys.length === 1 && keys[0] && keys[0].toLowerCase() === 'count') {
+    const v = first[keys[0]] as unknown;
     return `Найдено: ${String(v ?? 0)}`;
   }
   const preview = rows.slice(0, PREVIEW_ROWS);
-  const lines = preview.map((r, idx) => `${idx + 1}. ` + keys.map((k) => `${k}: ${String(r[k])}`).join(', '));
+  const lines = preview.map(
+    (r, idx) => `${idx + 1}. ` + keys.map((k) => `${k}: ${String((r as Record<string, unknown>)[k])}`).join(', '),
+  );
   const more = rows.length > PREVIEW_ROWS ? `\n… и ещё ${rows.length - PREVIEW_ROWS} строк.` : '';
   return `Строк: ${rows.length}\n` + lines.join('\n') + more;
 }
