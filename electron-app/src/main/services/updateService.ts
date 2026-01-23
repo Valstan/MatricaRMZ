@@ -1602,6 +1602,7 @@ async function runInstaller(installerPath: string): Promise<number> {
 }
 
 async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Promise<boolean> {
+  await describePath('installer-detached', installerPath);
   const attempts = [
     { delayMs: Math.max(200, delayMs), label: 'initial' },
     { delayMs: 2000, label: 'retry-1' },
@@ -1609,36 +1610,50 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     { delayMs: 10_000, label: 'retry-3' },
   ];
 
+  const strategies = [
+    {
+      label: 'direct',
+      run: () => spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true }),
+    },
+    {
+      label: 'cmd-start',
+      run: () => spawn('cmd.exe', ['/c', 'start', '', installerPath], { detached: true, stdio: 'ignore', windowsHide: true }),
+    },
+  ];
+
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i];
     await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
     await sleep(attempt.delayMs);
-    try {
-      const child = spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
-      child.unref();
-      const ok = await new Promise<boolean>((resolve) => {
-        let done = false;
-        const finish = (result: boolean) => {
-          if (done) return;
-          done = true;
-          resolve(result);
-        };
-        child.once('spawn', () => {
-          void writeUpdaterLog('installer spawned (detached)');
-          finish(true);
+    for (const strategy of strategies) {
+      try {
+        await writeUpdaterLog(`installer launch strategy=${strategy.label}`);
+        const child = strategy.run();
+        child.unref();
+        const ok = await new Promise<boolean>((resolve) => {
+          let done = false;
+          const finish = (result: boolean) => {
+            if (done) return;
+            done = true;
+            resolve(result);
+          };
+          child.once('spawn', () => {
+            void writeUpdaterLog(`installer spawned (detached, ${strategy.label})`);
+            finish(true);
+          });
+          child.once('error', (err) => {
+            void writeUpdaterLog(`installer spawn error (${strategy.label}): ${String(err)}`);
+            finish(false);
+          });
+          setTimeout(() => finish(true), 200);
         });
-        child.once('error', (err) => {
-          void writeUpdaterLog(`installer spawn error: ${String(err)}`);
-          finish(false);
-        });
-        setTimeout(() => finish(true), 200);
-      });
-      await writeUpdaterLog(`installer spawn result=${ok} (${attempt.label})`);
-      if (ok) return true;
-    } catch (e) {
-      const msg = String(e);
-      await writeUpdaterLog(`installer spawn exception: ${msg}`);
-      if (!msg.toLowerCase().includes('ebusy')) return false;
+        await writeUpdaterLog(`installer spawn result=${ok} (${attempt.label}, ${strategy.label})`);
+        if (ok) return true;
+      } catch (e) {
+        const msg = String(e);
+        await writeUpdaterLog(`installer spawn exception (${strategy.label}): ${msg}`);
+        if (!msg.toLowerCase().includes('ebusy')) return false;
+      }
     }
     await writeUpdaterLog(`installer launch attempt ${attempt.label} failed, retrying`);
   }
