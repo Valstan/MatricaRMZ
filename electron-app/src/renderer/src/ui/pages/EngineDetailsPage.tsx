@@ -84,6 +84,12 @@ export function EngineDetailsPage(props: {
   const typeIdByCode = useRef<Record<string, string>>({});
 
   const [saveStatus, setSaveStatus] = useState<string>('');
+  const engineBrandOptions =
+    (linkLists.engine_brand ?? []).length > 0
+      ? (linkLists.engine_brand ?? [])
+      : engineBrandId && engineBrand
+        ? [{ id: engineBrandId, label: engineBrand }]
+        : [];
   const sessionHadChanges = useRef<boolean>(false);
   const initialSnapshot = useRef<{
     engineNumber: string;
@@ -273,13 +279,13 @@ export function EngineDetailsPage(props: {
           <div style={{ display: 'grid', gap: 6 }}>
             <SearchSelectWithCreate
               value={engineBrandId || null}
-              options={linkLists.engine_brand ?? []}
+              options={engineBrandOptions}
               disabled={!props.canEditEngines}
               canCreate={props.canEditMasterData}
               createLabel="Новая марка двигателя"
               onChange={(next) => {
                 const nextId = next ?? '';
-                const label = next ? (linkLists.engine_brand ?? []).find((o) => o.id === next)?.label ?? '' : '';
+                const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
                 setEngineBrandId(nextId);
                 setEngineBrand(label);
                 void saveAttr('engine_brand_id', next || null);

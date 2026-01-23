@@ -240,7 +240,7 @@ export function SupplyRequestDetailsPage(props: {
     await loadType('section', 'sectionId');
 
     // Product suggestions (master-data)
-    const productTid = typeIdByCode.get('product');
+    const productTid = typeIdByCodeMap.get('product');
     if (productTid) {
       const rows = await window.matrica.admin.entities.listByEntityType(productTid);
       // For MVP: use displayName as label (entityService picks 'name' if present).

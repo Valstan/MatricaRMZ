@@ -878,6 +878,27 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       if (!haveEngineType[0]?.id) {
         logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.Engine}' while since=${since}`);
         since = 0;
+      } else {
+        const engineBrandType = await db
+          .select({ id: entityTypes.id })
+          .from(entityTypes)
+          .where(eq(entityTypes.code, EntityTypeCode.EngineBrand))
+          .limit(1);
+        const engineBrandTypeId = engineBrandType[0]?.id ? String(engineBrandType[0].id) : null;
+        if (!engineBrandTypeId) {
+          logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.EngineBrand}' while since=${since}`);
+          since = 0;
+        } else {
+          const nameDef = await db
+            .select({ id: attributeDefs.id })
+            .from(attributeDefs)
+            .where(and(eq(attributeDefs.entityTypeId, engineBrandTypeId), eq(attributeDefs.code, 'name')))
+            .limit(1);
+          if (!nameDef[0]?.id) {
+            logSync(`force full pull (since=0): missing attr 'name' for '${EntityTypeCode.EngineBrand}' while since=${since}`);
+            since = 0;
+          }
+        }
       }
     }
 

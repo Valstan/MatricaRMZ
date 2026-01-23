@@ -37,6 +37,8 @@ export function App() {
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
+  const [engineLoading, setEngineLoading] = useState<boolean>(false);
+  const [engineOpenError, setEngineOpenError] = useState<string>('');
   const [audit, setAudit] = useState<AuditItem[]>([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
@@ -384,8 +386,17 @@ export function App() {
   async function openEngine(id: string) {
     setSelectedEngineId(id);
     setTab('engine');
-    const d = await window.matrica.engines.get(id);
-    setEngineDetails(d);
+    setEngineOpenError('');
+    setEngineLoading(true);
+    try {
+      const d = await window.matrica.engines.get(id);
+      setEngineDetails(d);
+    } catch (e) {
+      setEngineDetails(null);
+      setEngineOpenError(`Ошибка загрузки двигателя: ${String(e)}`);
+    } finally {
+      setEngineLoading(false);
+    }
   }
 
   async function openRequest(id: string) {
@@ -522,8 +533,17 @@ export function App() {
 
   async function reloadEngine() {
     if (!selectedEngineId) return;
-    const d = await window.matrica.engines.get(selectedEngineId);
-    setEngineDetails(d);
+    setEngineOpenError('');
+    setEngineLoading(true);
+    try {
+      const d = await window.matrica.engines.get(selectedEngineId);
+      setEngineDetails(d);
+    } catch (e) {
+      setEngineDetails(null);
+      setEngineOpenError(`Ошибка загрузки двигателя: ${String(e)}`);
+    } finally {
+      setEngineLoading(false);
+    }
   }
 
   async function refreshAudit() {
@@ -820,6 +840,15 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
           />
       )}
+        {tab === 'engine' && selectedEngineId && !engineDetails && (
+          <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Карточка двигателя</div>
+            <div style={{ color: '#6b7280', marginBottom: 12 }}>
+              {engineLoading ? 'Загрузка...' : engineOpenError || 'Нет данных для отображения.'}
+            </div>
+            <Button onClick={() => setTab('engines')}>Вернуться к списку</Button>
+          </div>
+        )}
 
         {tab === 'request' && selectedRequestId && (
           <SupplyRequestDetailsPage
