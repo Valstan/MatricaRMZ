@@ -1296,11 +1296,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               })),
             )
             .onConflictDoUpdate({
-              target: chatReads.id,
+              target: [chatReads.messageId, chatReads.userId],
               set: {
                 messageId: sql`excluded.message_id`,
                 userId: sql`excluded.user_id`,
-                readAt: sql`excluded.read_at`,
+                readAt: sql`GREATEST(excluded.read_at, ${chatReads.readAt})`,
                 updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
                 deletedAt: sql`excluded.deleted_at`,
                 syncStatus: 'synced',

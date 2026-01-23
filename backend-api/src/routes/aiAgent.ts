@@ -173,6 +173,19 @@ function formatRows(rows: any[]) {
   return `Строк: ${rows.length}\n` + lines.join('\n') + more;
 }
 
+function formatRowsForUser(rows: any[]) {
+  if (!rows || rows.length === 0) return 'Нет данных.';
+  const keys = Object.keys(rows[0] ?? {});
+  if (keys.length === 1 && keys[0].toLowerCase() === 'count') {
+    const v = rows[0]?.[keys[0]];
+    return `Найдено: ${String(v ?? 0)}`;
+  }
+  const preview = rows.slice(0, PREVIEW_ROWS);
+  const lines = preview.map((r, idx) => `${idx + 1}. ` + keys.map((k) => `${k}: ${String(r[k])}`).join(', '));
+  const more = rows.length > PREVIEW_ROWS ? `\n… и ещё ${rows.length - PREVIEW_ROWS} строк.` : '';
+  return `Строк: ${rows.length}\n` + lines.join('\n') + more;
+}
+
 async function callOllamaJson(systemPrompt: string, userPrompt: string) {
   const raw = await callOllama(systemPrompt, userPrompt);
   try {
@@ -366,9 +379,12 @@ aiAgentRouter.post('/assist', async (req, res) => {
       if (policy.allowedTables.size === 0) {
         return res.json({ ok: true, reply: { kind: 'info', text: 'Нет прав на чтение данных.' } });
       }
+      const includeSql = message.toLowerCase().startsWith('/db') || message.toLowerCase().startsWith('/sql');
       const heuristic = await runHeuristicQuery(message, policy).catch((e) => ({ ok: false as const, error: String(e) }));
       if (heuristic.ok) {
-        const resultText = `SQL: ${heuristic.sql}\n` + formatRows(heuristic.rows) + `\nВремя: ${heuristic.tookMs} ms`;
+        const userText =
+          (includeSql ? `SQL: ${heuristic.sql}\n` : '') + formatRowsForUser(heuristic.rows) + `\nВремя: ${heuristic.tookMs} ms`;
+        const adminText = `SQL: ${heuristic.sql}\n` + formatRows(heuristic.rows) + `\nВремя: ${heuristic.tookMs} ms`;
         await logSnapshot(
           'ai_agent_query',
           { actorId: actor.id, context: ctx, message, sql: heuristic.sql, params: [], tookMs: heuristic.tookMs, rows: heuristic.rows.length },
@@ -376,9 +392,9 @@ aiAgentRouter.post('/assist', async (req, res) => {
         );
         await forwardToSuperadminFromUser(
           { id: String(actor.id), username: String(actor.username ?? 'user') },
-          `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${resultText}`,
+          `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${adminText}`,
         );
-        return res.json({ ok: true, reply: { kind: 'info', text: resultText } });
+        return res.json({ ok: true, reply: { kind: 'info', text: userText } });
       }
       const proposed = await proposeSql(message, policy);
       if (!proposed.ok) {
@@ -389,7 +405,8 @@ aiAgentRouter.post('/assist', async (req, res) => {
         return res.json({ ok: true, reply: { kind: 'info', text: `Запрос отклонён: ${validated.error}` } });
       }
       const { rows, tookMs } = await runSqlQuery(validated.sql, proposed.params ?? []);
-      const resultText = `SQL: ${validated.sql}\n` + formatRows(rows) + `\nВремя: ${tookMs} ms`;
+      const userText = (includeSql ? `SQL: ${validated.sql}\n` : '') + formatRowsForUser(rows) + `\nВремя: ${tookMs} ms`;
+      const adminText = `SQL: ${validated.sql}\n` + formatRows(rows) + `\nВремя: ${tookMs} ms`;
       await logSnapshot(
         'ai_agent_query',
         { actorId: actor.id, context: ctx, message, sql: validated.sql, params: proposed.params, tookMs, rows: rows.length },
@@ -397,9 +414,9 @@ aiAgentRouter.post('/assist', async (req, res) => {
       );
       await forwardToSuperadminFromUser(
         { id: String(actor.id), username: String(actor.username ?? 'user') },
-        `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${resultText}`,
+        `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${adminText}`,
       );
-      return res.json({ ok: true, reply: { kind: 'info', text: resultText } });
+      return res.json({ ok: true, reply: { kind: 'info', text: userText } });
     }
 
     const systemPrompt =

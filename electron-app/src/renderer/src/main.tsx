@@ -5,6 +5,10 @@ import ReactDOM from 'react-dom/client';
 import './ui/global.css';
 import { App } from './ui/App.js';
 
+if (!('workOrderId' in globalThis)) {
+  (globalThis as any).workOrderId = null;
+}
+
 function safeLog(level: 'debug' | 'info' | 'warn' | 'error', message: string) {
   try {
     void window.matrica?.log?.send(level, message);

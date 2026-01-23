@@ -14,7 +14,7 @@ import { logMessage } from './logService.js';
 import { fetchWithRetry } from './netFetch.js';
 
 const PUSH_TIMEOUT_MS = 180_000;
-const PULL_TIMEOUT_MS = 60_000;
+const PULL_TIMEOUT_MS = 180_000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 200,
@@ -164,7 +164,7 @@ async function sendDiagnosticsSnapshot(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId, serverSeq, tables: snapshot.tables, entityTypes: snapshot.entityTypes }),
     },
-    { attempts: 3, timeoutMs: 20_000, label: 'push' },
+    { attempts: 3, timeoutMs: 60_000, label: 'push' },
   );
   if (r.ok) {
     await setSyncStateNumber(db, SettingsKey.DiagnosticsLastSentAt, now);
