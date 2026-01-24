@@ -1634,11 +1634,20 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
   const strategies = [
     {
       label: 'direct',
-      run: () => spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: true }),
+      run: () => spawn(installerPath, [], { detached: true, stdio: 'ignore', windowsHide: false }),
     },
     {
       label: 'cmd-start',
-      run: () => spawn('cmd.exe', ['/c', 'start', '', installerPath], { detached: true, stdio: 'ignore', windowsHide: true }),
+      run: () => spawn('cmd.exe', ['/c', 'start', '', installerPath], { detached: true, stdio: 'ignore', windowsHide: false }),
+    },
+    {
+      label: 'powershell-runas',
+      run: () =>
+        spawn(
+          'powershell.exe',
+          ['-NoProfile', '-Command', `Start-Process -FilePath '${installerPath.replace(/'/g, "''")}' -Verb RunAs`],
+          { detached: true, stdio: 'ignore', windowsHide: false },
+        ),
     },
   ];
 
