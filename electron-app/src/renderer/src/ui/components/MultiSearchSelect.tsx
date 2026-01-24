@@ -10,14 +10,15 @@ export function MultiSearchSelect(props: {
   onChange: (next: string[]) => void;
 }) {
   const disabled = props.disabled === true;
+  const safeValues = Array.isArray(props.values) ? props.values : [];
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const selected = useMemo(() => {
-    const set = new Set(props.values);
+    const set = new Set(safeValues);
     return props.options.filter((o) => set.has(o.id));
-  }, [props.options, props.values]);
+  }, [props.options, safeValues]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -39,7 +40,7 @@ export function MultiSearchSelect(props: {
   }, [open]);
 
   function toggle(id: string) {
-    const set = new Set(props.values);
+    const set = new Set(safeValues);
     if (set.has(id)) set.delete(id);
     else set.add(id);
     props.onChange(Array.from(set));
@@ -143,7 +144,7 @@ export function MultiSearchSelect(props: {
           <div style={{ maxHeight: 260, overflow: 'auto' }}>
             {filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
             {filtered.map((o) => {
-              const checked = props.values.includes(o.id);
+              const checked = safeValues.includes(o.id);
               return (
                 <label
                   key={o.id}

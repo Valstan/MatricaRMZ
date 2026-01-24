@@ -1065,6 +1065,10 @@ export async function runAutoUpdateFlow(
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     if (!app.isPackaged) return { ok: true, updateAvailable: false };
+    const torrent = await checkTorrentForUpdates();
+    if (torrent.ok && torrent.updateAvailable) {
+      return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
+    }
     const result = await autoUpdater.checkForUpdates();
     const latest = String((result as any)?.updateInfo?.version ?? '');
     const current = app.getVersion();
@@ -1074,20 +1078,16 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     if (gh.ok && gh.updateAvailable) return gh;
     const y = await checkYandexForUpdates();
     if (y.ok) return y;
-    const torrent = await checkTorrentForUpdates();
-    if (torrent.ok && torrent.updateAvailable) {
-      return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
-    }
     return { ok: true, updateAvailable: false };
   } catch (e) {
-    const gh = await checkGithubReleaseForUpdates().catch(() => null);
-    if (gh) return gh;
-    const y = await checkYandexForUpdates().catch(() => null);
-    if (y) return y;
     const torrent = await checkTorrentForUpdates().catch(() => null);
     if (torrent && torrent.ok && torrent.updateAvailable) {
       return { ok: true, updateAvailable: true, version: torrent.version, source: 'torrent' };
     }
+    const gh = await checkGithubReleaseForUpdates().catch(() => null);
+    if (gh) return gh;
+    const y = await checkYandexForUpdates().catch(() => null);
+    if (y) return y;
     return { ok: false, error: String(e) };
   }
 }

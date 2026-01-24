@@ -147,7 +147,7 @@ export function EngineBrandDetailsPage(props: {
       <div style={{ marginTop: 14, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
         <div style={{ fontWeight: 600, marginBottom: 8 }}>Детали для марки</div>
         <MultiSearchSelect
-          value={engineBrandPartIds}
+          values={engineBrandPartIds}
           options={partsOptions}
           disabled={!props.canEdit || !props.canViewParts}
           onChange={(next) => {
