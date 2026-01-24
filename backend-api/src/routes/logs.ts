@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 
@@ -15,6 +15,26 @@ function logsDir(): string {
 function ensureLogsDir(): void {
   const dir = logsDir();
   mkdirSync(dir, { recursive: true });
+}
+
+function pruneOldClientLogs(maxDays = 10): void {
+  try {
+    const dir = logsDir();
+    const entries = readdirSync(dir);
+    const cutoff = Date.now() - Math.max(1, maxDays) * 24 * 60 * 60 * 1000;
+    for (const name of entries) {
+      if (!name.startsWith('client-') || !name.endsWith('.log')) continue;
+      const datePart = name.slice('client-'.length, -'.log'.length);
+      const ts = Date.parse(`${datePart}T00:00:00Z`);
+      if (Number.isFinite(ts) && ts < cutoff) {
+        const path = join(dir, name);
+        const st = statSync(path, { throwIfNoEntry: false } as any);
+        if (st?.isFile()) unlinkSync(path);
+      }
+    }
+  } catch {
+    // ignore prune errors
+  }
 }
 
 logsRouter.post('/client', async (req, res) => {
@@ -43,6 +63,8 @@ logsRouter.post('/client', async (req, res) => {
       const logLine = `[${timestamp}] [${logEntry.level.toUpperCase()}] [${actor.username}] ${logEntry.message}${logEntry.metadata ? ' ' + JSON.stringify(logEntry.metadata) : ''}\n`;
       appendFileSync(logFile, logLine, 'utf-8');
     }
+
+    pruneOldClientLogs(10);
 
     return res.json({ ok: true });
   } catch (e) {

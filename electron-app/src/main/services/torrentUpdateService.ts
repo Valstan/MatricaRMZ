@@ -71,10 +71,32 @@ let downloadClient: any | null = null;
 let downloadTorrent: any | null = null;
 let networkEpoch = 0;
 
+async function pruneLogFile(path: string, maxDays: number) {
+  try {
+    const raw = await readFile(path, 'utf8');
+    if (!raw.trim()) return;
+    const cutoff = Date.now() - Math.max(1, maxDays) * 24 * 60 * 60 * 1000;
+    const lines = raw.split('\n');
+    const kept = lines.filter((line) => {
+      const m = line.match(/^\[(.+?)\]/);
+      if (!m) return true;
+      const ts = Date.parse(m[1]);
+      if (!Number.isFinite(ts)) return true;
+      return ts >= cutoff;
+    });
+    const next = kept.join('\n').trimEnd();
+    await writeFile(path, next ? `${next}\n` : '', 'utf8');
+  } catch {
+    // ignore prune errors
+  }
+}
+
 async function writeTorrentLog(message: string) {
   try {
     const ts = new Date().toISOString();
-    await appendFile(join(app.getPath('userData'), 'matricarmz-updater.log'), `[${ts}] ${message}\n`, 'utf8');
+    const logPath = join(app.getPath('userData'), 'matricarmz-updater.log');
+    await pruneLogFile(logPath, 10);
+    await appendFile(logPath, `[${ts}] ${message}\n`, 'utf8');
   } catch {
     // ignore log failures
   }

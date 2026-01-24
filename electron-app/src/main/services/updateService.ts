@@ -119,6 +119,7 @@ async function releaseUpdateLock() {
 async function writeUpdaterLog(message: string) {
   try {
     const ts = new Date().toISOString();
+    await pruneLogFile(updaterLogPath(), 10);
     await appendFile(updaterLogPath(), `[${ts}] ${message}\n`, 'utf8');
   } catch {
     // ignore log write failures
@@ -146,6 +147,26 @@ function escapeHtml(value: string) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+async function pruneLogFile(path: string, maxDays: number) {
+  try {
+    const raw = await readFile(path, 'utf8');
+    if (!raw.trim()) return;
+    const cutoff = Date.now() - Math.max(1, maxDays) * 24 * 60 * 60 * 1000;
+    const lines = raw.split('\n');
+    const kept = lines.filter((line) => {
+      const m = line.match(/^\[(.+?)\]/);
+      if (!m) return true;
+      const ts = Date.parse(m[1]);
+      if (!Number.isFinite(ts)) return true;
+      return ts >= cutoff;
+    });
+    const next = kept.join('\n').trimEnd();
+    await writeFile(path, next ? `${next}\n` : '', 'utf8');
+  } catch {
+    // ignore prune errors
+  }
 }
 
 function isSetupInstallerName(name: string) {

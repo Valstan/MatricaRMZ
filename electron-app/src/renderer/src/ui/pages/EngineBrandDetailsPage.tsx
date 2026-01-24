@@ -80,30 +80,37 @@ export function EngineBrandDetailsPage(props: {
     const toAdd = nextIds.filter((id) => !prev.has(id));
     const toRemove = engineBrandPartIds.filter((id) => !next.has(id));
     setPartsStatus('Сохранение связей...');
+    try {
+      for (const partId of toAdd) {
+        const pr = await window.matrica.parts.get(partId);
+        if (!pr.ok) throw new Error(pr.error ?? 'Не удалось загрузить деталь');
+        const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
+        const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
+        if (current.includes(props.brandId)) continue;
+        const updated = [...current, props.brandId];
+        const upd = await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+        if (!upd.ok) throw new Error(upd.error ?? 'Не удалось сохранить связь');
+      }
 
-    for (const partId of toAdd) {
-      const pr = await window.matrica.parts.get(partId);
-      if (!pr.ok) continue;
-      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
-      const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
-      if (current.includes(props.brandId)) continue;
-      const updated = [...current, props.brandId];
-      await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+      for (const partId of toRemove) {
+        const pr = await window.matrica.parts.get(partId);
+        if (!pr.ok) throw new Error(pr.error ?? 'Не удалось загрузить деталь');
+        const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
+        const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
+        if (!current.includes(props.brandId)) continue;
+        const updated = current.filter((id) => id !== props.brandId);
+        const upd = await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+        if (!upd.ok) throw new Error(upd.error ?? 'Не удалось сохранить связь');
+      }
+
+      setEngineBrandPartIds(nextIds);
+      setPartsStatus('Сохранено');
+      setTimeout(() => setPartsStatus(''), 900);
+    } catch (e) {
+      const msg = String(e);
+      setPartsStatus(`Ошибка: ${msg}`);
+      window.matrica?.log?.send?.('error', `engine_brand_parts update failed: ${msg}`).catch(() => {});
     }
-
-    for (const partId of toRemove) {
-      const pr = await window.matrica.parts.get(partId);
-      if (!pr.ok) continue;
-      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
-      const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
-      if (!current.includes(props.brandId)) continue;
-      const updated = current.filter((id) => id !== props.brandId);
-      await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
-    }
-
-    setEngineBrandPartIds(nextIds);
-    setPartsStatus('Сохранено');
-    setTimeout(() => setPartsStatus(''), 900);
   }
 
   useEffect(() => {

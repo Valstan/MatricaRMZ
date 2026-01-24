@@ -25,9 +25,12 @@ import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
+import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
 
 export function App() {
+  const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
+  const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
   const [tab, setTab] = useState<TabId>('engines');
@@ -731,12 +734,75 @@ export function App() {
     return '';
   })();
 
+  function recordFatalError(error: Error, info?: React.ErrorInfo | null) {
+    const message = error?.message || String(error);
+    const stack = error?.stack || info?.componentStack || '';
+    setFatalError({ message, stack });
+    setFatalOpen(true);
+    window.matrica?.log?.send?.('error', `renderer fatal: ${message}\n${stack}`).catch(() => {});
+  }
+
+  function renderFatalModal() {
+    if (!fatalOpen || !fatalError) return null;
+    const details = `${fatalError.message}\n${fatalError.stack ?? ''}`.trim();
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: 20,
+        }}
+      >
+        <div style={{ width: 'min(640px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Ошибка интерфейса</div>
+          <div style={{ marginTop: 8, color: 'var(--muted)' }}>
+            Произошла ошибка. Скопируйте текст и отправьте разработчику.
+          </div>
+          <pre
+            style={{
+              marginTop: 12,
+              padding: 10,
+              borderRadius: 10,
+              background: 'var(--input-bg)',
+              border: '1px solid var(--border)',
+              maxHeight: 240,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              fontSize: 12,
+            }}
+          >
+            {details || 'Нет подробностей.'}
+          </pre>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <Button
+              onClick={() => {
+                void navigator.clipboard?.writeText(details);
+              }}
+            >
+              Скопировать для разработчика
+            </Button>
+            <div style={{ flex: 1 }} />
+            <Button variant="ghost" onClick={() => setFatalOpen(false)}>
+              Закрыть
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Page
-      title={pageTitle}
-      uiTheme={resolvedTheme}
-      topBanner={
-        showUpdateBanner ? (
+    <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
+      <Page
+        title={pageTitle}
+        uiTheme={resolvedTheme}
+        topBanner={
+          showUpdateBanner ? (
           <div
             style={{
               position: 'relative',
@@ -774,9 +840,9 @@ export function App() {
               <span style={{ marginLeft: 12 }}>{updateStatus.version ? `v${String(updateStatus.version)}` : ''}</span>
             </div>
           </div>
-        ) : null
-      }
-      right={
+          ) : null
+        }
+        right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
           {authStatus.loggedIn && canChat && !chatOpen && (
             <Button
@@ -808,8 +874,9 @@ export function App() {
             </Button>
           )}
         </div>
-      }
-    >
+        }
+      >
+        {renderFatalModal()}
       <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
           <div
@@ -1176,6 +1243,7 @@ export function App() {
         </>
       )}
     </Page>
+    </ErrorBoundary>
   );
 }
 
