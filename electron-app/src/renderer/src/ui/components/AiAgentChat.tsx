@@ -32,14 +32,11 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   context: AiAgentContext;
   lastEvent: AiAgentEvent | null;
   onClose: () => void;
-  onMuteFor: (minutes: number) => void;
-  mutedUntil?: number | null;
 }>((props, ref) => {
   const [text, setText] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const muted = props.mutedUntil != null && props.mutedUntil > Date.now();
   async function send() {
     const msg = text.trim();
     if (!msg || loading) return;
@@ -174,23 +171,8 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
             ▶
           </Button>
           <div style={{ flex: 1 }} />
-          <Button variant="ghost" onClick={() => props.onMuteFor(10)} title="Отключить ИИ‑агента на 10 минут">
-            Отключить на 10
-          </Button>
-          <Button variant="ghost" onClick={() => props.onMuteFor(20)} title="Отключить ИИ‑агента на 20 минут">
-            20
-          </Button>
-          <Button variant="ghost" onClick={() => props.onMuteFor(30)} title="Отключить ИИ‑агента на 30 минут">
-            30
-          </Button>
         </div>
       </div>
-
-      {muted && (
-        <div style={{ padding: 8, fontSize: 12, color: theme.colors.muted }}>
-          ИИ‑агент отключён, но продолжает анализировать действия в фоне.
-        </div>
-      )}
     </div>
   );
 });

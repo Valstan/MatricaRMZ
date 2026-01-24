@@ -219,6 +219,17 @@ function formatRowsForUser(rows: any[]) {
     const v = first[keys[0]] as unknown;
     return `Найдено: ${String(v ?? 0)}`;
   }
+  if (keys.includes('engine_number') || keys.includes('engine_brand')) {
+    const preview = rows.slice(0, PREVIEW_ROWS);
+    const lines = preview.map((r, idx) => {
+      const row = r as Record<string, unknown>;
+      const num = row.engine_number ? String(row.engine_number) : '—';
+      const brand = row.engine_brand ? String(row.engine_brand) : '—';
+      return `${idx + 1}. № ${num} — ${brand}`;
+    });
+    const more = rows.length > PREVIEW_ROWS ? `\n… и ещё ${rows.length - PREVIEW_ROWS} строк.` : '';
+    return `Строк: ${rows.length}\n` + lines.join('\n') + more;
+  }
   const preview = rows.slice(0, PREVIEW_ROWS);
   const lines = preview.map(
     (r, idx) => `${idx + 1}. ` + keys.map((k) => `${k}: ${String((r as Record<string, unknown>)[k])}`).join(', '),
@@ -399,75 +410,20 @@ aiAgentRouter.post('/assist', async (req, res) => {
     const ctx = parsed.data.context;
     const lastEvent = parsed.data.lastEvent ?? null;
     const summary = buildContextSummary(ctx, lastEvent);
-    const perms = await getEffectivePermissionsForUser(actor.id);
-    const policy = buildAccessPolicy(perms);
     const message = parsed.data.message;
+    const messageLower = message.toLowerCase();
 
-    if (message.toLowerCase().includes('сравни') || message.toLowerCase().startsWith('/compare')) {
-      if (!perms['clients.manage']) {
-        return res.json({ ok: true, reply: { kind: 'info', text: 'Недостаточно прав для сравнения баз (нужен clients.manage).' } });
-      }
-      const reportText = await summarizeConsistencyReport();
-      await logSnapshot('ai_agent_compare', { actorId: actor.id, context: ctx, message, reportText }, actor.id);
-      await forwardToSuperadminFromUser(
-        { id: String(actor.id), username: String(actor.username ?? 'user') },
-        `[AI Agent] compare\nuser="${actor.username}"\n${reportText}`,
-      );
-      return res.json({ ok: true, reply: { kind: 'info', text: reportText } });
-    }
-
-    if (isAnalyticsQuery(message)) {
-      if (policy.allowedTables.size === 0) {
-        return res.json({ ok: true, reply: { kind: 'info', text: 'Нет прав на чтение данных.' } });
-      }
-      const includeSql = message.toLowerCase().startsWith('/db') || message.toLowerCase().startsWith('/sql');
-      const heuristic = await runHeuristicQuery(message, policy).catch((e) => ({ ok: false as const, error: String(e) }));
-      if (heuristic.ok) {
-        const userText =
-          (includeSql ? `SQL: ${heuristic.sql}\n` : '') + formatRowsForUser(heuristic.rows) + `\nВремя: ${heuristic.tookMs} ms`;
-        const adminText = `SQL: ${heuristic.sql}\n` + formatRows(heuristic.rows) + `\nВремя: ${heuristic.tookMs} ms`;
-        await logSnapshot(
-          'ai_agent_query',
-          { actorId: actor.id, context: ctx, message, sql: heuristic.sql, params: [], tookMs: heuristic.tookMs, rows: heuristic.rows.length },
-          actor.id,
-        );
-        await forwardToSuperadminFromUser(
-          { id: String(actor.id), username: String(actor.username ?? 'user') },
-          `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${adminText}`,
-        );
-        return res.json({ ok: true, reply: { kind: 'info', text: userText } });
-      }
-      let proposed;
-      try {
-        proposed = await proposeSql(message, policy);
-      } catch (e) {
-        const err = String(e ?? 'ollama error');
-        await logSnapshot('ai_agent_query_error', { actorId: actor.id, context: ctx, message, error: err }, actor.id);
-        return res.json({
-          ok: true,
-          reply: { kind: 'info', text: 'ИИ временно недоступен для построения запроса. Попробуйте позже.' },
-        });
-      }
-      if (!proposed.ok) {
-        return res.json({ ok: true, reply: { kind: 'info', text: `Не удалось сформировать запрос: ${proposed.error}` } });
-      }
-      const validated = validateSql(proposed.sql, policy);
-      if (!validated.ok) {
-        return res.json({ ok: true, reply: { kind: 'info', text: `Запрос отклонён: ${validated.error}` } });
-      }
-      const { rows, tookMs } = await runSqlQuery(validated.sql, proposed.params ?? []);
-      const userText = (includeSql ? `SQL: ${validated.sql}\n` : '') + formatRowsForUser(rows) + `\nВремя: ${tookMs} ms`;
-      const adminText = `SQL: ${validated.sql}\n` + formatRows(rows) + `\nВремя: ${tookMs} ms`;
-      await logSnapshot(
-        'ai_agent_query',
-        { actorId: actor.id, context: ctx, message, sql: validated.sql, params: proposed.params, tookMs, rows: rows.length },
-        actor.id,
-      );
-      await forwardToSuperadminFromUser(
-        { id: String(actor.id), username: String(actor.username ?? 'user') },
-        `[AI Agent] query\nuser="${actor.username}"\n${summary || ''}\n${adminText}`,
-      );
-      return res.json({ ok: true, reply: { kind: 'info', text: userText } });
+    if (
+      messageLower.startsWith('/db') ||
+      messageLower.startsWith('/sql') ||
+      messageLower.startsWith('/compare') ||
+      messageLower.includes('сравни') ||
+      isAnalyticsQuery(message)
+    ) {
+      return res.json({
+        ok: true,
+        reply: { kind: 'info', text: 'Аналитические возможности ИИ временно отключены. Доступен только чат.' },
+      });
     }
 
     const systemPrompt =

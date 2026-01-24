@@ -69,8 +69,6 @@ function sumDelivered(deliveries: SupplyRequestDelivery[] | undefined): number {
 function printSupplyRequest(
   p: SupplyRequestPayload,
   departmentLabel: string,
-  workshopLabel: string,
-  sectionLabel: string,
   mode: 'short' | 'full',
 ) {
   const items = p.items ?? [];
@@ -132,8 +130,6 @@ function printSupplyRequest(
     <div><b>Дата составления:</b> ${escapeHtml(new Date(p.compiledAt).toLocaleDateString('ru-RU'))}</div>
     <div><b>Статус:</b> ${escapeHtml(statusLabel(p.status))}</div>
     <div><b>Подразделение:</b> ${escapeHtml(departmentLabel || p.departmentId || '-')}</div>
-    <div><b>Цех:</b> ${escapeHtml(workshopLabel || p.workshopId || '-')}</div>
-    <div><b>Участок:</b> ${escapeHtml(sectionLabel || p.sectionId || '-')}</div>
     <div><b>Описание:</b> ${escapeHtml(p.title || '-')}</div>
   `;
   const headHtml =
@@ -236,8 +232,6 @@ export function SupplyRequestDetailsPage(props: {
       }));
     }
     await loadType('department', 'departmentId');
-    await loadType('workshop', 'workshopId');
-    await loadType('section', 'sectionId');
 
     // Product suggestions (master-data)
     const productTid = typeIdByCodeMap.get('product');
@@ -286,8 +280,6 @@ export function SupplyRequestDetailsPage(props: {
     if (!created.ok || !created.id) return null;
     const attrByType: Record<string, string> = {
       department: 'name',
-      workshop: 'name',
-      section: 'name',
     };
     const attr = attrByType[typeCode] ?? 'name';
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
@@ -335,8 +327,6 @@ export function SupplyRequestDetailsPage(props: {
     push('title', 'Описание', initial?.title, cur?.title);
     push('status', 'Статус', initial?.status, cur?.status);
     push('departmentId', 'Подразделение', initial?.departmentId, cur?.departmentId);
-    push('workshopId', 'Цех', initial?.workshopId, cur?.workshopId);
-    push('sectionId', 'Участок', initial?.sectionId, cur?.sectionId);
     const itemsA = Array.isArray(initial?.items) ? initial.items : [];
     const itemsB = Array.isArray(cur?.items) ? cur.items : [];
     if (itemsA.length !== itemsB.length) fields.push('Позиции');
@@ -361,8 +351,6 @@ export function SupplyRequestDetailsPage(props: {
           title: p.title ?? '',
           status: p.status,
           departmentId: p.departmentId ?? '',
-          workshopId: p.workshopId ?? null,
-          sectionId: p.sectionId ?? null,
           fieldsChanged: diff.fieldsChanged,
           summaryRu: diff.summaryRu,
         },
@@ -386,19 +374,6 @@ export function SupplyRequestDetailsPage(props: {
     const opt = (linkLists.departmentId ?? []).find((x) => x.id === v);
     return opt?.label ?? '';
   }, [payload, linkLists.departmentId]);
-  const workshopLabel = useMemo(() => {
-    if (!payload) return '';
-    const v = payload.workshopId || '';
-    const opt = (linkLists.workshopId ?? []).find((x) => x.id === v);
-    return opt?.label ?? '';
-  }, [payload, linkLists.workshopId]);
-  const sectionLabel = useMemo(() => {
-    if (!payload) return '';
-    const v = payload.sectionId || '';
-    const opt = (linkLists.sectionId ?? []).find((x) => x.id === v);
-    return opt?.label ?? '';
-  }, [payload, linkLists.sectionId]);
-
   if (!payload) {
     return <div style={{ color: '#6b7280' }}>{saveStatus || '...'}</div>;
   }
@@ -416,7 +391,7 @@ export function SupplyRequestDetailsPage(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel, 'short');
+                printSupplyRequest(payload, departmentLabel, 'short');
               }}
             >
               Распечатать (кратко)
@@ -424,7 +399,7 @@ export function SupplyRequestDetailsPage(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                printSupplyRequest(payload, departmentLabel, workshopLabel, sectionLabel, 'full');
+                printSupplyRequest(payload, departmentLabel, 'full');
               }}
             >
               Распечатать (полно)
@@ -482,35 +457,6 @@ export function SupplyRequestDetailsPage(props: {
             <Input value={payload.departmentId} disabled />
           )}
 
-          <div style={{ color: '#6b7280' }}>Цех</div>
-          {props.canViewMasterData ? (
-            <SearchSelectWithCreate
-              value={payload.workshopId ?? null}
-              options={linkLists.workshopId ?? []}
-              disabled={!props.canEdit}
-              canCreate={props.canEditMasterData}
-              createLabel="Новый цех"
-              onChange={(next) => scheduleSave({ ...payload, workshopId: next ?? null })}
-              onCreate={async (label) => createMasterDataItem('workshop', label)}
-            />
-          ) : (
-            <Input value={payload.workshopId ?? ''} disabled />
-          )}
-
-          <div style={{ color: '#6b7280' }}>Участок</div>
-          {props.canViewMasterData ? (
-            <SearchSelectWithCreate
-              value={payload.sectionId ?? null}
-              options={linkLists.sectionId ?? []}
-              disabled={!props.canEdit}
-              canCreate={props.canEditMasterData}
-              createLabel="Новый участок"
-              onChange={(next) => scheduleSave({ ...payload, sectionId: next ?? null })}
-              onCreate={async (label) => createMasterDataItem('section', label)}
-            />
-          ) : (
-            <Input value={payload.sectionId ?? ''} disabled />
-          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
