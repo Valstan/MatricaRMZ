@@ -505,6 +505,10 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
   }
 }
 
+async function markAllEntityTypesPending(db: BetterSQLite3Database) {
+  await db.update(entityTypes).set({ syncStatus: 'pending' });
+}
+
 async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullResponse['changes']) {
   if (changes.length === 0) return;
   const ts = nowMs();
@@ -1040,6 +1044,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
             logSync(`push dependency missing: forcing full pull and retry`);
             await resetSyncState(db);
             await pullOnce(0);
+            await markAllEntityTypesPending(db);
             pushedPacks = await collectPending(db);
             if (pushedPacks.length === 0) {
               pushed = 0;
