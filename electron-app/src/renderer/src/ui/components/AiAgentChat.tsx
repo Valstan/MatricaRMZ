@@ -27,6 +27,20 @@ function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
+function mapErrorToUserMessage(text: string) {
+  const normalized = String(text ?? '').toLowerCase();
+  if (
+    normalized.includes('timeout') ||
+    normalized.includes('time-out') ||
+    normalized.includes('тайм') ||
+    normalized.includes('http 408') ||
+    normalized.includes('http 504')
+  ) {
+    return 'Я не успеваю ответить, я еще учусь, но скоро начну быстро отвечать на ваши вопросы и помогать вам в работе!';
+  }
+  return text;
+}
+
 export type AiAgentChatHandle = {
   appendAssistant: (text: string, kind?: AiAgentSuggestion['kind']) => void;
   appendUser: (text: string) => void;
@@ -84,7 +98,8 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     setLoading(false);
     if (!res || !res.ok) {
       const errText = res && 'error' in res ? String(res.error) : 'Ошибка ИИ‑агента';
-      setItems((prev) => [...prev, { id: makeId(), role: 'assistant', text: errText, ts: nowMs(), kind: 'info' }]);
+      const userText = mapErrorToUserMessage(errText);
+      setItems((prev) => [...prev, { id: makeId(), role: 'assistant', text: userText, ts: nowMs(), kind: 'info' }]);
       return;
     }
     const reply = res.reply;

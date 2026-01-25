@@ -155,6 +155,8 @@
   - `MATRICA_JWT_SECRET` (auth)
   - `YANDEX_DISK_TOKEN`, `YANDEX_DISK_BASE_PATH` (файлы)
   - `MATRICA_LOGS_DIR` (логи клиента на сервере)
+  - `AI_AGENT_MODE` (analytics|chat, режим ИИ‑агента)
+  - `AI_REPORT_ENABLED`, `AI_REPORT_TIMES`, `AI_REPORT_TZ` (отчеты ИИ‑агента)
   - `PORT`, `HOST` (http)
 - Client:
   - `MATRICA_API_URL` (URL backend)

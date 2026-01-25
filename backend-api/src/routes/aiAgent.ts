@@ -5,9 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { db, pool } from '../database/db.js';
-import { changeLog, chatMessages, diagnosticsSnapshots } from '../database/schema.js';
-import { SyncTableName } from '@matricarmz/shared';
-import { getSuperadminUserId } from '../services/employeeAuthService.js';
+import { diagnosticsSnapshots } from '../database/schema.js';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { getConsistencyReport } from '../services/diagnosticsConsistencyService.js';
 
@@ -20,6 +18,10 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 100_000);
 const OLLAMA_HEALTH_ATTEMPTS = Number(process.env.OLLAMA_HEALTH_ATTEMPTS || 3);
 const OLLAMA_HEALTH_TIMEOUT_MS = Number(process.env.OLLAMA_HEALTH_TIMEOUT_MS || 10_000);
+const AI_ANALYTICS_ENABLED = String(process.env.AI_ANALYTICS_ENABLED ?? 'true').toLowerCase() === 'true';
+const AI_AGENT_MODE = String(process.env.AI_AGENT_MODE ?? 'analytics').toLowerCase();
+const AI_AGENT_BUSY_MESSAGE =
+  'Я не успеваю ответить, я еще учусь, но скоро начну быстро отвечать на ваши вопросы и помогать вам в работе!';
 
 const MAX_ROWS = 200;
 const PREVIEW_ROWS = 20;
@@ -62,6 +64,10 @@ function isAnalyticsQuery(message: string) {
     text.includes('поиск') ||
     text.includes('фильтр')
   );
+}
+
+function isAnalyticsMode() {
+  return AI_AGENT_MODE === 'analytics';
 }
 
 type AccessPolicy = {
@@ -149,6 +155,17 @@ async function runHeuristicQuery(message: string, policy: AccessPolicy) {
       'select count(*)::int as count from entities e ' +
       'join entity_types t on t.id = e.type_id ' +
       "where t.code = 'engine' and e.deleted_at is null";
+    const result = await runSqlQuery(sql, []);
+    return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs };
+  }
+  if (text.includes('сколько') && text.includes('сотрудник')) {
+    if (!policy.allowedTables.has('entities') || !policy.allowedTables.has('entity_types')) {
+      return { ok: false as const, error: 'no access for employee count' };
+    }
+    const sql =
+      'select count(*)::int as count from entities e ' +
+      'join entity_types t on t.id = e.type_id ' +
+      "where t.code = 'employee' and e.deleted_at is null";
     const result = await runSqlQuery(sql, []);
     return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs };
   }
@@ -299,46 +316,6 @@ async function logSnapshot(scope: string, payload: unknown, actorId?: string | n
   });
 }
 
-async function forwardToSuperadminFromUser(actor: { id: string; username: string }, text: string) {
-  const superadminId = await getSuperadminUserId();
-  if (!superadminId) return;
-  const ts = nowMs();
-  const id = randomUUID();
-  await db.insert(chatMessages).values({
-    id,
-    senderUserId: actor.id as any,
-    senderUsername: actor.username,
-    recipientUserId: superadminId as any,
-    messageType: 'text',
-    bodyText: truncate(text, 5000),
-    payloadJson: null,
-    createdAt: ts,
-    updatedAt: ts,
-    deletedAt: null,
-    syncStatus: 'synced',
-  });
-  const payload = {
-    id,
-    sender_user_id: actor.id,
-    sender_username: actor.username,
-    recipient_user_id: String(superadminId),
-    message_type: 'text',
-    body_text: truncate(text, 5000),
-    payload_json: null,
-    created_at: ts,
-    updated_at: ts,
-    deleted_at: null,
-    sync_status: 'synced',
-  };
-  await db.insert(changeLog).values({
-    tableName: SyncTableName.ChatMessages,
-    rowId: id as any,
-    op: 'upsert',
-    payloadJson: JSON.stringify(payload),
-    createdAt: ts,
-  });
-}
-
 async function callOllama(systemPrompt: string, userPrompt: string) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), OLLAMA_TIMEOUT_MS);
@@ -369,31 +346,20 @@ async function callOllama(systemPrompt: string, userPrompt: string) {
   }
 }
 
-async function callOllamaWithTimeout(systemPrompt: string, userPrompt: string, timeoutMs: number) {
+async function callOllamaHealthWithTimeout(timeoutMs: number) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), timeoutMs);
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        stream: false,
-        options: { temperature: 0.1 },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-      signal: ac.signal,
-    });
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal: ac.signal });
     if (!res.ok) {
       const t = await res.text().catch(() => '');
       throw new Error(`ollama HTTP ${res.status}: ${t}`.trim());
     }
-    const json = await res.json();
-    const content = String(json?.message?.content ?? '').trim();
-    return content;
+    const json = (await res.json().catch(() => null)) as any;
+    const models = Array.isArray(json?.models) ? json.models : [];
+    if (!OLLAMA_MODEL) return { ok: models.length > 0, detail: models.length ? 'models listed' : 'no models' };
+    const hasModel = models.some((m: any) => String(m?.name ?? '').trim() === String(OLLAMA_MODEL).trim());
+    return { ok: hasModel, detail: hasModel ? 'model found' : `model missing: ${OLLAMA_MODEL}` };
   } finally {
     clearTimeout(timer);
   }
@@ -413,17 +379,11 @@ aiAgentRouter.post('/ollama-health', async (req, res) => {
     const timeoutMs = parsed.data.timeoutMs ?? OLLAMA_HEALTH_TIMEOUT_MS;
     const results: Array<{ ok: boolean; tookMs: number; error?: string }> = [];
     for (let i = 0; i < attempts; i += 1) {
-      const token = `PING-${randomUUID()}`;
       const start = nowMs();
       try {
-        const reply = await callOllamaWithTimeout(
-          'Верни строго одну строку без лишнего текста.',
-          `Ответь только токеном: ${token}`,
-          timeoutMs,
-        );
+        const health = await callOllamaHealthWithTimeout(timeoutMs);
         const tookMs = nowMs() - start;
-        const ok = reply.includes(token);
-        results.push(ok ? { ok: true, tookMs } : { ok: false, tookMs, error: `bad reply: ${truncate(reply, 120)}` });
+        results.push(health.ok ? { ok: true, tookMs } : { ok: false, tookMs, error: health.detail });
       } catch (e) {
         const tookMs = nowMs() - start;
         results.push({ ok: false, tookMs, error: String(e ?? 'ollama error') });
@@ -485,6 +445,15 @@ aiAgentRouter.post('/assist', async (req, res) => {
     const message = parsed.data.message;
     const messageLower = message.toLowerCase();
 
+    if (isAnalyticsMode()) {
+      await logSnapshot(
+        'ai_agent_assist',
+        { actorId: actor.id, mode: 'analytics', context: ctx, lastEvent, message },
+        actor.id,
+      );
+      return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
+    }
+
     if (
       messageLower.startsWith('/db') ||
       messageLower.startsWith('/sql') ||
@@ -492,10 +461,32 @@ aiAgentRouter.post('/assist', async (req, res) => {
       messageLower.includes('сравни') ||
       isAnalyticsQuery(message)
     ) {
-      return res.json({
-        ok: true,
-        reply: { kind: 'info', text: 'Аналитические возможности ИИ временно отключены. Доступен только чат.' },
-      });
+      if (!AI_ANALYTICS_ENABLED) {
+        return res.json({
+          ok: true,
+          reply: { kind: 'info', text: 'Аналитические возможности ИИ временно отключены. Доступен только чат.' },
+        });
+      }
+      const policy = buildAccessPolicy(await getEffectivePermissionsForUser(actor.id));
+      if (!policy.allowedTables.size) {
+        return res.json({ ok: true, reply: { kind: 'info', text: 'Недостаточно прав для аналитики.' } });
+      }
+      const heuristic = await runHeuristicQuery(message, policy);
+      if (heuristic.ok) {
+        const formatted = formatRowsForUser(heuristic.rows ?? []);
+        return res.json({ ok: true, reply: { kind: 'info', text: formatted } });
+      }
+      const proposed = await proposeSql(message, policy);
+      if (!proposed.ok) {
+        return res.json({ ok: true, reply: { kind: 'info', text: proposed.error } });
+      }
+      const validated = validateSql(proposed.sql, policy);
+      if (!validated.ok) {
+        return res.json({ ok: true, reply: { kind: 'info', text: validated.error } });
+      }
+      const result = await runSqlQuery(validated.sql, proposed.params);
+      const formatted = formatRowsForUser(result.rows ?? []);
+      return res.json({ ok: true, reply: { kind: 'info', text: formatted } });
     }
 
     const systemPrompt =
@@ -512,7 +503,7 @@ aiAgentRouter.post('/assist', async (req, res) => {
     } catch (e) {
       const err = String(e ?? 'ollama error');
       await logSnapshot('ai_agent_assist_error', { actorId: actor.id, context: ctx, lastEvent, message, error: err }, actor.id);
-      return res.json({ ok: true, reply: { kind: 'info', text: 'ИИ временно недоступен. Попробуйте позже.' } });
+      return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
     }
     let reply = { kind: 'info' as const, text: raw, actions: undefined as string[] | undefined };
     try {
@@ -529,11 +520,6 @@ aiAgentRouter.post('/assist', async (req, res) => {
     }
 
     await logSnapshot('ai_agent_assist', { actorId: actor.id, context: ctx, lastEvent, message: parsed.data.message, reply }, actor.id);
-    await forwardToSuperadminFromUser(
-      { id: String(actor.id), username: String(actor.username ?? 'user') },
-      `[AI Agent] assist\nuser="${actor.username}"\n${summary || ''}\nQ: ${truncate(parsed.data.message, 800)}\nA: ${truncate(reply.text, 1200)}`,
-    );
-
     return res.json({ ok: true, reply });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -576,11 +562,6 @@ aiAgentRouter.post('/log', async (req, res) => {
     if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
 
     await logSnapshot('ai_agent_event', { actorId: actor.id, context: parsed.data.context, event: parsed.data.event }, actor.id);
-    const summary = buildContextSummary(parsed.data.context, parsed.data.event);
-    await forwardToSuperadminFromUser(
-      { id: String(actor.id), username: String(actor.username ?? 'user') },
-      `[AI Agent] event\nuser="${actor.username}"\n${summary || ''}`,
-    );
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
