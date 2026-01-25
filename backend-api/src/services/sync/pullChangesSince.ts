@@ -26,37 +26,17 @@ export async function pullChangesSince(
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const actorIsPending = actorRole === 'pending';
 
-  // Filter out test/bulk artifacts (historical bench data) so new clients don't pull them.
-  // IMPORTANT: we MUST still allow delete events through, otherwise clients can't get rid of them.
-  function isBulkEntityTypePayload(payloadJson: string): boolean {
-    try {
-      const p = JSON.parse(payloadJson) as any;
-      const code = String(p?.code ?? '');
-      const name = String(p?.name ?? '');
-      if (code.startsWith('t_bulk_')) return true;
-      if (name.startsWith('Type Bulk ')) return true;
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
   const filtered = rows.filter((r) => {
     const table = String(r.table);
-
-    // Chat privacy filter:
-    // - chat_messages: private messages are visible only to sender/recipient (or admin)
-    // - chat_reads: visible only to the owning user (or admin)
     if (table === 'chat_messages') {
       if (actorIsAdmin) return true;
       try {
         const p = JSON.parse(String(r.payloadJson ?? '')) as any;
         const senderId = String(p?.sender_user_id ?? '');
         const recipientId = p?.recipient_user_id == null ? null : String(p?.recipient_user_id);
-        if (!recipientId) return actorIsPending ? false : true; // pending не видит общий чат
+        if (!recipientId) return actorIsPending ? false : true;
         return senderId === actorId || recipientId === actorId;
       } catch {
-        // If payload is corrupted, be safe and do not leak it.
         return false;
       }
     }
@@ -70,15 +50,10 @@ export async function pullChangesSince(
         return false;
       }
     }
-
-    if (table !== 'entity_types') return true;
-    // Always allow delete operations (they are needed to clean up client caches).
-    if (String(r.op) === 'delete') return true;
-    return !isBulkEntityTypePayload(String(r.payloadJson ?? ''));
+    return true;
   });
 
-  // IMPORTANT: cursor must reflect the real last server_seq we observed,
-  // even if we filtered some changes out, otherwise clients will "loop".
+  // IMPORTANT: cursor must reflect the real last server_seq we observed.
   const last = rows.at(-1)?.serverSeq ?? since;
 
   return {

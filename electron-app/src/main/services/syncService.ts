@@ -176,6 +176,11 @@ function isChatReadsDuplicateError(body: string): boolean {
   return text.includes('chat_reads_message_user_uq') || text.includes('chat_reads_message_user_uq'.toLowerCase());
 }
 
+function isDependencyMissingError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_dependency_missing');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -974,11 +979,27 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     }
 
     logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
+    const pullOnce = async (sinceValue: number) => {
+      const pullUrl = `${apiBaseUrl}/sync/pull?since=${sinceValue}`;
+      const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
+      if (!pull.ok) {
+        const body = await safeBodyText(pull);
+        logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
+        if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
+        throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
+      }
+      const pullJson = (await pull.json()) as SyncPullResponse;
+      await applyPulledChanges(db, pullJson.changes);
+      await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
+      await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
+      return pullJson;
+    };
     let upserts = await collectPending(db);
     let pushed = 0;
 
     if (upserts.length > 0) {
       let attemptedChatReadsFix = false;
+      let attemptedDependencyRecovery = false;
       let pushedPacks = upserts;
 
       while (pushedPacks.length > 0) {
@@ -1007,6 +1028,18 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
             const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
             logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
             attemptedChatReadsFix = true;
+            pushedPacks = await collectPending(db);
+            if (pushedPacks.length === 0) {
+              pushed = 0;
+              break;
+            }
+            continue;
+          }
+          if (!attemptedDependencyRecovery && isDependencyMissingError(body)) {
+            attemptedDependencyRecovery = true;
+            logSync(`push dependency missing: forcing full pull and retry`);
+            await resetSyncState(db);
+            await pullOnce(0);
             pushedPacks = await collectPending(db);
             if (pushedPacks.length === 0) {
               pushed = 0;
@@ -1072,22 +1105,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       }
     }
 
-    const pullUrl = `${apiBaseUrl}/sync/pull?since=${since}`;
-    const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
-    if (!pull.ok) {
-      const body = await safeBodyText(pull);
-      logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
-      if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
-      throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
-    }
-    const pullJson = (await pull.json()) as SyncPullResponse;
+    const pullJson = await pullOnce(since);
 
     const pulled = pullJson.changes.length;
-    // Если сервер прислал delete — у нас это soft delete через deleted_at в payload, поэтому обрабатываем как upsert.
-    await applyPulledChanges(db, pullJson.changes);
-
-    await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
-    await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
 
     logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
     await sendDiagnosticsSnapshot(db, apiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});

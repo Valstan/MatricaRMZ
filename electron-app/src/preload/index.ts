@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('matrica', {
     create: async () => ipcRenderer.invoke('employees:create'),
     setAttr: async (employeeId: string, code: string, value: unknown) =>
       ipcRenderer.invoke('employees:setAttr', employeeId, code, value),
+    delete: async (employeeId: string) => ipcRenderer.invoke('employees:delete', employeeId),
     departmentsList: async () => ipcRenderer.invoke('employees:departments:list'),
     defs: async () => ipcRenderer.invoke('employees:defs'),
     permissionsGet: async (userId: string) => ipcRenderer.invoke('employees:permissionsGet', userId),
@@ -187,6 +188,7 @@ contextBridge.exposeInMainWorld('matrica', {
   aiAgent: {
     assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
     logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),
+    ollamaHealth: async (args: unknown) => ipcRenderer.invoke('ai:ollama-health', args),
   },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),

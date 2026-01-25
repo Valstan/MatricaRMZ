@@ -56,3 +56,18 @@ export type AiAgentLogRequest = {
 };
 
 export type AiAgentLogResponse = { ok: true } | { ok: false; error: string };
+
+export type AiAgentOllamaHealthRequest = {
+  attempts?: number;
+  timeoutMs?: number;
+};
+
+export type AiAgentOllamaHealthAttempt = {
+  ok: boolean;
+  tookMs: number;
+  error?: string;
+};
+
+export type AiAgentOllamaHealthResponse =
+  | { ok: true; attempts: AiAgentOllamaHealthAttempt[]; summary: string }
+  | { ok: false; attempts?: AiAgentOllamaHealthAttempt[]; summary?: string; error?: string };

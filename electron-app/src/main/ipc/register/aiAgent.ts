@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { aiAgentAssist, aiAgentLogEvent } from '../../services/aiAgentService.js';
+import { aiAgentAssist, aiAgentLogEvent, aiAgentOllamaHealth } from '../../services/aiAgentService.js';
 
 export function registerAiAgentIpc(ctx: IpcContext) {
   ipcMain.removeHandler('ai:assist');
@@ -12,5 +12,9 @@ export function registerAiAgentIpc(ctx: IpcContext) {
 
   ipcMain.handle('ai:log', async (_e, args) => {
     return await aiAgentLogEvent(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('ai:ollama-health', async (_e, args) => {
+    return await aiAgentOllamaHealth(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 }

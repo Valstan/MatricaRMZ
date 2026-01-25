@@ -21,6 +21,9 @@ import { PartsPage } from './pages/PartsPage.js';
 import { PartDetailsPage } from './pages/PartDetailsPage.js';
 import { EmployeesPage } from './pages/EmployeesPage.js';
 import { EmployeeDetailsPage } from './pages/EmployeeDetailsPage.js';
+import { ProductsPage } from './pages/ProductsPage.js';
+import { ServicesPage } from './pages/ServicesPage.js';
+import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
@@ -52,6 +55,8 @@ export function App() {
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
@@ -140,6 +145,8 @@ export function App() {
     setSelectedEngineBrandId(null);
     setSelectedPartId(null);
     setSelectedEmployeeId(null);
+    setSelectedProductId(null);
+    setSelectedServiceId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
 
   async function refreshServerHealth() {
@@ -215,6 +222,8 @@ export function App() {
     setSelectedRequestId(null);
     setSelectedPartId(null);
     setSelectedEmployeeId(null);
+    setSelectedProductId(null);
+    setSelectedServiceId(null);
     setAudit([]);
     setChatUnreadTotal(0);
     setChatContext({ selectedUserId: null, adminMode: false });
@@ -340,6 +349,7 @@ export function App() {
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
+    ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
@@ -348,8 +358,10 @@ export function App() {
   const menuState = deriveMenuState(availableTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');
-  const userTab: Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand'> =
-    authStatus.loggedIn ? 'settings' : 'auth';
+  const userTab: Exclude<
+    TabId,
+    'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand' | 'product' | 'service'
+  > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -395,7 +407,16 @@ export function App() {
 
   // Gate: если вкладка скрылась по permissions/настройкам — переключаем на первую доступную.
   useEffect(() => {
-    if (tab === 'engine' || tab === 'engine_brand' || tab === 'request' || tab === 'part' || tab === 'employee' || tab === 'contract')
+    if (
+      tab === 'engine' ||
+      tab === 'engine_brand' ||
+      tab === 'request' ||
+      tab === 'part' ||
+      tab === 'employee' ||
+      tab === 'contract' ||
+      tab === 'product' ||
+      tab === 'service'
+    )
       return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
@@ -473,6 +494,16 @@ export function App() {
     setTab('employee');
   }
 
+  async function openProduct(id: string) {
+    setSelectedProductId(id);
+    setTab('product');
+  }
+
+  async function openService(id: string) {
+    setSelectedServiceId(id);
+    setTab('service');
+  }
+
   async function navigateDeepLink(link: any) {
     const tabId = String(link?.tab ?? '') as any;
     const engineId = link?.engineId ? String(link.engineId) : null;
@@ -481,6 +512,8 @@ export function App() {
     const contractId = link?.contractId ? String(link.contractId) : null;
     const employeeId = link?.employeeId ? String(link.employeeId) : null;
     const engineBrandId = link?.engineBrandId ? String(link.engineBrandId) : null;
+    const productId = link?.productId ? String(link.productId) : null;
+    const serviceId = link?.serviceId ? String(link.serviceId) : null;
 
     // Prefer opening specific entities if IDs are present.
     if (engineId) {
@@ -501,6 +534,14 @@ export function App() {
     }
     if (employeeId) {
       await openEmployee(employeeId);
+      return;
+    }
+    if (productId) {
+      await openProduct(productId);
+      return;
+    }
+    if (serviceId) {
+      await openService(serviceId);
       return;
     }
     if (engineBrandId) {
@@ -529,6 +570,10 @@ export function App() {
       request: 'Карточка заявки',
       parts: 'Детали',
       part: 'Карточка детали',
+      products: 'Товары',
+      product: 'Карточка товара',
+      services: 'Услуги',
+      service: 'Карточка услуги',
       employees: 'Сотрудники',
       employee: 'Карточка сотрудника',
       reports: 'Отчёты',
@@ -544,6 +589,8 @@ export function App() {
       part: 'Детали',
       contract: 'Контракты',
       employee: 'Сотрудники',
+      product: 'Товары',
+      service: 'Услуги',
     };
 
     const crumbs: string[] = [];
@@ -562,6 +609,8 @@ export function App() {
     if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
     if (tab === 'contract' && selectedContractId) crumbs.push(`ID ${shortId(selectedContractId)}`);
     if (tab === 'employee' && selectedEmployeeId) crumbs.push(`ID ${shortId(selectedEmployeeId)}`);
+    if (tab === 'product' && selectedProductId) crumbs.push(`ID ${shortId(selectedProductId)}`);
+    if (tab === 'service' && selectedServiceId) crumbs.push(`ID ${shortId(selectedServiceId)}`);
 
     return crumbs.filter(Boolean);
   }
@@ -582,7 +631,11 @@ export function App() {
                   ? selectedContractId ?? null
                   : tab === 'employee'
                     ? selectedEmployeeId ?? null
-                    : null,
+                    : tab === 'product'
+                      ? selectedProductId ?? null
+                      : tab === 'service'
+                        ? selectedServiceId ?? null
+                        : null,
       entityType:
         tab === 'engine'
           ? 'engine'
@@ -596,7 +649,11 @@ export function App() {
                   ? 'contract'
                   : tab === 'employee'
                     ? 'employee'
-                    : null,
+                    : tab === 'product'
+                      ? 'product'
+                      : tab === 'service'
+                        ? 'service'
+                        : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
     [
@@ -607,6 +664,8 @@ export function App() {
       selectedPartId,
       selectedContractId,
       selectedEmployeeId,
+      selectedProductId,
+      selectedServiceId,
       engineDetails,
     ],
   );
@@ -633,6 +692,8 @@ export function App() {
       partId: tab === 'part' ? selectedPartId ?? null : null,
       contractId: tab === 'contract' ? selectedContractId ?? null : null,
       employeeId: tab === 'employee' ? selectedEmployeeId ?? null : null,
+      productId: tab === 'product' ? selectedProductId ?? null : null,
+      serviceId: tab === 'service' ? selectedServiceId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     };
     const r = await window.matrica.chat
@@ -674,6 +735,14 @@ export function App() {
         ? 'Матрица РМЗ — Карточка двигателя'
         : tab === 'engine_brand'
           ? 'Матрица РМЗ — Карточка марки двигателя'
+        : tab === 'products'
+          ? 'Матрица РМЗ — Товары'
+          : tab === 'product'
+            ? 'Матрица РМЗ — Карточка товара'
+            : tab === 'services'
+              ? 'Матрица РМЗ — Услуги'
+              : tab === 'service'
+                ? 'Матрица РМЗ — Карточка услуги'
         : tab === 'changes'
           ? 'Матрица РМЗ — Изменения'
         : tab === 'requests'
@@ -908,7 +977,9 @@ export function App() {
           style={{
             flex: chatOpen && authStatus.loggedIn && canChat ? '0 0 75%' : '1 1 auto',
             minWidth: 0,
-            overflow: 'auto',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
             paddingRight: 2,
           }}
         >
@@ -927,27 +998,29 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
-          <Tabs
-            tab={tab}
-            onTab={(t) => {
-              const isUserTab = t === userTab;
-              if (!authStatus.loggedIn && t !== 'auth') {
-                setTab('auth');
-                return;
-              }
-              if (!visibleTabs.includes(t) && !isUserTab) return;
-              setTab(t);
-              if (t === 'audit') void refreshAudit();
-            }}
-            availableTabs={availableTabs}
-            layout={tabsLayout}
-            onLayoutChange={persistTabsLayout}
-            userLabel={userLabel}
-            userTab={userTab}
-            authStatus={presence ? { online: presence.online } : undefined}
-          />
+          <div style={{ flex: '0 0 auto' }}>
+            <Tabs
+              tab={tab}
+              onTab={(t) => {
+                const isUserTab = t === userTab;
+                if (!authStatus.loggedIn && t !== 'auth') {
+                  setTab('auth');
+                  return;
+                }
+                if (!visibleTabs.includes(t) && !isUserTab) return;
+                setTab(t);
+                if (t === 'audit') void refreshAudit();
+              }}
+              availableTabs={availableTabs}
+              layout={tabsLayout}
+              onLayoutChange={persistTabsLayout}
+              userLabel={userLabel}
+              userTab={userTab}
+              authStatus={presence ? { online: presence.online } : undefined}
+            />
+          </div>
 
-          <div style={{ marginTop: 14 }}>
+          <div style={{ marginTop: 14, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
             {postLoginSyncMsg && (
               <div
                 style={{
@@ -994,6 +1067,7 @@ export function App() {
           <ContractsPage
             onOpen={openContract}
             canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
           />
         )}
 
@@ -1034,6 +1108,9 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewParts={caps.canViewParts}
             canViewMasterData={caps.canViewMasterData}
+            onOpenPart={openPart}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
           />
         )}
         {tab === 'engine' && selectedEngineId && !engineDetails && (
@@ -1070,6 +1147,7 @@ export function App() {
               setTab('part');
             }}
             canCreate={caps.canCreateParts}
+            canDelete={caps.canDeleteParts}
           />
         )}
 
@@ -1080,7 +1158,26 @@ export function App() {
               setTab('employee');
             }}
             canCreate={caps.canManageEmployees}
+            canDelete={caps.canManageEmployees}
             refreshKey={employeesRefreshKey}
+          />
+        )}
+
+        {tab === 'products' && (
+          <ProductsPage
+            onOpen={openProduct}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {tab === 'services' && (
+          <ServicesPage
+            onOpen={openService}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
           />
         )}
 
@@ -1116,6 +1213,32 @@ export function App() {
             canManageUsers={caps.canManageUsers}
             onAccessChanged={triggerEmployeesRefresh}
             me={authStatus.user}
+          />
+        )}
+
+        {tab === 'product' && selectedProductId && (
+          <SimpleMasterdataDetailsPage
+            key={selectedProductId}
+            title="Карточка товара"
+            entityId={selectedProductId}
+            ownerType="product"
+            typeCode="product"
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+          />
+        )}
+
+        {tab === 'service' && selectedServiceId && (
+          <SimpleMasterdataDetailsPage
+            key={selectedServiceId}
+            title="Карточка услуги"
+            entityId={selectedServiceId}
+            ownerType="service"
+            typeCode="service"
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
           />
         )}
 
@@ -1176,6 +1299,14 @@ export function App() {
 
         {tab === 'employee' && !selectedEmployeeId && (
           <div style={{ color: 'var(--muted)' }}>Выберите сотрудника из списка.</div>
+        )}
+
+        {tab === 'product' && !selectedProductId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите товар из списка.</div>
+        )}
+
+        {tab === 'service' && !selectedServiceId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите услугу из списка.</div>
         )}
           </div>
         </div>

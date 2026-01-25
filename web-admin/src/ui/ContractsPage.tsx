@@ -154,8 +154,8 @@ export function ContractsPage(props: {
   }, [filtered]);
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canEditMasterData && (
           <Button
             onClick={async () => {
@@ -184,50 +184,52 @@ export function ContractsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#f9fafb' }}>
-              <th style={{ textAlign: 'left', padding: 8 }}>Номер</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Внутр. номер</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Дата</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Обновлено</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row) => (
-              <tr
-                key={row.id}
-                style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer', background: row.id === selectedId ? '#eff6ff' : 'transparent' }}
-                onClick={() => setSelectedId(row.id)}
-              >
-                <td style={{ padding: 8 }}>{row.number || '(без номера)'}</td>
-                <td style={{ padding: 8, color: '#6b7280' }}>{row.internalNumber || '—'}</td>
-                <td style={{ padding: 8, color: '#6b7280' }}>{row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}</td>
-                <td style={{ padding: 8, color: '#6b7280' }}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}</td>
+      <div style={{ marginTop: 10, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f9fafb' }}>
+                <th style={{ textAlign: 'left', padding: 8 }}>Номер</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Внутр. номер</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Дата</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Обновлено</th>
               </tr>
-            ))}
-            {sorted.length === 0 && (
-              <tr>
-                <td colSpan={4} style={{ padding: 10, color: '#6b7280' }}>
-                  Нет контрактов
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {selectedId && (
-        <div style={{ marginTop: 12 }}>
-          <ContractDetailsPage
-            contractId={selectedId}
-            canEditMasterData={props.canEditMasterData}
-            canViewFiles={props.canViewFiles}
-            canUploadFiles={props.canUploadFiles}
-          />
+            </thead>
+            <tbody>
+              {sorted.map((row) => (
+                <tr
+                  key={row.id}
+                  style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer', background: row.id === selectedId ? '#eff6ff' : 'transparent' }}
+                  onClick={() => setSelectedId(row.id)}
+                >
+                  <td style={{ padding: 8 }}>{row.number || '(без номера)'}</td>
+                  <td style={{ padding: 8, color: '#6b7280' }}>{row.internalNumber || '—'}</td>
+                  <td style={{ padding: 8, color: '#6b7280' }}>{row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}</td>
+                  <td style={{ padding: 8, color: '#6b7280' }}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}</td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ padding: 10, color: '#6b7280' }}>
+                    Нет контрактов
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+
+        {selectedId && (
+          <div style={{ marginTop: 12 }}>
+            <ContractDetailsPage
+              contractId={selectedId}
+              canEditMasterData={props.canEditMasterData}
+              canViewFiles={props.canViewFiles}
+              canUploadFiles={props.canUploadFiles}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

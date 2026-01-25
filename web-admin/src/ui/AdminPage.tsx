@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { IncomingLinkInfo } from '../shared-types.js';
 
@@ -26,6 +26,10 @@ type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: st
 export function MasterdataPage(props: {
   canViewMasterData: boolean;
   canEditMasterData: boolean;
+  pinnedTypeIds?: string[];
+  selectedTypeId?: string | null;
+  onPinnedChange?: (next: string[]) => void;
+  onTypesChange?: (next: EntityTypeRow[]) => void;
 }) {
 
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
@@ -88,12 +92,8 @@ export function MasterdataPage(props: {
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
 
-  const excludedTypeCodes = new Set(['engine', 'part']);
-  const visibleTypes = useMemo(() => {
-    return types
-      .filter((t) => !excludedTypeCodes.has(t.code))
-      .slice()
-      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
+  const sortedTypes = useMemo(() => {
+    return types.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
   }, [types]);
 
   const filteredEntities = useMemo(() => {
@@ -168,10 +168,10 @@ export function MasterdataPage(props: {
     }
     const rows = r.rows ?? [];
     setTypes(rows);
+    props.onTypesChange?.(rows);
     setSelectedTypeId((prev) => {
-      const nextVisible = rows.filter((t) => !excludedTypeCodes.has(t.code));
-      if (prev && nextVisible.some((t) => t.id === prev)) return prev;
-      return nextVisible[0]?.id ?? '';
+      if (prev && rows.some((t) => t.id === prev)) return prev;
+      return rows[0]?.id ?? '';
     });
     if (rows.length > 0) void loadLinkRules(rows);
   }
@@ -476,10 +476,18 @@ export function MasterdataPage(props: {
   useEffect(() => {
     if (!types.length) return;
     setSelectedTypeId((prev) => {
-      if (prev && visibleTypes.some((t) => t.id === prev)) return prev;
-      return visibleTypes[0]?.id ?? '';
+      if (prev && sortedTypes.some((t) => t.id === prev)) return prev;
+      return sortedTypes[0]?.id ?? '';
     });
-  }, [types, visibleTypes]);
+  }, [types, sortedTypes]);
+
+  const lastOverrideRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!props.selectedTypeId) return;
+    if (props.selectedTypeId === lastOverrideRef.current) return;
+    lastOverrideRef.current = props.selectedTypeId;
+    setSelectedTypeId(props.selectedTypeId);
+  }, [props.selectedTypeId]);
 
   useEffect(() => {
     if (!selectedEntityId) return;
@@ -491,6 +499,71 @@ export function MasterdataPage(props: {
     if (!selectedTypeId) return;
     void refreshLinkOptions(defs);
   }, [selectedTypeId, defs, types]);
+
+  const pinnedTypeIds = useMemo(() => new Set(props.pinnedTypeIds ?? []), [props.pinnedTypeIds]);
+  const canPin = typeof props.onPinnedChange === 'function';
+
+  function addPinned(typeId: string) {
+    if (!props.onPinnedChange) return;
+    const next = Array.from(new Set([...(props.pinnedTypeIds ?? []), typeId]));
+    props.onPinnedChange(next);
+  }
+
+  function removePinned(typeId: string) {
+    if (!props.onPinnedChange) return;
+    const next = (props.pinnedTypeIds ?? []).filter((id) => id !== typeId);
+    props.onPinnedChange(next);
+  }
+
+  function resolveCategory(type: EntityTypeRow): string {
+    const hay = `${type.code} ${type.name}`.toLowerCase();
+    if (/(customer|client|контрагент|заказчик|contract|work_order|договор|заказ)/.test(hay)) return 'partners';
+    if (/(employee|person|staff|department|section|workshop|персонал|сотрудник|цех|участок|отдел)/.test(hay)) return 'org';
+    if (/(product|service|category|nomen|товар|услуг|категор|номенклатур|part|детал)/.test(hay)) return 'catalog';
+    if (/(engine|repair|assembly|brand|двигател|ремонт|сборк|испытан|марка)/.test(hay)) return 'production';
+    if (/(link_field_rule|permission|role|system|meta|служеб|прав|систем)/.test(hay)) return 'system';
+    return 'other';
+  }
+
+  const categories = useMemo(() => {
+    const order = [
+      { id: 'partners', label: 'Контрагенты и договоры' },
+      { id: 'org', label: 'Организация и персонал' },
+      { id: 'catalog', label: 'Номенклатура и услуги' },
+      { id: 'production', label: 'Производство и ремонт' },
+      { id: 'system', label: 'Системные' },
+      { id: 'other', label: 'Прочее' },
+    ];
+    const map = new Map<string, { id: string; label: string; items: EntityTypeRow[] }>();
+    for (const row of sortedTypes) {
+      const catId = resolveCategory(row);
+      const meta = order.find((c) => c.id === catId) ?? order[order.length - 1];
+      if (!map.has(meta.id)) map.set(meta.id, { ...meta, items: [] });
+      map.get(meta.id)!.items.push(row);
+    }
+    return order
+      .map((c) => map.get(c.id))
+      .filter((x): x is { id: string; label: string; items: EntityTypeRow[] } => !!x)
+      .map((c) => ({ ...c, items: c.items.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru')) }));
+  }, [sortedTypes]);
+
+  const [openCategoryIds, setOpenCategoryIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (openCategoryIds.length > 0 || categories.length === 0) return;
+    setOpenCategoryIds([categories[0].id]);
+  }, [categories, openCategoryIds.length]);
+
+  useEffect(() => {
+    if (!selectedTypeId) return;
+    const cat = categories.find((c) => c.items.some((t) => t.id === selectedTypeId));
+    if (!cat) return;
+    setOpenCategoryIds((prev) => (prev.includes(cat.id) ? prev : [...prev, cat.id]));
+  }, [categories, selectedTypeId]);
+
+  function toggleCategory(id: string) {
+    setOpenCategoryIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   return (
     <div>
@@ -525,30 +598,85 @@ export function MasterdataPage(props: {
               )}
             </div>
 
-            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {visibleTypes.map((t) => {
-                const active = t.id === selectedTypeId;
+            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+              {categories.map((cat) => {
+                const open = openCategoryIds.includes(cat.id);
                 return (
-                  <Button
-                    key={t.id}
-                    variant="ghost"
-                    onClick={() => setSelectedTypeId(t.id)}
-                    style={
-                      active
-                        ? {
-                            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
-                            border: '1px solid #1e40af',
-                            color: '#fff',
-                            boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
-                          }
-                        : undefined
-                    }
-                  >
-                    {t.name}
-                  </Button>
+                  <div key={cat.id} style={{ border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                    <div
+                      onClick={() => toggleCategory(cat.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '10px 12px',
+                        background: '#f8fafc',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ fontWeight: 800, color: '#111827' }}>{cat.label}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {cat.items.length}
+                      </div>
+                      <span style={{ flex: 1 }} />
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {open ? 'v' : '>'}
+                      </div>
+                    </div>
+                    {open && (
+                      <div style={{ display: 'grid', gap: 6, padding: 10 }}>
+                        {cat.items.map((t) => {
+                          const active = t.id === selectedTypeId;
+                          const pinned = pinnedTypeIds.has(t.id);
+                          return (
+                            <div
+                              key={t.id}
+                              onClick={() => setSelectedTypeId(t.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 12,
+                                padding: '8px 10px',
+                                borderRadius: 10,
+                                border: active ? '1px solid #93c5fd' : '1px solid #f3f4f6',
+                                background: active ? '#eff6ff' : '#fff',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, color: '#111827' }}>{t.name}</div>
+                                <div className="muted" style={{ fontSize: 12 }}>
+                                  код: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{t.code}</span>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  disabled={!canPin || pinned}
+                                  onClick={() => addPinned(t.id)}
+                                  style={{ fontSize: 12, padding: '6px 10px' }}
+                                >
+                                  Добавить в главное меню
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  disabled={!canPin || !pinned}
+                                  onClick={() => removePinned(t.id)}
+                                  style={{ fontSize: 12, padding: '6px 10px' }}
+                                >
+                                  Убрать из главного меню
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {cat.items.length === 0 && <div className="muted">(справочники не настроены)</div>}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
-              {visibleTypes.length === 0 && <div className="muted">(справочники не настроены)</div>}
+              {categories.length === 0 && <div className="muted">(справочники не настроены)</div>}
             </div>
 
             {props.canEditMasterData && (

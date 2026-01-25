@@ -8,7 +8,9 @@ import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -39,14 +41,18 @@ function printEngineReport(
     customer?: string;
     contract?: string;
   },
+  orderedRows?: Array<[string, string]>,
 ) {
   const attrs = engine.attributes ?? {};
-  const mainRows: Array<[string, string]> = [
-    ['Номер двигателя', String(context?.engineNumber ?? attrs.engine_number ?? '')],
-    ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
-    ['Заказчик', String(context?.customer ?? attrs.customer_id ?? '')],
-    ['Контракт', String(context?.contract ?? attrs.contract_id ?? '')],
-  ];
+  const mainRows: Array<[string, string]> =
+    orderedRows && orderedRows.length > 0
+      ? orderedRows
+      : [
+          ['Номер двигателя', String(context?.engineNumber ?? attrs.engine_number ?? '')],
+          ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
+          ['Заказчик', String(context?.customer ?? attrs.customer_id ?? '')],
+          ['Контракт', String(context?.contract ?? attrs.contract_id ?? '')],
+        ];
 
   openPrintPreview({
     title: `Карточка двигателя`,
@@ -82,6 +88,9 @@ export function EngineDetailsPage(props: {
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
+  const [engineTypeId, setEngineTypeId] = useState<string>('');
+  const [engineDefs, setEngineDefs] = useState<AttributeDefRow[]>([]);
+  const [coreDefsReady, setCoreDefsReady] = useState(false);
 
   const [saveStatus, setSaveStatus] = useState<string>('');
   const engineBrandOptions =
@@ -199,6 +208,13 @@ export function EngineDetailsPage(props: {
     const types = await window.matrica.admin.entityTypes.list();
     typeIdByCode.current = Object.fromEntries(types.map((t) => [String(t.code), String(t.id)]));
     const typeIdByCodeMap = new Map(types.map((t) => [t.code, t.id] as const));
+    const engineType = types.find((t) => String(t.code) === 'engine');
+    if (engineType?.id) {
+      setEngineTypeId(String(engineType.id));
+      const defs = await window.matrica.admin.attributeDefs.listByEntityType(String(engineType.id));
+      setEngineDefs(defs as AttributeDefRow[]);
+      setCoreDefsReady(false);
+    }
     async function load(code: string, key: string) {
       const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
@@ -216,6 +232,38 @@ export function EngineDetailsPage(props: {
     if (!props.canViewMasterData) return;
     void loadLinkLists();
   }, [props.canViewMasterData]);
+
+  useEffect(() => {
+    if (!props.canEditMasterData || !engineTypeId || engineDefs.length === 0 || coreDefsReady) return;
+    const desired = [
+      { code: 'engine_number', name: 'Номер двигателя', dataType: 'text', sortOrder: 10 },
+      {
+        code: 'engine_brand_id',
+        name: 'Марка двигателя',
+        dataType: 'link',
+        sortOrder: 20,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }),
+      },
+      {
+        code: 'customer_id',
+        name: 'Заказчик',
+        dataType: 'link',
+        sortOrder: 30,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
+      },
+      {
+        code: 'contract_id',
+        name: 'Контракт',
+        dataType: 'link',
+        sortOrder: 40,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
+      },
+    ];
+    void ensureAttributeDefs(engineTypeId, desired, engineDefs).then((next) => {
+      if (next.length !== engineDefs.length) setEngineDefs(next);
+      setCoreDefsReady(true);
+    });
+  }, [props.canEditMasterData, engineTypeId, engineDefs.length, coreDefsReady]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
@@ -240,113 +288,176 @@ export function EngineDetailsPage(props: {
     return created.id;
   }
 
+  const mainFieldItems = [
+    {
+      code: 'engine_number',
+      defaultOrder: 10,
+      label: 'Номер двигателя',
+      value: engineNumber,
+      render: (
+        <Input
+          value={engineNumber}
+          disabled={!props.canEditEngines}
+          onChange={(e) => setEngineNumber(e.target.value)}
+          onBlur={() => void saveEngineNumber()}
+        />
+      ),
+    },
+    {
+      code: 'engine_brand_id',
+      defaultOrder: 20,
+      label: 'Марка двигателя',
+      value: engineBrand,
+      render: (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <SearchSelectWithCreate
+            value={engineBrandId || null}
+            options={engineBrandOptions}
+            disabled={!props.canEditEngines}
+            canCreate={props.canEditMasterData}
+            createLabel="Новая марка двигателя"
+            onChange={(next) => {
+              const nextId = next ?? '';
+              const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
+              setEngineBrandId(nextId);
+              setEngineBrand(label);
+              void saveAttr('engine_brand_id', next || null);
+              if (next) void saveAttr('engine_brand', label || null);
+              else void saveAttr('engine_brand', null);
+            }}
+            onCreate={async (label) => {
+              const id = await createMasterDataItem('engine_brand', label);
+              if (!id) return null;
+              setEngineBrandId(id);
+              setEngineBrand(label);
+              void saveAttr('engine_brand_id', id);
+              void saveAttr('engine_brand', label);
+              return id;
+            }}
+          />
+          {(linkLists.engine_brand ?? []).length === 0 && (
+            <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
+          )}
+        </div>
+      ),
+    },
+    props.canViewMasterData
+      ? {
+          code: 'customer_id',
+          defaultOrder: 30,
+          label: 'Заказчик',
+          value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
+          render: (
+            <SearchSelectWithCreate
+              value={customerId || null}
+              options={linkLists.customer_id ?? []}
+              disabled={!props.canEditEngines}
+              canCreate={props.canEditMasterData}
+              createLabel="Новый заказчик"
+              onChange={(next) => {
+                const v = next ?? '';
+                setCustomerId(v);
+                void saveAttr('customer_id', next ?? null);
+              }}
+              onCreate={async (label) => createMasterDataItem('customer', label)}
+            />
+          ),
+        }
+      : null,
+    props.canViewMasterData
+      ? {
+          code: 'contract_id',
+          defaultOrder: 40,
+          label: 'Контракт',
+          value: (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId,
+          render: (
+            <SearchSelectWithCreate
+              value={contractId || null}
+              options={linkLists.contract_id ?? []}
+              disabled={!props.canEditEngines}
+              canCreate={props.canEditMasterData}
+              createLabel="Номер контракта"
+              onChange={(next) => {
+                const v = next ?? '';
+                setContractId(v);
+                void saveAttr('contract_id', next ?? null);
+              }}
+              onCreate={async (label) => createMasterDataItem('contract', label)}
+            />
+          ),
+        }
+      : null,
+  ].filter(Boolean);
+  const mainFields = orderFieldsByDefs(mainFieldItems as any[], engineDefs);
+
+  const orderedPrintRows = mainFields.map((f) => [f.label, String(f.value ?? '')] as [string, string]);
+  const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
+
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
+        <div style={{ flex: 1 }} />
         {props.canPrintEngineCard && (
           <Button
             variant="ghost"
             onClick={() => {
               const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
-              printEngineReport(props.engine, {
-                engineNumber,
-                engineBrand,
-                customer: pickLabel('customer_id', customerId),
-                contract: pickLabel('contract_id', contractId),
-              });
+              printEngineReport(
+                props.engine,
+                {
+                  engineNumber,
+                  engineBrand,
+                  customer: pickLabel('customer_id', customerId),
+                  contract: pickLabel('contract_id', contractId),
+                },
+                orderedPrintRows,
+              );
             }}
           >
             Распечатать
           </Button>
         )}
-        <div style={{ flex: 1 }} />
         {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
         <Button variant="ghost" onClick={props.onReload}>
           Обновить
         </Button>
       </div>
 
-      <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10 }}>
-          <div style={{ color: '#6b7280' }}>Номер двигателя</div>
-          <Input
-            value={engineNumber}
-            disabled={!props.canEditEngines}
-            onChange={(e) => setEngineNumber(e.target.value)}
-            onBlur={() => void saveEngineNumber()}
-          />
-          <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <SearchSelectWithCreate
-              value={engineBrandId || null}
-              options={engineBrandOptions}
-              disabled={!props.canEditEngines}
-              canCreate={props.canEditMasterData}
-              createLabel="Новая марка двигателя"
-              onChange={(next) => {
-                const nextId = next ?? '';
-                const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
-                setEngineBrandId(nextId);
-                setEngineBrand(label);
-                void saveAttr('engine_brand_id', next || null);
-                if (next) void saveAttr('engine_brand', label || null);
-                else void saveAttr('engine_brand', null);
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+        <DraggableFieldList
+          items={mainFields}
+          getKey={(f) => f.code}
+          canDrag={props.canEditMasterData}
+          onReorder={(next) => {
+            if (!engineTypeId) return;
+            void persistFieldOrder(
+              next.map((f) => f.code),
+              engineDefs,
+              { entityTypeId: engineTypeId },
+            ).then(() => setEngineDefs([...engineDefs]));
+          }}
+          renderItem={(field, dragHandleProps, state) => (
+            <div
+              {...dragHandleProps}
+              style={{
+                ...dragHandleProps.style,
+                display: 'grid',
+                gridTemplateColumns: 'minmax(140px, 180px) 1fr',
+                gap: 10,
+                alignItems: 'center',
+                padding: '6px 8px',
+                borderRadius: 8,
+                border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
               }}
-              onCreate={async (label) => {
-                const id = await createMasterDataItem('engine_brand', label);
-                if (!id) return null;
-                setEngineBrandId(id);
-                setEngineBrand(label);
-                void saveAttr('engine_brand_id', id);
-                void saveAttr('engine_brand', label);
-                return id;
-              }}
-            />
-            {(linkLists.engine_brand ?? []).length === 0 && (
-              <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
-            )}
-          </div>
-
-          {props.canViewMasterData && (
-            <>
-          <div style={{ color: '#6b7280' }}>Заказчик</div>
-          <SearchSelectWithCreate
-            value={customerId || null}
-            options={linkLists.customer_id ?? []}
-            disabled={!props.canEditEngines}
-            canCreate={props.canEditMasterData}
-            createLabel="Новый заказчик"
-            onChange={(next) => {
-              const v = next ?? '';
-              setCustomerId(v);
-              void saveAttr('customer_id', next ?? null);
-            }}
-            onCreate={async (label) => createMasterDataItem('customer', label)}
-          />
-            </>
+            >
+              <div style={{ color: '#6b7280' }}>{field.label}</div>
+              {field.render}
+            </div>
           )}
-
-          {props.canViewMasterData && (
-            <>
-          <div style={{ color: '#6b7280' }}>Контракт</div>
-          <SearchSelectWithCreate
-            value={contractId || null}
-            options={linkLists.contract_id ?? []}
-            disabled={!props.canEditEngines}
-            canCreate={props.canEditMasterData}
-            createLabel="Номер контракта"
-            onChange={(next) => {
-              const v = next ?? '';
-              setContractId(v);
-              void saveAttr('contract_id', next ?? null);
-            }}
-            onCreate={async (label) => createMasterDataItem('contract', label)}
-          />
-            </>
-          )}
-
-        
-        </div>
+        />
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
           <Button
             variant="ghost"
@@ -407,6 +518,7 @@ export function EngineDetailsPage(props: {
         canUpload={props.canUploadFiles && props.canEditEngines}
         onChange={saveAttachments}
       />
+      </div>
     </div>
   );
 }

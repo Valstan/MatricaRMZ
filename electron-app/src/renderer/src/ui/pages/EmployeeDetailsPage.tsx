@@ -3,10 +3,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
 type EmployeeAccount = {
   id: string;
@@ -184,6 +186,9 @@ export function EmployeeDetailsPage(props: {
   const [customLinkTargetCode, setCustomLinkTargetCode] = useState('');
   const [customLinkTouched, setCustomLinkTouched] = useState(false);
   const [entityTypes, setEntityTypes] = useState<EntityTypeRow[]>([]);
+  const [employeeTypeId, setEmployeeTypeId] = useState<string>('');
+  const [employeeDefs, setEmployeeDefs] = useState<AttrDef[]>([]);
+  const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [linkOptionsByDefId, setLinkOptionsByDefId] = useState<Record<string, { id: string; label: string }[]>>({});
   const [linkLoadingByDefId, setLinkLoadingByDefId] = useState<Record<string, boolean>>({});
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
@@ -240,6 +245,26 @@ export function EmployeeDetailsPage(props: {
   useEffect(() => {
     void loadCustomDefs();
   }, []);
+
+  useEffect(() => {
+    if (!props.canEdit || !employeeTypeId || employeeDefs.length === 0 || coreDefsReady) return;
+    const desired = [
+      { code: 'last_name', name: 'Фамилия', dataType: 'text', sortOrder: 10 },
+      { code: 'first_name', name: 'Имя', dataType: 'text', sortOrder: 20 },
+      { code: 'middle_name', name: 'Отчество', dataType: 'text', sortOrder: 30 },
+      { code: 'personnel_number', name: 'Табельный номер', dataType: 'text', sortOrder: 40 },
+      { code: 'birth_date', name: 'Дата рождения', dataType: 'date', sortOrder: 50 },
+      { code: 'role', name: 'Должность', dataType: 'text', sortOrder: 60 },
+      { code: 'employment_status', name: 'Статус', dataType: 'text', sortOrder: 70 },
+      { code: 'hire_date', name: 'Дата приема', dataType: 'date', sortOrder: 80 },
+      { code: 'termination_date', name: 'Дата увольнения', dataType: 'date', sortOrder: 90 },
+      { code: 'department_id', name: 'Подразделение', dataType: 'link', sortOrder: 100, metaJson: JSON.stringify({ linkTargetTypeCode: 'department' }) },
+    ];
+    void ensureAttributeDefs(employeeTypeId, desired, employeeDefs as unknown as AttributeDefRow[]).then((next) => {
+      if (next.length !== employeeDefs.length) setEmployeeDefs(next as AttrDef[]);
+      setCoreDefsReady(true);
+    });
+  }, [props.canEdit, employeeTypeId, employeeDefs.length, coreDefsReady]);
 
   useEffect(() => {
     if (customDataType !== 'link') setCustomLinkTargetCode('');
@@ -341,6 +366,7 @@ export function EmployeeDetailsPage(props: {
   async function loadCustomDefs() {
     try {
       const defs = await window.matrica.employees.defs();
+      setEmployeeDefs(defs as AttrDef[]);
       const base = new Set([
         'last_name',
         'first_name',
@@ -375,6 +401,8 @@ export function EmployeeDetailsPage(props: {
       const list = (rows as any[]).map((t) => ({ id: String(t.id), code: String(t.code), name: String(t.name) }));
       list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
       setEntityTypes(list);
+      const employeeType = list.find((t) => t.code === 'employee');
+      setEmployeeTypeId(employeeType?.id ?? '');
     } catch {
       // ignore
     }
@@ -682,20 +710,180 @@ export function EmployeeDetailsPage(props: {
     await saveAttr('full_name', nextFull || null);
   }
 
+  const mainFields = orderFieldsByDefs(
+    [
+      {
+        code: 'last_name',
+        defaultOrder: 10,
+        label: 'Фамилия',
+        value: lastName,
+        render: (
+          <Input
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            onBlur={() => void saveNameField('last_name', lastName)}
+            disabled={!props.canEdit}
+            placeholder="Фамилия"
+          />
+        ),
+      },
+      {
+        code: 'first_name',
+        defaultOrder: 20,
+        label: 'Имя',
+        value: firstName,
+        render: (
+          <Input
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            onBlur={() => void saveNameField('first_name', firstName)}
+            disabled={!props.canEdit}
+            placeholder="Имя"
+          />
+        ),
+      },
+      {
+        code: 'middle_name',
+        defaultOrder: 30,
+        label: 'Отчество',
+        value: middleName,
+        render: (
+          <Input
+            value={middleName}
+            onChange={(e) => setMiddleName(e.target.value)}
+            onBlur={() => void saveNameField('middle_name', middleName)}
+            disabled={!props.canEdit}
+            placeholder="Отчество"
+          />
+        ),
+      },
+      {
+        code: 'personnel_number',
+        defaultOrder: 40,
+        label: 'Табельный номер',
+        value: personnelNumber,
+        render: (
+          <Input
+            value={personnelNumber}
+            onChange={(e) => setPersonnelNumber(e.target.value)}
+            onBlur={() => void saveAttr('personnel_number', personnelNumber.trim() || null)}
+            disabled={!props.canEdit}
+            placeholder="Табельный номер"
+          />
+        ),
+      },
+      {
+        code: 'birth_date',
+        defaultOrder: 50,
+        label: 'Дата рождения',
+        value: birthDate || '',
+        render: (
+          <Input
+            type="date"
+            value={birthDate}
+            onChange={(e) => setBirthDate(e.target.value)}
+            onBlur={() => void saveAttr('birth_date', fromInputDate(birthDate))}
+            disabled={!props.canEdit}
+          />
+        ),
+      },
+      {
+        code: 'role',
+        defaultOrder: 60,
+        label: 'Должность',
+        value: position,
+        render: (
+          <Input
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+            onBlur={() => void saveAttr('role', position.trim() || null)}
+            disabled={!props.canEdit}
+            placeholder="Должность"
+          />
+        ),
+      },
+      {
+        code: 'employment_status',
+        defaultOrder: 70,
+        label: 'Статус',
+        value: employmentStatus === 'fired' ? 'уволен' : 'работает',
+        render: (
+          <select
+            value={employmentStatus}
+            onChange={async (e) => {
+              const next = e.target.value === 'fired' ? 'fired' : 'working';
+              setEmploymentStatus(next);
+              await saveAttr('employment_status', next);
+              if (next === 'fired' && canToggleAccess) {
+                const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
+                setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
+                await loadAccountPerms();
+                if (r.ok) props.onAccessChanged?.();
+              }
+            }}
+            disabled={!props.canEdit}
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+          >
+            <option value="working">работает</option>
+            <option value="fired">уволен</option>
+          </select>
+        ),
+      },
+      {
+        code: 'hire_date',
+        defaultOrder: 80,
+        label: 'Дата приема',
+        value: hireDate || '',
+        render: (
+          <Input
+            type="date"
+            value={hireDate}
+            onChange={(e) => setHireDate(e.target.value)}
+            onBlur={() => void saveAttr('hire_date', fromInputDate(hireDate))}
+            disabled={!props.canEdit}
+          />
+        ),
+      },
+      {
+        code: 'termination_date',
+        defaultOrder: 90,
+        label: 'Дата увольнения',
+        value: terminationDate || '',
+        render: (
+          <Input
+            type="date"
+            value={terminationDate}
+            onChange={(e) => setTerminationDate(e.target.value)}
+            onBlur={() => void saveAttr('termination_date', fromInputDate(terminationDate))}
+            disabled={!props.canEdit}
+          />
+        ),
+      },
+      {
+        code: 'department_id',
+        defaultOrder: 100,
+        label: 'Подразделение',
+        value: departmentLabel || '',
+        render: (
+          <SearchSelect
+            value={departmentId}
+            options={departmentOptions}
+            disabled={!props.canEdit}
+            placeholder={departmentsStatus || 'Выберите подразделение'}
+            onChange={(next) => {
+              setDepartmentId(next);
+              void saveAttr('department_id', next || null);
+            }}
+          />
+        ),
+      },
+    ],
+    employeeDefs as unknown as AttributeDefRow[],
+  );
+
   function printEmployeeCard() {
     const attrs = employee?.attributes ?? {};
-    const mainRows: Array<[string, string]> = [
-      ['ФИО', computedFullName],
-      ['Табельный номер', personnelNumber],
-      ['Должность', position],
-      ['Подразделение', departmentLabel || ''],
-      ['Дата рождения', birthDate || ''],
-    ];
-    const employmentRows: Array<[string, string]> = [
-      ['Статус', employmentStatus === 'terminated' ? 'Уволен' : 'Работает'],
-      ['Дата приема', hireDate || ''],
-      ['Дата увольнения', terminationDate || ''],
-    ];
+    const mainRows: Array<[string, string]> = mainFields.map((f) => [f.label, String(f.value ?? '')]);
     const transfersHtml =
       transfers.length === 0
         ? '<div class="muted">Нет данных</div>'
@@ -705,14 +893,16 @@ export function EmployeeDetailsPage(props: {
               return `<li>${escapeHtml(dt)}: ${escapeHtml(String(t.kind ?? ''))} — ${escapeHtml(String(t.value ?? ''))}</li>`;
             })
             .join('')}</ul>`;
-    const extraRows = customDefs.map((d) => [d.name || d.code, formatValue((attrs as any)[d.code])]);
+    const extraRows = orderFieldsByDefs(customDefs, employeeDefs as unknown as AttributeDefRow[]).map((d) => [
+      d.name || d.code,
+      formatValue((attrs as any)[d.code]),
+    ]);
 
     openPrintPreview({
       title: 'Карточка сотрудника',
       subtitle: computedFullName ? `Сотрудник: ${computedFullName}` : undefined,
       sections: [
         { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
-        { id: 'employment', title: 'Кадровые данные', html: keyValueTable(employmentRows) },
         { id: 'transfers', title: 'Кадровые перемещения', html: transfersHtml },
         {
           id: 'extra',
@@ -724,10 +914,12 @@ export function EmployeeDetailsPage(props: {
     });
   }
 
+  const headerTitle = computedFullName ? `Сотрудник: ${computedFullName}` : 'Карточка сотрудника';
+
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-        <strong style={{ fontSize: 18 }}>{computedFullName || 'Карточка сотрудника'}</strong>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         {departmentLabel && <span style={{ color: '#6b7280' }}>• {departmentLabel}</span>}
         <span style={{ flex: 1 }} />
         <Button variant="ghost" onClick={printEmployeeCard}>
@@ -735,105 +927,40 @@ export function EmployeeDetailsPage(props: {
         </Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center', maxWidth: 820 }}>
-        <div style={{ color: '#6b7280' }}>Фамилия</div>
-        <Input
-          value={lastName}
-          onChange={(e) => setLastName(e.target.value)}
-          onBlur={() => void saveNameField('last_name', lastName)}
-          disabled={!props.canEdit}
-          placeholder="Фамилия"
-        />
-        <div style={{ color: '#6b7280' }}>Имя</div>
-        <Input
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-          onBlur={() => void saveNameField('first_name', firstName)}
-          disabled={!props.canEdit}
-          placeholder="Имя"
-        />
-        <div style={{ color: '#6b7280' }}>Отчество</div>
-        <Input
-          value={middleName}
-          onChange={(e) => setMiddleName(e.target.value)}
-          onBlur={() => void saveNameField('middle_name', middleName)}
-          disabled={!props.canEdit}
-          placeholder="Отчество"
-        />
-        <div style={{ color: '#6b7280' }}>Табельный номер</div>
-        <Input
-          value={personnelNumber}
-          onChange={(e) => setPersonnelNumber(e.target.value)}
-          onBlur={() => void saveAttr('personnel_number', personnelNumber.trim() || null)}
-          disabled={!props.canEdit}
-          placeholder="Табельный номер"
-        />
-        <div style={{ color: '#6b7280' }}>Дата рождения</div>
-        <Input
-          type="date"
-          value={birthDate}
-          onChange={(e) => setBirthDate(e.target.value)}
-          onBlur={() => void saveAttr('birth_date', fromInputDate(birthDate))}
-          disabled={!props.canEdit}
-        />
-        <div style={{ color: '#6b7280' }}>Должность</div>
-        <Input
-          value={position}
-          onChange={(e) => setPosition(e.target.value)}
-          onBlur={() => void saveAttr('role', position.trim() || null)}
-          disabled={!props.canEdit}
-          placeholder="Должность"
-        />
-        <div style={{ color: '#6b7280' }}>Статус</div>
-        <select
-          value={employmentStatus}
-          onChange={async (e) => {
-            const next = e.target.value === 'fired' ? 'fired' : 'working';
-            setEmploymentStatus(next);
-            await saveAttr('employment_status', next);
-            if (next === 'fired' && canToggleAccess) {
-              const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
-              setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
-              await loadAccountPerms();
-              if (r.ok) props.onAccessChanged?.();
-            }
-          }}
-          disabled={!props.canEdit}
-          style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-        >
-          <option value="working">работает</option>
-          <option value="fired">уволен</option>
-        </select>
-        <div style={{ color: '#6b7280' }}>Дата приема</div>
-        <Input
-          type="date"
-          value={hireDate}
-          onChange={(e) => setHireDate(e.target.value)}
-          onBlur={() => void saveAttr('hire_date', fromInputDate(hireDate))}
-          disabled={!props.canEdit}
-        />
-        <div style={{ color: '#6b7280' }}>Дата увольнения</div>
-        <Input
-          type="date"
-          value={terminationDate}
-          onChange={(e) => setTerminationDate(e.target.value)}
-          onBlur={() => void saveAttr('termination_date', fromInputDate(terminationDate))}
-          disabled={!props.canEdit}
-        />
-        <div style={{ color: '#6b7280' }}>Подразделение</div>
-        <div>
-          <SearchSelect
-            value={departmentId}
-            options={departmentOptions}
-            disabled={!props.canEdit}
-            placeholder={departmentsStatus || 'Выберите подразделение'}
-            onChange={(next) => {
-              setDepartmentId(next);
-              void saveAttr('department_id', next || null);
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+      <DraggableFieldList
+        items={mainFields}
+        getKey={(f) => f.code}
+        canDrag={props.canEdit}
+        onReorder={(next) => {
+          if (!employeeTypeId) return;
+          void persistFieldOrder(
+            next.map((f) => f.code),
+            employeeDefs as unknown as AttributeDefRow[],
+            { entityTypeId: employeeTypeId },
+          ).then(() => setEmployeeDefs([...employeeDefs]));
+        }}
+        renderItem={(field, dragHandleProps, state) => (
+          <div
+            {...dragHandleProps}
+            style={{
+              ...dragHandleProps.style,
+              display: 'grid',
+              gridTemplateColumns: '220px 1fr',
+              gap: 10,
+              alignItems: 'center',
+              maxWidth: 820,
+              padding: '6px 8px',
+              borderRadius: 8,
+              border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+              background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
             }}
-          />
-        </div>
-      </div>
+          >
+            <div style={{ color: '#6b7280' }}>{field.label}</div>
+            {field.render}
+          </div>
+        )}
+      />
 
       <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -921,14 +1048,44 @@ export function EmployeeDetailsPage(props: {
           </Button>
         </div>
 
-        <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '200px 1fr', gap: 10, alignItems: 'center', maxWidth: 820 }}>
-          {customDefs.length === 0 && <div style={{ color: '#6b7280' }}>(доп. полей нет)</div>}
-          {customDefs.map((def) => (
-            <React.Fragment key={def.id}>
-              <div style={{ color: '#6b7280' }}>{def.name}</div>
-              {renderCustomField(def)}
-            </React.Fragment>
-          ))}
+        <div style={{ marginTop: 10 }}>
+          {customDefs.length === 0 ? (
+            <div style={{ color: '#6b7280' }}>(доп. полей нет)</div>
+          ) : (
+            <DraggableFieldList
+              items={orderFieldsByDefs(customDefs, employeeDefs as unknown as AttributeDefRow[])}
+              getKey={(def) => def.id}
+              canDrag={props.canEdit}
+              onReorder={(next) => {
+                if (!employeeTypeId) return;
+                void persistFieldOrder(
+                  next.map((d) => d.code),
+                  employeeDefs as unknown as AttributeDefRow[],
+                  { entityTypeId: employeeTypeId, startAt: 300 },
+                ).then(() => setEmployeeDefs([...employeeDefs]));
+              }}
+              renderItem={(def, dragHandleProps, state) => (
+                <div
+                  {...dragHandleProps}
+                  style={{
+                    ...dragHandleProps.style,
+                    display: 'grid',
+                    gridTemplateColumns: '200px 1fr',
+                    gap: 10,
+                    alignItems: 'center',
+                    maxWidth: 820,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                    background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                  }}
+                >
+                  <div style={{ color: '#6b7280' }}>{def.name}</div>
+                  {renderCustomField(def)}
+                </div>
+              )}
+            />
+          )}
         </div>
 
         {props.canEdit && (
@@ -1286,6 +1443,7 @@ export function EmployeeDetailsPage(props: {
           {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{accountStatus}</div>}
         </div>
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      </div>
     </div>
   );
 }

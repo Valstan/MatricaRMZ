@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
@@ -95,6 +96,9 @@ export function ChatPanel(props: {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [othersOpen, setOthersOpen] = useState(false);
+  const othersButtonRef = useRef<HTMLButtonElement | null>(null);
+  const othersMenuRef = useRef<HTMLDivElement | null>(null);
+  const [othersMenuPos, setOthersMenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
@@ -173,6 +177,55 @@ export function ChatPanel(props: {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages.length]);
+
+  useLayoutEffect(() => {
+    if (!othersOpen) return;
+    const updatePosition = () => {
+      const btn = othersButtonRef.current;
+      const menu = othersMenuRef.current;
+      if (!btn || !menu) return;
+      const rect = btn.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const padding = 8;
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+      const maxHeight = Math.min(360, viewportH - padding * 2);
+      let left = rect.right - menuRect.width;
+      if (left < padding) left = padding;
+      if (left + menuRect.width > viewportW - padding) left = viewportW - padding - menuRect.width;
+      let top = rect.bottom + 6;
+      if (top + menuRect.height > viewportH - padding) {
+        top = rect.top - menuRect.height - 6;
+      }
+      if (top < padding) top = padding;
+      setOthersMenuPos({ left, top, maxHeight });
+    };
+    const id = requestAnimationFrame(updatePosition);
+    const onScroll = () => updatePosition();
+    const onResize = () => updatePosition();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [othersOpen, otherUsers.length]);
+
+  useEffect(() => {
+    if (!othersOpen) return;
+    const onDocClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const menu = othersMenuRef.current;
+      const btn = othersButtonRef.current;
+      if (menu && menu.contains(target)) return;
+      if (btn && btn.contains(target)) return;
+      setOthersOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [othersOpen]);
 
   function shortId(id: string | null) {
     if (!id) return '';
@@ -328,62 +381,66 @@ export function ChatPanel(props: {
           </Button>
         )}
         {!adminMode && (
-          <div style={{ position: 'relative' }}>
-            <Button variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
+          <div>
+            <Button ref={othersButtonRef} variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
               Другие
             </Button>
-            {othersOpen && otherUsers.length > 0 && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 34,
-                  zIndex: 10,
-                  minWidth: 220,
-                  maxWidth: 320,
-                  maxHeight: 360,
-                  overflowY: 'auto',
-                  background: '#ffffff',
-                  border: '1px solid #e5e7eb',
-                  boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
-                  borderRadius: 10,
-                  padding: 8,
-                }}
-              >
-                {otherUsers.map((u) => {
-                  const uUnread = byUserUnread[u.id] ?? 0;
-                  const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
-                  const roleStyle = roleStyles(u.role);
-                  return (
-                    <button
-                      key={u.id}
-                      onClick={() => {
-                        setSelectedUserId(u.id);
-                        setOthersOpen(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        marginBottom: 6,
-                        padding: '6px 8px',
-                        border: `1px solid ${roleStyle.border}`,
-                        background: roleStyle.background,
-                        color: roleStyle.color,
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                      }}
-                      title="Оффлайн"
-                    >
-                      {dot('#dc2626', false)}
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            {othersOpen &&
+              otherUsers.length > 0 &&
+              createPortal(
+                <div
+                  ref={othersMenuRef}
+                  style={{
+                    position: 'fixed',
+                    left: othersMenuPos?.left ?? 0,
+                    top: othersMenuPos?.top ?? 0,
+                    zIndex: 10000,
+                    minWidth: 220,
+                    maxWidth: 320,
+                    maxHeight: othersMenuPos?.maxHeight ?? 360,
+                    overflowY: 'auto',
+                    background: '#ffffff',
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+                    borderRadius: 10,
+                    padding: 8,
+                  }}
+                >
+                  {otherUsers.map((u) => {
+                    const uUnread = byUserUnread[u.id] ?? 0;
+                    const label = `${u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
+                    const roleStyle = roleStyles(u.role);
+                    return (
+                      <button
+                        key={u.id}
+                        onClick={() => {
+                          setSelectedUserId(u.id);
+                          setOthersOpen(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          marginBottom: 6,
+                          padding: '6px 8px',
+                          border: `1px solid ${roleStyle.border}`,
+                          background: roleStyle.background,
+                          color: roleStyle.color,
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                        title="Оффлайн"
+                      >
+                        {dot('#dc2626', false)}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body,
+              )}
           </div>
         )}
       </div>

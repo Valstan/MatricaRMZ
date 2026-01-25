@@ -105,6 +105,26 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <strong>Пользователи и права доступа</strong>
             <span style={{ flex: 1 }} />
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                if (!confirm('Переснять всех сотрудников в синхронизацию? Клиентам потребуется выполнить синк.')) return;
+                setStatus('Формируем синк-снимок сотрудников…');
+                const r = await adminUsers.resyncEmployees();
+                if (r.ok) {
+                  const failed = Number((r as any).failed ?? 0);
+                  setStatus(
+                    failed > 0
+                      ? `Готово: ${r.count ?? 0} сотрудников, ошибок: ${failed}. Запустите синхронизацию на клиентах.`
+                      : `Готово: ${r.count ?? 0} сотрудников. Запустите синхронизацию на клиентах.`,
+                  );
+                } else {
+                  setStatus(`Ошибка пересинхронизации: ${r.error ?? 'unknown'}`);
+                }
+              }}
+            >
+              Пересинхронизировать сотрудников
+            </Button>
             <Button variant="ghost" onClick={() => void refreshUsers()}>
               Обновить
             </Button>

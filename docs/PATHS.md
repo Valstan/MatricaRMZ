@@ -10,7 +10,7 @@
 - Release инструкции: `RELEASE.md`
 - Быстрый старт и setup: `QUICK_START.md`, `README_SETUP.md`
 - Политики безопасности: `SECURITY.md`
-- Release notes/процедуры: `RELEASE.md`, `RELEASE.md`
+- Release notes/процедуры: `RELEASE.md`
 - Общий status: `docs/SESSION_STATUS.md`
 
 ## Монорепо (верхний уровень)
@@ -81,6 +81,8 @@
 - Таблицы синка: `shared/src/sync/tables.ts`
 - Sync state на сервере: `backend-api/src/database/schema.ts` (`sync_state`, `change_log`)
 - Sync state на клиенте: `electron-app/src/main/database/schema.ts`
+- Модель: полная репликация доменных данных + приватность чата (chat_messages/chat_reads фильтруются по участникам)
+- Админ-ресинк сотрудников: `POST /admin/users/sync-snapshot`
 
 ## Основные UI‑модули (Renderer)
 - Корневой UI: `electron-app/src/renderer/src/ui/App.tsx`

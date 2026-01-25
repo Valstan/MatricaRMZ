@@ -10,6 +10,7 @@ export type UiPrefs = {
   chatSide: 'left' | 'right';
   chatDocked: boolean;
   loggingEnabled: boolean;
+  pinnedMasterdataTypeIds: string[];
 };
 
 type UserProfile = {

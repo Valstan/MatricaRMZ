@@ -5,7 +5,9 @@ import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
 type AttributeDef = {
   id: string;
@@ -97,9 +99,13 @@ export function ContractDetailsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [contractTypeId, setContractTypeId] = useState<string>('');
   const [entityTypes, setEntityTypes] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [coreDefsReady, setCoreDefsReady] = useState(false);
 
   const [engineBrandOptions, setEngineBrandOptions] = useState<LinkOpt[]>([]);
   const [engineBrandId, setEngineBrandId] = useState<string>('');
+
+  const [customerOptions, setCustomerOptions] = useState<LinkOpt[]>([]);
+  const [customerId, setCustomerId] = useState<string>('');
 
   const [number, setNumber] = useState<string>('');
   const [internalNumber, setInternalNumber] = useState<string>('');
@@ -141,6 +147,7 @@ export function ContractDetailsPage(props: {
       setContract(d as any);
       const defsList = await window.matrica.admin.attributeDefs.listByEntityType(String(contractType.id));
       setDefs(defsList as any);
+      setCoreDefsReady(false);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -166,6 +173,25 @@ export function ContractDetailsPage(props: {
     }
   }
 
+  async function loadCustomers() {
+    try {
+      const type = entityTypes.find((t) => String(t.code) === 'customer') ?? null;
+      if (!type?.id) {
+        setCustomerOptions([]);
+        return;
+      }
+      const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
+      const opts = (rows as any[]).map((r) => ({
+        id: String(r.id),
+        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setCustomerOptions(opts);
+    } catch {
+      setCustomerOptions([]);
+    }
+  }
+
   useEffect(() => {
     void loadContract();
   }, [props.contractId]);
@@ -173,6 +199,7 @@ export function ContractDetailsPage(props: {
   useEffect(() => {
     if (entityTypes.length === 0) return;
     void loadEngineBrands();
+    void loadCustomers();
   }, [entityTypes.length]);
 
   useEffect(() => {
@@ -184,6 +211,7 @@ export function ContractDetailsPage(props: {
     setContractAmount(attrs.contract_amount_rub == null ? '' : String(attrs.contract_amount_rub));
     setUnitPrice(attrs.unit_price_rub == null ? '' : String(attrs.unit_price_rub));
     setEngineBrandId(String(attrs.engine_brand_id ?? ''));
+    setCustomerId(String(attrs.customer_id ?? ''));
 
     const items = Array.isArray(attrs.engine_count_items)
       ? (attrs.engine_count_items as any[]).map((i) => ({
@@ -197,6 +225,35 @@ export function ContractDetailsPage(props: {
       setEngineCountItems(items);
     }
   }, [contract?.id, contract?.updatedAt]);
+
+  useEffect(() => {
+    if (!props.canEditMasterData || !contractTypeId || defs.length === 0 || coreDefsReady) return;
+    const desired = [
+      { code: 'number', name: 'Номер контракта', dataType: 'text', sortOrder: 10 },
+      {
+        code: 'customer_id',
+        name: 'Заказчик',
+        dataType: 'link',
+        sortOrder: 20,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
+      },
+      { code: 'date', name: 'Дата контракта', dataType: 'date', sortOrder: 30 },
+      { code: 'internal_number', name: 'Внутренний номер', dataType: 'text', sortOrder: 40 },
+      {
+        code: 'engine_brand_id',
+        name: 'Марка двигателя',
+        dataType: 'link',
+        sortOrder: 50,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }),
+      },
+      { code: 'contract_amount_rub', name: 'Сумма контракта (₽)', dataType: 'number', sortOrder: 60 },
+      { code: 'unit_price_rub', name: 'Цена за единицу (₽)', dataType: 'number', sortOrder: 70 },
+    ];
+    void ensureAttributeDefs(contractTypeId, desired, defs as AttributeDefRow[]).then((next) => {
+      if (next.length !== defs.length) setDefs(next as any);
+      setCoreDefsReady(true);
+    });
+  }, [props.canEditMasterData, contractTypeId, defs.length, coreDefsReady]);
 
   async function saveAttr(code: string, value: unknown) {
     if (!props.canEdit) return;
@@ -224,6 +281,7 @@ export function ContractDetailsPage(props: {
   async function saveCore() {
     if (!props.canEdit) return;
     await saveAttr('number', number);
+    await saveAttr('customer_id', customerId || null);
     await saveAttr('internal_number', internalNumber);
     await saveAttr('date', fromInputDate(date));
     await saveAttr('engine_brand_id', engineBrandId || null);
@@ -240,10 +298,12 @@ export function ContractDetailsPage(props: {
     if (!created?.ok || !created?.id) return null;
     const attrByType: Record<string, string> = {
       engine_brand: 'name',
+      customer: 'name',
     };
     const attr = attrByType[typeCode] ?? 'name';
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
     await loadEngineBrands();
+    await loadCustomers();
     return created.id;
   }
 
@@ -351,6 +411,7 @@ export function ContractDetailsPage(props: {
   const sortedDefs = [...defs].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
   const coreCodes = new Set([
     'number',
+    'customer_id',
     'internal_number',
     'date',
     'engine_brand_id',
@@ -367,16 +428,145 @@ export function ContractDetailsPage(props: {
 
   const engineTotal = calcEngineTotal(engineCountItems);
   const engineBrandLabel = engineBrandOptions.find((o) => o.id === engineBrandId)?.label ?? '';
+  const customerLabel = customerOptions.find((o) => o.id === customerId)?.label ?? '';
+
+  const mainFields = orderFieldsByDefs(
+    [
+      {
+        code: 'number',
+        defaultOrder: 10,
+        label: 'Номер контракта',
+        value: number,
+        render: (
+          <Input value={number} disabled={!props.canEdit} onChange={(e) => setNumber(e.target.value)} onBlur={() => void saveAttr('number', number)} />
+        ),
+      },
+      {
+        code: 'customer_id',
+        defaultOrder: 20,
+        label: 'Заказчик',
+        value: customerLabel || '',
+        render: (
+          <div style={{ display: 'grid', gap: 6 }}>
+            <SearchSelectWithCreate
+              value={customerId || null}
+              options={customerOptions}
+              disabled={!props.canEdit}
+              canCreate={props.canEditMasterData}
+              createLabel="Новый заказчик"
+              onChange={(next) => {
+                const v = next ?? '';
+                setCustomerId(v);
+                void saveAttr('customer_id', next ?? null);
+              }}
+              onCreate={async (label) => {
+                const id = await createMasterDataItem('customer', label);
+                if (!id) return null;
+                setCustomerId(id);
+                void saveAttr('customer_id', id);
+                return id;
+              }}
+            />
+            {customerOptions.length === 0 && (
+              <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник заказчиков пуст — выберите или создайте значение.</span>
+            )}
+          </div>
+        ),
+      },
+      {
+        code: 'date',
+        defaultOrder: 30,
+        label: 'Дата контракта',
+        value: date || '',
+        render: (
+          <Input type="date" value={date} disabled={!props.canEdit} onChange={(e) => setDate(e.target.value)} onBlur={() => void saveAttr('date', fromInputDate(date))} />
+        ),
+      },
+      {
+        code: 'internal_number',
+        defaultOrder: 40,
+        label: 'Внутренний номер',
+        value: internalNumber || '',
+        render: (
+          <Input
+            value={internalNumber}
+            disabled={!props.canEdit}
+            onChange={(e) => setInternalNumber(e.target.value)}
+            onBlur={() => void saveAttr('internal_number', internalNumber)}
+          />
+        ),
+      },
+      {
+        code: 'engine_brand_id',
+        defaultOrder: 50,
+        label: 'Марка двигателя',
+        value: engineBrandLabel || '',
+        render: (
+          <div style={{ display: 'grid', gap: 6 }}>
+            <SearchSelectWithCreate
+              value={engineBrandId || null}
+              options={engineBrandOptions}
+              disabled={!props.canEdit}
+              canCreate={props.canEditMasterData}
+              createLabel="Новая марка двигателя"
+              onChange={(next) => {
+                const v = next ?? '';
+                setEngineBrandId(v);
+                void saveAttr('engine_brand_id', next ?? null);
+              }}
+              onCreate={async (label) => {
+                const id = await createMasterDataItem('engine_brand', label);
+                if (!id) return null;
+                setEngineBrandId(id);
+                void saveAttr('engine_brand_id', id);
+                return id;
+              }}
+            />
+            {engineBrandOptions.length === 0 && (
+              <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
+            )}
+          </div>
+        ),
+      },
+      {
+        code: 'contract_amount_rub',
+        defaultOrder: 60,
+        label: 'Сумма контракта (₽)',
+        value: contractAmount || '',
+        render: (
+          <Input
+            type="number"
+            value={contractAmount}
+            disabled={!props.canEdit}
+            onChange={(e) => setContractAmount(e.target.value)}
+            onBlur={() => void saveAttr('contract_amount_rub', contractAmount ? Number(contractAmount) : null)}
+          />
+        ),
+      },
+      {
+        code: 'unit_price_rub',
+        defaultOrder: 70,
+        label: 'Цена за единицу (₽)',
+        value: unitPrice || '',
+        render: (
+          <Input
+            type="number"
+            value={unitPrice}
+            disabled={!props.canEdit}
+            onChange={(e) => setUnitPrice(e.target.value)}
+            onBlur={() => void saveAttr('unit_price_rub', unitPrice ? Number(unitPrice) : null)}
+          />
+        ),
+      },
+    ],
+    defs as AttributeDefRow[],
+  );
+  const headerTitle = number.trim() ? `Контракт: ${number.trim()}` : 'Карточка контракта';
 
   function printContractCard() {
     const attrs = contract.attributes ?? {};
     const mainRows: Array<[string, string]> = [
-      ['Номер контракта', number],
-      ['Дата контракта', date || ''],
-      ['Внутренний номер', internalNumber || ''],
-      ['Марка двигателя', engineBrandLabel || ''],
-      ['Сумма контракта', contractAmount || ''],
-      ['Цена за единицу', unitPrice || ''],
+      ...mainFields.map((f) => [f.label, String(f.value ?? '')]),
       ['Количество двигателей', String(engineTotal || 0)],
     ];
     const engineItemsHtml =
@@ -418,9 +608,9 @@ export function ContractDetailsPage(props: {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-        <h2 style={{ margin: 0, flex: 1 }}>Карточка контракта</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <Button variant="ghost" onClick={printContractCard}>
           Распечатать
         </Button>
@@ -430,7 +620,8 @@ export function ContractDetailsPage(props: {
         </Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <strong>Основное</strong>
@@ -442,63 +633,37 @@ export function ContractDetailsPage(props: {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10, alignItems: 'center' }}>
-            <div style={{ color: '#6b7280' }}>Номер контракта</div>
-            <Input value={number} disabled={!props.canEdit} onChange={(e) => setNumber(e.target.value)} onBlur={() => void saveAttr('number', number)} />
-
-            <div style={{ color: '#6b7280' }}>Дата контракта</div>
-            <Input type="date" value={date} disabled={!props.canEdit} onChange={(e) => setDate(e.target.value)} onBlur={() => void saveAttr('date', fromInputDate(date))} />
-
-            <div style={{ color: '#6b7280' }}>Внутренний номер</div>
-            <Input
-              value={internalNumber}
-              disabled={!props.canEdit}
-              onChange={(e) => setInternalNumber(e.target.value)}
-              onBlur={() => void saveAttr('internal_number', internalNumber)}
-            />
-
-            <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-            <div style={{ display: 'grid', gap: 6 }}>
-              <SearchSelectWithCreate
-                value={engineBrandId || null}
-                options={engineBrandOptions}
-                disabled={!props.canEdit}
-                canCreate={props.canEditMasterData}
-                createLabel="Новая марка двигателя"
-                onChange={(next) => {
-                  const v = next ?? '';
-                  setEngineBrandId(v);
-                  void saveAttr('engine_brand_id', next ?? null);
+          <DraggableFieldList
+            items={mainFields}
+            getKey={(f) => f.code}
+            canDrag={props.canEditMasterData}
+            onReorder={(next) => {
+              void persistFieldOrder(
+                next.map((f) => f.code),
+                defs as AttributeDefRow[],
+                { entityTypeId: contractTypeId },
+              ).then(() => setDefs([...defs]));
+            }}
+            renderItem={(field, dragHandleProps, state) => (
+              <div
+                {...dragHandleProps}
+                style={{
+                  ...dragHandleProps.style,
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(140px, 180px) 1fr',
+                  gap: 10,
+                  alignItems: 'center',
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                  background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
                 }}
-                onCreate={async (label) => {
-                  const id = await createMasterDataItem('engine_brand', label);
-                  if (!id) return null;
-                  setEngineBrandId(id);
-                  void saveAttr('engine_brand_id', id);
-                  return id;
-                }}
-              />
-              {engineBrandOptions.length === 0 && <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>}
-            </div>
-
-            <div style={{ color: '#6b7280' }}>Сумма контракта (₽)</div>
-            <Input
-              type="number"
-              value={contractAmount}
-              disabled={!props.canEdit}
-              onChange={(e) => setContractAmount(e.target.value)}
-              onBlur={() => void saveAttr('contract_amount_rub', contractAmount ? Number(contractAmount) : null)}
-            />
-
-            <div style={{ color: '#6b7280' }}>Цена за единицу (₽)</div>
-            <Input
-              type="number"
-              value={unitPrice}
-              disabled={!props.canEdit}
-              onChange={(e) => setUnitPrice(e.target.value)}
-              onBlur={() => void saveAttr('unit_price_rub', unitPrice ? Number(unitPrice) : null)}
-            />
-          </div>
+              >
+                <div style={{ color: '#6b7280' }}>{field.label}</div>
+                {field.render}
+              </div>
+            )}
+          />
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
@@ -680,8 +845,18 @@ export function ContractDetailsPage(props: {
           {extraDefs.length === 0 ? (
             <div style={{ color: '#6b7280', fontSize: 13 }}>Нет дополнительных полей.</div>
           ) : (
-            <div style={{ display: 'grid', gap: 14 }}>
-              {extraDefs.map((def) => {
+            <DraggableFieldList
+              items={orderFieldsByDefs(extraDefs, defs as AttributeDefRow[])}
+              getKey={(def) => def.id}
+              canDrag={props.canEditMasterData}
+              onReorder={(next) => {
+                void persistFieldOrder(
+                  next.map((d) => d.code),
+                  defs as AttributeDefRow[],
+                  { entityTypeId: contractTypeId, startAt: 300 },
+                ).then(() => setDefs([...defs]));
+              }}
+              renderItem={(def, dragHandleProps, state) => {
                 const value = editingAttr[def.code] !== undefined ? editingAttr[def.code] : contract.attributes?.[def.code];
                 const isEditing = editingAttr[def.code] !== undefined;
                 const linkOpt =
@@ -690,7 +865,19 @@ export function ContractDetailsPage(props: {
                     : null;
 
                 return (
-                  <div key={def.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div
+                    {...dragHandleProps}
+                    style={{
+                      ...dragHandleProps.style,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                      background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                    }}
+                  >
                     <label style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>
                       {def.name}
                       <span style={{ color: '#6b7280', fontWeight: 400 }}> ({def.code})</span>
@@ -804,9 +991,10 @@ export function ContractDetailsPage(props: {
                     )}
                   </div>
                 );
-              })}
-            </div>
+              }}
+            />
           )}
+        </div>
         </div>
       </div>
     </div>

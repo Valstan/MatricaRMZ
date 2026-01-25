@@ -17,7 +17,7 @@ type Row = {
   updatedAt: number;
 };
 
-export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; refreshKey?: number }) {
+export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean; refreshKey?: number }) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
@@ -82,6 +82,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Подразделение</th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Статус</th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Доступ</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
       </tr>
     </thead>
   );
@@ -94,7 +95,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
                 </td>
               </tr>
@@ -128,6 +129,33 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                   <td style={{ padding: '10px 12px', fontSize: 14, color: accessColor }}>
                     {accessLabel}
                   </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    {props.canDelete && (
+                      <Button
+                        variant="ghost"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!confirm('Удалить сотрудника?')) return;
+                          try {
+                            setStatus('Удаление…');
+                            const r = await window.matrica.employees.delete(row.id);
+                            if (!r.ok) {
+                              setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                              return;
+                            }
+                            setStatus('Удалено');
+                            setTimeout(() => setStatus(''), 900);
+                            await refresh();
+                          } catch (err) {
+                            setStatus(`Ошибка: ${String(err)}`);
+                          }
+                        }}
+                        style={{ color: '#b91c1c' }}
+                      >
+                        Удалить
+                      </Button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -138,8 +166,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -167,7 +195,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

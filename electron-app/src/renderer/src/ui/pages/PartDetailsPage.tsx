@@ -4,9 +4,11 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
 type Attribute = {
   id: string;
@@ -135,6 +137,9 @@ export function PartDetailsPage(props: {
 
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
   const [entityTypes, setEntityTypes] = useState<EntityTypeRow[]>([]);
+  const [partTypeId, setPartTypeId] = useState<string>('');
+  const [partDefs, setPartDefs] = useState<AttributeDefRow[]>([]);
+  const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [linkOptionsByCode, setLinkOptionsByCode] = useState<Record<string, LinkOpt[]>>({});
   const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
 
@@ -296,6 +301,13 @@ export function PartDetailsPage(props: {
     try {
       const types = await window.matrica.admin.entityTypes.list();
       setEntityTypes(types as any);
+      const partType = (types as any[]).find((t) => String(t.code) === 'part') ?? null;
+      if (partType?.id) {
+        setPartTypeId(String(partType.id));
+        const defs = await window.matrica.admin.attributeDefs.listByEntityType(String(partType.id));
+        setPartDefs(defs as AttributeDefRow[]);
+        setCoreDefsReady(false);
+      }
       const type = (types as any[]).find((t) => String(t.code) === 'link_field_rule') ?? null;
       if (!type?.id) {
         setLinkRules([]);
@@ -392,6 +404,28 @@ export function PartDetailsPage(props: {
     void loadCustomers();
     void loadLinkRules();
   }, []);
+
+  useEffect(() => {
+    if (!props.canEdit || !partTypeId || partDefs.length === 0 || coreDefsReady) return;
+    const desired = [
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
+      { code: 'article', name: 'Артикул / обозначение', dataType: 'text', sortOrder: 20 },
+      { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 30 },
+      { code: 'purchase_date', name: 'Дата покупки', dataType: 'date', sortOrder: 40 },
+      {
+        code: 'supplier_id',
+        name: 'Поставщик',
+        dataType: 'link',
+        sortOrder: 50,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
+      },
+      { code: 'supplier', name: 'Поставщик (текст)', dataType: 'text', sortOrder: 60 },
+    ];
+    void ensureAttributeDefs(partTypeId, desired, partDefs).then((next) => {
+      if (next.length !== partDefs.length) setPartDefs(next);
+      setCoreDefsReady(true);
+    });
+  }, [props.canEdit, partTypeId, partDefs.length, coreDefsReady]);
 
   // Sync local fields from loaded part (important after reload/save)
   useEffect(() => {
@@ -528,14 +562,97 @@ export function PartDetailsPage(props: {
   const engineBrandLabelById = new Map<string, string>();
   for (const o of engineBrandOptions) engineBrandLabelById.set(o.id, o.label);
 
+  const mainFields = orderFieldsByDefs(
+    [
+      {
+        code: 'name',
+        defaultOrder: 10,
+        label: 'Название',
+        value: name,
+        render: (
+          <Input
+            value={name}
+            disabled={!props.canEdit}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => void saveAttribute('name', name)}
+          />
+        ),
+      },
+      {
+        code: 'article',
+        defaultOrder: 20,
+        label: 'Артикул / обозначение',
+        value: article,
+        render: (
+          <Input
+            value={article}
+            disabled={!props.canEdit}
+            onChange={(e) => setArticle(e.target.value)}
+            onBlur={() => void saveAttribute('article', article)}
+          />
+        ),
+      },
+      {
+        code: 'description',
+        defaultOrder: 30,
+        label: 'Описание',
+        value: description,
+        render: (
+          <Textarea
+            value={description}
+            disabled={!props.canEdit}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={() => void saveAttribute('description', description)}
+          />
+        ),
+      },
+      {
+        code: 'purchase_date',
+        defaultOrder: 40,
+        label: 'Дата покупки',
+        value: purchaseDate || '',
+        render: (
+          <Input
+            type="date"
+            value={purchaseDate}
+            disabled={!props.canEdit}
+            onChange={(e) => setPurchaseDate(e.target.value)}
+            onBlur={() => void saveAttribute('purchase_date', fromInputDate(purchaseDate))}
+          />
+        ),
+      },
+      {
+        code: 'supplier_id',
+        defaultOrder: 50,
+        label: 'Поставщик',
+        value: supplier || '',
+        render: (
+          <div style={{ display: 'grid', gap: 6 }}>
+            <SearchSelect
+              value={supplierId}
+              options={customerOptions}
+              placeholder="Выберите поставщика"
+              disabled={!props.canEdit}
+              onChange={(next) => {
+                setSupplierId(next);
+                const label = customerOptions.find((c) => c.id === next)?.label ?? '';
+                setSupplier(label);
+                void saveAttribute('supplier_id', next || null);
+                void saveAttribute('supplier', label || supplier);
+              }}
+            />
+            {customerStatus && (
+              <span style={{ color: customerStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{customerStatus}</span>
+            )}
+          </div>
+        ),
+      },
+    ],
+    partDefs,
+  );
+
   function printPartCard() {
-    const mainRows: Array<[string, string]> = [
-      ['Название', name],
-      ['Артикул / обозначение', article],
-      ['Описание', description],
-      ['Дата покупки', purchaseDate || ''],
-      ['Поставщик', supplier || ''],
-    ];
+    const mainRows: Array<[string, string]> = mainFields.map((f) => [f.label, String(f.value ?? '')]);
     const compatibility = engineBrandIds
       .map((id) => engineBrandLabelById.get(id) ?? id)
       .filter(Boolean)
@@ -574,10 +691,12 @@ export function PartDetailsPage(props: {
   }
 
 
+  const headerTitle = name.trim() ? `Деталь: ${name.trim()}` : 'Карточка детали';
+
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, flex: 1 }}>Карточка детали</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <Button variant="ghost" onClick={printPartCard}>
           Распечатать
         </Button>
@@ -588,9 +707,10 @@ export function PartDetailsPage(props: {
         )}
       </div>
 
-      {status && <div style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        {status && <div style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         {/* Core */}
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
@@ -603,60 +723,40 @@ export function PartDetailsPage(props: {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10, alignItems: 'center' }}>
-            <div style={{ color: '#6b7280' }}>Название</div>
-            <Input
-              value={name}
-              disabled={!props.canEdit}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => void saveAttribute('name', name)}
-            />
-
-            <div style={{ color: '#6b7280' }}>Артикул / обозначение</div>
-            <Input
-              value={article}
-              disabled={!props.canEdit}
-              onChange={(e) => setArticle(e.target.value)}
-              onBlur={() => void saveAttribute('article', article)}
-            />
-
-            <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 10 }}>Описание</div>
-            <Textarea
-              value={description}
-              disabled={!props.canEdit}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={() => void saveAttribute('description', description)}
-            />
-
-            <div style={{ color: '#6b7280' }}>Дата покупки</div>
-            <Input
-              type="date"
-              value={purchaseDate}
-              disabled={!props.canEdit}
-              onChange={(e) => setPurchaseDate(e.target.value)}
-              onBlur={() => void saveAttribute('purchase_date', fromInputDate(purchaseDate))}
-            />
-
-            <div style={{ color: '#6b7280' }}>Поставщик</div>
-            <div style={{ display: 'grid', gap: 6 }}>
-              <SearchSelect
-                value={supplierId}
-                options={customerOptions}
-                placeholder="Выберите поставщика"
-                disabled={!props.canEdit}
-                onChange={(next) => {
-                  setSupplierId(next);
-                  const label = customerOptions.find((c) => c.id === next)?.label ?? '';
-                  setSupplier(label);
-                  void saveAttribute('supplier_id', next || null);
-                  void saveAttribute('supplier', label || supplier);
+          <DraggableFieldList
+            items={mainFields}
+            getKey={(f) => f.code}
+            canDrag={props.canEdit}
+            onReorder={(next) => {
+              if (!partTypeId) return;
+              void persistFieldOrder(
+                next.map((f) => f.code),
+                partDefs,
+                { entityTypeId: partTypeId },
+              ).then(() => setPartDefs([...partDefs]));
+            }}
+            renderItem={(field, dragHandleProps, state) => (
+              <div
+                {...dragHandleProps}
+                style={{
+                  ...dragHandleProps.style,
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(140px, 180px) 1fr',
+                  gap: 10,
+                  alignItems: 'center',
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                  background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
                 }}
-              />
-              {customerStatus && (
-                <span style={{ color: customerStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{customerStatus}</span>
-              )}
-            </div>
-          </div>
+              >
+                <div style={{ color: '#6b7280', alignSelf: field.code === 'description' ? 'start' : 'center', paddingTop: field.code === 'description' ? 10 : 0 }}>
+                  {field.label}
+                </div>
+                {field.render}
+              </div>
+            )}
+          />
         </div>
 
         {/* Meta / placeholders for next steps */}
@@ -879,8 +979,19 @@ export function PartDetailsPage(props: {
           {extraAttrs.length === 0 ? (
             <div style={{ color: '#6b7280', fontSize: 13 }}>Нет дополнительных полей.</div>
           ) : (
-            <div style={{ display: 'grid', gap: 14 }}>
-              {extraAttrs.map((attr) => {
+            <DraggableFieldList
+              items={orderFieldsByDefs(extraAttrs, partDefs)}
+              getKey={(attr) => attr.id}
+              canDrag={props.canEdit}
+              onReorder={(next) => {
+                if (!partTypeId) return;
+                void persistFieldOrder(
+                  next.map((a) => a.code),
+                  partDefs,
+                  { entityTypeId: partTypeId, startAt: 300 },
+                ).then(() => setPartDefs([...partDefs]));
+              }}
+              renderItem={(attr, dragHandleProps, state) => {
                 const value = editingAttr[attr.code] !== undefined ? editingAttr[attr.code] : attr.value;
                 const isEditing = editingAttr[attr.code] !== undefined;
                 const linkOpt =
@@ -889,7 +1000,19 @@ export function PartDetailsPage(props: {
                     : null;
 
                 return (
-                  <div key={attr.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div
+                    {...dragHandleProps}
+                    style={{
+                      ...dragHandleProps.style,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                      background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                    }}
+                  >
                     <label style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>
                       {attr.name}
                       <span style={{ color: '#6b7280', fontWeight: 400 }}> ({attr.code})</span>
@@ -1003,9 +1126,10 @@ export function PartDetailsPage(props: {
                     )}
                   </div>
                 );
-              })}
-            </div>
+              }}
+            />
           )}
+        </div>
         </div>
       </div>
     </div>

@@ -18,6 +18,8 @@ aiAgentRouter.use(requirePermission(PermissionCode.ChatUse));
 const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 100_000);
+const OLLAMA_HEALTH_ATTEMPTS = Number(process.env.OLLAMA_HEALTH_ATTEMPTS || 3);
+const OLLAMA_HEALTH_TIMEOUT_MS = Number(process.env.OLLAMA_HEALTH_TIMEOUT_MS || 10_000);
 
 const MAX_ROWS = 200;
 const PREVIEW_ROWS = 20;
@@ -366,6 +368,76 @@ async function callOllama(systemPrompt: string, userPrompt: string) {
     clearTimeout(timer);
   }
 }
+
+async function callOllamaWithTimeout(systemPrompt: string, userPrompt: string, timeoutMs: number) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), timeoutMs);
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: false,
+        options: { temperature: 0.1 },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+      signal: ac.signal,
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`ollama HTTP ${res.status}: ${t}`.trim());
+    }
+    const json = await res.json();
+    const content = String(json?.message?.content ?? '').trim();
+    return content;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const ollamaHealthSchema = z.object({
+  attempts: z.number().int().min(1).max(5).optional(),
+  timeoutMs: z.number().int().min(1000).max(30_000).optional(),
+});
+
+aiAgentRouter.post('/ollama-health', async (req, res) => {
+  try {
+    const parsed = ollamaHealthSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const attempts = parsed.data.attempts ?? OLLAMA_HEALTH_ATTEMPTS;
+    const timeoutMs = parsed.data.timeoutMs ?? OLLAMA_HEALTH_TIMEOUT_MS;
+    const results: Array<{ ok: boolean; tookMs: number; error?: string }> = [];
+    for (let i = 0; i < attempts; i += 1) {
+      const token = `PING-${randomUUID()}`;
+      const start = nowMs();
+      try {
+        const reply = await callOllamaWithTimeout(
+          'Верни строго одну строку без лишнего текста.',
+          `Ответь только токеном: ${token}`,
+          timeoutMs,
+        );
+        const tookMs = nowMs() - start;
+        const ok = reply.includes(token);
+        results.push(ok ? { ok: true, tookMs } : { ok: false, tookMs, error: `bad reply: ${truncate(reply, 120)}` });
+      } catch (e) {
+        const tookMs = nowMs() - start;
+        results.push({ ok: false, tookMs, error: String(e ?? 'ollama error') });
+      }
+    }
+
+    const ok = results.every((r) => r.ok);
+    const totalMs = results.reduce((sum, r) => sum + (r.tookMs || 0), 0);
+    const summary = ok ? `ok (${attempts}/${attempts}), total ${totalMs}ms` : `fail (${results.filter((r) => r.ok).length}/${attempts})`;
+    return res.json({ ok, attempts: results, summary });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 const assistSchema = z.object({
   message: z.string().min(1).max(5000),

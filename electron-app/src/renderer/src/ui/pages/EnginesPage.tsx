@@ -109,15 +109,15 @@ export function EnginesPage(props: {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру или марке…" />
         </div>
       </div>
 
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList
           items={filtered}
           enabled={twoCol}

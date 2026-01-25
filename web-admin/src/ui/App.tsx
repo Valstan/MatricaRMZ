@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { login, logout, me, register } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
 import { presenceMe } from '../api/presence.js';
+import * as masterdata from '../api/masterdata.js';
 import { deriveCaps } from '../auth/permissions.js';
 import { MasterdataPage } from './AdminPage.js';
 import { AdminUsersPage } from './AdminUsersPage.js';
@@ -17,6 +18,7 @@ import { Tabs } from './components/Tabs.js';
 import { UserSettingsPage, type UiPrefs } from './UserSettingsPage.js';
 
 type AuthUser = { id: string; username: string; role: string };
+type MasterdataTypeRow = { id: string; code: string; name: string };
 
 const PREFS_KEY = 'matrica_webadmin_prefs';
 const LOG_KEY = 'matrica_webadmin_log';
@@ -25,17 +27,21 @@ function loadPrefs(): UiPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) {
-      return { theme: 'auto', chatSide: 'right', chatDocked: false, loggingEnabled: false };
+      return { theme: 'auto', chatSide: 'right', chatDocked: false, loggingEnabled: false, pinnedMasterdataTypeIds: [] };
     }
     const parsed = JSON.parse(raw) as Partial<UiPrefs>;
+    const pinned = Array.isArray(parsed.pinnedMasterdataTypeIds)
+      ? parsed.pinnedMasterdataTypeIds.filter((id) => typeof id === 'string')
+      : [];
     return {
       theme: parsed.theme === 'light' || parsed.theme === 'dark' || parsed.theme === 'auto' ? parsed.theme : 'auto',
       chatSide: parsed.chatSide === 'left' || parsed.chatSide === 'right' ? parsed.chatSide : 'right',
       chatDocked: parsed.chatDocked === true,
       loggingEnabled: parsed.loggingEnabled === true,
+      pinnedMasterdataTypeIds: pinned,
     };
   } catch {
-    return { theme: 'auto', chatSide: 'right', chatDocked: false, loggingEnabled: false };
+    return { theme: 'auto', chatSide: 'right', chatDocked: false, loggingEnabled: false, pinnedMasterdataTypeIds: [] };
   }
 }
 
@@ -57,9 +63,10 @@ export function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
-  const [tab, setTab] = useState<'masterdata' | 'contracts' | 'engines' | 'admin' | 'clients' | 'diagnostics' | 'chat' | 'settings' | 'auth'>('auth');
+  const [tab, setTab] = useState<string>('auth');
   const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
+  const [masterdataTypes, setMasterdataTypes] = useState<MasterdataTypeRow[]>([]);
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -160,8 +167,20 @@ export function App() {
   const caps = deriveCaps(permissions);
   const userTab = user ? 'settings' : 'auth';
   const userLabel = user ? user.username : 'Вход';
+  const masterdataTabPrefix = 'masterdata:';
+  const pinnedTypeIds = prefs.pinnedMasterdataTypeIds ?? [];
+  const pinnedTabs = caps.canViewMasterData
+    ? pinnedTypeIds.map((typeId) => {
+        const t = masterdataTypes.find((row) => row.id === typeId);
+        return {
+          id: `${masterdataTabPrefix}${typeId}`,
+          label: t?.name ?? `Справочник ${typeId.slice(0, 6)}`,
+        };
+      })
+    : [];
   const visibleTabs = [
     ...(caps.canViewMasterData ? ([{ id: 'masterdata', label: 'Справочники' }] as const) : []),
+    ...pinnedTabs,
     ...(caps.canViewMasterData ? ([{ id: 'contracts', label: 'Контракты' }] as const) : []),
     ...(caps.canViewEngines ? ([{ id: 'engines', label: 'Двигатели' }] as const) : []),
     ...(caps.canManageUsers ? ([{ id: 'admin', label: 'Админ' }] as const) : []),
@@ -187,6 +206,22 @@ export function App() {
     setTab(userTab);
   }, [tab, visibleTabIds, userTab]);
 
+  useEffect(() => {
+    if (!user || !caps.canViewMasterData) {
+      setMasterdataTypes([]);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      const r = await masterdata.listEntityTypes().catch(() => null);
+      if (!alive) return;
+      if (r && (r as any).ok) setMasterdataTypes((r as any).rows ?? []);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [user?.id, caps.canViewMasterData]);
+
   if (loading) {
     return (
       <div className="page">
@@ -197,47 +232,59 @@ export function App() {
 
   return (
     <div className="page">
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontWeight: 800 }}>MatricaRMZ Admin</div>
-          <span style={{ flex: 1 }} />
-          <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            {presence ? (
-              <span
-                className={presence.online ? 'chatBlink' : undefined}
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 999,
-                  display: 'inline-block',
-                  background: presence.online ? '#16a34a' : '#dc2626',
-                }}
-                title={presence.online ? 'В сети' : 'Не в сети'}
-              />
-            ) : null}
+      <div className="app-header">
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontWeight: 800 }}>MatricaRMZ Admin</div>
+            <span style={{ flex: 1 }} />
+            <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {presence ? (
+                <span
+                  className={presence.online ? 'chatBlink' : undefined}
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    display: 'inline-block',
+                    background: presence.online ? '#16a34a' : '#dc2626',
+                  }}
+                  title={presence.online ? 'В сети' : 'Не в сети'}
+                />
+              ) : null}
+            </div>
+            <Button variant="ghost" onClick={() => setTab(userTab)}>
+              {userLabel}
+            </Button>
           </div>
-          <Button variant="ghost" onClick={() => setTab(userTab)}>
-            {userLabel}
-          </Button>
+        </div>
+
+        <div className="card" style={{ marginBottom: 12 }}>
+          <Tabs
+            tabs={visibleTabs}
+            active={tab}
+            onChange={(id) => setTab(id as any)}
+          />
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <Tabs
-          tabs={visibleTabs}
-          active={tab}
-          onChange={(id) => setTab(id as any)}
-        />
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flex: '1 1 auto', minHeight: 0 }}>
+      <div className="app-content">
+        <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flex: '1 1 auto', minHeight: 0 }}>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'left' && tab !== 'chat' && (
           <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
             <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
           </div>
         )}
         <div style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {tab === 'masterdata' && <MasterdataPage canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} />}
+          {(tab === 'masterdata' || tab.startsWith(masterdataTabPrefix)) && (
+            <MasterdataPage
+              canViewMasterData={caps.canViewMasterData}
+              canEditMasterData={caps.canEditMasterData}
+              pinnedTypeIds={pinnedTypeIds}
+              selectedTypeId={tab.startsWith(masterdataTabPrefix) ? tab.slice(masterdataTabPrefix.length) : null}
+              onPinnedChange={(next) => setPrefs((p) => ({ ...p, pinnedMasterdataTypeIds: next }))}
+              onTypesChange={(next) => setMasterdataTypes(next)}
+            />
+          )}
           {tab === 'contracts' && (
             <ContractsPage
               canViewMasterData={caps.canViewMasterData}
@@ -366,6 +413,7 @@ export function App() {
             <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
           </div>
         )}
+        </div>
       </div>
     </div>
   );

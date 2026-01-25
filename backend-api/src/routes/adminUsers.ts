@@ -11,6 +11,7 @@ import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUs
 import {
   createEmployeeEntity,
   emitEmployeeSyncSnapshot,
+  emitEmployeesSyncSnapshotAll,
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
   getEmployeeAuthByLogin,
@@ -85,6 +86,15 @@ adminUsersRouter.get('/users', async (_req, res) => {
       };
     });
     return res.json({ ok: true, users });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/users/sync-snapshot', async (_req, res) => {
+  try {
+    const r = await emitEmployeesSyncSnapshotAll();
+    return res.json(r);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

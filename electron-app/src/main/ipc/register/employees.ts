@@ -3,7 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
-import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute } from '../../services/entityService.js';
+import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
 import { listEmployeeAttributeDefs, listEmployeesSummary } from '../../services/employeeService.js';
 import { viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
@@ -45,6 +45,13 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
     return setEntityAttribute(ctx.dataDb(), employeeId, code, value);
+  });
+
+  ipcMain.handle('employees:delete', async (_e, employeeId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    return softDeleteEntity(ctx.dataDb(), employeeId);
   });
 
   ipcMain.handle('employees:departments:list', async () => {

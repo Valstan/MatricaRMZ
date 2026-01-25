@@ -8,6 +8,10 @@ export type TabId =
   | 'engine'
   | 'engine_brands'
   | 'engine_brand'
+  | 'products'
+  | 'product'
+  | 'services'
+  | 'service'
   | 'contracts'
   | 'contract'
   | 'requests'
@@ -24,7 +28,7 @@ export type TabId =
   | 'audit'
   | 'settings';
 
-export type MenuTabId = Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand'>;
+export type MenuTabId = Exclude<TabId, 'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand' | 'product' | 'service'>;
 export type TabsLayoutPrefs = {
   order?: MenuTabId[];
   hidden?: MenuTabId[];
@@ -91,6 +95,8 @@ export function Tabs(props: {
     engine_brands: 'Марки двигателей',
     requests: 'Заявки',
     parts: 'Детали',
+    products: 'Товары',
+    services: 'Услуги',
     employees: 'Сотрудники',
     reports: 'Отчёты',
     audit: 'Журнал',

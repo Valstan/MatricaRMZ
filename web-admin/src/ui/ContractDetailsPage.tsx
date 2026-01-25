@@ -360,18 +360,20 @@ export function ContractDetailsPage(props: {
   const extraDefs = sortedDefs.filter((d) => !coreCodes.has(d.code) && !fileDefs.find((f) => f.code === d.code));
 
   const engineTotal = calcEngineTotal(engineCountItems);
+  const headerTitle = number.trim() ? `Контракт: ${number.trim()}` : 'Карточка контракта';
 
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-        <h3 style={{ margin: 0, flex: 1 }}>Карточка контракта</h3>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ fontSize: 20, fontWeight: 800, flex: 1 }}>{headerTitle}</div>
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
         <Button variant="ghost" onClick={() => void loadContract()}>
           Обновить
         </Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         <div className="card">
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <strong>Основное</strong>
@@ -715,6 +717,7 @@ export function ContractDetailsPage(props: {
               })}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>

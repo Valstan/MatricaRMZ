@@ -25,6 +25,7 @@ function normalize(s: string) {
 export function ContractsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
+  canDelete: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
@@ -105,6 +106,7 @@ export function ContractsPage(props: {
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Внутр. номер</th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата</th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Обновлено</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 140 }}>Действия</th>
       </tr>
     </thead>
   );
@@ -135,11 +137,38 @@ export function ContractsPage(props: {
                 <td style={{ padding: '8px 10px', color: '#6b7280' }}>
                   {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
                 </td>
+                <td style={{ padding: '8px 10px' }}>
+                  {props.canDelete && (
+                    <Button
+                      variant="ghost"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm('Удалить контракт?')) return;
+                        try {
+                          setStatus('Удаление…');
+                          const r = await window.matrica.admin.entities.softDelete(row.id);
+                          if (!r.ok) {
+                            setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                            return;
+                          }
+                          setStatus('Удалено');
+                          setTimeout(() => setStatus(''), 900);
+                          await loadContracts();
+                        } catch (err) {
+                          setStatus(`Ошибка: ${String(err)}`);
+                        }
+                      }}
+                      style={{ color: '#b91c1c' }}
+                    >
+                      Удалить
+                    </Button>
+                  )}
+                </td>
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={5} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -151,8 +180,8 @@ export function ContractsPage(props: {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -185,7 +214,7 @@ export function ContractsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

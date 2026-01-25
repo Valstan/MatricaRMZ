@@ -212,12 +212,15 @@ export function EngineDetailsPage(props: {
     return created.id;
   }
 
+  const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
+
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <Button variant="ghost" onClick={props.onClose}>
           Назад к списку
         </Button>
+        <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <Button
           variant="ghost"
           onClick={() => {
@@ -248,6 +251,8 @@ export function EngineDetailsPage(props: {
           Обновить
         </Button>
       </div>
+
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
 
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10 }}>
@@ -359,6 +364,7 @@ export function EngineDetailsPage(props: {
           canUploadFiles={props.canUploadFiles}
         />
       )}
+      </div>
     </div>
   );
 }

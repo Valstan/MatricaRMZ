@@ -4,6 +4,10 @@ export function listUsers() {
   return apiJson('/admin/users', { method: 'GET' });
 }
 
+export function resyncEmployees() {
+  return apiJson('/admin/users/sync-snapshot', { method: 'POST' });
+}
+
 export function createUser(args: { login: string; password: string; role: string; fullName?: string; accessEnabled?: boolean }) {
   return apiJson('/admin/users', {
     method: 'POST',

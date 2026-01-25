@@ -16,14 +16,12 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
-import { getSuperadminUserId } from '../employeeAuthService.js';
 import {
   attributeDefs,
   attributeValues,
   auditLog,
   chatMessages,
   chatReads,
-  changeRequests,
   changeLog,
   entities,
   entityTypes,
@@ -49,11 +47,6 @@ function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'u
 
 type SyncActor = { id: string; username: string; role: string };
 
-function canWriteAll(role: string): boolean {
-  const r = String(role || '').toLowerCase();
-  return r !== 'employee';
-}
-
 function safeActor(a: SyncActor): SyncActor {
   return {
     id: String(a?.id ?? ''),
@@ -71,9 +64,8 @@ function isBulkEntityTypeRow(r: { code?: unknown; name?: unknown }): boolean {
 export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor): Promise<{ applied: number }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
-  const actorIsAdmin = canWriteAll(actor.role);
-  const actorIsPending = String(actor.role ?? '').toLowerCase() === 'pending';
-  const superadminUserId = actorIsPending ? await getSuperadminUserId().catch(() => null) : null;
+  const actorRole = String(actor.role ?? '').toLowerCase();
+  const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
 
   return await db.transaction(async (tx) => {
     // Обновляем/создаем sync_state строку (последнее время push).
@@ -147,116 +139,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           createdAt: appliedAt,
         })
         .onConflictDoNothing();
-    }
-
-    async function getOwnersMap(tableName: string, rowIds: string[]) {
-      if (rowIds.length === 0) return new Map<string, { ownerUserId: string | null; ownerUsername: string | null }>();
-      const rows = await tx
-        .select({ rowId: rowOwners.rowId, ownerUserId: rowOwners.ownerUserId, ownerUsername: rowOwners.ownerUsername })
-        .from(rowOwners)
-        .where(and(eq(rowOwners.tableName, tableName), inArray(rowOwners.rowId, rowIds as any)))
-        .limit(50_000);
-      const m = new Map<string, { ownerUserId: string | null; ownerUsername: string | null }>();
-      for (const r of rows as any[]) {
-        m.set(String(r.rowId), { ownerUserId: r.ownerUserId ? String(r.ownerUserId) : null, ownerUsername: r.ownerUsername ? String(r.ownerUsername) : null });
-      }
-      return m;
-    }
-
-    async function createChangeRequest(args: {
-      tableName: string;
-      rowId: string;
-      rootEntityId?: string | null;
-      beforeJson?: string | null;
-      afterJson: string;
-      recordOwnerUserId?: string | null;
-      recordOwnerUsername?: string | null;
-      note?: string | null;
-    }) {
-      await tx.insert(changeRequests).values({
-        id: randomUUID(),
-        status: 'pending',
-        tableName: args.tableName,
-        rowId: args.rowId as any,
-        rootEntityId: args.rootEntityId ? (args.rootEntityId as any) : null,
-        beforeJson: args.beforeJson ?? null,
-        afterJson: args.afterJson,
-        recordOwnerUserId: args.recordOwnerUserId ? (args.recordOwnerUserId as any) : null,
-        recordOwnerUsername: args.recordOwnerUsername ?? null,
-        changeAuthorUserId: actor.id as any,
-        changeAuthorUsername: actor.username,
-        note: args.note ?? null,
-        createdAt: appliedAt,
-        decidedAt: null,
-        decidedByUserId: null,
-        decidedByUsername: null,
-      });
-    }
-
-    function toBeforeEntityType(r: any) {
-      return {
-        id: String(r.id),
-        code: String(r.code),
-        name: String(r.name),
-        created_at: Number(r.createdAt),
-        updated_at: Number(r.updatedAt),
-        deleted_at: r.deletedAt == null ? null : Number(r.deletedAt),
-        sync_status: String(r.syncStatus ?? 'synced'),
-      };
-    }
-    function toBeforeEntity(r: any) {
-      return {
-        id: String(r.id),
-        type_id: String(r.typeId),
-        created_at: Number(r.createdAt),
-        updated_at: Number(r.updatedAt),
-        deleted_at: r.deletedAt == null ? null : Number(r.deletedAt),
-        sync_status: String(r.syncStatus ?? 'synced'),
-      };
-    }
-    function toBeforeAttrDef(r: any) {
-      return {
-        id: String(r.id),
-        entity_type_id: String(r.entityTypeId),
-        code: String(r.code),
-        name: String(r.name),
-        data_type: String(r.dataType),
-        is_required: Boolean(r.isRequired),
-        sort_order: Number(r.sortOrder),
-        meta_json: r.metaJson == null ? null : String(r.metaJson),
-        created_at: Number(r.createdAt),
-        updated_at: Number(r.updatedAt),
-        deleted_at: r.deletedAt == null ? null : Number(r.deletedAt),
-        sync_status: String(r.syncStatus ?? 'synced'),
-      };
-    }
-    function toBeforeAttrVal(r: any) {
-      return {
-        id: String(r.id),
-        entity_id: String(r.entityId),
-        attribute_def_id: String(r.attributeDefId),
-        value_json: r.valueJson == null ? null : String(r.valueJson),
-        created_at: Number(r.createdAt),
-        updated_at: Number(r.updatedAt),
-        deleted_at: r.deletedAt == null ? null : Number(r.deletedAt),
-        sync_status: String(r.syncStatus ?? 'synced'),
-      };
-    }
-    function toBeforeOperation(r: any) {
-      return {
-        id: String(r.id),
-        engine_entity_id: String(r.engineEntityId),
-        operation_type: String(r.operationType),
-        status: String(r.status),
-        note: r.note == null ? null : String(r.note),
-        performed_at: r.performedAt == null ? null : Number(r.performedAt),
-        performed_by: r.performedBy == null ? null : String(r.performedBy),
-        meta_json: r.metaJson == null ? null : String(r.metaJson),
-        created_at: Number(r.createdAt),
-        updated_at: Number(r.updatedAt),
-        deleted_at: r.deletedAt == null ? null : Number(r.deletedAt),
-        sync_status: String(r.syncStatus ?? 'synced'),
-      };
     }
 
     async function ensureSupplyRequestsContainer() {
@@ -353,13 +235,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       grouped.set(upsert.table, arr);
     }
 
-    if (actorIsPending) {
-      const allowed = new Map<SyncTableName, unknown[]>();
-      allowed.set(SyncTableName.ChatMessages, grouped.get(SyncTableName.ChatMessages) ?? []);
-      allowed.set(SyncTableName.ChatReads, grouped.get(SyncTableName.ChatReads) ?? []);
-      grouped = allowed;
-    }
-
     // Important: `entity_types.code` is globally unique on server.
     // Some clients might have generated entity_type rows with different UUIDs but the same `code`,
     // which would break sync on insert with a unique constraint violation.
@@ -413,7 +288,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
 
       const rows = await filterStaleByUpdatedAt(entityTypes, deduped);
       const ids = rows.map((r) => r.id);
-      const owners = await getOwnersMap(SyncTableName.EntityTypes, ids);
       const existing = await tx
         .select()
         .from(entityTypes)
@@ -422,42 +296,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       const existingMap = new Map<string, any>();
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
-      const allowed: typeof rows = [];
-      for (const r of rows) {
-        const cur = existingMap.get(String(r.id));
-        if (!cur) {
-          allowed.push(r);
-          continue;
-        }
-        // Ignore "touch-only" updates that don't change the meaning of the row.
-        // Some clients may "re-save" entity_types locally (updated_at/created_at/sync_status churn),
-        // and we don't want to flood change_requests with noise.
-        const curDeleted = cur.deletedAt == null ? null : Number(cur.deletedAt);
-        const touchOnly =
-          String(cur.code) === String(r.code) &&
-          String(cur.name) === String(r.name) &&
-          curDeleted === (r.deleted_at ?? null);
-        if (touchOnly) {
-          continue;
-        }
-        if (actorIsAdmin) {
-          allowed.push(r);
-          continue;
-        }
-        const o = owners.get(String(r.id)) ?? null;
-        if (o?.ownerUserId && o.ownerUserId === actor.id) {
-          allowed.push(r);
-          continue;
-        }
-        await createChangeRequest({
-          tableName: SyncTableName.EntityTypes,
-          rowId: String(r.id),
-          beforeJson: JSON.stringify(toBeforeEntityType(cur)),
-          afterJson: JSON.stringify(r),
-          recordOwnerUserId: o?.ownerUserId ?? null,
-          recordOwnerUsername: o?.ownerUsername ?? null,
-        });
-      }
+      const allowed: typeof rows = rows;
       if (allowed.length > 0) {
         await tx
           .insert(entityTypes)
@@ -521,12 +360,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.type_id)));
         if (missingRows.length > 0) {
-          rows = rows.filter((r) => existingTypeIds.has(String(r.type_id)));
+          throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
         }
       }
 
       const ids = rows.map((r) => r.id);
-      const owners = await getOwnersMap(SyncTableName.Entities, ids);
       const existing = await tx
         .select()
         .from(entities)
@@ -535,45 +373,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       const existingMap = new Map<string, any>();
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
-      const allowed: typeof rows = [];
-      for (const r of rows) {
-        const cur = existingMap.get(String(r.id));
-        if (!cur) {
-          allowed.push(r);
-          continue;
-        }
-
-        // Skip "touch-only" updates (usually produced when child rows change) for non-owners to reduce noise.
-        const touchOnly =
-          String(cur.typeId) === String(r.type_id) &&
-          Number(cur.createdAt) === Number(r.created_at) &&
-          (cur.deletedAt == null ? null : Number(cur.deletedAt)) === (r.deleted_at ?? null);
-        if (touchOnly && !actorIsAdmin) {
-          const o = owners.get(String(r.id)) ?? null;
-          if (!o?.ownerUserId || o.ownerUserId !== actor.id) continue;
-        }
-
-        if (actorIsAdmin) {
-          allowed.push(r);
-          continue;
-        }
-        const o = owners.get(String(r.id)) ?? null;
-        if (o?.ownerUserId && o.ownerUserId === actor.id) {
-          allowed.push(r);
-          continue;
-        }
-        // For entities we generally avoid creating change_requests for "touch-only" updates.
-        if (touchOnly) continue;
-        await createChangeRequest({
-          tableName: SyncTableName.Entities,
-          rowId: String(r.id),
-          rootEntityId: String(r.id),
-          beforeJson: JSON.stringify(toBeforeEntity(cur)),
-          afterJson: JSON.stringify(r),
-          recordOwnerUserId: o?.ownerUserId ?? null,
-          recordOwnerUsername: o?.ownerUsername ?? null,
-        });
-      }
+      const allowed: typeof rows = rows;
 
       if (allowed.length > 0) {
         await tx
@@ -712,12 +512,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
         if (missingRows.length > 0) {
-          rows = rows.filter((r) => existingTypeIds.has(String(r.entity_type_id)));
+          throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
         }
       }
 
       const ids = rows.map((r) => r.id);
-      const owners = await getOwnersMap(SyncTableName.AttributeDefs, ids);
       const existing = await tx
         .select()
         .from(attributeDefs)
@@ -726,46 +525,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       const existingMap = new Map<string, any>();
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
-      const allowed: typeof rows = [];
-      for (const r of rows) {
-        const cur = existingMap.get(String(r.id));
-        if (!cur) {
-          allowed.push(r);
-          continue;
-        }
-        // Ignore "touch-only" updates that don't change the meaning of the row.
-        // This prevents "noise" change_requests when a client re-saves attribute_defs locally.
-        const curDeleted = cur.deletedAt == null ? null : Number(cur.deletedAt);
-        const touchOnly =
-          String(cur.entityTypeId) === String(r.entity_type_id) &&
-          String(cur.code) === String(r.code) &&
-          String(cur.name) === String(r.name) &&
-          String(cur.dataType) === String(r.data_type) &&
-          !!cur.isRequired === !!r.is_required &&
-          Number(cur.sortOrder ?? 0) === Number(r.sort_order ?? 0) &&
-          (cur.metaJson == null ? null : String(cur.metaJson)) === (r.meta_json ?? null) &&
-          curDeleted === (r.deleted_at ?? null);
-        if (touchOnly) {
-          continue;
-        }
-        if (actorIsAdmin) {
-          allowed.push(r);
-          continue;
-        }
-        const o = owners.get(String(r.id)) ?? null;
-        if (o?.ownerUserId && o.ownerUserId === actor.id) {
-          allowed.push(r);
-          continue;
-        }
-        await createChangeRequest({
-          tableName: SyncTableName.AttributeDefs,
-          rowId: String(r.id),
-          beforeJson: JSON.stringify(toBeforeAttrDef(cur)),
-          afterJson: JSON.stringify(r),
-          recordOwnerUserId: o?.ownerUserId ?? null,
-          recordOwnerUsername: o?.ownerUsername ?? null,
-        });
-      }
+      const allowed: typeof rows = rows;
 
       if (allowed.length > 0) {
         await tx
@@ -839,13 +599,12 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const existingDefIds = new Set<string>((existingDefs as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
         if (missingRows.length > 0) {
-          rows = rows.filter((r) => existingDefIds.has(String(r.attribute_def_id)));
+          throw new Error(`sync_dependency_missing: attribute_def (${missingRows.length})`);
         }
       }
       const ids = rows.map((r) => r.id);
       const entityIds = rows.map((r) => r.entity_id);
       const defIds = rows.map((r) => r.attribute_def_id);
-      const entityOwners = await getOwnersMap(SyncTableName.Entities, entityIds);
       const existing = await tx
         .select()
         .from(attributeValues)
@@ -868,21 +627,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
 
       const allowed: typeof rows = [];
       for (const r of rows) {
-        const parentOwner = entityOwners.get(String(r.entity_id)) ?? null;
-        const can = actorIsAdmin || (parentOwner?.ownerUserId && parentOwner.ownerUserId === actor.id);
-        if (!can) {
-          const cur = existingMap.get(String(r.id));
-          await createChangeRequest({
-            tableName: SyncTableName.AttributeValues,
-            rowId: String(r.id),
-            rootEntityId: String(r.entity_id),
-            beforeJson: cur ? JSON.stringify(toBeforeAttrVal(cur)) : null,
-            afterJson: JSON.stringify(r),
-            recordOwnerUserId: parentOwner?.ownerUserId ?? null,
-            recordOwnerUsername: parentOwner?.ownerUsername ?? null,
-          });
-          continue;
-        }
         const key = `${String(r.entity_id)}:${String(r.attribute_def_id)}`;
         const pairExisting = existingByPair.get(key);
         const resolvedId = pairExisting?.id ? String(pairExisting.id) : String(r.id);
@@ -931,8 +675,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         // Ownership for newly created attribute_values is inherited from parent entity.
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            const o = entityOwners.get(String(r.entity_id)) ?? null;
-            await ensureOwner(SyncTableName.AttributeValues, String(r.id), { userId: o?.ownerUserId ?? null, username: o?.ownerUsername ?? null });
+            await ensureOwner(SyncTableName.AttributeValues, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -964,64 +707,17 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           .limit(50_000);
         const existingEngineIds = new Set<string>((existingEngines as any[]).map((r) => String(r.id)));
         const missingOps = engineOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
-        engineOps = engineOps.filter((r) => existingEngineIds.has(String(r.engine_entity_id)));
+        if (missingOps.length > 0) {
+          throw new Error(`sync_dependency_missing: engine_entity (${missingOps.length})`);
+        }
       }
 
       rows = [...supplyOps, ...engineOps];
-      const supplyOwners = await getOwnersMap(SyncTableName.Operations, supplyOps.map((r) => r.id));
-      const engineOwners = await getOwnersMap(SyncTableName.Entities, engineOps.map((r) => r.engine_entity_id));
 
       if (rows.some((r) => r.operation_type === 'supply_request' && r.engine_entity_id === SUPPLY_REQUESTS_CONTAINER_ENTITY_ID)) {
         await ensureSupplyRequestsContainer();
       }
-      const allowed: typeof rows = [];
-      for (const r of rows) {
-        if (r.operation_type === 'supply_request') {
-          const cur = existingMap.get(String(r.id));
-          if (!cur) {
-            // create allowed
-            allowed.push(r);
-            continue;
-          }
-          if (actorIsAdmin) {
-            allowed.push(r);
-            continue;
-          }
-          const o = supplyOwners.get(String(r.id)) ?? null;
-          if (o?.ownerUserId && o.ownerUserId === actor.id) {
-            allowed.push(r);
-            continue;
-          }
-          await createChangeRequest({
-            tableName: SyncTableName.Operations,
-            rowId: String(r.id),
-            rootEntityId: SUPPLY_REQUESTS_CONTAINER_ENTITY_ID,
-            beforeJson: JSON.stringify(toBeforeOperation(cur)),
-            afterJson: JSON.stringify(r),
-            recordOwnerUserId: o?.ownerUserId ?? null,
-            recordOwnerUsername: o?.ownerUsername ?? null,
-          });
-          continue;
-        }
-
-        // regular engine operations: owner is engine owner
-        const parentOwner = engineOwners.get(String(r.engine_entity_id)) ?? null;
-        const can = actorIsAdmin || (parentOwner?.ownerUserId && parentOwner.ownerUserId === actor.id);
-        if (!can) {
-          const cur = existingMap.get(String(r.id));
-          await createChangeRequest({
-            tableName: SyncTableName.Operations,
-            rowId: String(r.id),
-            rootEntityId: String(r.engine_entity_id),
-            beforeJson: cur ? JSON.stringify(toBeforeOperation(cur)) : null,
-            afterJson: JSON.stringify(r),
-            recordOwnerUserId: parentOwner?.ownerUserId ?? null,
-            recordOwnerUsername: parentOwner?.ownerUsername ?? null,
-          });
-          continue;
-        }
-        allowed.push(r);
-      }
+      const allowed: typeof rows = rows;
 
       if (allowed.length > 0) {
         await tx
@@ -1070,12 +766,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            if (r.operation_type === 'supply_request') {
-              await ensureOwner(SyncTableName.Operations, String(r.id), { userId: actor.id || null, username: actor.username });
-            } else {
-              const o = engineOwners.get(String(r.engine_entity_id)) ?? null;
-              await ensureOwner(SyncTableName.Operations, String(r.id), { userId: o?.ownerUserId ?? null, username: o?.ownerUsername ?? null });
-            }
+            await ensureOwner(SyncTableName.Operations, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -1141,13 +832,6 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           sender_username: actor.username,
         }));
         let rows = await filterStaleByUpdatedAt(chatMessages, parsed);
-        if (actorIsPending) {
-          const targetId = superadminUserId ? String(superadminUserId) : '';
-          rows = rows.filter((r) => {
-            const recipient = r.recipient_user_id ? String(r.recipient_user_id) : '';
-            return !!targetId && recipient === targetId;
-          });
-        }
         if (rows.length > 0) {
           const recipientIds = Array.from(
             new Set(rows.map((r) => (r.recipient_user_id ? String(r.recipient_user_id) : '')).filter((id) => id.length > 0)),
@@ -1159,10 +843,10 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               .where(inArray(entities.id, recipientIds as any))
               .limit(50_000);
             const existingSet = new Set(existingRecipients.map((r) => String(r.id)));
-            rows = rows.filter((r) => {
-              if (!r.recipient_user_id) return true;
-              return existingSet.has(String(r.recipient_user_id));
-            });
+            const missing = recipientIds.filter((id) => !existingSet.has(String(id)));
+            if (missing.length > 0) {
+              throw new Error(`sync_dependency_missing: recipient_user (${missing.length})`);
+            }
           }
         }
         const ids = rows.map((r) => r.id);
@@ -1181,12 +865,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
             allowed.push(r);
             continue;
           }
-          // Updates/deletes allowed only for admin or original sender.
           const senderOk = String(cur.senderUserId ?? '') === actor.id;
-          if (actorIsAdmin || senderOk) {
-            allowed.push(r);
-            continue;
+          if (!senderOk && !actorIsAdmin) {
+            throw new Error('sync_policy_denied: chat_message_sender');
           }
+          allowed.push(r);
         }
 
         if (allowed.length > 0) {
@@ -1256,29 +939,11 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 .where(inArray(chatMessages.id, messageIds as any))
                 .limit(50_000);
         const existingMessageIds = new Set(existingMessages.map((m) => String(m.id)));
-        const filteredRows = rows.filter((r) => existingMessageIds.has(String(r.message_id)));
-        const ids = filteredRows.map((r) => r.id);
-        const existing = await tx
-          .select()
-          .from(chatReads)
-          .where(inArray(chatReads.id, ids as any))
-          .limit(50_000);
-        const existingMap = new Map<string, any>();
-        for (const e of existing as any[]) existingMap.set(String(e.id), e);
-
-        const allowed: typeof rows = [];
-        for (const r of filteredRows) {
-          const cur = existingMap.get(String(r.id));
-          if (!cur) {
-            allowed.push(r);
-            continue;
-          }
-          const userOk = String(cur.userId ?? '') === actor.id;
-          if (actorIsAdmin || userOk) {
-            allowed.push(r);
-            continue;
-          }
+        const missing = messageIds.filter((id) => !existingMessageIds.has(String(id)));
+        if (missing.length > 0) {
+          throw new Error(`sync_dependency_missing: chat_message (${missing.length})`);
         }
+        const allowed: typeof rows = rows;
 
         if (allowed.length > 0) {
           await tx

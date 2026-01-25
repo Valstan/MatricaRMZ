@@ -237,6 +237,36 @@ export async function emitEmployeeSyncSnapshot(employeeId: string) {
   return { ok: true as const };
 }
 
+export async function emitEmployeesSyncSnapshotAll(opts?: { batchSize?: number }) {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+
+  const rows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, employeeTypeId as any), isNull(entities.deletedAt)))
+    .limit(50_000);
+  const ids = rows.map((r) => String(r.id));
+  if (ids.length === 0) return { ok: true as const, count: 0, failed: 0 };
+
+  const batchSize = Math.max(1, Number(opts?.batchSize ?? 200));
+  let count = 0;
+  let failed = 0;
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const chunk = ids.slice(i, i + batchSize);
+    for (const id of chunk) {
+      try {
+        const r = await emitEmployeeSyncSnapshot(id);
+        if (r.ok) count += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+  }
+  return { ok: true as const, count, failed };
+}
+
 export async function ensureEmployeeAuthDefs() {
   const employeeTypeId = await getEmployeeTypeId();
   if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };

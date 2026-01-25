@@ -169,8 +169,8 @@ export function SupplyRequestsPage(props: {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -198,7 +198,7 @@ export function SupplyRequestsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

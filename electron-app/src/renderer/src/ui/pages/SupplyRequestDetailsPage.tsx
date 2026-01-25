@@ -4,12 +4,15 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { openPrintPreview } from '../utils/printPreview.js';
+import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
 type LinkOpt = { id: string; label: string };
+
+const UI_TYPE_CODE = 'ui_supply_request';
 
 function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
@@ -22,6 +25,13 @@ function escapeHtml(s: string) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
 }
 
 function statusLabel(s: string): string {
@@ -70,6 +80,7 @@ function printSupplyRequest(
   p: SupplyRequestPayload,
   departmentLabel: string,
   mode: 'short' | 'full',
+  orderedRows?: Array<[string, string]>,
 ) {
   const items = p.items ?? [];
   const rowsHtml = items
@@ -126,12 +137,15 @@ function printSupplyRequest(
     )}</div>
   </div>`;
 
-  const mainHtml = `
-    <div><b>Дата составления:</b> ${escapeHtml(new Date(p.compiledAt).toLocaleDateString('ru-RU'))}</div>
-    <div><b>Статус:</b> ${escapeHtml(statusLabel(p.status))}</div>
-    <div><b>Подразделение:</b> ${escapeHtml(departmentLabel || p.departmentId || '-')}</div>
-    <div><b>Описание:</b> ${escapeHtml(p.title || '-')}</div>
-  `;
+  const mainHtml =
+    orderedRows && orderedRows.length > 0
+      ? keyValueTable(orderedRows)
+      : `
+        <div><b>Дата составления:</b> ${escapeHtml(new Date(p.compiledAt).toLocaleDateString('ru-RU'))}</div>
+        <div><b>Статус:</b> ${escapeHtml(statusLabel(p.status))}</div>
+        <div><b>Подразделение:</b> ${escapeHtml(departmentLabel || p.departmentId || '-')}</div>
+        <div><b>Описание:</b> ${escapeHtml(p.title || '-')}</div>
+      `;
   const headHtml =
     mode === 'short'
       ? `<tr>
@@ -190,7 +204,10 @@ export function SupplyRequestDetailsPage(props: {
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
-  const [productOptions, setProductOptions] = useState<Array<LinkOpt & { unit?: string }>>([]);
+  const [productOptions, setProductOptions] = useState<Array<LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' }>>([]);
+  const [uiTypeId, setUiTypeId] = useState<string>('');
+  const [uiDefs, setUiDefs] = useState<AttributeDefRow[]>([]);
+  const [coreDefsReady, setCoreDefsReady] = useState(false);
 
   const saveTimer = useRef<any>(null);
   const lastSavedJson = useRef<string>('');
@@ -220,6 +237,17 @@ export function SupplyRequestDetailsPage(props: {
     const types = await window.matrica.admin.entityTypes.list();
     typeIdByCode.current = Object.fromEntries(types.map((t) => [String(t.code), String(t.id)]));
     const typeIdByCodeMap = new Map(types.map((t) => [t.code, t.id] as const));
+    let uiTypeId = typeIdByCodeMap.get(UI_TYPE_CODE) ?? '';
+    if (!uiTypeId && props.canEditMasterData) {
+      const created = await window.matrica.admin.entityTypes.upsert({ code: UI_TYPE_CODE, name: 'UI: Заявка в снабжение' });
+      if (created?.ok && created?.id) uiTypeId = String(created.id);
+    }
+    if (uiTypeId) {
+      setUiTypeId(String(uiTypeId));
+      const defs = await window.matrica.admin.attributeDefs.listByEntityType(String(uiTypeId));
+      setUiDefs(defs as AttributeDefRow[]);
+      setCoreDefsReady(false);
+    }
     async function loadType(code: string, key: string) {
       const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
@@ -235,18 +263,26 @@ export function SupplyRequestDetailsPage(props: {
 
     // Product suggestions (master-data)
     const productTid = typeIdByCodeMap.get('product');
+    const serviceTid = typeIdByCodeMap.get('service');
+    const items: Array<LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' }> = [];
     if (productTid) {
       const rows = await window.matrica.admin.entities.listByEntityType(productTid);
-      // For MVP: use displayName as label (entityService picks 'name' if present).
-      // Unit can be fetched later by entity:get, keep empty for now to avoid heavy N+1 calls.
-      setProductOptions(
-        rows
-          .map((r: any) => ({ id: String(r.id), label: String(r.displayName ?? ''), unit: '' }))
-          .filter((x) => x.label.trim().length > 0),
-      );
-    } else {
-      setProductOptions([]);
+      rows.forEach((r: any) => {
+        const name = String(r.displayName ?? '').trim();
+        if (!name) return;
+        items.push({ id: String(r.id), label: name, name, unit: '', kind: 'product' });
+      });
     }
+    if (serviceTid) {
+      const rows = await window.matrica.admin.entities.listByEntityType(serviceTid);
+      rows.forEach((r: any) => {
+        const name = String(r.displayName ?? '').trim();
+        if (!name) return;
+        items.push({ id: String(r.id), label: `${name} (услуга)`, name, unit: '', kind: 'service' });
+      });
+    }
+    items.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    setProductOptions(items);
   }
 
   useEffect(() => {
@@ -255,22 +291,52 @@ export function SupplyRequestDetailsPage(props: {
   }, [props.id]);
 
   useEffect(() => {
+    if (!props.canEditMasterData || !uiTypeId || uiDefs.length === 0 || coreDefsReady) return;
+    const desired = [
+      { code: 'request_number', name: 'Номер заявки', dataType: 'text', sortOrder: 10 },
+      { code: 'compiled_at', name: 'Дата составления', dataType: 'date', sortOrder: 20 },
+      { code: 'status', name: 'Статус', dataType: 'text', sortOrder: 30 },
+      { code: 'title', name: 'Описание', dataType: 'text', sortOrder: 40 },
+      { code: 'department_id', name: 'Подразделение', dataType: 'link', sortOrder: 50, metaJson: JSON.stringify({ linkTargetTypeCode: 'department' }) },
+    ];
+    void ensureAttributeDefs(uiTypeId, desired, uiDefs).then((next) => {
+      if (next.length !== uiDefs.length) setUiDefs(next);
+      setCoreDefsReady(true);
+    });
+  }, [props.canEditMasterData, uiTypeId, uiDefs.length, coreDefsReady]);
+
+  useEffect(() => {
     if (!payload || productOptions.length === 0) return;
     let changed = false;
     const items = (payload.items ?? []).map((it) => {
       if (it.productId) return it;
-      const match = productOptions.find((p) => normalizeForMatch(p.label) === normalizeForMatch(it.name));
+      const match = productOptions.find((p) => normalizeForMatch(p.name) === normalizeForMatch(it.name));
       if (!match) return it;
       changed = true;
       return {
         ...it,
         productId: match.id,
-        name: match.label,
+        name: match.name,
         unit: it.unit || match.unit || '',
       };
     });
     if (changed || payload.version !== 2) scheduleSave({ ...payload, version: 2, items });
   }, [payload, productOptions]);
+
+  async function enrichUnitIfMissing(optionId: string) {
+    const opt = productOptions.find((p) => p.id === optionId);
+    if (!opt || (opt.unit && opt.unit.trim())) return opt;
+    try {
+      const details = await window.matrica.admin.entities.get(optionId);
+      const unit = String(details?.attributes?.unit ?? '').trim();
+      if (!unit) return opt;
+      const nextOptions = productOptions.map((p) => (p.id === optionId ? { ...p, unit } : p));
+      setProductOptions(nextOptions);
+      return { ...opt, unit };
+    } catch {
+      return opt;
+    }
+  }
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
@@ -280,6 +346,8 @@ export function SupplyRequestDetailsPage(props: {
     if (!created.ok || !created.id) return null;
     const attrByType: Record<string, string> = {
       department: 'name',
+      product: 'name',
+      service: 'name',
     };
     const attr = attrByType[typeCode] ?? 'name';
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
@@ -383,6 +451,79 @@ export function SupplyRequestDetailsPage(props: {
   const canTransitionAccept = props.canAccept && payload.status === 'director_approved';
   const canTransitionFulfill = props.canFulfill && payload.status === 'accepted';
 
+  const mainFields = orderFieldsByDefs(
+    [
+      {
+        code: 'request_number',
+        defaultOrder: 10,
+        label: 'Номер заявки',
+        value: payload.requestNumber,
+        render: <div style={{ fontWeight: 700 }}>{payload.requestNumber}</div>,
+      },
+      {
+        code: 'compiled_at',
+        defaultOrder: 20,
+        label: 'Дата составления',
+        value: toInputDate(payload.compiledAt),
+        render: (
+          <Input
+            type="date"
+            value={toInputDate(payload.compiledAt)}
+            disabled={!props.canEdit}
+            onChange={(e) => {
+              const ms = fromInputDate(e.target.value);
+              if (!ms) return;
+              scheduleSave({ ...payload, compiledAt: ms });
+            }}
+          />
+        ),
+      },
+      {
+        code: 'status',
+        defaultOrder: 30,
+        label: 'Статус',
+        value: statusLabel(payload.status),
+        render: <div style={{ fontWeight: 700 }}>{statusLabel(payload.status)}</div>,
+      },
+      {
+        code: 'title',
+        defaultOrder: 40,
+        label: 'Описание',
+        value: payload.title ?? '',
+        render: (
+          <Input
+            value={payload.title}
+            disabled={!props.canEdit}
+            onChange={(e) => scheduleSave({ ...payload, title: e.target.value })}
+            onBlur={() => void saveNow(payload)}
+            placeholder="Краткое описание заявки…"
+          />
+        ),
+      },
+      {
+        code: 'department_id',
+        defaultOrder: 50,
+        label: 'Подразделение',
+        value: departmentLabel || payload.departmentId || '',
+        render: props.canViewMasterData ? (
+          <SearchSelectWithCreate
+            value={payload.departmentId || null}
+            options={linkLists.departmentId ?? []}
+            disabled={!props.canEdit}
+            canCreate={props.canEditMasterData}
+            createLabel="Новое подразделение"
+            onChange={(next) => scheduleSave({ ...payload, departmentId: next ?? '' })}
+            onCreate={async (label) => createMasterDataItem('department', label)}
+          />
+        ) : (
+          <Input value={payload.departmentId} disabled />
+        ),
+      },
+    ],
+    uiDefs,
+  );
+  const orderedPrintRows = mainFields.map((f) => [f.label, String(f.value ?? '')] as [string, string]);
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -391,7 +532,7 @@ export function SupplyRequestDetailsPage(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                printSupplyRequest(payload, departmentLabel, 'short');
+                printSupplyRequest(payload, departmentLabel, 'short', orderedPrintRows);
               }}
             >
               Распечатать (кратко)
@@ -399,7 +540,7 @@ export function SupplyRequestDetailsPage(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                printSupplyRequest(payload, departmentLabel, 'full');
+                printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows);
               }}
             >
               Распечатать (полно)
@@ -414,50 +555,38 @@ export function SupplyRequestDetailsPage(props: {
       </div>
 
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 200px) 1fr', gap: 10 }}>
-          <div style={{ color: '#6b7280' }}>Номер заявки</div>
-          <div style={{ fontWeight: 700 }}>{payload.requestNumber}</div>
-
-          <div style={{ color: '#6b7280' }}>Дата составления</div>
-          <Input
-            type="date"
-            value={toInputDate(payload.compiledAt)}
-            disabled={!props.canEdit}
-            onChange={(e) => {
-              const ms = fromInputDate(e.target.value);
-              if (!ms) return;
-              scheduleSave({ ...payload, compiledAt: ms });
-            }}
-          />
-
-          <div style={{ color: '#6b7280' }}>Статус</div>
-          <div style={{ fontWeight: 700 }}>{statusLabel(payload.status)}</div>
-
-          <div style={{ color: '#6b7280' }}>Описание</div>
-          <Input
-            value={payload.title}
-            disabled={!props.canEdit}
-            onChange={(e) => scheduleSave({ ...payload, title: e.target.value })}
-            onBlur={() => void saveNow(payload)}
-            placeholder="Краткое описание заявки…"
-          />
-
-          <div style={{ color: '#6b7280' }}>Подразделение</div>
-          {props.canViewMasterData ? (
-            <SearchSelectWithCreate
-              value={payload.departmentId || null}
-              options={linkLists.departmentId ?? []}
-              disabled={!props.canEdit}
-              canCreate={props.canEditMasterData}
-              createLabel="Новое подразделение"
-              onChange={(next) => scheduleSave({ ...payload, departmentId: next ?? '' })}
-              onCreate={async (label) => createMasterDataItem('department', label)}
-            />
-          ) : (
-            <Input value={payload.departmentId} disabled />
+        <DraggableFieldList
+          items={mainFields}
+          getKey={(f) => f.code}
+          canDrag={props.canEditMasterData}
+          onReorder={(next) => {
+            if (!uiTypeId) return;
+            void persistFieldOrder(
+              next.map((f) => f.code),
+              uiDefs,
+              { entityTypeId: uiTypeId },
+            ).then(() => setUiDefs([...uiDefs]));
+          }}
+          renderItem={(field, dragHandleProps, state) => (
+            <div
+              {...dragHandleProps}
+              style={{
+                ...dragHandleProps.style,
+                display: 'grid',
+                gridTemplateColumns: 'minmax(150px, 200px) 1fr',
+                gap: 10,
+                alignItems: 'center',
+                padding: '6px 8px',
+                borderRadius: 8,
+                border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
+                background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+              }}
+            >
+              <div style={{ color: '#6b7280' }}>{field.label}</div>
+              {field.render}
+            </div>
           )}
-
-        </div>
+        />
 
         <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           {canTransitionSign && (
@@ -630,21 +759,58 @@ export function SupplyRequestDetailsPage(props: {
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>{idx + 1}</td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
                         <div style={{ display: 'grid', gap: 6 }}>
-                          <SearchSelect
+                          <SearchSelectWithCreate
                             value={it.productId ?? ''}
                             options={productOptions}
                             disabled={!props.canEdit}
-                            placeholder="Выберите товар…"
+                            canCreate={props.canEditMasterData}
+                            createLabel="Добавить товар или услугу"
                             onChange={(next) => {
                               const items = [...(payload.items ?? [])];
                               const selected = productOptions.find((p) => p.id === next);
                               items[idx] = {
                                 ...items[idx],
                                 productId: next || null,
-                                name: selected?.label ?? items[idx]?.name ?? '',
+                                name: selected?.name ?? items[idx]?.name ?? '',
                                 unit: selected?.unit ?? items[idx]?.unit ?? '',
                               };
                               scheduleSave({ ...payload, items });
+                              if (next) {
+                                void (async () => {
+                                  const enriched = await enrichUnitIfMissing(next);
+                                  if (!enriched?.unit) return;
+                                  const updated = [...(payload.items ?? [])];
+                                  updated[idx] = { ...updated[idx], unit: enriched.unit };
+                                  scheduleSave({ ...payload, items: updated });
+                                })();
+                              }
+                            }}
+                            onCreate={async (label) => {
+                              const name = label.trim();
+                              if (!name) return null;
+                              const isService = confirm('Создать как услугу? (OK = услуга, Отмена = товар)');
+                              const typeCode = isService ? 'service' : 'product';
+                              const id = await createMasterDataItem(typeCode, name);
+                              if (!id) return null;
+                              const nextOptions = [...productOptions];
+                              nextOptions.push({
+                                id,
+                                name,
+                                label: isService ? `${name} (услуга)` : name,
+                                unit: '',
+                                kind: isService ? 'service' : 'product',
+                              });
+                              nextOptions.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+                              setProductOptions(nextOptions);
+                              const items = [...(payload.items ?? [])];
+                              items[idx] = {
+                                ...items[idx],
+                                productId: id,
+                                name,
+                                unit: items[idx]?.unit ?? '',
+                              };
+                              scheduleSave({ ...payload, items });
+                              return id;
                             }}
                           />
                           {!it.productId && it.name?.trim() && (
