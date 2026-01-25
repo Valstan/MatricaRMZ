@@ -6,6 +6,7 @@ import { aiAgentAssist, aiAgentLogEvent, aiAgentOllamaHealth } from '../../servi
 export function registerAiAgentIpc(ctx: IpcContext) {
   ipcMain.removeHandler('ai:assist');
   ipcMain.removeHandler('ai:log');
+  ipcMain.removeHandler('ai:ollama-health');
   ipcMain.handle('ai:assist', async (_e, args) => {
     return await aiAgentAssist(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });

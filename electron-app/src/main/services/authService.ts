@@ -206,9 +206,8 @@ export async function authRefresh(
     if (!r.ok) {
       const t = await r.text().catch(() => '');
       if (r.status === 401 || r.status === 403) {
-        if (t.includes('user disabled')) {
-          await clearSession(db);
-        }
+        // Any auth rejection on refresh means local tokens are no longer valid.
+        await clearSession(db);
       }
       return { ok: false, error: `refresh HTTP ${r.status}: ${t || 'no body'}` };
     }

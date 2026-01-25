@@ -449,8 +449,20 @@ export function App() {
   }, []);
 
   async function refreshEngines() {
-    const list = await window.matrica.engines.list();
-    setEngines(list);
+    try {
+      const list = await window.matrica.engines.list();
+      setEngines(list);
+    } catch (e) {
+      const message = String(e ?? '');
+      if (message.includes('permission denied')) {
+        setEngines([]);
+        setPostLoginSyncMsg('Недостаточно прав для просмотра двигателей.');
+        setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+        return;
+      }
+      setPostLoginSyncMsg(`Ошибка загрузки двигателей: ${message}`);
+      setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+    }
   }
 
   async function openEngine(id: string) {
