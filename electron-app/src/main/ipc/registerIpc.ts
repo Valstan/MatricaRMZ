@@ -15,6 +15,7 @@ import { registerAuthAndSyncIpc } from './register/authAndSync.js';
 import { registerBackupsIpc } from './register/backups.js';
 import { registerChecklistsIpc } from './register/checklists.js';
 import { registerChatIpc } from './register/chat.js';
+import { registerAiAgentIpc } from './register/aiAgent.js';
 import { registerChangesIpc } from './register/changes.js';
 import { registerEnginesOpsAuditIpc } from './register/enginesOpsAudit.js';
 import { registerEmployeesIpc } from './register/employees.js';
