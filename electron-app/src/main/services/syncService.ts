@@ -19,7 +19,7 @@ const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 1000,
   [SyncTableName.Entities]: 200,
-  [SyncTableName.AttributeDefs]: 200,
+  [SyncTableName.AttributeDefs]: 1000,
   [SyncTableName.AttributeValues]: 500,
   [SyncTableName.Operations]: 500,
   [SyncTableName.AuditLog]: 500,
@@ -507,6 +507,10 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
 
 async function markAllEntityTypesPending(db: BetterSQLite3Database) {
   await db.update(entityTypes).set({ syncStatus: 'pending' });
+}
+
+async function markAllAttributeDefsPending(db: BetterSQLite3Database) {
+  await db.update(attributeDefs).set({ syncStatus: 'pending' });
 }
 
 async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullResponse['changes']) {
@@ -1045,6 +1049,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
             await resetSyncState(db);
             await pullOnce(0);
             await markAllEntityTypesPending(db);
+            await markAllAttributeDefsPending(db);
             pushedPacks = await collectPending(db);
             if (pushedPacks.length === 0) {
               pushed = 0;
