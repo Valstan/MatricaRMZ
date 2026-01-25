@@ -235,7 +235,17 @@ adminMasterdataRouter.post('/employees/merge', async (req, res) => {
   });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await mergeEmployeesByFullName({ id: actor.id, username: actor.username }, parsed.data.employees ?? []);
+  const employees = (parsed.data.employees ?? []).map((e) => ({
+    fullName: e.fullName ?? null,
+    firstName: e.firstName ?? null,
+    lastName: e.lastName ?? null,
+    middleName: e.middleName ?? null,
+    role: e.role ?? null,
+    departmentId: e.departmentId ?? null,
+    employmentStatus: e.employmentStatus ?? null,
+    personnelNumber: e.personnelNumber ?? null,
+  }));
+  const result = await mergeEmployeesByFullName({ id: actor.id, username: actor.username }, employees);
   return res.json(result);
 });
 

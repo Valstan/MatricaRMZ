@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
+import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
 import { createEntity, setEntityAttribute } from './adminMasterdataService.js';
 
@@ -57,7 +58,7 @@ function safeJsonParse(value: string | null): unknown {
 }
 
 async function getEmployeeTypeId() {
-  const rows = await entityTypes
+  const rows = await db
     .select()
     .from(entityTypes)
     .where(and(eq(entityTypes.code, 'employee'), isNull(entityTypes.deletedAt)))
@@ -66,7 +67,7 @@ async function getEmployeeTypeId() {
 }
 
 async function getEmployeeDefs(employeeTypeId: string) {
-  const defs = await attributeDefs
+  const defs = await db
     .select()
     .from(attributeDefs)
     .where(and(eq(attributeDefs.entityTypeId, employeeTypeId as any), isNull(attributeDefs.deletedAt)))
@@ -77,7 +78,7 @@ async function getEmployeeDefs(employeeTypeId: string) {
 }
 
 async function loadEmployeeValues(employeeTypeId: string, defIds: string[]) {
-  const rows = await entities
+  const rows = await db
     .select({ id: entities.id })
     .from(entities)
     .where(and(eq(entities.typeId, employeeTypeId as any), isNull(entities.deletedAt)))
@@ -85,14 +86,14 @@ async function loadEmployeeValues(employeeTypeId: string, defIds: string[]) {
   const ids = rows.map((r) => String(r.id));
   if (ids.length === 0 || defIds.length === 0) return { ids, byEntity: {} as Record<string, Record<string, unknown>> };
 
-  const vals = await attributeValues
+  const vals = await db
     .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
     .where(and(inArray(attributeValues.entityId, ids), inArray(attributeValues.attributeDefId, defIds), isNull(attributeValues.deletedAt)))
     .limit(200_000);
 
   const byEntity: Record<string, Record<string, unknown>> = {};
-  for (const v of vals as any[]) {
+  for (const v of vals as Array<{ entityId: unknown; attributeDefId: unknown; valueJson: string | null }>) {
     const entityId = String(v.entityId);
     if (!byEntity[entityId]) byEntity[entityId] = {};
     byEntity[entityId][String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
@@ -120,7 +121,7 @@ export async function mergeEmployeesByFullName(actor: Actor, clients: ClientEmpl
     'employment_status',
     'personnel_number',
   ];
-  const defIds = codes.map((c) => byCode[c]).filter(Boolean);
+  const defIds = codes.map((c) => byCode[c]).filter((id): id is string => Boolean(id));
   const missingDefs = codes.filter((c) => !byCode[c]);
 
   const { ids, byEntity } = await loadEmployeeValues(employeeTypeId, defIds);
@@ -129,10 +130,10 @@ export async function mergeEmployeesByFullName(actor: Actor, clients: ClientEmpl
   const index = new Map<string, string[]>();
   for (const id of ids) {
     const vals = byEntity[id] ?? {};
-    const fullName = compactValue(vals[defIdByCode.full_name]);
-    const last = compactValue(vals[defIdByCode.last_name]);
-    const first = compactValue(vals[defIdByCode.first_name]);
-    const middle = compactValue(vals[defIdByCode.middle_name]);
+    const fullName = defIdByCode.full_name ? compactValue(vals[defIdByCode.full_name]) : null;
+    const last = defIdByCode.last_name ? compactValue(vals[defIdByCode.last_name]) : null;
+    const first = defIdByCode.first_name ? compactValue(vals[defIdByCode.first_name]) : null;
+    const middle = defIdByCode.middle_name ? compactValue(vals[defIdByCode.middle_name]) : null;
     const computed = buildName([last, first, middle]);
     const key = normalizeName(fullName || computed || '');
     if (!key) continue;
@@ -182,6 +183,7 @@ export async function mergeEmployeesByFullName(actor: Actor, clients: ClientEmpl
     }
     if (matchedIds.length === 1) {
       const entityId = matchedIds[0];
+      if (!entityId) continue;
       matched += 1;
       await setIfEmpty(entityId, 'full_name', fullName);
       await setIfEmpty(entityId, 'last_name', compactValue(client.lastName ?? null));
