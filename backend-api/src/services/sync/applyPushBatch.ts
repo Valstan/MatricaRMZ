@@ -939,11 +939,9 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 .where(inArray(chatMessages.id, messageIds as any))
                 .limit(50_000);
         const existingMessageIds = new Set(existingMessages.map((m) => String(m.id)));
-        const missing = messageIds.filter((id) => !existingMessageIds.has(String(id)));
-        if (missing.length > 0) {
-          throw new Error(`sync_dependency_missing: chat_message (${missing.length})`);
-        }
-        const allowed: typeof rows = rows;
+        // Read receipts are derived data; if the message is missing on server,
+        // skip those rows to avoid blocking sync for unrelated data.
+        const allowed: typeof rows = rows.filter((r) => existingMessageIds.has(String(r.message_id)));
 
         if (allowed.length > 0) {
           await tx
