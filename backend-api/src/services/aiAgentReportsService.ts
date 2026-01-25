@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { db, pool } from '../database/db.js';
 import { chatMessages, changeLog } from '../database/schema.js';
-import { getSuperadminUserId } from './employeeAuthService.js';
+import { getSuperadminUserId, listEmployeesAuth } from './employeeAuthService.js';
 import { SyncTableName } from '@matricarmz/shared';
 import { logError, logInfo } from '../utils/logger.js';
 
@@ -256,12 +256,15 @@ function buildReportText(range: ReportRange, stats: ReportStats, timeZone: strin
 async function sendReportToSuperadmin(text: string) {
   const superadminId = await getSuperadminUserId();
   if (!superadminId) return;
+  const aiAgentId = await getUserIdByLogin('ai-agent');
   const ts = nowMs();
   const id = randomUUID();
+  const senderId = aiAgentId ?? superadminId;
+  const senderName = aiAgentId ? 'ai-agent' : 'system';
   await db.insert(chatMessages).values({
     id,
-    senderUserId: superadminId as any,
-    senderUsername: 'ai-agent',
+    senderUserId: senderId as any,
+    senderUsername: senderName,
     recipientUserId: superadminId as any,
     messageType: 'text',
     bodyText: truncate(text, 5000),
@@ -273,8 +276,8 @@ async function sendReportToSuperadmin(text: string) {
   });
   const payload = {
     id,
-    sender_user_id: String(superadminId),
-    sender_username: 'ai-agent',
+    sender_user_id: String(senderId),
+    sender_username: senderName,
     recipient_user_id: String(superadminId),
     message_type: 'text',
     body_text: truncate(text, 5000),
@@ -291,6 +294,14 @@ async function sendReportToSuperadmin(text: string) {
     payloadJson: JSON.stringify(payload),
     createdAt: ts,
   });
+}
+
+async function getUserIdByLogin(login: string) {
+  const list = await listEmployeesAuth().catch(() => null);
+  if (!list || !list.ok) return null;
+  const target = String(login ?? '').trim().toLowerCase();
+  const row = list.rows.find((r) => String(r.login ?? '').trim().toLowerCase() === target);
+  return row?.id ? String(row.id) : null;
 }
 
 export function startAiAgentReportsScheduler(args?: { times?: string[]; timeZone?: string }) {

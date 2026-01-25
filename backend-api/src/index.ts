@@ -6,6 +6,7 @@ import { logError, logInfo } from './utils/logger.js';
 import { startUpdateTorrentService } from './services/updateTorrentService.js';
 import { startConsistencyDiagnostics } from './services/diagnosticsConsistencyService.js';
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
+import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -37,6 +38,7 @@ async function bootstrap() {
   if (reportsEnabled) {
     startAiAgentReportsScheduler();
   }
+  startAiAgentChatLearningService();
 
   app.listen(port, host, () => {
     logInfo(`listening on ${host}:${port}`, { host, port }, { critical: true });
