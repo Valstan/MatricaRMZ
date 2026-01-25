@@ -17,7 +17,7 @@ const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
-  [SyncTableName.EntityTypes]: 200,
+  [SyncTableName.EntityTypes]: 1000,
   [SyncTableName.Entities]: 200,
   [SyncTableName.AttributeDefs]: 200,
   [SyncTableName.AttributeValues]: 500,
