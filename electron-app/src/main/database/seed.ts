@@ -58,6 +58,9 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   const serviceTypeId = await ensureEntityType(EntityTypeCode.Service, 'Услуги');
   const categoryTypeId = await ensureEntityType(EntityTypeCode.Category, 'Категории');
   const employeeTypeId = await ensureEntityType(EntityTypeCode.Employee, 'Сотрудник');
+  const unitTypeId = await ensureEntityType(EntityTypeCode.Unit, 'Единицы измерения');
+  const storeTypeId = await ensureEntityType(EntityTypeCode.Store, 'Магазины');
+  const engineNodeTypeId = await ensureEntityType(EntityTypeCode.EngineNode, 'Узлы двигателя');
   const linkFieldRuleTypeId = await ensureEntityType(EntityTypeCode.LinkFieldRule, 'Подсказки link-полей');
 
   async function ensureAttrDef(
@@ -201,6 +204,19 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
     JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
   );
   await ensureAttrDef(contractTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
+
+  // Units
+  await ensureAttrDef(unitTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+
+  // Stores
+  await ensureAttrDef(storeTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
+  await ensureAttrDef(storeTypeId, 'address', 'Адрес', AttributeDataType.Text, 20);
+  await ensureAttrDef(storeTypeId, 'inn', 'ИНН', AttributeDataType.Text, 30);
+  await ensureAttrDef(storeTypeId, 'phone', 'Телефон', AttributeDataType.Text, 40);
+  await ensureAttrDef(storeTypeId, 'email', 'Email', AttributeDataType.Text, 50);
+
+  // Engine nodes
+  await ensureAttrDef(engineNodeTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
 
   // Work order (link to contract)
   await ensureAttrDef(workOrderTypeId, 'number', 'Номер наряда', AttributeDataType.Text, 10);

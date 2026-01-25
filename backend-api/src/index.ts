@@ -7,6 +7,7 @@ import { startUpdateTorrentService } from './services/updateTorrentService.js';
 import { startConsistencyDiagnostics } from './services/diagnosticsConsistencyService.js';
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
+import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -29,6 +30,9 @@ async function ensurePermissionsSeeded() {
 async function bootstrap() {
   await ensurePermissionsSeeded().catch((e) => {
     logError('permissions seed failed', { error: String(e) });
+  });
+  await ensureBaseMasterdata().catch((e) => {
+    logError('base masterdata seed failed', { error: String(e) });
   });
 
   startUpdateTorrentService();

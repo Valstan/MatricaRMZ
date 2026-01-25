@@ -74,6 +74,7 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
 
   // Links
   await ensure('engine_brand_ids', 'Марки двигателя', AttributeDataType.Json, 40); // string[] of engine_brand ids
+  await ensure('engine_node_id', 'Узел двигателя', AttributeDataType.Link, 45, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineNode }));
 
   // Purchase
   await ensure('purchase_date', 'Дата покупки', AttributeDataType.Date, 50);

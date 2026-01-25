@@ -14,6 +14,9 @@ export const EntityTypeCode = {
   Category: 'category',
   Employee: 'employee',
   Part: 'part',
+  Unit: 'unit',
+  Store: 'store',
+  EngineNode: 'engine_node',
   LinkFieldRule: 'link_field_rule',
 } as const;
 

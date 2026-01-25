@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { listEmployeeAttributeDefs, listEmployeesSummary } from '../../services/employeeService.js';
+import { deleteEmployeeRemote, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -51,7 +51,22 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
-    return softDeleteEntity(ctx.dataDb(), employeeId);
+    const remote = await deleteEmployeeRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), employeeId);
+    if (!remote.ok) return remote;
+    const local = await softDeleteEntity(ctx.dataDb(), employeeId);
+    if (!local.ok) return local;
+    await ctx.mgr.runOnce().catch(() => {});
+    return local;
+  });
+
+  ipcMain.handle('employees:merge', async () => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    const result = await mergeEmployeesToServer(ctx.dataDb(), ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    if (!result.ok) return result;
+    await ctx.mgr.runOnce().catch(() => {});
+    return result;
   });
 
   ipcMain.handle('employees:departments:list', async () => {

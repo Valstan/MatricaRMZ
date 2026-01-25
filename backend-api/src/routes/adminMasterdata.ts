@@ -20,6 +20,7 @@ import {
   upsertAttributeDef,
   upsertEntityType,
 } from '../services/adminMasterdataService.js';
+import { mergeEmployeesByFullName } from '../services/employeeMergeService.js';
 
 export const adminMasterdataRouter = Router();
 
@@ -213,5 +214,28 @@ adminMasterdataRouter.post('/entities/:id/detach-links-delete', async (req, res)
   if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
   const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username }, id);
   return res.json(r);
+});
+
+adminMasterdataRouter.post('/employees/merge', async (req, res) => {
+  const actor = await requireAdmin(req, res);
+  if (!actor) return;
+  const schema = z.object({
+    employees: z.array(
+      z.object({
+        fullName: z.string().nullable().optional(),
+        firstName: z.string().nullable().optional(),
+        lastName: z.string().nullable().optional(),
+        middleName: z.string().nullable().optional(),
+        role: z.string().nullable().optional(),
+        departmentId: z.string().nullable().optional(),
+        employmentStatus: z.string().nullable().optional(),
+        personnelNumber: z.string().nullable().optional(),
+      }),
+    ),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await mergeEmployeesByFullName({ id: actor.id, username: actor.username }, parsed.data.employees ?? []);
+  return res.json(result);
 });
 

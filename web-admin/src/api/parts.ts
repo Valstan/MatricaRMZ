@@ -8,3 +8,11 @@ export function listParts(args?: { q?: string; limit?: number; engineBrandId?: s
   const suffix = params.toString();
   return apiJson(`/parts${suffix ? `?${suffix}` : ''}`, { method: 'GET' });
 }
+
+export function createPart(args: { attributes?: Record<string, unknown> }) {
+  return apiJson('/parts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args ?? {}),
+  });
+}

@@ -5,6 +5,7 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { openPrintPreview } from '../utils/printPreview.js';
@@ -205,6 +206,7 @@ export function SupplyRequestDetailsPage(props: {
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
   const [productOptions, setProductOptions] = useState<Array<LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' }>>([]);
+  const [unitOptions, setUnitOptions] = useState<LinkOpt[]>([]);
   const [uiTypeId, setUiTypeId] = useState<string>('');
   const [uiDefs, setUiDefs] = useState<AttributeDefRow[]>([]);
   const [coreDefsReady, setCoreDefsReady] = useState(false);
@@ -283,6 +285,16 @@ export function SupplyRequestDetailsPage(props: {
     }
     items.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
     setProductOptions(items);
+
+    const unitTypeId = typeIdByCodeMap.get('unit');
+    if (unitTypeId) {
+      const rows = await window.matrica.admin.entities.listByEntityType(String(unitTypeId));
+      const opts = (rows as any[]).map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setUnitOptions(opts);
+    } else {
+      setUnitOptions([]);
+    }
   }
 
   useEffect(() => {
@@ -834,8 +846,19 @@ export function SupplyRequestDetailsPage(props: {
                           style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
-                        <Input value={String(it.unit ?? '')} disabled style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }} />
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 160 }}>
+                        <SearchSelect
+                          value={unitOptions.find((o) => o.label === String(it.unit ?? ''))?.id ?? null}
+                          options={unitOptions}
+                          disabled={!props.canEdit}
+                          placeholder="Ед. измерения"
+                          onChange={(next) => {
+                            const label = unitOptions.find((o) => o.id === next)?.label ?? '';
+                            const items = [...(payload.items ?? [])];
+                            items[idx] = { ...items[idx], unit: label };
+                            scheduleSave({ ...payload, items });
+                          }}
+                        />
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
                         <Input

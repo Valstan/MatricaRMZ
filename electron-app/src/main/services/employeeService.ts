@@ -174,6 +174,10 @@ export async function listEmployeesSummary(
     return {
       id: entityId,
       displayName: fullName || computedName || undefined,
+      fullName: fullName || computedName || undefined,
+      firstName: first || undefined,
+      lastName: last || undefined,
+      middleName: middle || undefined,
       position,
       departmentId: departmentId || null,
       departmentName: departmentId ? departmentNames[departmentId] ?? null : null,
@@ -184,4 +188,41 @@ export async function listEmployeesSummary(
       systemRole: access?.systemRole ?? '',
     };
   });
+}
+
+export async function mergeEmployeesToServer(
+  dataDb: BetterSQLite3Database,
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+) {
+  const list = await listEmployeesSummary(dataDb, sysDb, apiBaseUrl);
+  const employees = (list as any[]).map((row) => ({
+    fullName: row.fullName ?? row.displayName ?? null,
+    firstName: row.firstName ?? null,
+    lastName: row.lastName ?? null,
+    middleName: row.middleName ?? null,
+    role: row.position ?? null,
+    departmentId: row.departmentId ?? null,
+    employmentStatus: row.employmentStatus ?? null,
+    personnelNumber: row.personnelNumber ?? null,
+  }));
+  const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/merge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employees }),
+  });
+  if (!r.ok) {
+    return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  }
+  return { ok: true as const, stats: r.json?.stats };
+}
+
+export async function deleteEmployeeRemote(sysDb: BetterSQLite3Database, apiBaseUrl: string, employeeId: string) {
+  const r = await httpAuthed(sysDb, apiBaseUrl, `/admin/masterdata/entities/${encodeURIComponent(employeeId)}/soft-delete`, {
+    method: 'POST',
+  });
+  if (!r.ok) {
+    return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  }
+  return { ok: true as const };
 }

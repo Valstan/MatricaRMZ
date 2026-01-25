@@ -39,6 +39,10 @@ export type EntityDetails = {
 export type EmployeeListItem = {
   id: string;
   displayName?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  middleName?: string;
   position?: string | null;
   departmentId?: string | null;
   departmentName?: string | null;
@@ -499,6 +503,7 @@ export type MatricaApi = {
     create: () => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     setAttr: (employeeId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
     delete: (employeeId: string) => Promise<{ ok: boolean; error?: string }>;
+    merge: () => Promise<{ ok: true; stats?: any } | { ok: false; error: string }>;
     departmentsList: () => Promise<EntityListItem[]>;
     defs: () => Promise<EmployeeAttributeDef[]>;
     permissionsGet: (userId: string) => Promise<

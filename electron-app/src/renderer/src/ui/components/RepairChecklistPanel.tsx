@@ -73,6 +73,7 @@ export function RepairChecklistPanel(props: {
   engineId: string;
   stage: string;
   canEdit: boolean;
+  canEditMasterData?: boolean;
   canPrint: boolean;
   canExport: boolean;
   engineNumber?: string;
@@ -91,6 +92,8 @@ export function RepairChecklistPanel(props: {
   const [collapsed, setCollapsed] = useState<boolean>(props.defaultCollapsed === true);
   const prefillKey = useRef<string>('');
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
+  const [defectOptions, setDefectOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [defectOptionsStatus, setDefectOptionsStatus] = useState<string>('');
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const panelTitle = props.stage === 'defect' ? 'Лист дефектовки' : 'Контрольный лист ремонта';
@@ -157,24 +160,25 @@ export function RepairChecklistPanel(props: {
     if (!brand && !num) return;
     const next = { ...answers } as RepairChecklistAnswers;
     let changed = false;
+    const isDefect = props.stage === 'defect';
 
-    if (hasItem('engine_brand')) {
+    if (hasItem('engine_brand') && brand) {
       const a: any = (answers as any).engine_brand;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim() && brand) {
+      if ((isDefect && current !== brand) || (!isDefect && !current.trim())) {
         (next as any).engine_brand = { kind: 'text', value: brand };
         changed = true;
       }
     }
-    if (hasItem('engine_number')) {
+    if (hasItem('engine_number') && num) {
       const a: any = (answers as any).engine_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim() && num) {
+      if ((isDefect && current !== num) || (!isDefect && !current.trim())) {
         (next as any).engine_number = { kind: 'text', value: num };
         changed = true;
       }
     }
-    if (hasItem('engine_mark_number')) {
+    if (!isDefect && hasItem('engine_mark_number')) {
       const a: any = (answers as any).engine_mark_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
       if (!current.trim()) {
@@ -187,7 +191,67 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-  }, [activeTemplate?.id, props.engineBrand, props.engineNumber]);
+  }, [activeTemplate?.id, props.engineBrand, props.engineNumber, props.stage]);
+
+  useEffect(() => {
+    if (props.stage !== 'defect') return;
+    let alive = true;
+    void (async () => {
+      try {
+        setDefectOptionsStatus('Загрузка справочников...');
+        const options: Array<{ id: string; label: string }> = [];
+        const partsRes = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
+        if (partsRes && (partsRes as any).ok && Array.isArray((partsRes as any).parts)) {
+          for (const p of (partsRes as any).parts) {
+            const label = String(p.name ?? p.article ?? p.id);
+            options.push({ id: `part:${p.id}`, label });
+          }
+        }
+        const types = await window.matrica.admin.entityTypes.list();
+        const nodeType = (types as any[]).find((t) => String(t.code) === 'engine_node');
+        if (nodeType?.id) {
+          const rows = await window.matrica.admin.entities.listByEntityType(String(nodeType.id));
+          for (const r of rows as any[]) {
+            const label = String(r.displayName ?? r.id);
+            options.push({ id: `node:${r.id}`, label });
+          }
+        }
+        if (!alive) return;
+        options.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setDefectOptions(options);
+        setDefectOptionsStatus('');
+      } catch (e) {
+        if (!alive) return;
+        setDefectOptionsStatus(`Ошибка загрузки: ${String(e)}`);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [props.stage, props.engineBrandId]);
+
+  async function createDefectItem(label: string) {
+    const name = label.trim();
+    if (!name) return null;
+    const createNode = confirm('Создать как узел двигателя? (OK = узел, Отмена = деталь)');
+    if (createNode) {
+      const types = await window.matrica.admin.entityTypes.list();
+      const nodeType = (types as any[]).find((t) => String(t.code) === 'engine_node');
+      if (!nodeType?.id) return null;
+      const created = await window.matrica.admin.entities.create(String(nodeType.id));
+      if (!created?.ok || !created.id) return null;
+      await window.matrica.admin.entities.setAttr(created.id, 'name', name);
+      const opt = { id: `node:${created.id}`, label: name };
+      setDefectOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+      return opt.id;
+    }
+    const created = await window.matrica.parts.create({ attributes: { name } }).catch(() => null);
+    if (!created || !(created as any).ok || !(created as any).part?.id) return null;
+    const part = (created as any).part;
+    const opt = { id: `part:${part.id}`, label: name };
+    setDefectOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return opt.id;
+  }
 
   useEffect(() => {
     if (!activeTemplate) return;
@@ -478,8 +542,9 @@ export function RepairChecklistPanel(props: {
                   {it.kind === 'text' && (
                     <Input
                       value={a?.kind === 'text' ? a.value : ''}
-                      disabled={!props.canEdit}
+                      disabled={!props.canEdit || (props.stage === 'defect' && (it.id === 'engine_brand' || it.id === 'engine_number'))}
                       onChange={(e) => {
+                        if (props.stage === 'defect' && (it.id === 'engine_brand' || it.id === 'engine_number')) return;
                         const next = { ...answers, [it.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
                         setAnswers(next);
                       }}
@@ -575,6 +640,31 @@ export function RepairChecklistPanel(props: {
                       canEdit={props.canEdit}
                       columns={it.columns ?? []}
                       rows={a?.kind === 'table' ? (a.rows ?? []) : []}
+                      cellRenderers={
+                        props.stage === 'defect' && it.id === 'defect_items'
+                          ? {
+                              part_name: ({ rowIdx, columnId, value, setValue }) => {
+                                const current = String(value ?? '');
+                                const match = defectOptions.find((o) => o.label === current) ?? null;
+                                const valueId = match?.id ?? null;
+                                return (
+                                  <SearchSelect
+                                    value={valueId}
+                                    options={defectOptions}
+                                    disabled={!props.canEdit}
+                                    placeholder="Выберите деталь или узел"
+                                    createLabel="Добавить"
+                                    onCreate={props.canEdit ? createDefectItem : undefined}
+                                    onChange={(next) => {
+                                      const selected = defectOptions.find((o) => o.id === next) ?? null;
+                                      setValue(rowIdx, columnId, selected?.label ?? '', true);
+                                    }}
+                                  />
+                                );
+                              },
+                            }
+                          : undefined
+                      }
                       onChange={(rows) => {
                         const next = { ...answers, [it.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
                         setAnswers(next);
@@ -622,6 +712,11 @@ export function RepairChecklistPanel(props: {
         />
       )}
 
+      {!collapsed && props.stage === 'defect' && defectOptionsStatus && (
+        <div style={{ marginTop: 10, color: defectOptionsStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>
+          {defectOptionsStatus}
+        </div>
+      )}
       {!collapsed && props.stage === 'defect' && !props.engineBrandId && (
         <div style={{ marginTop: 10, color: '#64748b', fontSize: 12 }}>
           Выберите марку двигателя, чтобы подставить список деталей из справочника.
@@ -635,15 +730,25 @@ function TableEditor(props: {
   canEdit: boolean;
   columns: { id: string; label: string; kind?: 'text' | 'boolean' }[];
   rows: Record<string, string | boolean>[];
+  cellRenderers?: Record<
+    string,
+    (args: {
+      rowIdx: number;
+      columnId: string;
+      value: string | boolean;
+      setValue: (rowIdx: number, columnId: string, value: string | boolean, save?: boolean) => void;
+    }) => React.ReactNode
+  >;
   onChange: (rows: Record<string, string | boolean>[]) => void;
   onSave: (rows: Record<string, string | boolean>[]) => void;
 }) {
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
 
-  function setCell(rowIdx: number, colId: string, value: string | boolean) {
+  function setCell(rowIdx: number, colId: string, value: string | boolean, save = false) {
     const next = rows.map((r, i) => (i === rowIdx ? { ...r, [colId]: value } : r));
     props.onChange(next);
+    if (save && props.canEdit) props.onSave(next);
   }
 
   return (
@@ -664,9 +769,13 @@ function TableEditor(props: {
         <tbody>
           {rows.map((r, idx) => (
             <tr key={idx}>
-              {cols.map((c) => (
+              {cols.map((c) => {
+                const renderer = props.cellRenderers?.[c.id];
+                return (
                 <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
-                  {c.kind === 'boolean' ? (
+                  {renderer ? (
+                    renderer({ rowIdx: idx, columnId: c.id, value: (r as any)[c.id], setValue: setCell })
+                  ) : c.kind === 'boolean' ? (
                     <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <input
                         type="checkbox"
@@ -690,7 +799,8 @@ function TableEditor(props: {
                     />
                   )}
                 </td>
-              ))}
+                );
+              })}
               {props.canEdit && (
                 <td style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
                   <Button

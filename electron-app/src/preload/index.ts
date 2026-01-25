@@ -124,6 +124,7 @@ contextBridge.exposeInMainWorld('matrica', {
     setAttr: async (employeeId: string, code: string, value: unknown) =>
       ipcRenderer.invoke('employees:setAttr', employeeId, code, value),
     delete: async (employeeId: string) => ipcRenderer.invoke('employees:delete', employeeId),
+    merge: async () => ipcRenderer.invoke('employees:merge'),
     departmentsList: async () => ipcRenderer.invoke('employees:departments:list'),
     defs: async () => ipcRenderer.invoke('employees:defs'),
     permissionsGet: async (userId: string) => ipcRenderer.invoke('employees:permissionsGet', userId),

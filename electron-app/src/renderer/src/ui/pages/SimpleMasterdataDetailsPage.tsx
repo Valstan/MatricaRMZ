@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
@@ -31,6 +32,10 @@ export function SimpleMasterdataDetailsPage(props: {
   const [entityTypeId, setEntityTypeId] = useState<string>('');
   const [defs, setDefs] = useState<AttributeDefRow[]>([]);
   const [coreDefsReady, setCoreDefsReady] = useState(false);
+  const [unitOptions, setUnitOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [storeOptions, setStoreOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [unitTypeId, setUnitTypeId] = useState<string>('');
+  const [storeTypeId, setStoreTypeId] = useState<string>('');
 
   async function load() {
     try {
@@ -107,11 +112,51 @@ export function SimpleMasterdataDetailsPage(props: {
   }, [props.typeCode]);
 
   useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const types = await window.matrica.admin.entityTypes.list();
+        const unitType = (types as any[]).find((t) => String(t.code) === 'unit') ?? null;
+        const storeType = (types as any[]).find((t) => String(t.code) === 'store') ?? null;
+        if (!alive) return;
+        setUnitTypeId(unitType?.id ? String(unitType.id) : '');
+        setStoreTypeId(storeType?.id ? String(storeType.id) : '');
+        if (unitType?.id) {
+          const rows = await window.matrica.admin.entities.listByEntityType(String(unitType.id));
+          const opts = (rows as any[]).map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }));
+          opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+          setUnitOptions(opts);
+        }
+        if (storeType?.id) {
+          const rows = await window.matrica.admin.entities.listByEntityType(String(storeType.id));
+          const opts = (rows as any[]).map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }));
+          opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+          setStoreOptions(opts);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function createLookupEntity(typeId: string, label: string) {
+    const name = label.trim();
+    if (!typeId || !name) return null;
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created?.ok || !created.id) return null;
+    await window.matrica.admin.entities.setAttr(created.id, 'name', name);
+    return created.id;
+  }
+
+  useEffect(() => {
     if (!props.canEdit || !entityTypeId || defs.length === 0 || coreDefsReady) return;
     const desired = [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
       { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 20 },
-      { code: 'shop', name: 'Цех', dataType: 'text', sortOrder: 30 },
+      { code: 'shop', name: 'Магазин', dataType: 'text', sortOrder: 30 },
       { code: 'article', name: 'Артикул', dataType: 'text', sortOrder: 40 },
       { code: 'unit', name: 'Ед. измерения', dataType: 'text', sortOrder: 50 },
       { code: 'price', name: 'Цена', dataType: 'number', sortOrder: 60 },
@@ -315,11 +360,26 @@ export function SimpleMasterdataDetailsPage(props: {
         label: 'Магазин',
         value: shop,
         render: (
-          <Input
-            value={shop}
+          <SearchSelectWithCreate
+            value={storeOptions.find((o) => o.label === shop)?.id ?? null}
+            options={storeOptions}
             disabled={!props.canEdit}
-            onChange={(e) => setShop(e.target.value)}
-            onBlur={() => void saveField('shop', shop.trim() || null)}
+            canCreate={props.canEdit}
+            createLabel="Добавить магазин"
+            onChange={(next) => {
+              const label = storeOptions.find((o) => o.id === next)?.label ?? '';
+              setShop(label);
+              void saveField('shop', label.trim() || null);
+            }}
+            onCreate={async (label) => {
+              const id = await createLookupEntity(storeTypeId, label);
+              if (!id) return null;
+              const opt = { id, label: label.trim() };
+              setStoreOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+              setShop(label.trim());
+              void saveField('shop', label.trim() || null);
+              return id;
+            }}
           />
         ),
       },
@@ -343,11 +403,26 @@ export function SimpleMasterdataDetailsPage(props: {
         label: 'Ед. измерения',
         value: unit,
         render: (
-          <Input
-            value={unit}
+          <SearchSelectWithCreate
+            value={unitOptions.find((o) => o.label === unit)?.id ?? null}
+            options={unitOptions}
             disabled={!props.canEdit}
-            onChange={(e) => setUnit(e.target.value)}
-            onBlur={() => void saveField('unit', unit.trim() || null)}
+            canCreate={props.canEdit}
+            createLabel="Добавить единицу"
+            onChange={(next) => {
+              const label = unitOptions.find((o) => o.id === next)?.label ?? '';
+              setUnit(label);
+              void saveField('unit', label.trim() || null);
+            }}
+            onCreate={async (label) => {
+              const id = await createLookupEntity(unitTypeId, label);
+              if (!id) return null;
+              const opt = { id, label: label.trim() };
+              setUnitOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+              setUnit(label.trim());
+              void saveField('unit', label.trim() || null);
+              return id;
+            }}
           />
         ),
       },

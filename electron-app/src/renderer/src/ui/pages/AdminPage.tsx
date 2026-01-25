@@ -144,6 +144,8 @@ export function MasterdataPage(props: {
   }
 
   const [linkOptions, setLinkOptions] = useState<Record<string, { id: string; label: string }[]>>({});
+  const [lookupOptionsByCode, setLookupOptionsByCode] = useState<Record<string, { id: string; label: string }[]>>({});
+  const lookupTypeIdByCode = useRef<Record<string, string>>({});
 
   const outgoingLinks = useMemo(() => {
     const linkDefs = visibleDefs.filter((d) => d.dataType === 'link');
@@ -174,7 +176,49 @@ export function MasterdataPage(props: {
       if (prev && nextVisible.some((t) => t.id === prev)) return prev;
       return nextVisible[0]?.id ?? '';
     });
-    if (rows.length > 0) void loadLinkRules(rows as any);
+    if (rows.length > 0) {
+      void loadLinkRules(rows as any);
+      void loadLookupOptions(rows as any);
+    }
+  }
+
+  async function loadLookupOptions(rows?: EntityTypeRow[]) {
+    try {
+      const list = rows ?? (await window.matrica.admin.entityTypes.list());
+      const map: Record<string, string> = {};
+      for (const t of list as any[]) {
+        if (String(t.code) === 'unit') map.unit = String(t.id);
+        if (String(t.code) === 'store') map.shop = String(t.id);
+      }
+      lookupTypeIdByCode.current = map;
+      const next: Record<string, { id: string; label: string }[]> = {};
+      if (map.unit) {
+        const units = await window.matrica.admin.entities.listByEntityType(map.unit);
+        next.unit = (units as any[])
+          .map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }))
+          .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      }
+      if (map.shop) {
+        const stores = await window.matrica.admin.entities.listByEntityType(map.shop);
+        next.shop = (stores as any[])
+          .map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }))
+          .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      }
+      setLookupOptionsByCode(next);
+    } catch {
+      setLookupOptionsByCode({});
+    }
+  }
+
+  async function createLookupEntity(code: 'unit' | 'shop', label: string): Promise<string | null> {
+    const typeId = lookupTypeIdByCode.current[code];
+    const name = label.trim();
+    if (!typeId || !name) return null;
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created.ok || !created.id) return null;
+    await window.matrica.admin.entities.setAttr(created.id, 'name', name);
+    await loadLookupOptions();
+    return created.id;
   }
 
   async function loadLinkRules(rows?: EntityTypeRow[]) {
@@ -857,6 +901,12 @@ export function MasterdataPage(props: {
                               canEdit={props.canEditMasterData}
                               value={entityAttrs[d.code]}
                               linkOptions={linkOptions[d.code] ?? []}
+                            lookupOptions={lookupOptionsByCode[d.code] ?? []}
+                            lookupCreate={
+                              d.code === 'unit' || d.code === 'shop'
+                                ? async (label) => await createLookupEntity(d.code as 'unit' | 'shop', label)
+                                : undefined
+                            }
                               onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
                               onSave={async (v) => {
                                 const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
@@ -1572,6 +1622,8 @@ function FieldEditor(props: {
   canEdit: boolean;
   value: unknown;
   linkOptions: { id: string; label: string }[];
+  lookupOptions?: { id: string; label: string }[];
+  lookupCreate?: (label: string) => Promise<string | null>;
   onChange: (v: unknown) => void;
   onSave: (v: unknown) => Promise<void>;
 }) {
@@ -1725,6 +1777,38 @@ function FieldEditor(props: {
         createLabel={
           linkTargetTypeCode ? (linkTargetTypeCode === 'category' ? 'Новая категория' : `Новая запись (${linkTargetTypeCode})`) : undefined
         }
+      />
+    );
+  }
+
+  if (dt === 'text' && (props.def.code === 'unit' || props.def.code === 'shop')) {
+    const opts = props.lookupOptions ?? [];
+    const currentLabel = typeof props.value === 'string' ? props.value : '';
+    const currentId = opts.find((o) => o.label === currentLabel)?.id ?? null;
+    return (
+      <SearchSelect
+        value={currentId}
+        disabled={!props.canEdit}
+        options={opts}
+        placeholder="(не выбрано)"
+        onChange={(next) => {
+          if (!props.canEdit) return;
+          const label = opts.find((o) => o.id === next)?.label ?? '';
+          props.onChange(label);
+          void props.onSave(label);
+        }}
+        onCreate={
+          props.canEdit && props.lookupCreate
+            ? async (label) => {
+                const id = await props.lookupCreate(label);
+                if (!id) return null;
+                props.onChange(label.trim());
+                void props.onSave(label.trim());
+                return id;
+              }
+            : undefined
+        }
+        createLabel={props.def.code === 'unit' ? 'Новая единица' : 'Новый магазин'}
       />
     );
   }
