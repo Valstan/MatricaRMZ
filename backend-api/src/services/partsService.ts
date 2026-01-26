@@ -548,7 +548,8 @@ export async function updatePartAttribute(args: {
     if (!attrDef) return { ok: false, error: 'attribute not found' };
     const ts = nowMs();
 
-    const actorIsAdmin = String(args.actor.role || '').toLowerCase() === 'admin';
+    const actorRole = String(args.actor.role || '').toLowerCase();
+    const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
     const owner = await db
       .select({ ownerUserId: rowOwners.ownerUserId, ownerUsername: rowOwners.ownerUsername })
       .from(rowOwners)
@@ -664,7 +665,8 @@ export async function deletePart(args: { partId: string; actor: AuthUser }): Pro
     const partId = String(args.partId || '');
     const ts = nowMs();
 
-    const actorIsAdmin = String(args.actor.role || '').toLowerCase() === 'admin';
+    const actorRole = String(args.actor.role || '').toLowerCase();
+    const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
     const owner = await db
       .select({ ownerUserId: rowOwners.ownerUserId, ownerUsername: rowOwners.ownerUsername })
       .from(rowOwners)
