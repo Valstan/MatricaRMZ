@@ -425,7 +425,7 @@ export const chatReads = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
-    msgUserUq: uniqueIndex('chat_reads_message_user_uq').on(t.messageId, t.userId).where(sql`${t.deletedAt} is null`),
+    msgUserUq: uniqueIndex('chat_reads_message_user_uq').on(t.messageId, t.userId),
   }),
 );
 

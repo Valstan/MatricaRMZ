@@ -110,6 +110,7 @@ export type SyncPushRequest = z.infer<typeof syncPushRequestSchema>;
 
 export const syncPullResponseSchema = z.object({
   server_cursor: z.number().int(), // server_seq
+  has_more: z.boolean(),
   changes: z.array(
     z.object({
       table: z.nativeEnum(SyncTableName),

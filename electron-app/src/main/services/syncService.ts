@@ -15,6 +15,7 @@ import { fetchWithRetry } from './netFetch.js';
 
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
+const PULL_PAGE_SIZE = 5000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 1000,
@@ -988,7 +989,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
     logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
     const pullOnce = async (sinceValue: number) => {
-      const pullUrl = `${apiBaseUrl}/sync/pull?since=${sinceValue}`;
+      const pullUrl = `${apiBaseUrl}/sync/pull?since=${sinceValue}&limit=${PULL_PAGE_SIZE}`;
       const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
       if (!pull.ok) {
         const body = await safeBodyText(pull);
@@ -1001,6 +1002,23 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
       await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
       return pullJson;
+    };
+    const pullAll = async (sinceValue: number) => {
+      let sinceCursor = sinceValue;
+      let totalPulled = 0;
+      let last: SyncPullResponse | null = null;
+      for (let i = 0; i < 2000; i += 1) {
+        const res = await pullOnce(sinceCursor);
+        totalPulled += res.changes.length;
+        last = res;
+        if (!res.has_more) break;
+        if (res.server_cursor === sinceCursor) {
+          logSync(`pull paging stalled cursor=${sinceCursor}, stopping`);
+          break;
+        }
+        sinceCursor = res.server_cursor;
+      }
+      return { last, totalPulled };
     };
     let upserts = await collectPending(db);
     let pushed = 0;
@@ -1047,7 +1065,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
             attemptedDependencyRecovery = true;
             logSync(`push dependency missing: forcing full pull and retry`);
             await resetSyncState(db);
-            await pullOnce(0);
+            await pullAll(0);
             await markAllEntityTypesPending(db);
             await markAllAttributeDefsPending(db);
             pushedPacks = await collectPending(db);
@@ -1115,9 +1133,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       }
     }
 
-    const pullJson = await pullOnce(since);
-
-    const pulled = pullJson.changes.length;
+    const pullRes = await pullAll(since);
+    const pullJson = pullRes.last ?? { server_cursor: since, has_more: false, changes: [] };
+    const pulled = pullRes.totalPulled;
 
     logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
     await sendDiagnosticsSnapshot(db, apiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});

@@ -7,7 +7,9 @@ import { changeLog } from '../../database/schema.js';
 export async function pullChangesSince(
   since: number,
   actor: { id: string; role: string },
+  limit = 5000,
 ): Promise<SyncPullResponse> {
+  const safeLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
   const rows = await db
     .select({
       table: changeLog.tableName,
@@ -19,14 +21,16 @@ export async function pullChangesSince(
     .from(changeLog)
     .where(gt(changeLog.serverSeq, since))
     .orderBy(asc(changeLog.serverSeq))
-    .limit(5000);
+    .limit(safeLimit + 1);
+  const pageRows = rows.slice(0, safeLimit);
+  const hasMore = rows.length > safeLimit;
 
   const actorId = String(actor?.id ?? '');
   const actorRole = String(actor?.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const actorIsPending = actorRole === 'pending';
 
-  const filtered = rows.filter((r) => {
+  const filtered = pageRows.filter((r) => {
     const table = String(r.table);
     if (table === 'chat_messages') {
       if (actorIsAdmin) return true;
@@ -54,10 +58,11 @@ export async function pullChangesSince(
   });
 
   // IMPORTANT: cursor must reflect the real last server_seq we observed.
-  const last = rows.at(-1)?.serverSeq ?? since;
+  const last = pageRows.at(-1)?.serverSeq ?? since;
 
   return {
     server_cursor: last,
+    has_more: hasMore,
     changes: filtered.map((r) => ({
       table: r.table as any,
       row_id: r.rowId,

@@ -37,6 +37,7 @@ syncRouter.get('/pull', async (req, res) => {
     const actor = user?.username ?? 'unknown';
     const querySchema = z.object({
       since: z.coerce.number().int().nonnegative().default(0),
+      limit: z.coerce.number().int().min(1).max(20000).optional(),
     });
 
     const parsed = querySchema.safeParse(req.query);
@@ -45,7 +46,7 @@ syncRouter.get('/pull', async (req, res) => {
     }
 
     logInfo('sync pull', { user: actor, since: parsed.data.since }, { critical: true });
-    const response = await pullChangesSince(parsed.data.since, { id: user?.id ?? '', role: user?.role ?? '' });
+    const response = await pullChangesSince(parsed.data.since, { id: user?.id ?? '', role: user?.role ?? '' }, parsed.data.limit);
     return res.json(response);
   } catch (e) {
     logError('sync pull failed', { error: String(e) });

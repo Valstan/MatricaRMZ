@@ -118,6 +118,10 @@ export async function ensureBaseMasterdata() {
     const unitTypeId = await ensureEntityType(actor, EntityTypeCode.Unit, 'Единицы измерения');
     const storeTypeId = await ensureEntityType(actor, EntityTypeCode.Store, 'Магазины');
     const engineNodeTypeId = await ensureEntityType(actor, EntityTypeCode.EngineNode, 'Узлы двигателя');
+    const employeeTypeId = await ensureEntityType(actor, EntityTypeCode.Employee, 'Сотрудник');
+    const departmentTypeId = await ensureEntityType(actor, EntityTypeCode.Department, 'Подразделение / служба');
+    const sectionTypeId = await ensureEntityType(actor, EntityTypeCode.Section, 'Участок');
+    const categoryTypeId = await ensureEntityType(actor, EntityTypeCode.Category, 'Категории');
 
     const unitNameDefId = await ensureAttrDef(actor, unitTypeId, 'name', 'Название', AttributeDataType.Text, 10);
     const storeNameDefId = await ensureAttrDef(actor, storeTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
@@ -134,6 +138,50 @@ export async function ensureBaseMasterdata() {
 
     await ensureEntityWithName(actor, storeTypeId, storeNameDefId, 'ИП Асхатзянов', {});
     await ensureEntityWithName(actor, storeTypeId, storeNameDefId, 'Евротех', {});
+
+    await ensureAttrDef(actor, departmentTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+    await ensureAttrDef(actor, sectionTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+    await ensureAttrDef(actor, categoryTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+
+    await ensureAttrDef(actor, employeeTypeId, 'last_name', 'Фамилия', AttributeDataType.Text, 10);
+    await ensureAttrDef(actor, employeeTypeId, 'first_name', 'Имя', AttributeDataType.Text, 20);
+    await ensureAttrDef(actor, employeeTypeId, 'middle_name', 'Отчество', AttributeDataType.Text, 30);
+    await ensureAttrDef(actor, employeeTypeId, 'full_name', 'ФИО', AttributeDataType.Text, 40);
+    await ensureAttrDef(actor, employeeTypeId, 'personnel_number', 'Табельный номер', AttributeDataType.Text, 45);
+    await ensureAttrDef(actor, employeeTypeId, 'birth_date', 'Дата рождения', AttributeDataType.Date, 48);
+    await ensureAttrDef(actor, employeeTypeId, 'role', 'Должность', AttributeDataType.Text, 50);
+    await ensureAttrDef(actor, employeeTypeId, 'employment_status', 'Статус (работает/уволен)', AttributeDataType.Text, 55);
+    await ensureAttrDef(actor, employeeTypeId, 'hire_date', 'Дата приема на работу', AttributeDataType.Date, 56);
+    await ensureAttrDef(actor, employeeTypeId, 'termination_date', 'Дата увольнения', AttributeDataType.Date, 57);
+    await ensureAttrDef(
+      actor,
+      employeeTypeId,
+      'category_id',
+      'Категория',
+      AttributeDataType.Link,
+      58,
+      JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
+    );
+    await ensureAttrDef(
+      actor,
+      employeeTypeId,
+      'department_id',
+      'Подразделение',
+      AttributeDataType.Link,
+      60,
+      JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Department }),
+    );
+    await ensureAttrDef(
+      actor,
+      employeeTypeId,
+      'section_id',
+      'Участок',
+      AttributeDataType.Link,
+      70,
+      JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Section }),
+    );
+    await ensureAttrDef(actor, employeeTypeId, 'transfers', 'Переводы', AttributeDataType.Json, 80);
+    await ensureAttrDef(actor, employeeTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
     logInfo('base masterdata ensured', { at: nowMs() });
   } catch (e) {
