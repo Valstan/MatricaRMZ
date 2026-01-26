@@ -7,9 +7,10 @@ import { db } from '../database/db.js';
 import { entities, permissionDelegations, permissions, userPermissions } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
-import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
+import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser, hasPermission } from '../auth/permissions.js';
 import {
   createEmployeeEntity,
+  detachIncomingLinksAndSoftDeleteEntity,
   emitEmployeeSyncSnapshot,
   emitEmployeesSyncSnapshotAll,
   ensureEmployeeAuthDefs,
@@ -153,6 +154,22 @@ adminUsersRouter.post('/users', async (req, res) => {
     if (parsed.data.fullName) await setEmployeeFullName(employeeId, parsed.data.fullName);
 
     return res.json({ ok: true, id: employeeId });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/users/:id/delete', async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!(await hasPermission(actor.id, PermissionCode.EmployeesCreate))) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username }, id);
+    return res.json(r);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

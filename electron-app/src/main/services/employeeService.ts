@@ -218,7 +218,7 @@ export async function mergeEmployeesToServer(
 }
 
 export async function deleteEmployeeRemote(sysDb: BetterSQLite3Database, apiBaseUrl: string, employeeId: string) {
-  const r = await httpAuthed(sysDb, apiBaseUrl, `/employees/${encodeURIComponent(employeeId)}/delete`, {
+  const r = await httpAuthed(sysDb, apiBaseUrl, `/admin/users/${encodeURIComponent(employeeId)}/delete`, {
     method: 'POST',
   });
   if (!r.ok) {
