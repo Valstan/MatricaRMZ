@@ -946,7 +946,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       .insert(chatReads)
       .values(groups.chat_reads)
       .onConflictDoUpdate({
-        target: chatReads.id,
+        target: [chatReads.messageId, chatReads.userId],
         set: {
           messageId: sql`excluded.message_id`,
           userId: sql`excluded.user_id`,
