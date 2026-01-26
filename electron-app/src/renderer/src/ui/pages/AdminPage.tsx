@@ -92,7 +92,7 @@ export function MasterdataPage(props: {
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
 
-  const excludedTypeCodes = new Set(['engine', 'part', 'category']);
+  const excludedTypeCodes = new Set(['engine', 'part', 'category', 'store']);
   const visibleTypes = useMemo(() => {
     return types
       .filter((t) => !excludedTypeCodes.has(t.code))

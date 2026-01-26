@@ -11,6 +11,8 @@ import { EngineBrandDetailsPage } from './pages/EngineBrandDetailsPage.js';
 import { ChangesPage } from './pages/ChangesPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
 import { MasterdataPage } from './pages/AdminPage.js';
+import { CounterpartiesPage } from './pages/CounterpartiesPage.js';
+import { CounterpartyDetailsPage } from './pages/CounterpartyDetailsPage.js';
 import { ContractsPage } from './pages/ContractsPage.js';
 import { ContractDetailsPage } from './pages/ContractDetailsPage.js';
 import { AuditPage } from './pages/AuditPage.js';
@@ -58,6 +60,7 @@ export function App() {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
+  const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
     selectedUserId: null,
@@ -147,6 +150,7 @@ export function App() {
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
+    setSelectedCounterpartyId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
 
   async function refreshServerHealth() {
@@ -224,6 +228,7 @@ export function App() {
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
+    setSelectedCounterpartyId(null);
     setAudit([]);
     setChatUnreadTotal(0);
     setChatContext({ selectedUserId: null, adminMode: false });
@@ -346,6 +351,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
+    ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
@@ -360,7 +366,7 @@ export function App() {
   const visibleTabsKey = visibleTabs.join('|');
   const userTab: Exclude<
     TabId,
-    'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand' | 'product' | 'service'
+    'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand' | 'product' | 'service' | 'counterparty'
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
@@ -414,6 +420,7 @@ export function App() {
       tab === 'part' ||
       tab === 'employee' ||
       tab === 'contract' ||
+      tab === 'counterparty' ||
       tab === 'product' ||
       tab === 'service'
     )
@@ -516,6 +523,11 @@ export function App() {
     setTab('service');
   }
 
+  async function openCounterparty(id: string) {
+    setSelectedCounterpartyId(id);
+    setTab('counterparty');
+  }
+
   async function navigateDeepLink(link: any) {
     const tabId = String(link?.tab ?? '') as any;
     const engineId = link?.engineId ? String(link.engineId) : null;
@@ -526,6 +538,7 @@ export function App() {
     const engineBrandId = link?.engineBrandId ? String(link.engineBrandId) : null;
     const productId = link?.productId ? String(link.productId) : null;
     const serviceId = link?.serviceId ? String(link.serviceId) : null;
+    const counterpartyId = link?.counterpartyId ? String(link.counterpartyId) : null;
 
     // Prefer opening specific entities if IDs are present.
     if (engineId) {
@@ -556,6 +569,10 @@ export function App() {
       await openService(serviceId);
       return;
     }
+    if (counterpartyId) {
+      await openCounterparty(counterpartyId);
+      return;
+    }
     if (engineBrandId) {
       await openEngineBrand(engineBrandId);
       return;
@@ -573,6 +590,8 @@ export function App() {
       masterdata: 'Справочники',
       contracts: 'Контракты',
       contract: 'Карточка контракта',
+      counterparties: 'Контрагенты',
+      counterparty: 'Карточка контрагента',
       changes: 'Изменения',
       engines: 'Двигатели',
       engine_brands: 'Марки двигателей',
@@ -600,6 +619,7 @@ export function App() {
       request: 'Заявки',
       part: 'Детали',
       contract: 'Контракты',
+      counterparty: 'Контрагенты',
       employee: 'Сотрудники',
       product: 'Товары',
       service: 'Услуги',
@@ -620,6 +640,7 @@ export function App() {
     if (tab === 'request' && selectedRequestId) crumbs.push(`ID ${shortId(selectedRequestId)}`);
     if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
     if (tab === 'contract' && selectedContractId) crumbs.push(`ID ${shortId(selectedContractId)}`);
+    if (tab === 'counterparty' && selectedCounterpartyId) crumbs.push(`ID ${shortId(selectedCounterpartyId)}`);
     if (tab === 'employee' && selectedEmployeeId) crumbs.push(`ID ${shortId(selectedEmployeeId)}`);
     if (tab === 'product' && selectedProductId) crumbs.push(`ID ${shortId(selectedProductId)}`);
     if (tab === 'service' && selectedServiceId) crumbs.push(`ID ${shortId(selectedServiceId)}`);
@@ -646,8 +667,10 @@ export function App() {
                     : tab === 'product'
                       ? selectedProductId ?? null
                       : tab === 'service'
-                        ? selectedServiceId ?? null
-                        : null,
+                    ? selectedServiceId ?? null
+                    : tab === 'counterparty'
+                      ? selectedCounterpartyId ?? null
+                      : null,
       entityType:
         tab === 'engine'
           ? 'engine'
@@ -664,8 +687,10 @@ export function App() {
                     : tab === 'product'
                       ? 'product'
                       : tab === 'service'
-                        ? 'service'
-                        : null,
+                    ? 'service'
+                    : tab === 'counterparty'
+                      ? 'customer'
+                      : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
     [
@@ -678,6 +703,7 @@ export function App() {
       selectedEmployeeId,
       selectedProductId,
       selectedServiceId,
+      selectedCounterpartyId,
       engineDetails,
     ],
   );
@@ -706,6 +732,7 @@ export function App() {
       employeeId: tab === 'employee' ? selectedEmployeeId ?? null : null,
       productId: tab === 'product' ? selectedProductId ?? null : null,
       serviceId: tab === 'service' ? selectedServiceId ?? null : null,
+      counterpartyId: tab === 'counterparty' ? selectedCounterpartyId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     };
     const r = await window.matrica.chat
@@ -755,6 +782,10 @@ export function App() {
               ? 'Матрица РМЗ — Услуги'
               : tab === 'service'
                 ? 'Матрица РМЗ — Карточка услуги'
+        : tab === 'counterparties'
+          ? 'Матрица РМЗ — Контрагенты'
+          : tab === 'counterparty'
+            ? 'Матрица РМЗ — Карточка контрагента'
         : tab === 'changes'
           ? 'Матрица РМЗ — Изменения'
         : tab === 'requests'
@@ -1083,6 +1114,15 @@ export function App() {
           />
         )}
 
+        {tab === 'counterparties' && (
+          <CounterpartiesPage
+            onOpen={openCounterparty}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
         {tab === 'requests' && (
           <SupplyRequestsPage
             onOpen={openRequest}
@@ -1215,6 +1255,16 @@ export function App() {
           />
         )}
 
+        {tab === 'counterparty' && selectedCounterpartyId && (
+          <CounterpartyDetailsPage
+            key={selectedCounterpartyId}
+            counterpartyId={selectedCounterpartyId}
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+          />
+        )}
+
         {tab === 'employee' && selectedEmployeeId && (
           <EmployeeDetailsPage
             key={selectedEmployeeId}
@@ -1299,6 +1349,10 @@ export function App() {
 
         {tab === 'contract' && !selectedContractId && (
           <div style={{ color: 'var(--muted)' }}>Выберите контракт из списка.</div>
+        )}
+
+        {tab === 'counterparty' && !selectedCounterpartyId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите контрагента из списка.</div>
         )}
 
         {tab === 'request' && !selectedRequestId && (

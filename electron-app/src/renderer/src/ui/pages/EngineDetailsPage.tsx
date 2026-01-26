@@ -50,7 +50,7 @@ function printEngineReport(
       : [
           ['Номер двигателя', String(context?.engineNumber ?? attrs.engine_number ?? '')],
           ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
-          ['Заказчик', String(context?.customer ?? attrs.customer_id ?? '')],
+          ['Контрагент', String(context?.customer ?? attrs.customer_id ?? '')],
           ['Контракт', String(context?.contract ?? attrs.contract_id ?? '')],
         ];
 
@@ -246,7 +246,7 @@ export function EngineDetailsPage(props: {
       },
       {
         code: 'customer_id',
-        name: 'Заказчик',
+        name: 'Контрагент',
         dataType: 'link',
         sortOrder: 30,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
@@ -345,7 +345,7 @@ export function EngineDetailsPage(props: {
       ? {
           code: 'customer_id',
           defaultOrder: 30,
-          label: 'Заказчик',
+          label: 'Контрагент',
           value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
           render: (
             <SearchSelectWithCreate
@@ -353,7 +353,7 @@ export function EngineDetailsPage(props: {
               options={linkLists.customer_id ?? []}
               disabled={!props.canEditEngines}
               canCreate={props.canEditMasterData}
-              createLabel="Новый заказчик"
+              createLabel="Новый контрагент"
               onChange={(next) => {
                 const v = next ?? '';
                 setCustomerId(v);

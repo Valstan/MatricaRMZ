@@ -232,7 +232,7 @@ export function ContractDetailsPage(props: {
       { code: 'number', name: 'Номер контракта', dataType: 'text', sortOrder: 10 },
       {
         code: 'customer_id',
-        name: 'Заказчик',
+        name: 'Контрагент',
         dataType: 'link',
         sortOrder: 20,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
@@ -444,7 +444,7 @@ export function ContractDetailsPage(props: {
       {
         code: 'customer_id',
         defaultOrder: 20,
-        label: 'Заказчик',
+        label: 'Контрагент',
         value: customerLabel || '',
         render: (
           <div style={{ display: 'grid', gap: 6 }}>
@@ -453,7 +453,7 @@ export function ContractDetailsPage(props: {
               options={customerOptions}
               disabled={!props.canEdit}
               canCreate={props.canEditMasterData}
-              createLabel="Новый заказчик"
+              createLabel="Новый контрагент"
               onChange={(next) => {
                 const v = next ?? '';
                 setCustomerId(v);
@@ -468,7 +468,7 @@ export function ContractDetailsPage(props: {
               }}
             />
             {customerOptions.length === 0 && (
-              <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник заказчиков пуст — выберите или создайте значение.</span>
+              <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник контрагентов пуст — выберите или создайте значение.</span>
             )}
           </div>
         ),

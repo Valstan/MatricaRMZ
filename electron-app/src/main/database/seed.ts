@@ -22,7 +22,8 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
       const nextName = String(name ?? '').trim();
       const shouldUpdate =
         !currentName ||
-        (code === EntityTypeCode.Product && (currentName === 'Товары (номенклатура)' || currentName === 'Товары/услуги'));
+        (code === EntityTypeCode.Product && (currentName === 'Товары (номенклатура)' || currentName === 'Товары/услуги')) ||
+        (code === EntityTypeCode.Customer && (currentName === 'Заказчик' || currentName === 'Заказчики'));
 
       if (shouldUpdate && currentName !== nextName) {
         await db
@@ -48,7 +49,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
 
   const engineTypeId = await ensureEntityType(EntityTypeCode.Engine, 'Двигатель');
   const engineBrandTypeId = await ensureEntityType(EntityTypeCode.EngineBrand, 'Марка двигателя');
-  const customerTypeId = await ensureEntityType(EntityTypeCode.Customer, 'Заказчик');
+  const customerTypeId = await ensureEntityType(EntityTypeCode.Customer, 'Контрагенты');
   const contractTypeId = await ensureEntityType(EntityTypeCode.Contract, 'Контракт');
   const workOrderTypeId = await ensureEntityType(EntityTypeCode.WorkOrder, 'Наряд');
   const workshopTypeId = await ensureEntityType(EntityTypeCode.Workshop, 'Цех');
@@ -168,6 +169,9 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(customerTypeId, 'name', 'Название', AttributeDataType.Text, 10);
   await ensureAttrDef(customerTypeId, 'inn', 'ИНН', AttributeDataType.Text, 20);
   await ensureAttrDef(customerTypeId, 'kpp', 'КПП', AttributeDataType.Text, 30);
+  await ensureAttrDef(customerTypeId, 'address', 'Адрес', AttributeDataType.Text, 40);
+  await ensureAttrDef(customerTypeId, 'phone', 'Телефон', AttributeDataType.Text, 50);
+  await ensureAttrDef(customerTypeId, 'email', 'Email', AttributeDataType.Text, 60);
   await ensureAttrDef(
     customerTypeId,
     'category_id',

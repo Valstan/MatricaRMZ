@@ -17,7 +17,8 @@
     "sync:backfill-change-log": "tsx src/scripts/backfillChangeLog.ts",
     "sync:emit-snapshot": "tsx src/scripts/emitSyncSnapshot.ts",
     "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",
-    "backup:nightly": "tsx src/scripts/nightlyBackup.ts"
+    "backup:nightly": "tsx src/scripts/nightlyBackup.ts",
+    "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts"
   },
   "dependencies": {
     "@matricarmz/shared": "workspace:*",
