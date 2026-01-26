@@ -188,7 +188,7 @@ export function MasterdataPage(props: {
       const map: Record<string, string> = {};
       for (const t of list as any[]) {
         if (String(t.code) === 'unit') map.unit = String(t.id);
-        if (String(t.code) === 'store') map.shop = String(t.id);
+        if (String(t.code) === 'customer') map.shop = String(t.id);
       }
       lookupTypeIdByCode.current = map;
       const next: Record<string, { id: string; label: string }[]> = {};
@@ -1808,7 +1808,7 @@ function FieldEditor(props: {
               }
             : undefined
         }
-        createLabel={props.def.code === 'unit' ? 'Новая единица' : 'Новый магазин'}
+        createLabel={props.def.code === 'unit' ? 'Новая единица' : 'Новый контрагент'}
       />
     );
   }

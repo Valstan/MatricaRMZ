@@ -117,7 +117,7 @@ export function SimpleMasterdataDetailsPage(props: {
       try {
         const types = await window.matrica.admin.entityTypes.list();
         const unitType = (types as any[]).find((t) => String(t.code) === 'unit') ?? null;
-        const storeType = (types as any[]).find((t) => String(t.code) === 'store') ?? null;
+        const storeType = (types as any[]).find((t) => String(t.code) === 'customer') ?? null;
         if (!alive) return;
         setUnitTypeId(unitType?.id ? String(unitType.id) : '');
         setStoreTypeId(storeType?.id ? String(storeType.id) : '');
@@ -365,7 +365,7 @@ export function SimpleMasterdataDetailsPage(props: {
             options={storeOptions}
             disabled={!props.canEdit}
             canCreate={props.canEdit}
-            createLabel="Добавить магазин"
+            createLabel="Добавить контрагента"
             onChange={(next) => {
               const label = storeOptions.find((o) => o.id === next)?.label ?? '';
               setShop(label);
