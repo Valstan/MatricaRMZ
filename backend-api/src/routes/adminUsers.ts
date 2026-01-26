@@ -10,7 +10,6 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../au
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser, hasPermission } from '../auth/permissions.js';
 import {
   createEmployeeEntity,
-  detachIncomingLinksAndSoftDeleteEntity,
   emitEmployeeSyncSnapshot,
   emitEmployeesSyncSnapshotAll,
   ensureEmployeeAuthDefs,
@@ -26,6 +25,7 @@ import {
   setEmployeeFullName,
   setEmployeeProfile,
 } from '../services/employeeAuthService.js';
+import { detachIncomingLinksAndSoftDeleteEntity } from '../services/adminMasterdataService.js';
 
 export const adminUsersRouter = Router();
 
