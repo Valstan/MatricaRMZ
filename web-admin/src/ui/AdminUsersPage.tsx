@@ -5,6 +5,7 @@ import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import * as adminUsers from '../api/adminUsers.js';
+import * as ledger from '../api/ledger.js';
 
 export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: string; role: string; username: string } | null }) {
   const canManageUsers = props.canManageUsers;
@@ -34,6 +35,14 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const [editLogin, setEditLogin] = useState<string>('');
   const [pendingMergeTargets, setPendingMergeTargets] = useState<Record<string, string>>({});
   const [pendingRoles, setPendingRoles] = useState<Record<string, 'user' | 'admin'>>({});
+  const [releaseVersion, setReleaseVersion] = useState<string>('');
+  const [releaseNotes, setReleaseNotes] = useState<string>('');
+  const [releaseMeta, setReleaseMeta] = useState<string>('');
+  const [releaseSha, setReleaseSha] = useState<string>('');
+  const [releaseFileName, setReleaseFileName] = useState<string>('');
+  const [releaseSize, setReleaseSize] = useState<string>('');
+  const [releaseStatus, setReleaseStatus] = useState<string>('');
+  const [latestRelease, setLatestRelease] = useState<{ version: string; createdAt: number; createdBy: string } | null>(null);
 
   async function refreshUsers() {
     const r = await adminUsers.listUsers();
@@ -91,6 +100,21 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     setEditLogin(selectedUser?.login ?? '');
   }, [selectedUser?.id, selectedUser?.login]);
 
+  useEffect(() => {
+    void (async () => {
+      const r = await ledger.getLatestRelease();
+      if (r?.ok && r.release) {
+        setLatestRelease({
+          version: String(r.release.version ?? ''),
+          createdAt: Number(r.release.created_at ?? 0),
+          createdBy: String(r.release.created_by_username ?? ''),
+        });
+      } else {
+        setLatestRelease(null);
+      }
+    })();
+  }, []);
+
   return (
     <div>
       <h2 style={{ margin: '8px 0' }}>Админ</h2>
@@ -101,34 +125,109 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
       {!canManageUsers && <div className="muted">У вас нет доступа к управлению пользователями и правами.</div>}
 
       {canManageUsers && (
-        <div className="card">
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Пользователи и права доступа</strong>
-            <span style={{ flex: 1 }} />
-            <Button
-              variant="ghost"
-              onClick={async () => {
-                if (!confirm('Переснять всех сотрудников в синхронизацию? Клиентам потребуется выполнить синк.')) return;
-                setStatus('Формируем синк-снимок сотрудников…');
-                const r = await adminUsers.resyncEmployees();
-                if (r.ok) {
-                  const failed = Number((r as any).failed ?? 0);
-                  setStatus(
-                    failed > 0
-                      ? `Готово: ${r.count ?? 0} сотрудников, ошибок: ${failed}. Запустите синхронизацию на клиентах.`
-                      : `Готово: ${r.count ?? 0} сотрудников. Запустите синхронизацию на клиентах.`,
-                  );
-                } else {
-                  setStatus(`Ошибка пересинхронизации: ${r.error ?? 'unknown'}`);
-                }
-              }}
-            >
-              Пересинхронизировать сотрудников
-            </Button>
-            <Button variant="ghost" onClick={() => void refreshUsers()}>
-              Обновить
-            </Button>
+        <>
+          <div className="card" style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <strong>Ledger: публикация релиза</strong>
+              <span style={{ flex: 1 }} />
+              {latestRelease && (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Последний: {latestRelease.version} • {latestRelease.createdBy || '—'}
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <Input value={releaseVersion} onChange={(e) => setReleaseVersion(e.target.value)} placeholder="версия (X.Y.Z)" />
+              <Input value={releaseNotes} onChange={(e) => setReleaseNotes(e.target.value)} placeholder="краткие заметки" />
+              <Input value={releaseFileName} onChange={(e) => setReleaseFileName(e.target.value)} placeholder="имя инсталлятора (Setup.exe)" />
+              <Input value={releaseSha} onChange={(e) => setReleaseSha(e.target.value)} placeholder="SHA256 (64 hex)" />
+              <Input value={releaseSize} onChange={(e) => setReleaseSize(e.target.value)} placeholder="размер (bytes)" />
+              <Input
+                value={releaseMeta}
+                onChange={(e) => setReleaseMeta(e.target.value)}
+                placeholder='metadata JSON (опционально, например {"build":"win"})'
+              />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Button
+                  onClick={async () => {
+                    if (!releaseVersion.trim()) {
+                      setReleaseStatus('Укажите версию.');
+                      return;
+                    }
+                    let metadata: Record<string, unknown> | undefined;
+                    if (releaseMeta.trim()) {
+                      try {
+                        metadata = JSON.parse(releaseMeta);
+                      } catch {
+                        setReleaseStatus('metadata JSON некорректен.');
+                        return;
+                      }
+                    }
+                    setReleaseStatus('Публикация...');
+                    const r = await ledger.publishRelease({
+                      version: releaseVersion.trim(),
+                      notes: releaseNotes.trim() || undefined,
+                      fileName: releaseFileName.trim() || undefined,
+                      sha256: releaseSha.trim() || undefined,
+                      size: releaseSize.trim() ? Number(releaseSize.trim()) : undefined,
+                      metadata,
+                    });
+                    if (r?.ok) {
+                      setReleaseStatus('Релиз опубликован.');
+                      setReleaseVersion('');
+                      setReleaseNotes('');
+                      setReleaseMeta('');
+                      setReleaseFileName('');
+                      setReleaseSha('');
+                      setReleaseSize('');
+                      const latest = await ledger.getLatestRelease();
+                      if (latest?.ok && latest.release) {
+                        setLatestRelease({
+                          version: String(latest.release.version ?? ''),
+                          createdAt: Number(latest.release.created_at ?? 0),
+                          createdBy: String(latest.release.created_by_username ?? ''),
+                        });
+                      }
+                    } else {
+                      setReleaseStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+                    }
+                  }}
+                >
+                  Опубликовать
+                </Button>
+                {releaseStatus && <div className="muted">{releaseStatus}</div>}
+              </div>
+            </div>
           </div>
+
+          <div className="card">
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <strong>Пользователи и права доступа</strong>
+              <span style={{ flex: 1 }} />
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  if (!confirm('Переснять всех сотрудников в синхронизацию? Клиентам потребуется выполнить синк.')) return;
+                  setStatus('Формируем синк-снимок сотрудников…');
+                  const r = await adminUsers.resyncEmployees();
+                  if (r.ok) {
+                    const failed = Number((r as any).failed ?? 0);
+                    setStatus(
+                      failed > 0
+                        ? `Готово: ${r.count ?? 0} сотрудников, ошибок: ${failed}. Запустите синхронизацию на клиентах.`
+                        : `Готово: ${r.count ?? 0} сотрудников. Запустите синхронизацию на клиентах.`,
+                    );
+                  } else {
+                    setStatus(`Ошибка пересинхронизации: ${r.error ?? 'unknown'}`);
+                  }
+                }}
+              >
+                Пересинхронизировать сотрудников
+              </Button>
+              <Button variant="ghost" onClick={() => void refreshUsers()}>
+                Обновить
+              </Button>
+            </div>
 
           {users.some((u) => String(u.role).toLowerCase() === 'pending') && (
             <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>

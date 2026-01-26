@@ -1,10 +1,11 @@
+import { LedgerStore } from '@matricarmz/ledger';
 import { EntityTypeCode, SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
 import { app } from 'electron';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 import { attributeDefs, attributeValues, auditLog, chatMessages, chatReads, entities, entityTypes, operations, userPresence } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
@@ -12,6 +13,7 @@ import { authRefresh, clearSession, getSession } from './authService.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { fetchWithRetry } from './netFetch.js';
+import { getKeyRing, keyRingToBuffers } from './e2eKeyService.js';
 
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
@@ -30,6 +32,8 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
 };
 
 const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
+const LEDGER_BLOCKS_PAGE_SIZE = 200;
+const LEDGER_E2E_ENV = 'MATRICA_LEDGER_E2E';
 
 function nowMs() {
   return Date.now();
@@ -43,6 +47,80 @@ function logSync(message: string) {
   } catch {
     // ignore
   }
+}
+
+let clientLedgerStore: LedgerStore | null = null;
+function getClientLedgerStore(): LedgerStore {
+  if (clientLedgerStore) return clientLedgerStore;
+  const dir = join(app.getPath('userData'), 'ledger');
+  clientLedgerStore = new LedgerStore(dir);
+  return clientLedgerStore;
+}
+
+function isE2eEnabled(): boolean {
+  return String(process.env[LEDGER_E2E_ENV] ?? '') === '1';
+}
+
+function getE2eKeys(): { primary: Buffer | null; all: Buffer[] } {
+  if (!isE2eEnabled()) return { primary: null, all: [] };
+  const ring = getKeyRing();
+  const all = keyRingToBuffers(ring);
+  const primary = all[0] ?? null;
+  return { primary, all };
+}
+
+function encryptTextE2e(value: string, key: Buffer): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:e2e:v1:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
+}
+
+function decryptTextE2e(value: string, key: Buffer): string {
+  if (!value.startsWith('enc:e2e:v1:')) return value;
+  const parts = value.split(':');
+  if (parts.length !== 6) return value;
+  const iv = Buffer.from(parts[3], 'base64');
+  const tag = Buffer.from(parts[4], 'base64');
+  const data = Buffer.from(parts[5], 'base64');
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
+  return decrypted.toString('utf8');
+}
+
+function encryptRowSensitive(row: Record<string, unknown>, key: Buffer | null) {
+  if (!key) return row;
+  const next = { ...row };
+  for (const field of ['meta_json', 'payload_json']) {
+    const val = next[field];
+    if (typeof val === 'string' && val.length > 0 && !val.startsWith('enc:e2e:v1:')) {
+      next[field] = encryptTextE2e(val, key);
+    }
+  }
+  return next;
+}
+
+function decryptRowSensitive(row: Record<string, unknown>, keys: Buffer[]) {
+  if (!keys.length) return row;
+  const next = { ...row };
+  for (const field of ['meta_json', 'payload_json']) {
+    const val = next[field];
+    if (typeof val === 'string' && val.startsWith('enc:e2e:v1:')) {
+      let decrypted: string | null = null;
+      for (const key of keys) {
+        try {
+          decrypted = decryptTextE2e(val, key);
+          break;
+        } catch {
+          decrypted = null;
+        }
+      }
+      if (decrypted != null) next[field] = decrypted;
+    }
+  }
+  return next;
 }
 
 async function safeBodyText(r: Response): Promise<string> {
@@ -252,6 +330,33 @@ async function fetchAuthed(
   }
 
   return first;
+}
+
+async function syncLedgerBlocks(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const store = getClientLedgerStore();
+  let lastHeight = store.loadIndex().lastHeight;
+  for (let i = 0; i < 1000; i += 1) {
+    const url = `${apiBaseUrl}/ledger/blocks?since=${lastHeight}&limit=${LEDGER_BLOCKS_PAGE_SIZE}`;
+    const res = await fetchAuthed(db, apiBaseUrl, url, { method: 'GET' }, { attempts: 3, timeoutMs: 60_000, label: 'pull' });
+    if (!res.ok) {
+      const body = await safeBodyText(res);
+      logSync(`ledger blocks pull failed status=${res.status} body=${body}`);
+      return;
+    }
+    const json = (await res.json()) as { ok: boolean; last_height: number; blocks: any[] };
+    const blocks = Array.isArray(json.blocks) ? json.blocks : [];
+    if (blocks.length === 0) break;
+    for (const block of blocks) {
+      try {
+        store.appendRemoteBlock(block);
+      } catch (e) {
+        logSync(`ledger append failed height=${block?.height} err=${formatError(e)}`);
+        return;
+      }
+    }
+    if (json.last_height === lastHeight) break;
+    lastHeight = json.last_height;
+  }
 }
 
 async function getSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, fallback: number) {
@@ -467,6 +572,18 @@ function toSyncRow(table: SyncTableName, row: any): any {
   }
 }
 
+function toLedgerTx(table: SyncTableName, row: any) {
+  const { primary } = getE2eKeys();
+  const syncRow = encryptRowSensitive(toSyncRow(table, row), primary);
+  const deletedAt = (syncRow as any)?.deleted_at ?? null;
+  return {
+    type: deletedAt ? 'delete' : 'upsert',
+    table,
+    row: syncRow,
+    row_id: syncRow.id,
+  };
+}
+
 async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, ids: string[]) {
   if (ids.length === 0) return;
   // Важно: не трогаем updatedAt при простом подтверждении синка,
@@ -517,6 +634,7 @@ async function markAllAttributeDefsPending(db: BetterSQLite3Database) {
 async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullResponse['changes']) {
   if (changes.length === 0) return;
   const ts = nowMs();
+  const { all: e2eKeys } = getE2eKeys();
 
   // Client-side ID remap (important for UNIQUE constraints):
   // - SQLite enforces unique(entity_types.code)
@@ -610,7 +728,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   };
 
   for (const ch of changes) {
-    const payloadRaw = JSON.parse(ch.payload_json) as any;
+    const payloadRaw = decryptRowSensitive(JSON.parse(ch.payload_json) as any, e2eKeys);
     switch (ch.table) {
       case SyncTableName.EntityTypes:
         {
@@ -1022,7 +1140,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
     logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
     const pullOnce = async (sinceValue: number) => {
-      const pullUrl = `${apiBaseUrl}/sync/pull?since=${sinceValue}&limit=${PULL_PAGE_SIZE}`;
+      const pullUrl = `${apiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}`;
       const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
       if (!pull.ok) {
         const body = await safeBodyText(pull);
@@ -1065,8 +1183,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         const summary = pushedPacks.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
         const total = pushedPacks.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
         logSync(`push pending total=${total} packs=[${summary}]`);
-        const pushBody: SyncPushRequest = { client_id: clientId, upserts: pushedPacks };
-        const pushUrl = `${apiBaseUrl}/sync/push`;
+        const ledgerTxs = pushedPacks.flatMap((pack) => (pack.rows as any[]).map((row) => toLedgerTx(pack.table, row)));
+        const pushBody = { txs: ledgerTxs };
+        const pushUrl = `${apiBaseUrl}/ledger/tx/submit`;
         const r = await fetchAuthed(
           db,
           apiBaseUrl,
@@ -1172,6 +1291,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
     logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
     await sendDiagnosticsSnapshot(db, apiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
+    await syncLedgerBlocks(db, apiBaseUrl).catch(() => {});
     return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
   } catch (e) {
     const err = formatError(e);

@@ -69,6 +69,10 @@ sudo systemctl restart matricarmz-backend.service
 - причина: для заявок используется контейнерный `engine_entity_id=00000000-0000-0000-0000-000000000001`, которого не было в `entities`.
 - фикс: backend `applyPushBatch.ts` создаёт system container entity/type при приходе `supply_request`.
 
+## ИИ‑агент и Ollama
+- Используются две модели: лёгкая для чата и глубокая для аналитики.
+- Переменные окружения: `OLLAMA_MODEL_CHAT`, `OLLAMA_MODEL_ANALYTICS` (см. `docs/PATHS.md`).
+
 ### 3) Модуль учета деталей
 - Backend API: `/parts` (CRUD), `/parts/:id/attributes`, `/parts/:id/files`.
 - EAV система: детали хранятся как `entities` типа `part`, атрибуты через `attribute_values`.

@@ -33,6 +33,7 @@ let currentState: TorrentState | null = null;
 let lastScanAt: number | null = null;
 let lastError: string | null = null;
 const peerBook = new Map<string, Map<string, LanPeer>>();
+const lanHttpPeerBook = new Map<string, Map<string, LanPeer>>();
 
 const RESCAN_INTERVAL_MS = 60_000;
 const LAN_PEER_TTL_MS = 120_000;
@@ -91,6 +92,16 @@ function cleanupPeerBook(infoHash: string) {
   if (book.size === 0) peerBook.delete(infoHash);
 }
 
+function cleanupLanHttpPeerBook(version: string) {
+  const now = Date.now();
+  const book = lanHttpPeerBook.get(version);
+  if (!book) return;
+  for (const [key, peer] of book.entries()) {
+    if (now - peer.lastSeenAt > LAN_PEER_TTL_MS) book.delete(key);
+  }
+  if (book.size === 0) lanHttpPeerBook.delete(version);
+}
+
 export function registerUpdatePeers(infoHash: string, peers: Array<{ ip: string; port?: number }>) {
   const cleanedHash = String(infoHash ?? '').trim();
   if (!cleanedHash) return { ok: false as const, error: 'infoHash missing' };
@@ -119,6 +130,52 @@ export function listUpdatePeers(infoHash: string, opts?: { limit?: number; exclu
   if (!cleanedHash) return { ok: false as const, error: 'infoHash missing', peers: [] };
   cleanupPeerBook(cleanedHash);
   const book = peerBook.get(cleanedHash);
+  if (!book) return { ok: true as const, peers: [] };
+  const exclude = new Set<string>(
+    (opts?.exclude ?? [])
+      .map((p) => {
+        const ip = normalizeIp(p.ip);
+        const port = Number(p.port ?? 0);
+        return ip && port > 0 ? `${ip}:${port}` : '';
+      })
+      .filter(Boolean),
+  );
+  const limit = Math.max(1, Math.min(200, Number(opts?.limit ?? 50)));
+  const peers = Array.from(book.values())
+    .filter((p) => !exclude.has(`${p.ip}:${p.port}`))
+    .slice(0, limit)
+    .map((p) => ({ ip: p.ip, port: p.port }));
+  return { ok: true as const, peers };
+}
+
+export function registerLanHttpPeers(version: string, peers: Array<{ ip: string; port?: number }>) {
+  const cleanedVersion = String(version ?? '').trim();
+  if (!cleanedVersion) return { ok: false as const, error: 'version missing' };
+  const now = Date.now();
+  let book = lanHttpPeerBook.get(cleanedVersion);
+  if (!book) {
+    book = new Map<string, LanPeer>();
+    lanHttpPeerBook.set(cleanedVersion, book);
+  }
+  let added = 0;
+  for (const p of peers) {
+    const ip = normalizeIp(p.ip);
+    const port = Number(p.port ?? 0);
+    if (!ip || !isPrivateIp(ip) || !Number.isFinite(port) || port <= 0) continue;
+    const key = `${ip}:${port}`;
+    const prev = book.get(key);
+    if (!prev) added += 1;
+    book.set(key, { ip, port, lastSeenAt: now });
+  }
+  cleanupLanHttpPeerBook(cleanedVersion);
+  return { ok: true as const, added, total: book.size };
+}
+
+export function listLanHttpPeers(version: string, opts?: { limit?: number; exclude?: Array<{ ip: string; port?: number }> }) {
+  const cleanedVersion = String(version ?? '').trim();
+  if (!cleanedVersion) return { ok: false as const, error: 'version missing', peers: [] };
+  cleanupLanHttpPeerBook(cleanedVersion);
+  const book = lanHttpPeerBook.get(cleanedVersion);
   if (!book) return { ok: true as const, peers: [] };
   const exclude = new Set<string>(
     (opts?.exclude ?? [])

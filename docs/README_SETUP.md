@@ -44,6 +44,15 @@ pnpm run db:migrate
 
 Должно вывести: `[backend-api] migrations applied`
 
+### 1.4. Инициализировать блокчейн‑слой (ledger)
+
+```bash
+cd /home/valstan/MatricaRMZ/backend-api
+pnpm run ledger:import
+```
+
+Создаст/обновит локальный ledger в `backend-api/ledger/` и перенесет текущие данные.
+
 ---
 
 ## Шаг 2: Запуск Backend API на VPS

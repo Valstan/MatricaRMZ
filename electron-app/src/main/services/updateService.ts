@@ -19,6 +19,8 @@ import {
 } from './torrentUpdateService.js';
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
+import { registerLanPeer, startLanUpdateServer } from './lanUpdateService.js';
+import { createHash } from 'node:crypto';
 
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string; source?: 'torrent' | 'github' | 'yandex'; downloadUrl?: string }
@@ -41,6 +43,7 @@ const autoUpdater = updater.autoUpdater;
 
 const UPDATE_CHECK_TIMEOUT_MS = 10_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 30_000;
+const LAN_PEER_PING_MS = 30_000;
 
 function getUpdateApiBaseUrl() {
   const envUrl = process.env.MATRICA_UPDATE_API_URL?.trim() || process.env.MATRICA_API_URL?.trim();
@@ -58,6 +61,17 @@ export function initAutoUpdate() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
+}
+
+export function initLanUpdateSharing(apiBaseUrl: string) {
+  const portRaw = Number(process.env.MATRICA_UPDATE_LAN_PORT ?? 0);
+  startLanUpdateServer(() => lanInstallerPath, portRaw);
+  if (lanPeerInterval) clearInterval(lanPeerInterval);
+  lanPeerInterval = setInterval(() => {
+    if (lanInstallerVersion) {
+      void registerLanPeer(apiBaseUrl, lanInstallerVersion);
+    }
+  }, LAN_PEER_PING_MS);
 }
 
 let updateInFlight = false;
@@ -78,6 +92,9 @@ type UpdateRuntimeState = {
 let updateState: UpdateRuntimeState = { state: 'idle', updatedAt: Date.now() };
 let torrentDebugInfo: TorrentClientStats | null = null;
 let torrentDebugUpdatedAt = 0;
+let lanInstallerPath: string | null = null;
+let lanInstallerVersion: string | null = null;
+let lanPeerInterval: NodeJS.Timeout | null = null;
 
 async function openInstallerFolder(installerPath: string) {
   if (process.platform !== 'win32') return;
@@ -192,7 +209,7 @@ function isSetupInstallerName(name: string) {
 async function validateInstallerPath(
   installerPath: string,
   expectedName?: string,
-): Promise<{ ok: true; isSetup: boolean; size: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; isSetup: boolean; size: number; actualName: string } | { ok: false; error: string }> {
   const st = await stat(installerPath).catch(() => null);
   if (!st || !st.isFile()) return { ok: false, error: 'installer file is missing' };
   if (st.size <= 0) return { ok: false, error: 'installer file is empty' };
@@ -203,7 +220,51 @@ async function validateInstallerPath(
   if (expectedRequiresSetup && !actualIsSetup) {
     return { ok: false, error: `installer mismatch: expected setup, got ${actualName}` };
   }
-  return { ok: true, isSetup: actualIsSetup, size: st.size };
+  return { ok: true, isSetup: actualIsSetup, size: st.size, actualName };
+}
+
+async function calculateSha256(path: string): Promise<string> {
+  const data = await readFile(path);
+  const hash = createHash('sha256').update(data).digest('hex');
+  return hash;
+}
+
+async function verifySha256(installerPath: string, expected?: string | null) {
+  if (!expected) return { ok: true };
+  const actual = await calculateSha256(installerPath);
+  if (actual.toLowerCase() !== expected.toLowerCase()) {
+    return { ok: false, error: `sha256 mismatch expected=${expected} actual=${actual}` };
+  }
+  return { ok: true };
+}
+
+async function fetchLedgerLatestRelease(): Promise<{
+  ok: boolean;
+  release?: { version?: string; sha256?: string; file_name?: string; size?: number };
+}> {
+  try {
+    const baseUrl = getUpdateApiBaseUrl();
+    const r = await fetchWithRetry(
+      `${baseUrl}/ledger/releases/latest`,
+      { method: 'GET' },
+      { attempts: 2, timeoutMs: 8000, backoffMs: 400, maxBackoffMs: 2000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+    );
+    if (!r.ok) return { ok: false };
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !json.release) return { ok: false };
+    const rel = json.release;
+    return {
+      ok: true,
+      release: {
+        version: rel.version ? String(rel.version) : undefined,
+        sha256: rel.sha256 ? String(rel.sha256) : undefined,
+        file_name: rel.file_name ? String(rel.file_name) : undefined,
+        size: rel.size != null ? Number(rel.size) : undefined,
+      },
+    };
+  } catch {
+    return { ok: false };
+  }
 }
 
 async function queuePendingUpdate(args: {
@@ -213,6 +274,24 @@ async function queuePendingUpdate(args: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const validation = await validateInstallerPath(args.installerPath, args.expectedName);
   if (!validation.ok) return validation;
+  const ledger = await fetchLedgerLatestRelease();
+  if (ledger.ok && ledger.release) {
+    if (ledger.release.version && ledger.release.version !== args.version) {
+      return { ok: false, error: `ledger version mismatch: ${ledger.release.version} != ${args.version}` };
+    }
+    if (ledger.release.file_name && ledger.release.file_name !== validation.actualName) {
+      return { ok: false, error: `ledger file mismatch: ${ledger.release.file_name} != ${validation.actualName}` };
+    }
+    if (ledger.release.size && ledger.release.size !== validation.size) {
+      return { ok: false, error: `ledger size mismatch: ${ledger.release.size} != ${validation.size}` };
+    }
+    if (ledger.release.sha256) {
+      const shaCheck = await verifySha256(args.installerPath, ledger.release.sha256);
+      if (!shaCheck.ok) return shaCheck;
+    }
+  }
+  lanInstallerPath = args.installerPath;
+  lanInstallerVersion = args.version;
   await writePendingUpdate({ version: args.version, installerPath: args.installerPath });
   await writeUpdaterLog(
     `pending-update saved version=${args.version} installer=${args.installerPath} size=${validation.size}`,
@@ -224,6 +303,48 @@ async function installNow(args: { installerPath: string; version?: string }) {
   await stageUpdate('Скачивание завершено. Готовим установку…', 60, args.version);
   lockUpdateUi(true);
   await stageUpdate('Подготовка установщика…', 70, args.version);
+  const validation = await validateInstallerPath(args.installerPath, args.installerPath);
+  if (!validation.ok) {
+    await writeUpdaterLog(`installer validation failed: ${validation.error}`);
+    await stageUpdate('Установщик поврежден. Повторим позже.', 100, args.version);
+    await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+    closeUpdateWindowSoon(4000);
+    return;
+  }
+  const ledger = await fetchLedgerLatestRelease();
+  if (ledger.ok && ledger.release) {
+    if (ledger.release.version && args.version && ledger.release.version !== args.version) {
+      await writeUpdaterLog(`installer version mismatch: ledger=${ledger.release.version} local=${args.version}`);
+      await stageUpdate('Версия релиза не совпадает с ledger. Повторим позже.', 100, args.version);
+      await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+      closeUpdateWindowSoon(4000);
+      return;
+    }
+    if (ledger.release.file_name && ledger.release.file_name !== validation.actualName) {
+      await writeUpdaterLog(`installer file mismatch: ledger=${ledger.release.file_name} local=${validation.actualName}`);
+      await stageUpdate('Имя установщика не совпадает с ledger. Повторим позже.', 100, args.version);
+      await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+      closeUpdateWindowSoon(4000);
+      return;
+    }
+    if (ledger.release.size && ledger.release.size !== validation.size) {
+      await writeUpdaterLog(`installer size mismatch: ledger=${ledger.release.size} local=${validation.size}`);
+      await stageUpdate('Размер установщика не совпадает с ledger. Повторим позже.', 100, args.version);
+      await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+      closeUpdateWindowSoon(4000);
+      return;
+    }
+    if (ledger.release.sha256) {
+      const shaCheck = await verifySha256(args.installerPath, ledger.release.sha256);
+      if (!shaCheck.ok) {
+        await writeUpdaterLog(`installer sha256 check failed: ${shaCheck.error}`);
+        await stageUpdate('Проверка целостности не пройдена. Повторим позже.', 100, args.version);
+        await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+        closeUpdateWindowSoon(4000);
+        return;
+      }
+    }
+  }
   await addUpdateLog('Останавливаем торрент перед запуском установщика…');
   await stopTorrentDownload().catch(() => {});
   await stopTorrentSeeding().catch(() => {});
@@ -575,6 +696,8 @@ async function resolveLocalInstaller(currentVersion: string, serverVersion: stri
     if (!validation.ok) {
       await clearPendingUpdate();
     } else if (!serverVersion || compareSemver(pending.version, serverVersion) >= 0) {
+      lanInstallerPath = pending.installerPath;
+      lanInstallerVersion = pending.version;
       return { action: 'install' as const, version: pending.version, installerPath: pending.installerPath };
     }
   }
@@ -582,6 +705,8 @@ async function resolveLocalInstaller(currentVersion: string, serverVersion: stri
   const cached = await findCachedInstaller();
   if (cached && compareSemver(cached.version, currentVersion) > 0) {
     if (!serverVersion || compareSemver(cached.version, serverVersion) >= 0) {
+      lanInstallerPath = cached.installerPath;
+      lanInstallerVersion = cached.version;
       await queuePendingUpdate({ version: cached.version, installerPath: cached.installerPath });
       return { action: 'install' as const, version: cached.version, installerPath: cached.installerPath };
     }
@@ -604,6 +729,8 @@ async function getServerVersion(): Promise<string | null> {
 export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | null): Promise<boolean> {
   const pending = await readPendingUpdate();
   if (!pending?.installerPath) return false;
+  lanInstallerPath = pending.installerPath;
+  lanInstallerVersion = pending.version;
   const currentVersion = app.getVersion();
   if (pending.version && compareSemver(pending.version, currentVersion) <= 0) {
     await writeUpdaterLog(`pending-update ignored: version=${pending.version} current=${currentVersion}`);
@@ -757,6 +884,7 @@ async function backgroundTorrentDownload(
         message: `Скачиваем обновление… Пиры: ${peers}`,
       });
     },
+    onLog: (line) => void addUpdateLog(line),
   });
   if (!tdl.ok) {
     setUpdateState({ state: 'error', source: 'torrent', version, message: String(tdl.error ?? 'torrent download failed') });
@@ -1002,6 +1130,7 @@ export async function runAutoUpdateFlow(
           onStats: (stats) => {
             void setTorrentDebug(stats);
           },
+          onLog: (line) => void addUpdateLog(line),
         });
         if (tdl.ok) {
           const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);

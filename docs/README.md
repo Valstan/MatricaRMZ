@@ -23,10 +23,12 @@
 - **Roadmap**: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - **Релизы**: [`RELEASE.md`](RELEASE.md)
 - **Секреты/безопасность**: [`SECURITY.md`](SECURITY.md)
+- **Блокчейн‑слой (ledger)**: [`docs/BLOCKCHAIN.md`](docs/BLOCKCHAIN.md)
 
 ## Ключевые принципы
 - **Секреты** (`.env`, токены, пароли) **не храним в репозитории** — см. [`SECURITY.md`](SECURITY.md).
 - Клиент хранит данные локально в SQLite и синхронизирует изменения через `/sync/push` и `/sync/pull`.
 - `clientId` клиента должен быть **стабильным** (хранится в локальном `sync_state`), чтобы на сервере не плодились записи `sync_state` и чтобы диагностика была понятной.
+- Релиз клиента фиксируется в ledger (version/fileName/size/SHA256) — без этого клиент не установит обновление.
 
 

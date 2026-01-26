@@ -9,7 +9,8 @@
   "workspaces": [
     "electron-app",
     "backend-api",
-    "shared"
+    "shared",
+    "ledger"
   ],
   "scripts": {
     "dev": "pnpm -r dev",

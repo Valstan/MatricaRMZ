@@ -201,6 +201,11 @@ contextBridge.exposeInMainWorld('matrica', {
     uiSet: async (args: { theme?: string; chatSide?: string; userId?: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }) =>
       ipcRenderer.invoke('ui:prefs:set', args),
   },
+  e2eKeys: {
+    status: async () => ipcRenderer.invoke('e2e:keys:status'),
+    export: async () => ipcRenderer.invoke('e2e:keys:export'),
+    rotate: async () => ipcRenderer.invoke('e2e:keys:rotate'),
+  },
   backups: {
     status: async () => ipcRenderer.invoke('backups:status'),
     nightlyList: async () => ipcRenderer.invoke('backups:nightly:list'),

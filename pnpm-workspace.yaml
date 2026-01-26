@@ -3,5 +3,6 @@ packages:
   - "backend-api"
   - "shared"
   - "web-admin"
+  - "ledger"
 
 

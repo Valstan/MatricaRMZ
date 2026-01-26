@@ -315,6 +315,11 @@ export type MatricaApi = {
       | { ok: false; error: string }
     >;
   };
+  e2eKeys: {
+    status: () => Promise<{ ok: true; enabled: boolean; primaryPresent: boolean; previousCount: number; updatedAt: number } | { ok: false; error: string }>;
+    export: () => Promise<{ ok: true; ring: { primary: string; previous: string[]; updatedAt: number } } | { ok: false; error: string }>;
+    rotate: () => Promise<{ ok: true; ring: { primary: string; previous: string[]; updatedAt: number } } | { ok: false; error: string }>;
+  };
   backups: {
     status: () => Promise<{ ok: true; mode: 'live' | 'backup'; backupDate: string | null } | { ok: false; error: string }>;
     nightlyList: () => Promise<

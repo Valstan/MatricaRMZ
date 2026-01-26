@@ -28,6 +28,7 @@
 - Миграции: `backend-api/drizzle/*.sql`
 - Конфиг миграций: `backend-api/drizzle.config.ts`
 - БД схема: `backend-api/src/database/schema.ts`
+- Ledger (блокчейн‑слой): `backend-api/ledger/`
 - Миграции/seed:
   - `pnpm --filter @matricarmz/backend-api db:migrate`
   - `pnpm --filter @matricarmz/backend-api perm:seed`
@@ -153,6 +154,8 @@
 ## ENV переменные (ключевые)
 - Backend:
   - `MATRICA_JWT_SECRET` (auth)
+  - `MATRICA_LEDGER_DIR` (путь к блокам/состоянию блокчейна, по умолчанию `backend-api/ledger`)
+  - `MATRICA_LEDGER_DATA_KEY` (base64 ключ для шифрования `meta_json`/`payload_json` в ledger)
   - `YANDEX_DISK_TOKEN`, `YANDEX_DISK_BASE_PATH` (файлы)
   - `MATRICA_LOGS_DIR` (логи клиента на сервере)
   - `AI_AGENT_MODE` (analytics|chat, режим ИИ‑агента)
@@ -160,10 +163,16 @@
   - `OLLAMA_DB_RO_USER`, `OLLAMA_DB_RO_PASSWORD` (read‑only БД для ИИ)
   - `AI_CHAT_LEARNING_ENABLED`, `AI_CHAT_LEARNING_WINDOW_HOURS` (обучение на чатах)
   - `AI_CHAT_LEARNING_LIMIT`, `AI_CHAT_LEARNING_INTERVAL_MS` (лимит/период)
+  - `OLLAMA_BASE_URL` (Ollama endpoint)
+  - `OLLAMA_MODEL_CHAT` (лёгкая модель для чата)
+  - `OLLAMA_MODEL_ANALYTICS` (глубокая модель для аналитики)
+  - `OLLAMA_MODEL` (fallback, если модель для режима не задана)
   - `PORT`, `HOST` (http)
 - Client:
   - `MATRICA_API_URL` (URL backend)
   - `MATRICA_UPDATE_YANDEX_PUBLIC_KEY`, `MATRICA_UPDATE_YANDEX_BASE_PATH` (auto‑update)
+  - `MATRICA_UPDATE_LAN_PORT` (порт локальной LAN‑раздачи обновлений, 0=авто)
+  - `MATRICA_LEDGER_E2E=1` (включить end‑to‑end шифрование `meta_json`/`payload_json`)
 
 ## Артефакты сборки
 - Electron (prod):

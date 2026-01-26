@@ -35,6 +35,9 @@ importers:
 
   backend-api:
     dependencies:
+      '@matricarmz/ledger':
+        specifier: workspace:*
+        version: link:../ledger
       '@matricarmz/shared':
         specifier: workspace:*
         version: link:../shared
@@ -117,6 +120,9 @@ importers:
 
   electron-app:
     dependencies:
+      '@matricarmz/ledger':
+        specifier: workspace:*
+        version: link:../ledger
       '@matricarmz/shared':
         specifier: workspace:*
         version: link:../shared
@@ -175,6 +181,12 @@ importers:
       vite:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@22.19.3)
+
+  ledger:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
   shared:
     dependencies:

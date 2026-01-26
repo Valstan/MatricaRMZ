@@ -9,6 +9,8 @@
 
 ## Что считаем секретами
 - пароли БД (PostgreSQL), JWT/refresh keys (когда появятся), API ключи
+- ключи ledger‑узла (server‑key.json) и data‑key для шифрования payload
+- клиентский E2E ключ (`ledger-client-key.json`) при включенном `MATRICA_LEDGER_E2E`
 - токены GitHub (PAT), ключи доступа к облачным хранилищам
 - приватные ключи (SSH, TLS)
 
@@ -17,6 +19,7 @@
 2. В `.env.example`/`env.example.txt` — только шаблоны (`CHANGE_ME`), без реальных значений.
 3. В документации — только примеры и “заглушки”, без реальных паролей.
 4. Backend читает конфиг из переменных окружения (`PGHOST/PGUSER/PGPASSWORD/...`).
+5. Ledger‑ключи не коммитим: `backend-api/ledger/server-key.json` и `data-key.json` создаются на VPS.
 5. Если секрет попал в git случайно:
    - немедленно **ротируем** (меняем) секрет на сервере;
    - удаляем упоминания из файлов;

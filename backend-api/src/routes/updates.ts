@@ -1,6 +1,13 @@
 import { Router } from 'express';
 
-import { getLatestTorrentState, getUpdateTorrentStatus, listUpdatePeers, registerUpdatePeers } from '../services/updateTorrentService.js';
+import {
+  getLatestTorrentState,
+  getUpdateTorrentStatus,
+  listLanHttpPeers,
+  listUpdatePeers,
+  registerLanHttpPeers,
+  registerUpdatePeers,
+} from '../services/updateTorrentService.js';
 
 export const updatesRouter = Router();
 
@@ -87,6 +94,43 @@ updatesRouter.get('/peers', (req, res) => {
     else exclude.push({ ip: selfIp });
   }
   const list = listUpdatePeers(infoHash, { limit: 60, exclude });
+  if (!list.ok) return res.status(400).json(list);
+  return res.json({ ok: true, peers: list.peers });
+});
+
+updatesRouter.post('/lan/peers', (req, res) => {
+  const st = getLatestTorrentState();
+  const version = String(req.body?.version ?? st?.version ?? '').trim();
+  if (!version || (st?.version && version !== st.version)) {
+    return res.status(400).json({ ok: false, error: 'invalid version' });
+  }
+  const peersRaw = Array.isArray(req.body?.peers) ? req.body.peers : [];
+  const peers = peersRaw
+    .map((p: any) => {
+      const ip = String(p?.ip ?? '');
+      const port = Number(p?.port ?? 0);
+      return Number.isFinite(port) && port > 0 ? { ip, port } : { ip };
+    })
+    .filter((p: any) => p.ip);
+  const result = registerLanHttpPeers(version, peers);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json({ ok: true, added: result.added, total: result.total });
+});
+
+updatesRouter.get('/lan/peers', (req, res) => {
+  const st = getLatestTorrentState();
+  const version = String(req.query?.version ?? st?.version ?? '').trim();
+  if (!version || (st?.version && version !== st.version)) {
+    return res.status(400).json({ ok: false, error: 'invalid version' });
+  }
+  const exclude: Array<{ ip: string; port?: number }> = [];
+  const selfIp = String(req.query?.ip ?? '').trim();
+  const selfPort = Number(req.query?.port ?? 0);
+  if (selfIp) {
+    if (Number.isFinite(selfPort) && selfPort > 0) exclude.push({ ip: selfIp, port: selfPort });
+    else exclude.push({ ip: selfIp });
+  }
+  const list = listLanHttpPeers(version, { limit: 60, exclude });
   if (!list.ok) return res.status(400).json(list);
   return res.json({ ok: true, peers: list.peers });
 });

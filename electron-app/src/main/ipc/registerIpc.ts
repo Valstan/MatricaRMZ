@@ -26,6 +26,7 @@ import { registerReportsIpc } from './register/reports.js';
 import { registerSettingsIpc } from './register/settings.js';
 import { registerSupplyRequestsIpc } from './register/supplyRequests.js';
 import { registerUpdateIpc } from './register/update.js';
+import { registerE2eKeysIpc } from './register/e2eKeys.js';
 import { openSqliteReadonly } from '../database/db.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
@@ -118,6 +119,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   registerChecklistsIpc(ctx);
   registerSupplyRequestsIpc(ctx);
   registerPartsIpc(ctx);
+  registerE2eKeysIpc();
   registerSettingsIpc(ctx);
 
   registerBackupsIpc(ctx, {

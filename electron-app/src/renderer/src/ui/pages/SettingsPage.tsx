@@ -24,6 +24,11 @@ export function SettingsPage(props: {
   const [backupStatus, setBackupStatus] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
   const [backupList, setBackupList] = useState<Array<{ date: string; name: string; size: number | null; modified: string | null }>>([]);
   const [backupPick, setBackupPick] = useState<string | null>(null);
+  const [e2eStatus, setE2eStatus] = useState<{ enabled: boolean; primaryPresent: boolean; previousCount: number; updatedAt: number } | null>(
+    null,
+  );
+  const [e2eExport, setE2eExport] = useState<string>('');
+  const [e2eLoading, setE2eLoading] = useState<boolean>(false);
 
   function formatError(e: unknown): string {
     if (e == null) return 'unknown error';
@@ -86,9 +91,31 @@ export function SettingsPage(props: {
     }
   }
 
+  async function refreshE2eStatus() {
+    try {
+      setE2eLoading(true);
+      const r = await window.matrica.e2eKeys.status();
+      if (r.ok) {
+        setE2eStatus({
+          enabled: r.enabled,
+          primaryPresent: r.primaryPresent,
+          previousCount: r.previousCount,
+          updatedAt: r.updatedAt,
+        });
+      } else {
+        setE2eStatus(null);
+      }
+    } catch {
+      setE2eStatus(null);
+    } finally {
+      setE2eLoading(false);
+    }
+  }
+
   useEffect(() => {
     void loadSettings();
     void refreshBackups();
+    void refreshE2eStatus();
   }, []);
 
   useEffect(() => {
@@ -226,6 +253,85 @@ export function SettingsPage(props: {
             Сохранить настройки интерфейса
           </Button>
         </div>
+      </div>
+
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>E2E ключи ledger</h3>
+        <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
+          Используется для end‑to‑end шифрования `meta_json` и `payload_json`. Ротация создаёт новый ключ, старые сохраняются для чтения истории.
+        </p>
+        {e2eStatus ? (
+          <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+            <div className="muted">
+              Основной ключ: {e2eStatus.primaryPresent ? 'есть' : 'нет'} • Предыдущих: {e2eStatus.previousCount}
+            </div>
+            <div className="muted">
+              Обновлён: {e2eStatus.updatedAt ? new Date(e2eStatus.updatedAt).toLocaleString() : '—'}
+            </div>
+          </div>
+        ) : (
+          <div className="muted" style={{ marginBottom: 12 }}>
+            Статус недоступен.
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button
+            variant="ghost"
+            disabled={e2eLoading}
+            onClick={async () => {
+              setE2eExport('');
+              await refreshE2eStatus();
+            }}
+          >
+            Обновить статус
+          </Button>
+          <Button
+            disabled={e2eLoading}
+            onClick={async () => {
+              setE2eLoading(true);
+              const r = await window.matrica.e2eKeys.export();
+              if (r.ok) {
+                setE2eExport(JSON.stringify(r.ring, null, 2));
+              } else {
+                setStatus(`Ошибка экспорта ключей: ${formatError((r as any).error)}`);
+              }
+              setE2eLoading(false);
+            }}
+          >
+            Экспорт ключей
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={e2eLoading}
+            onClick={async () => {
+              if (!confirm('Ротация ключа создаст новый основной ключ. Старые останутся для чтения истории. Продолжить?')) return;
+              setE2eLoading(true);
+              const r = await window.matrica.e2eKeys.rotate();
+              if (r.ok) {
+                setE2eExport(JSON.stringify(r.ring, null, 2));
+                await refreshE2eStatus();
+                setStatus('Ключ обновлён.');
+              } else {
+                setStatus(`Ошибка ротации: ${formatError((r as any).error)}`);
+              }
+              setE2eLoading(false);
+            }}
+          >
+            Ротация ключа
+          </Button>
+        </div>
+        {e2eExport && (
+          <div style={{ marginTop: 12 }}>
+            <div className="muted" style={{ marginBottom: 6 }}>
+              Сохраните этот JSON в безопасном месте для восстановления.
+            </div>
+            <textarea
+              value={e2eExport}
+              readOnly
+              style={{ width: '100%', minHeight: 120, padding: 10, borderRadius: 8, border: '1px solid var(--border)' }}
+            />
+          </div>
+        )}
       </div>
 
       <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>

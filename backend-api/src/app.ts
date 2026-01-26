@@ -23,6 +23,7 @@ import { employeesRouter } from './routes/employees.js';
 import { checklistsRouter } from './routes/checklists.js';
 import { diagnosticsRouter } from './routes/diagnostics.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
+import { ledgerRouter } from './routes/ledger.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -38,6 +39,7 @@ export function createApp() {
   app.use('/health', healthRouter);
   app.use('/auth', authRouter);
   app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
+  app.use('/ledger', requireAuth, requirePermission(PermissionCode.SyncUse), ledgerRouter);
   app.use('/chat', requireAuth, requirePermission(PermissionCode.ChatUse), chatRouter);
   app.use('/presence', presenceRouter);
   app.use('/admin', adminUsersRouter);

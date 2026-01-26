@@ -17,10 +17,12 @@
     "sync:backfill-change-log": "tsx src/scripts/backfillChangeLog.ts",
     "sync:emit-snapshot": "tsx src/scripts/emitSyncSnapshot.ts",
     "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",
+    "ledger:import": "tsx src/scripts/ledgerImport.ts",
     "backup:nightly": "tsx src/scripts/nightlyBackup.ts",
     "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts"
   },
   "dependencies": {
+    "@matricarmz/ledger": "workspace:*",
     "@matricarmz/shared": "workspace:*",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.7.2",

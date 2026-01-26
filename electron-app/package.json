@@ -16,6 +16,7 @@
     "dist": "pnpm build && electron-builder"
   },
   "dependencies": {
+    "@matricarmz/ledger": "workspace:*",
     "@matricarmz/shared": "workspace:*",
     "better-sqlite3": "^11.7.2",
     "drizzle-orm": "^0.40.1",

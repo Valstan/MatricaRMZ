@@ -7,7 +7,14 @@ import { mkdirSync } from 'node:fs';
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
 import { initNetworkService, onNetworkChange } from './services/networkService.js';
-import { applyPendingUpdateIfAny, initAutoUpdate, runAutoUpdateFlow, runUpdateHelperFlow, startBackgroundUpdatePolling } from './services/updateService.js';
+import {
+  applyPendingUpdateIfAny,
+  initAutoUpdate,
+  initLanUpdateSharing,
+  runAutoUpdateFlow,
+  runUpdateHelperFlow,
+  startBackgroundUpdatePolling,
+} from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings } from './services/clientAdminService.js';
 import { notifyNetworkChanged, restartTorrentClients, startTorrentSeeding, stopTorrentSeeding } from './services/torrentUpdateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
@@ -235,6 +242,7 @@ app.whenReady().then(() => {
       const torrentEnabled = updatesEnabled && cached.torrentEnabled !== false;
 
       if (updatesEnabled) {
+        initLanUpdateSharing(apiBaseUrl);
         const pendingApplied = await applyPendingUpdateIfAny(null);
         if (pendingApplied) return;
         const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: null });

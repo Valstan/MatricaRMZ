@@ -13,6 +13,7 @@ const DEFAULT_LIMIT = 1000;
 
 const STATE_SCOPE = 'ai_agent_chat_state';
 const CHAT_SCOPE = 'ai_agent_chat_corpus';
+const OLLAMA_MODEL_CHAT = process.env.OLLAMA_MODEL_CHAT || process.env.OLLAMA_MODEL || 'qwen3:8b';
 
 type ChatRow = {
   id: string;
@@ -169,6 +170,8 @@ export function startAiAgentChatLearningService() {
         windowEnd: nowMs(),
         aiAgentUserId: aiAgentId,
         superadminUserId: superadminId,
+        model: OLLAMA_MODEL_CHAT,
+        channel: 'chat',
         messages,
       };
       await storeChatSnapshot(payload);

@@ -188,6 +188,21 @@ function buildUpdatePeersUrl(torrentUrl: string) {
   }
 }
 
+function buildLanPeersUrl(torrentUrl: string, version: string) {
+  try {
+    const u = new URL(torrentUrl);
+    const params = new URLSearchParams({ version });
+    return `${u.origin}/updates/lan/peers?${params.toString()}`;
+  } catch {
+    const base = ensureHttp(torrentUrl.replace(/\/updates\/latest\.torrent.*$/i, ''));
+    return `${base}/updates/lan/peers?version=${encodeURIComponent(version)}`;
+  }
+}
+
+function buildLanPeerFileUrl(ip: string, port: number) {
+  return `http://${ip}:${port}/lan-update/file`;
+}
+
 function listLocalPrivateIps(): string[] {
   const nets = networkInterfaces();
   const out: string[] = [];
@@ -249,7 +264,11 @@ export async function fetchTorrentStatus(baseUrl: string): Promise<{ ok: true; s
 
 export async function downloadTorrentUpdate(
   manifest: TorrentUpdateManifest,
-  opts?: { onProgress?: (pct: number, peers: number) => void; onStats?: (stats: TorrentClientStats) => void },
+  opts?: {
+    onProgress?: (pct: number, peers: number) => void;
+    onStats?: (stats: TorrentClientStats) => void;
+    onLog?: (line: string) => void;
+  },
 ): Promise<TorrentDownloadResult> {
   try {
     const client = await ensureDownloadClient();
@@ -285,12 +304,46 @@ export async function downloadTorrentUpdate(
         if (fallbackAttempted || fallbackInFlight) return;
         fallbackAttempted = true;
         fallbackInFlight = true;
+        opts?.onLog?.(`Торрент остановился (${reason}). Пробуем LAN‑peer fallback…`);
         try {
           if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
         } catch {
           // ignore
         }
         const installerPath = join(outDir, manifest.fileName);
+        const lanPeersUrl = buildLanPeersUrl(manifest.torrentUrl, manifest.version);
+        const lanPeersRes = await fetchWithTimeout(lanPeersUrl, DEFAULT_TIMEOUT_MS).catch(() => null);
+        const lanPeersJson = lanPeersRes && lanPeersRes.ok ? ((await lanPeersRes.json().catch(() => null)) as any) : null;
+        const lanPeers = Array.isArray(lanPeersJson?.peers) ? lanPeersJson.peers : [];
+        if (lanPeers.length === 0) {
+          opts?.onLog?.('LAN‑peer список пуст. Пробуем резервный HTTP с сервера…');
+        } else {
+          opts?.onLog?.(`LAN‑peer найдено: ${lanPeers.length}. Пробуем скачать…`);
+        }
+        for (const peer of lanPeers) {
+          const ip = String(peer?.ip ?? '').trim();
+          const port = Number(peer?.port ?? 0);
+          if (!ip || !Number.isFinite(port) || port <= 0) continue;
+          const url = buildLanPeerFileUrl(ip, port);
+          opts?.onLog?.(`LAN‑peer попытка: ${ip}:${port}`);
+          const r = await downloadWithResume(url, installerPath, {
+            attempts: 2,
+            timeoutMs: 20_000,
+            backoffMs: 800,
+            maxBackoffMs: 5000,
+            jitterMs: 300,
+            onProgress: (pct) => {
+              opts?.onProgress?.(Math.min(99, Math.max(0, pct)), 0);
+            },
+          });
+          if (r.ok) {
+            opts?.onLog?.(`LAN‑peer успех: ${ip}:${port}`);
+            finish({ ok: true, installerPath: r.filePath, torrentPath });
+            return;
+          }
+          opts?.onLog?.(`LAN‑peer не ответил: ${ip}:${port}`);
+        }
+        opts?.onLog?.('LAN‑peer fallback не сработал. Пробуем HTTP с сервера…');
         const fileUrl = buildUpdateFileUrl(manifest.torrentUrl, manifest.fileName);
         const r = await downloadWithResume(fileUrl, installerPath, {
           attempts: 3,
@@ -303,9 +356,11 @@ export async function downloadTorrentUpdate(
           },
         });
         if (r.ok) {
+          opts?.onLog?.('HTTP fallback успех: файл скачан с сервера.');
           finish({ ok: true, installerPath: r.filePath, torrentPath });
           return;
         }
+        opts?.onLog?.(`HTTP fallback failed: ${String(r.error ?? 'unknown error')}`);
         finish({ ok: false, error: `torrent stalled (${reason}); http fallback failed: ${r.error}` });
       };
 

@@ -15,6 +15,8 @@ aiAgentRouter.use(requirePermission(PermissionCode.ChatUse));
 
 const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
+const OLLAMA_MODEL_CHAT = process.env.OLLAMA_MODEL_CHAT || '';
+const OLLAMA_MODEL_ANALYTICS = process.env.OLLAMA_MODEL_ANALYTICS || '';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 100_000);
 const OLLAMA_HEALTH_ATTEMPTS = Number(process.env.OLLAMA_HEALTH_ATTEMPTS || 3);
 const OLLAMA_HEALTH_TIMEOUT_MS = Number(process.env.OLLAMA_HEALTH_TIMEOUT_MS || 10_000);
@@ -68,6 +70,12 @@ function isAnalyticsQuery(message: string) {
 
 function isAnalyticsMode() {
   return AI_AGENT_MODE === 'analytics';
+}
+
+function getModelForMode(mode: 'analytics' | 'chat') {
+  const fallback = OLLAMA_MODEL || 'qwen3:8b';
+  if (mode === 'analytics') return OLLAMA_MODEL_ANALYTICS || fallback;
+  return OLLAMA_MODEL_CHAT || fallback;
 }
 
 type AccessPolicy = {
@@ -257,8 +265,8 @@ function formatRowsForUser(rows: any[]) {
   return `Строк: ${rows.length}\n` + lines.join('\n') + more;
 }
 
-async function callOllamaJson(systemPrompt: string, userPrompt: string) {
-  const raw = await callOllama(systemPrompt, userPrompt);
+async function callOllamaJson(model: string, systemPrompt: string, userPrompt: string) {
+  const raw = await callOllama(model, systemPrompt, userPrompt);
   try {
     return JSON.parse(raw);
   } catch {
@@ -266,7 +274,7 @@ async function callOllamaJson(systemPrompt: string, userPrompt: string) {
   }
 }
 
-async function proposeSql(message: string, policy: AccessPolicy) {
+async function proposeSql(model: string, message: string, policy: AccessPolicy) {
   const allowed = Array.from(policy.allowedTables.values()).sort().join(', ');
   const systemPrompt =
     'Ты помощник аналитик. Верни строго JSON с полями: ' +
@@ -276,7 +284,7 @@ async function proposeSql(message: string, policy: AccessPolicy) {
     `Доступные таблицы: ${allowed}\n` +
     `Запрос: ${message}\n` +
     `Если нужен список/сумма/группировка, сформируй SQL. LIMIT обязателен не более ${MAX_ROWS}.`;
-  const json = await callOllamaJson(systemPrompt, userPrompt);
+  const json = await callOllamaJson(model, systemPrompt, userPrompt);
   if (!json || typeof json.sql !== 'string') {
     return { ok: false as const, error: 'LLM did not return SQL' };
   }
@@ -316,7 +324,7 @@ async function logSnapshot(scope: string, payload: unknown, actorId?: string | n
   });
 }
 
-async function callOllama(systemPrompt: string, userPrompt: string) {
+async function callOllama(model: string, systemPrompt: string, userPrompt: string) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), OLLAMA_TIMEOUT_MS);
   try {
@@ -324,7 +332,7 @@ async function callOllama(systemPrompt: string, userPrompt: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model,
         stream: false,
         options: { temperature: 0.2 },
         messages: [
@@ -346,7 +354,7 @@ async function callOllama(systemPrompt: string, userPrompt: string) {
   }
 }
 
-async function callOllamaHealthWithTimeout(timeoutMs: number) {
+async function callOllamaHealthWithTimeout(model: string, timeoutMs: number) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), timeoutMs);
   try {
@@ -357,9 +365,9 @@ async function callOllamaHealthWithTimeout(timeoutMs: number) {
     }
     const json = (await res.json().catch(() => null)) as any;
     const models = Array.isArray(json?.models) ? json.models : [];
-    if (!OLLAMA_MODEL) return { ok: models.length > 0, detail: models.length ? 'models listed' : 'no models' };
-    const hasModel = models.some((m: any) => String(m?.name ?? '').trim() === String(OLLAMA_MODEL).trim());
-    return { ok: hasModel, detail: hasModel ? 'model found' : `model missing: ${OLLAMA_MODEL}` };
+    if (!model) return { ok: models.length > 0, detail: models.length ? 'models listed' : 'no models' };
+    const hasModel = models.some((m: any) => String(m?.name ?? '').trim() === String(model).trim());
+    return { ok: hasModel, detail: hasModel ? 'model found' : `model missing: ${model}` };
   } finally {
     clearTimeout(timer);
   }
@@ -377,23 +385,38 @@ aiAgentRouter.post('/ollama-health', async (req, res) => {
 
     const attempts = parsed.data.attempts ?? OLLAMA_HEALTH_ATTEMPTS;
     const timeoutMs = parsed.data.timeoutMs ?? OLLAMA_HEALTH_TIMEOUT_MS;
-    const results: Array<{ ok: boolean; tookMs: number; error?: string }> = [];
-    for (let i = 0; i < attempts; i += 1) {
-      const start = nowMs();
-      try {
-        const health = await callOllamaHealthWithTimeout(timeoutMs);
-        const tookMs = nowMs() - start;
-        results.push(health.ok ? { ok: true, tookMs } : { ok: false, tookMs, error: health.detail });
-      } catch (e) {
-        const tookMs = nowMs() - start;
-        results.push({ ok: false, tookMs, error: String(e ?? 'ollama error') });
+    const modelChat = getModelForMode('chat');
+    const modelAnalytics = getModelForMode('analytics');
+    const targets = [
+      { name: 'chat', model: modelChat },
+      { name: 'analytics', model: modelAnalytics },
+    ];
+    const results: Array<{ ok: boolean; tookMs: number; error?: string; model: string; target: string }> = [];
+    for (const target of targets) {
+      for (let i = 0; i < attempts; i += 1) {
+        const start = nowMs();
+        try {
+          const health = await callOllamaHealthWithTimeout(target.model, timeoutMs);
+          const tookMs = nowMs() - start;
+          results.push(
+            health.ok
+              ? { ok: true, tookMs, model: target.model, target: target.name }
+              : { ok: false, tookMs, error: health.detail, model: target.model, target: target.name },
+          );
+        } catch (e) {
+          const tookMs = nowMs() - start;
+          results.push({ ok: false, tookMs, error: String(e ?? 'ollama error'), model: target.model, target: target.name });
+        }
       }
     }
 
     const ok = results.every((r) => r.ok);
     const totalMs = results.reduce((sum, r) => sum + (r.tookMs || 0), 0);
-    const summary = ok ? `ok (${attempts}/${attempts}), total ${totalMs}ms` : `fail (${results.filter((r) => r.ok).length}/${attempts})`;
-    return res.json({ ok, attempts: results, summary });
+    const expected = attempts * targets.length;
+    const summary = ok
+      ? `ok (${expected}/${expected}), total ${totalMs}ms`
+      : `fail (${results.filter((r) => r.ok).length}/${expected})`;
+    return res.json({ ok, attempts: results, summary, models: { chat: modelChat, analytics: modelAnalytics } });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -448,7 +471,7 @@ aiAgentRouter.post('/assist', async (req, res) => {
     if (isAnalyticsMode()) {
       await logSnapshot(
         'ai_agent_assist',
-        { actorId: actor.id, mode: 'analytics', context: ctx, lastEvent, message },
+        { actorId: actor.id, mode: 'analytics', model: getModelForMode('analytics'), context: ctx, lastEvent, message },
         actor.id,
       );
       return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
@@ -476,7 +499,7 @@ aiAgentRouter.post('/assist', async (req, res) => {
         const formatted = formatRowsForUser(heuristic.rows ?? []);
         return res.json({ ok: true, reply: { kind: 'info', text: formatted } });
       }
-      const proposed = await proposeSql(message, policy);
+      const proposed = await proposeSql(getModelForMode('analytics'), message, policy);
       if (!proposed.ok) {
         return res.json({ ok: true, reply: { kind: 'info', text: proposed.error } });
       }
@@ -498,8 +521,9 @@ aiAgentRouter.post('/assist', async (req, res) => {
       'Если нужно задать уточняющий вопрос, используй kind=question.';
 
     let raw = '';
+    const modelChat = getModelForMode('chat');
     try {
-      raw = await callOllama(systemPrompt, userPrompt);
+      raw = await callOllama(modelChat, systemPrompt, userPrompt);
     } catch (e) {
       const err = String(e ?? 'ollama error');
       await logSnapshot('ai_agent_assist_error', { actorId: actor.id, context: ctx, lastEvent, message, error: err }, actor.id);
@@ -519,7 +543,11 @@ aiAgentRouter.post('/assist', async (req, res) => {
       // keep raw text
     }
 
-    await logSnapshot('ai_agent_assist', { actorId: actor.id, context: ctx, lastEvent, message: parsed.data.message, reply }, actor.id);
+    await logSnapshot(
+      'ai_agent_assist',
+      { actorId: actor.id, context: ctx, lastEvent, message: parsed.data.message, reply, model: modelChat },
+      actor.id,
+    );
     return res.json({ ok: true, reply });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
