@@ -899,14 +899,32 @@ export function MasterdataPage(props: {
                               cursor: 'pointer',
                               borderBottom: '1px solid #f3f4f6',
                               background: active ? '#ecfeff' : '#fff',
+                              display: 'grid',
+                              gridTemplateColumns: props.canEditMasterData ? '1fr auto' : '1fr',
+                              gap: 10,
+                              alignItems: 'center',
                             }}
                             title={e.id}
                           >
-                            <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{e.displayName ?? e.id.slice(0, 8)}</div>
-                            <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>
-                              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.id.slice(0, 8)}</span>
-                              {'  '}| sync: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.syncStatus}</span>
+                            <div>
+                              <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{e.displayName ?? e.id.slice(0, 8)}</div>
+                              <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>
+                                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.id.slice(0, 8)}</span>
+                                {'  '}| sync: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.syncStatus}</span>
+                              </div>
                             </div>
+                            {props.canEditMasterData && (
+                              <Button
+                                variant="ghost"
+                                style={{ color: '#b91c1c' }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void openDeleteDialog(e.id);
+                                }}
+                              >
+                                Удалить
+                              </Button>
+                            )}
                           </div>
                         );
                       })}

@@ -288,6 +288,7 @@ export function EngineBrandDetailsPage(props: {
             {selectedParts.map((p) => (
               <div
                 key={p.id}
+                onClick={() => props.onOpenPart(p.id)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -296,20 +297,27 @@ export function EngineBrandDetailsPage(props: {
                   borderRadius: 10,
                   border: '1px solid #e5e7eb',
                   background: '#fff',
+                  cursor: props.canViewParts ? 'pointer' : 'default',
                 }}
               >
                 <div style={{ fontWeight: 600 }}>{p.label}</div>
                 <div style={{ flex: 1 }} />
                 <Button
                   variant="ghost"
-                  onClick={() => props.onOpenPart(p.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onOpenPart(p.id);
+                  }}
                   disabled={!props.canViewParts}
                 >
                   Открыть
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => void updateBrandParts(engineBrandPartIds.filter((id) => id !== p.id))}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void updateBrandParts(engineBrandPartIds.filter((id) => id !== p.id));
+                  }}
                   disabled={!props.canEdit}
                   style={{ color: '#b91c1c' }}
                 >
