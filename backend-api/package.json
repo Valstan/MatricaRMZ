@@ -15,6 +15,7 @@
     "users:migrate": "tsx src/scripts/migrateUsersToEmployees.ts",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
     "sync:backfill-change-log": "tsx src/scripts/backfillChangeLog.ts",
+    "sync:emit-snapshot": "tsx src/scripts/emitSyncSnapshot.ts",
     "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",
     "backup:nightly": "tsx src/scripts/nightlyBackup.ts"
   },
