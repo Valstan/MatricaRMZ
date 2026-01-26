@@ -56,9 +56,13 @@ function decryptText(value: string, key: Buffer): string {
   if (!value.startsWith('enc:v1:')) return value;
   const parts = value.split(':');
   if (parts.length !== 5) return value;
-  const iv = Buffer.from(parts[2], 'base64');
-  const tag = Buffer.from(parts[3], 'base64');
-  const data = Buffer.from(parts[4], 'base64');
+  const ivRaw = parts[2];
+  const tagRaw = parts[3];
+  const dataRaw = parts[4];
+  if (!ivRaw || !tagRaw || !dataRaw) return value;
+  const iv = Buffer.from(ivRaw, 'base64');
+  const tag = Buffer.from(tagRaw, 'base64');
+  const data = Buffer.from(dataRaw, 'base64');
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);

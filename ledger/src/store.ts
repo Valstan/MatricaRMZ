@@ -73,8 +73,8 @@ export class LedgerStore {
         {
           type: tx.type,
           table: tx.table,
-          row: tx.row,
-          row_id: tx.row_id,
+          ...(tx.row != null ? { row: tx.row } : {}),
+          ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
           actor: tx.actor,
           ts: tx.ts,
         },

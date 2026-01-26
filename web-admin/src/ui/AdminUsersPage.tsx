@@ -753,6 +753,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
             </div>
           </div>
         </div>
+        </>
       )}
 
       {status && <div style={{ marginTop: 12, color: '#6b7280' }}>{status}</div>}

@@ -29,8 +29,8 @@ ledgerRouter.post('/tx/submit', (req, res) => {
   const payloads = parsed.data.txs.map((tx) => ({
     type: tx.type,
     table: tx.table,
-    row: tx.row,
-    row_id: tx.row_id,
+    ...(tx.row != null ? { row: tx.row } : {}),
+    ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
     actor,
     ts,
   }));
@@ -125,26 +125,27 @@ ledgerRouter.get('/state/query', (req, res) => {
       return res.status(400).json({ ok: false, error: 'invalid or_filter json' });
     }
   }
-  const rows = queryState(parsed.data.table, {
-    id: parsed.data.id,
-    filter,
-    orFilter,
-    sortBy: parsed.data.sort_by,
-    sortDir: parsed.data.sort_dir,
-    includeDeleted: parsed.data.include_deleted,
-    dateField: parsed.data.date_field,
-    dateFrom: parsed.data.date_from,
-    dateTo: parsed.data.date_to,
-    likeField: parsed.data.like_field,
-    like: parsed.data.like,
-    regexField: parsed.data.regex_field,
-    regex: parsed.data.regex,
-    regexFlags: parsed.data.regex_flags,
-    cursorValue: parsed.data.cursor_value,
-    cursorId: parsed.data.cursor_id,
-    limit: parsed.data.limit,
-    offset: parsed.data.offset,
-  });
+  const opts = {
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    ...(filter ? { filter } : {}),
+    ...(orFilter ? { orFilter } : {}),
+    ...(parsed.data.sort_by ? { sortBy: parsed.data.sort_by } : {}),
+    ...(parsed.data.sort_dir ? { sortDir: parsed.data.sort_dir } : {}),
+    ...(parsed.data.include_deleted != null ? { includeDeleted: parsed.data.include_deleted } : {}),
+    ...(parsed.data.date_field ? { dateField: parsed.data.date_field } : {}),
+    ...(parsed.data.date_from != null ? { dateFrom: parsed.data.date_from } : {}),
+    ...(parsed.data.date_to != null ? { dateTo: parsed.data.date_to } : {}),
+    ...(parsed.data.like_field ? { likeField: parsed.data.like_field } : {}),
+    ...(parsed.data.like ? { like: parsed.data.like } : {}),
+    ...(parsed.data.regex_field ? { regexField: parsed.data.regex_field } : {}),
+    ...(parsed.data.regex ? { regex: parsed.data.regex } : {}),
+    ...(parsed.data.regex_flags ? { regexFlags: parsed.data.regex_flags } : {}),
+    ...(parsed.data.cursor_value != null ? { cursorValue: parsed.data.cursor_value } : {}),
+    ...(parsed.data.cursor_id ? { cursorId: parsed.data.cursor_id } : {}),
+    ...(parsed.data.limit != null ? { limit: parsed.data.limit } : {}),
+    ...(parsed.data.offset != null ? { offset: parsed.data.offset } : {}),
+  };
+  const rows = queryState(parsed.data.table, opts);
   return res.json({ ok: true, rows });
 });
 
