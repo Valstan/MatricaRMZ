@@ -813,6 +813,39 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     }
   }
 
+  if (groups.chat_reads.length > 0) {
+    const messageIds = Array.from(new Set(groups.chat_reads.map((r: any) => String(r.messageId))));
+    const userIds = Array.from(new Set(groups.chat_reads.map((r: any) => String(r.userId))));
+    if (messageIds.length > 0 && userIds.length > 0) {
+      const existing = await db
+        .select({ id: chatReads.id, messageId: chatReads.messageId, userId: chatReads.userId })
+        .from(chatReads)
+        .where(and(inArray(chatReads.messageId, messageIds as any), inArray(chatReads.userId, userIds as any)))
+        .limit(50_000);
+      const keyToId = new Map<string, string>();
+      for (const r of existing as any[]) {
+        keyToId.set(`${String(r.messageId)}::${String(r.userId)}`, String(r.id));
+      }
+      const remapped = groups.chat_reads.map((r: any) => {
+        const key = `${String(r.messageId)}::${String(r.userId)}`;
+        const existingId = keyToId.get(key);
+        if (existingId && existingId !== String(r.id)) {
+          return { ...r, id: existingId };
+        }
+        return r;
+      });
+      const byPair = new Map<string, any>();
+      for (const r of remapped) {
+        const key = `${String(r.messageId)}::${String(r.userId)}`;
+        const prev = byPair.get(key);
+        if (!prev || Number(prev.updatedAt ?? 0) < Number(r.updatedAt ?? 0)) {
+          byPair.set(key, r);
+        }
+      }
+      groups.chat_reads = dedupById(Array.from(byPair.values()));
+    }
+  }
+
   // IMPORTANT:
   // Drizzle (better-sqlite3) uses async query API. Running it inside better-sqlite3's native transaction
   // callback (which MUST be synchronous) is unsafe.
@@ -946,7 +979,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       .insert(chatReads)
       .values(groups.chat_reads)
       .onConflictDoUpdate({
-        target: [chatReads.messageId, chatReads.userId],
+        target: chatReads.id,
         set: {
           messageId: sql`excluded.message_id`,
           userId: sql`excluded.user_id`,
