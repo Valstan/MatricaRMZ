@@ -385,12 +385,13 @@ async function mergeCounterparties(): Promise<{ ok: true; merged: number; conver
     const linkDefIds = defs.filter((d) => String(d.dataType) === 'link' && d.deletedAt == null).map((d) => String(d.id));
 
     function pickTarget(ids: string[]): string {
-      return [...ids].sort((a, b) => {
+      const sorted = [...ids].sort((a, b) => {
         const ta = entityMeta.get(a)?.createdAt ?? 0;
         const tb = entityMeta.get(b)?.createdAt ?? 0;
         if (ta !== tb) return ta - tb;
         return a.localeCompare(b);
-      })[0];
+      });
+      return sorted[0] ?? '';
     }
 
     async function mergeInto(targetId: string, sourceId: string): Promise<void> {
