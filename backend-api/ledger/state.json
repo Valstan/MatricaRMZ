@@ -41,6 +41,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769474236345
+      },
+      "78ef9bf8-7f3b-4ac3-b32c-70c0bbd11c39": {
+        "id": "78ef9bf8-7f3b-4ac3-b32c-70c0bbd11c39",
+        "version": "1.0.0",
+        "notes": "reports export builder, AI chat timeout fallback",
+        "sha256": "85da3e1f777796e4895b4ed0514e272b1855c36a2b7f309cf460f6933984f152",
+        "file_name": "MatricaRMZ-Setup-1.0.0.exe",
+        "size": 93897223,
+        "payload_json": null,
+        "created_at": 1769476042242,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769476042242
       }
     }
   }
