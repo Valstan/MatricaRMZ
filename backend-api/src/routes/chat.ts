@@ -413,6 +413,7 @@ chatRouter.post('/send-link', requirePermission(PermissionCode.ChatUse), async (
         'reports',
         'admin',
         'audit',
+        'notes',
         'settings',
         'auth',
       ]),

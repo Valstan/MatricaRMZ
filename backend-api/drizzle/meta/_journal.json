@@ -169,6 +169,13 @@
       "when": 1769383042028,
       "tag": "0022_fix_chat_reads_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1769462400000,
+      "tag": "0023_notes",
+      "breakpoints": true
     }
   ]
 }

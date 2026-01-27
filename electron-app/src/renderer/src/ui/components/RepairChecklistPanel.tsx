@@ -30,6 +30,30 @@ function csvEscape(s: string) {
   return t;
 }
 
+function normalizeDefectRows(rows: Record<string, string | boolean | number>[]) {
+  let changed = false;
+  const next = rows.map((row) => {
+    const out = { ...row } as Record<string, string | boolean | number>;
+    const hasNew = 'part_number' in out || 'repairable_qty' in out || 'scrap_qty' in out;
+    if (!hasNew) {
+      if (!('part_number' in out) && typeof out.note === 'string' && out.note.trim()) {
+        out.part_number = out.note;
+        changed = true;
+      }
+      if (!('repairable_qty' in out) && out.reinstall === true) {
+        out.repairable_qty = 1;
+        changed = true;
+      }
+      if (!('scrap_qty' in out) && out.replace === true) {
+        out.scrap_qty = 1;
+        changed = true;
+      }
+    }
+    return out;
+  });
+  return { rows: next, changed };
+}
+
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -273,15 +297,31 @@ export function RepairChecklistPanel(props: {
       if (!r.ok) return;
       const rows = r.parts.map((p) => ({
         part_name: String(p.name ?? p.article ?? p.id),
-        reinstall: false,
-        replace: false,
-        note: '',
+        part_number: '',
+        repairable_qty: '',
+        scrap_qty: '',
       }));
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
+
+  useEffect(() => {
+    if (!activeTemplate) return;
+    if (props.stage !== 'defect') return;
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
+    if (!tableItem) return;
+    const current = (answers as any)[tableItem.id];
+    if (!current || current.kind !== 'table') return;
+    const rows = Array.isArray(current.rows) ? current.rows : [];
+    if (rows.length === 0) return;
+    const normalized = normalizeDefectRows(rows as any);
+    if (!normalized.changed) return;
+    const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
+    setAnswers(next);
+    if (props.canEdit) void save(next);
+  }, [activeTemplate?.id, props.stage, answers, props.canEdit]);
 
   async function save(nextAnswers: RepairChecklistAnswers) {
     if (!activeTemplate) return;
@@ -790,6 +830,18 @@ function TableEditor(props: {
                       />
                       <span style={{ color: '#6b7280', fontSize: 12 }}>{(r as any)[c.id] ? 'да' : 'нет'}</span>
                     </label>
+                  ) : c.kind === 'number' ? (
+                    <Input
+                      type="number"
+                      value={String((r as any)[c.id] ?? '')}
+                      disabled={!props.canEdit}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const num = raw === '' ? '' : Number(raw);
+                        setCell(idx, c.id, Number.isFinite(num as number) ? (num as number) : raw);
+                      }}
+                      onBlur={() => props.canEdit && props.onSave(rows)}
+                    />
                   ) : (
                     <Input
                       value={String((r as any)[c.id] ?? '')}

@@ -77,6 +77,11 @@ export function ChatPanel(props: {
   const othersButtonRef = useRef<HTMLButtonElement | null>(null);
   const othersMenuRef = useRef<HTMLDivElement | null>(null);
   const [othersMenuPos, setOthersMenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const [noteDialog, setNoteDialog] = useState<{ open: boolean; message: ChatMessageItem | null; title: string }>({
+    open: false,
+    message: null,
+    title: '',
+  });
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
@@ -273,6 +278,39 @@ export function ChatPanel(props: {
     } else {
       setOpenInfoId(null);
     }
+  }
+
+  function openNoteDialog(message: ChatMessageItem) {
+    setNoteDialog({ open: true, message, title: 'Заметка из чата' });
+  }
+
+  function closeNoteDialog() {
+    setNoteDialog({ open: false, message: null, title: '' });
+  }
+
+  async function submitNoteFromMessage() {
+    const msg = noteDialog.message;
+    if (!msg) return;
+    const title = noteDialog.title.trim() || 'Заметка из чата';
+    const body: any[] = [];
+    if (msg.messageType === 'text') {
+      body.push({ id: crypto.randomUUID(), kind: 'text', text: msg.bodyText || '' });
+    }
+    if (msg.messageType === 'deep_link') {
+      body.push({ id: crypto.randomUUID(), kind: 'link', appLink: msg.payload });
+    }
+    if (msg.messageType === 'file') {
+      const file = msg.payload as any;
+      const mime = String(file?.mime ?? '');
+      if (mime.startsWith('image/')) {
+        body.push({ id: crypto.randomUUID(), kind: 'image', fileId: file?.id, name: file?.name, mime });
+      } else {
+        body.push({ id: crypto.randomUUID(), kind: 'text', text: `Файл: ${String(file?.name ?? 'Файл')}` });
+      }
+    }
+    const r = await window.matrica.notes.upsert({ title, body, importance: 'normal' }).catch(() => null);
+    if ((r as any)?.ok && !props.viewMode) void window.matrica.sync.run().catch(() => {});
+    closeNoteDialog();
   }
 
   async function sendText() {
@@ -615,6 +653,9 @@ export function ChatPanel(props: {
                     <Button variant="ghost" onClick={() => handleReplyPrivate(m)}>
                       Ответить лично
                     </Button>
+                    <Button variant="ghost" onClick={() => openNoteDialog(m)}>
+                      Отправить в заметки
+                    </Button>
                     {canDelete ? (
                       <Button variant="ghost" onClick={() => void handleDeleteMessage(m)}>
                         Удалить
@@ -675,6 +716,43 @@ export function ChatPanel(props: {
           </div>
         )}
       </div>
+
+      {noteDialog.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div style={{ background: theme.colors.surface, border: `1px solid ${theme.colors.border}`, borderRadius: 12, padding: 16, width: 420 }}>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Новая заметка</div>
+            <Input
+              value={noteDialog.title}
+              onChange={(e) => setNoteDialog((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Заголовок заметки"
+              onKeyDown={(e: any) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void submitNoteFromMessage();
+                }
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button variant="primary" onClick={() => void submitNoteFromMessage()}>
+                Добавить
+              </Button>
+              <Button variant="ghost" onClick={closeNoteDialog}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

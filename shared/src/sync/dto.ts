@@ -88,6 +88,24 @@ export const chatReadRowSchema = z.object({
   read_at: z.number().int(),
 });
 
+export const noteRowSchema = z.object({
+  ...baseRowFields,
+  owner_user_id: z.string().uuid(),
+  title: z.string().min(1),
+  body_json: z.string().nullable().optional(),
+  importance: z.enum(['normal', 'important', 'burning', 'later']),
+  due_at: z.number().int().nullable().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+export const noteShareRowSchema = z.object({
+  ...baseRowFields,
+  note_id: z.string().uuid(),
+  recipient_user_id: z.string().uuid(),
+  hidden: z.boolean(),
+  sort_order: z.number().int().optional(),
+});
+
 export const userPresenceRowSchema = z.object({
   ...baseRowFields,
   user_id: z.string().uuid(),

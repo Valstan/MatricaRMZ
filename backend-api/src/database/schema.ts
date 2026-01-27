@@ -429,6 +429,54 @@ export const chatReads = pgTable(
   }),
 );
 
+// -----------------------------
+// Notes (sync tables)
+// -----------------------------
+export const notes = pgTable(
+  'notes',
+  {
+    id: uuid('id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => entities.id),
+    title: text('title').notNull(),
+    bodyJson: text('body_json'),
+    importance: text('importance').notNull().default('normal'),
+    dueAt: bigint('due_at', { mode: 'number' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    ownerSortIdx: index('notes_owner_sort_idx').on(t.ownerUserId, t.sortOrder),
+  }),
+);
+
+export const noteShares = pgTable(
+  'note_shares',
+  {
+    id: uuid('id').primaryKey(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => entities.id),
+    hidden: boolean('hidden').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    noteRecipientUq: uniqueIndex('note_shares_note_recipient_uq').on(t.noteId, t.recipientUserId),
+    recipientSortIdx: index('note_shares_recipient_sort_idx').on(t.recipientUserId, t.sortOrder),
+  }),
+);
+
 export const userPresence = pgTable(
   'user_presence',
   {

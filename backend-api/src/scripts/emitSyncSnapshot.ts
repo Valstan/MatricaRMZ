@@ -7,6 +7,8 @@ import {
   attributeValues,
   entities,
   entityTypes,
+  noteShares,
+  notes,
   operations,
   changeLog,
 } from '../database/schema.js';
@@ -139,6 +141,58 @@ function operationPayload(row: {
   };
 }
 
+function notePayload(row: {
+  id: string;
+  ownerUserId: string;
+  title: string;
+  bodyJson: string | null;
+  importance: string;
+  dueAt: number | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}): SyncRowPayload {
+  return {
+    id: String(row.id),
+    owner_user_id: String(row.ownerUserId),
+    title: String(row.title),
+    body_json: row.bodyJson == null ? null : String(row.bodyJson),
+    importance: String(row.importance ?? 'normal'),
+    due_at: row.dueAt == null ? null : Number(row.dueAt),
+    sort_order: Number(row.sortOrder ?? 0),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+function noteSharePayload(row: {
+  id: string;
+  noteId: string;
+  recipientUserId: string;
+  hidden: boolean;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}): SyncRowPayload {
+  return {
+    id: String(row.id),
+    note_id: String(row.noteId),
+    recipient_user_id: String(row.recipientUserId),
+    hidden: !!row.hidden,
+    sort_order: Number(row.sortOrder ?? 0),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
 function opFromPayload(payload: SyncRowPayload) {
   return (payload as any)?.deleted_at ? 'delete' : 'upsert';
 }
@@ -179,6 +233,8 @@ async function run() {
     { name: SyncTableName.AttributeDefs, table: attributeDefs, payload: attributeDefPayload },
     { name: SyncTableName.AttributeValues, table: attributeValues, payload: attributeValuePayload },
     { name: SyncTableName.Operations, table: operations, payload: operationPayload },
+    { name: SyncTableName.Notes, table: notes, payload: notePayload },
+    { name: SyncTableName.NoteShares, table: noteShares, payload: noteSharePayload },
   ];
   const list = tableArg ? tables.filter((t) => t.name === tableArg) : tables;
   if (tableArg && list.length === 0) throw new Error(`unknown table ${tableArg}`);

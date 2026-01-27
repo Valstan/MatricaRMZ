@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import type { NoteItem, NoteShareItem } from '@matricarmz/shared';
 
 import { login, logout, me, register } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
@@ -10,8 +11,11 @@ import { AdminUsersPage } from './AdminUsersPage.js';
 import { ClientAdminPage } from './ClientAdminPage.js';
 import { DiagnosticsPage } from './DiagnosticsPage.js';
 import { ChatPanel } from './ChatPanel.js';
+import { sendText } from '../api/chat.js';
 import { ContractsPage } from './ContractsPage.js';
 import { EnginesPage } from './EnginesPage.js';
+import { NotesPage } from './NotesPage.js';
+import { listNotes } from '../api/notes.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
@@ -67,6 +71,11 @@ export function App() {
   const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
   const [masterdataTypes, setMasterdataTypes] = useState<MasterdataTypeRow[]>([]);
+  const [notesAlertCount, setNotesAlertCount] = useState<number>(0);
+  const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
+    selectedUserId: null,
+    adminMode: false,
+  });
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -187,6 +196,7 @@ export function App() {
     ...(caps.canManageClients ? ([{ id: 'clients', label: 'Клиенты' }] as const) : []),
     ...(caps.canManageClients ? ([{ id: 'diagnostics', label: 'Диагностика' }] as const) : []),
     ...(caps.canChatUse ? ([{ id: 'chat', label: 'Чат' }] as const) : []),
+    ...(user ? ([{ id: 'notes', label: 'Заметки' }] as const) : []),
   ];
   const visibleTabIds = visibleTabs.map((t) => t.id).join('|');
 
@@ -221,6 +231,69 @@ export function App() {
       alive = false;
     };
   }, [user?.id, caps.canViewMasterData]);
+
+  function noteToChatText(note: { title: string; body: Array<any> }) {
+    const lines: string[] = [];
+    lines.push(note.title || 'Заметка');
+    lines.push('');
+    for (const b of note.body ?? []) {
+      if (b?.kind === 'text') lines.push(String(b.text ?? ''));
+      if (b?.kind === 'link') {
+        if (b.url) lines.push(String(b.url));
+        if (b.appLink?.tab) lines.push(`app:${String(b.appLink.tab)}`);
+      }
+      if (b?.kind === 'image') lines.push(`[image:${String(b.name ?? b.fileId ?? '')}]`);
+    }
+    return lines.join('\n').trim();
+  }
+
+  async function sendNoteToChat(note: { title: string; body: Array<any> }) {
+    const chatVisible = tab === 'chat' || (prefs.chatDocked && prefs.chatSide);
+    if (!chatVisible) {
+      setAuthError('Откройте чат, чтобы отправить заметку.');
+      return;
+    }
+    if (chatContext.adminMode) {
+      setAuthError('Нельзя отправить заметку в админ-режиме чата.');
+      return;
+    }
+    const text = noteToChatText(note);
+    if (!text) return;
+    await sendText({ recipientUserId: chatContext.selectedUserId ?? null, text });
+  }
+
+  useEffect(() => {
+    if (!user) {
+      setNotesAlertCount(0);
+      return;
+    }
+    let alive = true;
+    const tick = async () => {
+      const r = await listNotes().catch(() => null);
+      if (!alive) return;
+      if (!r || !(r as any).ok) return;
+      const notes = ((r as any).notes ?? []) as NoteItem[];
+      const shares = ((r as any).shares ?? []) as NoteShareItem[];
+      const shareByNote = new Map<string, NoteShareItem>();
+      for (const s of shares) {
+        if (s.recipientUserId === user.id) shareByNote.set(String(s.noteId), s);
+      }
+      const visible = notes.filter((n) => {
+        if (n.ownerUserId === user.id) return true;
+        const share = shareByNote.get(String(n.id));
+        return share ? !share.hidden : false;
+      });
+      const now = Date.now();
+      const count = visible.filter((n) => n.importance === 'burning' || (n.dueAt != null && n.dueAt < now)).length;
+      setNotesAlertCount(count);
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [user?.id]);
 
   if (loading) {
     return (
@@ -263,6 +336,7 @@ export function App() {
             tabs={visibleTabs}
             active={tab}
             onChange={(id) => setTab(id as any)}
+            notesAlertCount={notesAlertCount}
           />
         </div>
       </div>
@@ -271,7 +345,13 @@ export function App() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flex: '1 1 auto', minHeight: 0 }}>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'left' && tab !== 'chat' && (
           <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+            <ChatPanel
+              meUserId={user.id}
+              meRole={user.role}
+              canExport={caps.canChatExport}
+              canAdminViewAll={caps.canChatAdminView}
+              onChatContextChange={(ctx) => setChatContext(ctx)}
+            />
           </div>
         )}
         <div style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -310,7 +390,18 @@ export function App() {
           {tab === 'diagnostics' && <DiagnosticsPage />}
           {tab === 'chat' && user && (
             <div style={{ flex: '1 1 auto', minHeight: 0 }}>
-              <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+              <ChatPanel
+                meUserId={user.id}
+                meRole={user.role}
+                canExport={caps.canChatExport}
+                canAdminViewAll={caps.canChatAdminView}
+                onChatContextChange={(ctx) => setChatContext(ctx)}
+              />
+            </div>
+          )}
+          {tab === 'notes' && user && (
+            <div style={{ flex: '1 1 auto', minHeight: 0 }}>
+              <NotesPage meUserId={user.id} canEdit={true} onSendToChat={sendNoteToChat} onBurningCountChange={(count) => setNotesAlertCount(count)} />
             </div>
           )}
           {tab === 'settings' && (
@@ -410,7 +501,13 @@ export function App() {
         </div>
         {user && caps.canChatUse && prefs.chatDocked && prefs.chatSide === 'right' && tab !== 'chat' && (
           <div className="card" style={{ flex: '0 0 320px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <ChatPanel meUserId={user.id} meRole={user.role} canExport={caps.canChatExport} canAdminViewAll={caps.canChatAdminView} />
+            <ChatPanel
+              meUserId={user.id}
+              meRole={user.role}
+              canExport={caps.canChatExport}
+              canAdminViewAll={caps.canChatAdminView}
+              onChatContextChange={(ctx) => setChatContext(ctx)}
+            />
           </div>
         )}
         </div>

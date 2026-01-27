@@ -213,13 +213,12 @@ export function CounterpartyDetailsPage(props: {
                 { entityTypeId: typeId },
               ).then(() => setDefs([...defs]));
             }}
-            renderItem={(field, dragHandleProps, state) => (
+            renderItem={(field, itemProps, dragHandleProps, state) => (
               <div
-                {...dragHandleProps}
+                {...itemProps}
                 style={{
-                  ...dragHandleProps.style,
                   display: 'grid',
-                  gridTemplateColumns: 'minmax(160px, 200px) 1fr',
+                  gridTemplateColumns: '24px minmax(160px, 200px) 1fr',
                   gap: 10,
                   alignItems: 'center',
                   padding: '6px 8px',
@@ -228,6 +227,22 @@ export function CounterpartyDetailsPage(props: {
                   background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
                 }}
               >
+                <div
+                  {...dragHandleProps}
+                  title="Перетащить"
+                  style={{
+                    ...dragHandleProps.style,
+                    width: 24,
+                    height: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#94a3b8',
+                    userSelect: 'none',
+                  }}
+                >
+                  :::
+                </div>
                 <div style={{ color: '#6b7280' }}>{field.label}</div>
                 {field.render}
               </div>

@@ -100,9 +100,9 @@ function defaultDefectTemplate(): RepairChecklistTemplate {
         kind: 'table',
         columns: [
           { id: 'part_name', label: 'Наименование узла (детали)' },
-          { id: 'reinstall', label: 'Подлежит повторной установке', kind: 'boolean' },
-          { id: 'replace', label: 'Подлежит замене', kind: 'boolean' },
-          { id: 'note', label: 'Примечание' },
+          { id: 'part_number', label: '№ детали (узла)' },
+          { id: 'repairable_qty', label: 'Ремонтно-пригодная', kind: 'number' },
+          { id: 'scrap_qty', label: 'Утиль', kind: 'number' },
         ],
       },
       { id: 'compiled_by', label: 'Настоящий акт составил (ФИО, должность, подпись)', kind: 'signature' },

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type SearchSelectOption = { id: string; label: string };
 
@@ -18,7 +19,9 @@ export function SearchSelect(props: {
   const [isCreating, setIsCreating] = useState(false);
   const [createValue, setCreateValue] = useState('');
   const [createBusy, setCreateBusy] = useState(false);
+  const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const createInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -80,7 +83,8 @@ export function SearchSelect(props: {
     const onDoc = (e: MouseEvent) => {
       const el = rootRef.current;
       if (!el) return;
-      if (e.target && el.contains(e.target as any)) return;
+      const target = e.target as Node | null;
+      if (target && (el.contains(target) || popupRef.current?.contains(target))) return;
       setOpen(false);
       setQuery('');
       setActiveIdx(-1);
@@ -91,6 +95,22 @@ export function SearchSelect(props: {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPopupRect({ left: rect.left, top: rect.bottom + 6, width: rect.width });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
   function close() {
     setOpen(false);
     setQuery('');
@@ -98,6 +118,7 @@ export function SearchSelect(props: {
     setIsCreating(false);
     setCreateValue('');
     setCreateBusy(false);
+    setPopupRect(null);
   }
 
   function openOrToggle() {
@@ -219,176 +240,187 @@ export function SearchSelect(props: {
         )}
       </div>
 
-      {open && !disabled && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 'calc(100% + 6px)',
-            zIndex: 10,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 12,
-            boxShadow: 'var(--chat-menu-shadow)',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  close();
-                  return;
-                }
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  if (!filtered.length) return;
-                  setActiveIdx((p) => {
-                    const next = p < 0 ? 0 : Math.min(filtered.length - 1, p + 1);
-                    return next;
-                  });
-                  return;
-                }
-                if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  if (!filtered.length) return;
-                  setActiveIdx((p) => {
-                    const next = p <= 0 ? 0 : p - 1;
-                    return next;
-                  });
-                  return;
-                }
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (activeIdx >= 0) pickByIndex(activeIdx);
-                }
-              }}
-              placeholder="Поиск…"
+      {open && !disabled && popupRect
+        ? createPortal(
+            <div
+              ref={popupRef}
               style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: 10,
-                border: '1px solid var(--input-border)',
-                background: 'var(--input-bg)',
-                color: 'var(--text)',
-                outline: 'none',
+                position: 'fixed',
+                left: popupRect.left,
+                top: popupRect.top,
+                width: popupRect.width,
+                zIndex: 5000,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                boxShadow: 'var(--chat-menu-shadow)',
+                overflow: 'hidden',
               }}
-              autoFocus
-            />
-          </div>
-          <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
-            {filtered.length === 0 && <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>}
-            {filtered.map((o, idx) => {
-              const active = props.value === o.id;
-              const focused = activeIdx === idx;
-              return (
-                <div
-                  key={o.id}
-                  data-idx={idx}
-                  onClick={() => {
-                    props.onChange(o.id);
-                    close();
+            >
+              <div style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      close();
+                      return;
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      if (!filtered.length) return;
+                      setActiveIdx((p) => {
+                        const next = p < 0 ? 0 : Math.min(filtered.length - 1, p + 1);
+                        return next;
+                      });
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      if (!filtered.length) return;
+                      setActiveIdx((p) => {
+                        const next = p <= 0 ? 0 : p - 1;
+                        return next;
+                      });
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (activeIdx >= 0) pickByIndex(activeIdx);
+                    }
                   }}
-                  onMouseEnter={() => {
-                    setActiveIdx(idx);
-                  }}
+                  placeholder="Поиск…"
                   style={{
-                    padding: '10px 12px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid var(--border)',
-                    background: focused ? 'rgba(96, 165, 250, 0.18)' : active ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    border: '1px solid var(--input-border)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text)',
+                    outline: 'none',
                   }}
-                >
-                  <div style={{ fontWeight: 700, color: 'var(--text)' }}>{o.label}</div>
-                  <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                    {o.id.slice(0, 8)}
-                  </div>
-                </div>
-              );
-            })}
-            {props.onCreate && (
-              <div style={{ borderTop: '1px dashed var(--border)' }}>
-                {isCreating ? (
-                  <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <input
-                      ref={createInputRef}
-                      value={createValue}
-                      onChange={(e) => setCreateValue(e.target.value)}
-                      placeholder={props.createLabel ?? 'Добавить'}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          void submitCreate();
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault();
-                          cancelCreate();
-                        }
+                  autoFocus
+                />
+              </div>
+              <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
+                {filtered.length === 0 && <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>}
+                {filtered.map((o, idx) => {
+                  const active = props.value === o.id;
+                  const focused = activeIdx === idx;
+                  return (
+                    <div
+                      key={o.id}
+                      data-idx={idx}
+                      onClick={() => {
+                        props.onChange(o.id);
+                        close();
+                      }}
+                      onMouseEnter={() => {
+                        setActiveIdx(idx);
                       }}
                       style={{
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        border: '1px solid var(--input-border)',
-                        background: 'var(--input-bg)',
-                        color: 'var(--text)',
-                        outline: 'none',
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border)',
+                        background: focused ? 'rgba(96, 165, 250, 0.18)' : active ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
                       }}
-                      disabled={createBusy}
-                    />
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        onClick={() => void submitCreate()}
-                        disabled={createBusy || !createValue.trim()}
+                    >
+                      <div style={{ fontWeight: 700, color: 'var(--text)' }}>{o.label}</div>
+                      <div
                         style={{
-                          padding: '6px 10px',
-                          borderRadius: 8,
-                          border: '1px solid var(--input-border)',
-                          background: 'var(--input-bg)',
-                          color: 'var(--text)',
-                          cursor: createBusy ? 'default' : 'pointer',
-                        }}
-                      >
-                        {createBusy ? 'Добавляем…' : 'Добавить'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelCreate}
-                        disabled={createBusy}
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: 8,
-                          border: '1px solid var(--border)',
-                          background: 'transparent',
+                          marginTop: 2,
+                          fontSize: 12,
                           color: 'var(--muted)',
-                          cursor: createBusy ? 'default' : 'pointer',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                         }}
                       >
-                        Отмена
-                      </button>
+                        {o.id.slice(0, 8)}
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={startCreate}
-                    style={{
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      background: 'transparent',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, color: 'var(--text)' }}>+ Добавить</div>
-                    {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)' }}>{props.createLabel}</div>}
+                  );
+                })}
+                {props.onCreate && (
+                  <div style={{ borderTop: '1px dashed var(--border)' }}>
+                    {isCreating ? (
+                      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <input
+                          ref={createInputRef}
+                          value={createValue}
+                          onChange={(e) => setCreateValue(e.target.value)}
+                          placeholder={props.createLabel ?? 'Добавить'}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void submitCreate();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelCreate();
+                            }
+                          }}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            border: '1px solid var(--input-border)',
+                            background: 'var(--input-bg)',
+                            color: 'var(--text)',
+                            outline: 'none',
+                          }}
+                          disabled={createBusy}
+                        />
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => void submitCreate()}
+                            disabled={createBusy || !createValue.trim()}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: '1px solid var(--input-border)',
+                              background: 'var(--input-bg)',
+                              color: 'var(--text)',
+                              cursor: createBusy ? 'default' : 'pointer',
+                            }}
+                          >
+                            {createBusy ? 'Добавляем…' : 'Добавить'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelCreate}
+                            disabled={createBusy}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: '1px solid var(--border)',
+                              background: 'transparent',
+                              color: 'var(--muted)',
+                              cursor: createBusy ? 'default' : 'pointer',
+                            }}
+                          >
+                            Отмена
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={startCreate}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          background: 'transparent',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: 'var(--text)' }}>+ Добавить</div>
+                        {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)' }}>{props.createLabel}</div>}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

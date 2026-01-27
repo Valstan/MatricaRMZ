@@ -11,6 +11,8 @@ export const SyncTableName = {
   ChatMessages: 'chat_messages',
   ChatReads: 'chat_reads',
   UserPresence: 'user_presence',
+  Notes: 'notes',
+  NoteShares: 'note_shares',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

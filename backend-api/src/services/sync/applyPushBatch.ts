@@ -6,6 +6,8 @@ import {
   auditLogRowSchema,
   chatMessageRowSchema,
   chatReadRowSchema,
+  noteRowSchema,
+  noteShareRowSchema,
   entityRowSchema,
   entityTypeRowSchema,
   operationRowSchema,
@@ -25,6 +27,8 @@ import {
   changeLog,
   entities,
   entityTypes,
+  notes,
+  noteShares,
   operations,
   rowOwners,
   syncState,
@@ -972,6 +976,190 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           await tx.insert(changeLog).values(
             allowed.map((r) => ({
               tableName: SyncTableName.ChatReads,
+              rowId: r.id as any,
+              op: normalizeOpFromRow(r),
+              payloadJson: JSON.stringify(r),
+              createdAt: appliedAt,
+            })),
+          );
+          applied += allowed.length;
+        }
+      }
+    }
+
+    // Notes
+    {
+      const raw = grouped.get(SyncTableName.Notes) ?? [];
+      const parsedAll = raw.map((x) => noteRowSchema.parse(x));
+      if (parsedAll.length > 0 && actor.id) {
+        // Never trust owner_user_id from client.
+        const parsed = parsedAll.map((r) => ({
+          ...r,
+          owner_user_id: actor.id,
+        }));
+        const rows = await filterStaleByUpdatedAt(notes, parsed);
+        const ids = rows.map((r) => r.id);
+        const existing =
+          ids.length === 0
+            ? []
+            : await tx
+                .select()
+                .from(notes)
+                .where(inArray(notes.id, ids as any))
+                .limit(50_000);
+        const existingMap = new Map<string, any>();
+        for (const e of existing as any[]) existingMap.set(String(e.id), e);
+
+        const allowed: typeof rows = [];
+        for (const r of rows) {
+          const cur = existingMap.get(String(r.id));
+          if (!cur) {
+            allowed.push(r);
+            continue;
+          }
+          const ownerOk = String(cur.ownerUserId ?? '') === actor.id;
+          if (!ownerOk && !actorIsAdmin) throw new Error('sync_policy_denied: note_owner');
+          allowed.push(r);
+        }
+
+        if (allowed.length > 0) {
+          await tx
+            .insert(notes)
+            .values(
+              allowed.map((r) => ({
+                id: r.id as any,
+                ownerUserId: r.owner_user_id as any,
+                title: r.title,
+                bodyJson: r.body_json ?? null,
+                importance: r.importance,
+                dueAt: r.due_at ?? null,
+                sortOrder: r.sort_order ?? 0,
+                createdAt: r.created_at,
+                updatedAt: Math.max(r.updated_at, appliedAt),
+                deletedAt: r.deleted_at ?? null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoUpdate({
+              target: notes.id,
+              set: {
+                ownerUserId: sql`excluded.owner_user_id`,
+                title: sql`excluded.title`,
+                bodyJson: sql`excluded.body_json`,
+                importance: sql`excluded.importance`,
+                dueAt: sql`excluded.due_at`,
+                sortOrder: sql`excluded.sort_order`,
+                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                deletedAt: sql`excluded.deleted_at`,
+                syncStatus: 'synced',
+              },
+            });
+          await tx.insert(changeLog).values(
+            allowed.map((r) => ({
+              tableName: SyncTableName.Notes,
+              rowId: r.id as any,
+              op: normalizeOpFromRow(r),
+              payloadJson: JSON.stringify(r),
+              createdAt: appliedAt,
+            })),
+          );
+          applied += allowed.length;
+        }
+      }
+    }
+
+    // NoteShares
+    {
+      const raw = grouped.get(SyncTableName.NoteShares) ?? [];
+      const parsedAll = raw.map((x) => noteShareRowSchema.parse(x));
+      if (parsedAll.length > 0 && actor.id) {
+        const rows = await filterStaleByUpdatedAt(noteShares, parsedAll);
+        const noteIds = Array.from(new Set(rows.map((r) => String(r.note_id))));
+        const notesRows =
+          noteIds.length === 0
+            ? []
+            : await tx
+                .select({ id: notes.id, ownerUserId: notes.ownerUserId })
+                .from(notes)
+                .where(inArray(notes.id, noteIds as any))
+                .limit(50_000);
+        const ownerByNote = new Map<string, string>();
+        for (const r of notesRows) ownerByNote.set(String(r.id), String(r.ownerUserId));
+
+        const recipientIds = Array.from(
+          new Set(rows.map((r) => (r.recipient_user_id ? String(r.recipient_user_id) : '')).filter((id) => id.length > 0)),
+        );
+        if (recipientIds.length > 0) {
+          const existingRecipients = await tx
+            .select({ id: entities.id })
+            .from(entities)
+            .where(inArray(entities.id, recipientIds as any))
+            .limit(50_000);
+          const existingSet = new Set(existingRecipients.map((r) => String(r.id)));
+          const missing = recipientIds.filter((id) => !existingSet.has(String(id)));
+          if (missing.length > 0) throw new Error(`sync_dependency_missing: note_recipient (${missing.length})`);
+        }
+
+        const shareKey = (noteId: string, recipientId: string) => `${noteId}::${recipientId}`;
+        const existingShares =
+          recipientIds.length === 0
+            ? []
+            : await tx
+                .select()
+                .from(noteShares)
+                .where(inArray(noteShares.recipientUserId, recipientIds as any))
+                .limit(50_000);
+        const existingByKey = new Map<string, any>();
+        for (const r of existingShares as any[]) {
+          existingByKey.set(shareKey(String(r.noteId), String(r.recipientUserId)), r);
+        }
+
+        const allowed: typeof rows = [];
+        for (const r of rows) {
+          const noteId = String(r.note_id);
+          const recipientId = String(r.recipient_user_id);
+          const ownerId = ownerByNote.get(noteId);
+          if (!ownerId) continue;
+          const isOwner = ownerId === actor.id;
+          const isRecipient = recipientId === actor.id;
+          if (!isOwner && !isRecipient && !actorIsAdmin) throw new Error('sync_policy_denied: note_share');
+          if (isRecipient && !isOwner) {
+            const existing = existingByKey.get(shareKey(noteId, recipientId));
+            if (!existing) throw new Error('sync_policy_denied: note_share_missing');
+          }
+          allowed.push(r);
+        }
+
+        if (allowed.length > 0) {
+          await tx
+            .insert(noteShares)
+            .values(
+              allowed.map((r) => ({
+                id: r.id as any,
+                noteId: r.note_id as any,
+                recipientUserId: r.recipient_user_id as any,
+                hidden: !!r.hidden,
+                sortOrder: r.sort_order ?? 0,
+                createdAt: r.created_at,
+                updatedAt: Math.max(r.updated_at, appliedAt),
+                deletedAt: r.deleted_at ?? null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoUpdate({
+              target: [noteShares.noteId, noteShares.recipientUserId],
+              set: {
+                id: sql`excluded.id`,
+                hidden: sql`excluded.hidden`,
+                sortOrder: sql`excluded.sort_order`,
+                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                deletedAt: sql`excluded.deleted_at`,
+                syncStatus: 'synced',
+              },
+            });
+          await tx.insert(changeLog).values(
+            allowed.map((r) => ({
+              tableName: SyncTableName.NoteShares,
               rowId: r.id as any,
               op: normalizeOpFromRow(r),
               payloadJson: JSON.stringify(r),

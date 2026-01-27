@@ -156,6 +156,50 @@ export const chatReads = sqliteTable(
   }),
 );
 
+// -----------------------------
+// Notes (sync tables)
+// -----------------------------
+export const notes = sqliteTable(
+  'notes',
+  {
+    id: text('id').primaryKey(), // uuid
+    ownerUserId: text('owner_user_id').notNull(), // uuid
+    title: text('title').notNull(),
+    bodyJson: text('body_json'),
+    importance: text('importance').notNull().default('normal'),
+    dueAt: integer('due_at'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    ownerSortIdx: index('notes_owner_sort_idx').on(t.ownerUserId, t.sortOrder),
+    syncStatusIdx: index('notes_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const noteShares = sqliteTable(
+  'note_shares',
+  {
+    id: text('id').primaryKey(), // uuid
+    noteId: text('note_id').notNull(), // uuid
+    recipientUserId: text('recipient_user_id').notNull(), // uuid
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    noteRecipientUq: uniqueIndex('note_shares_note_recipient_uq').on(t.noteId, t.recipientUserId),
+    recipientSortIdx: index('note_shares_recipient_sort_idx').on(t.recipientUserId, t.sortOrder),
+    syncStatusIdx: index('note_shares_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
 export const userPresence = sqliteTable(
   'user_presence',
   {

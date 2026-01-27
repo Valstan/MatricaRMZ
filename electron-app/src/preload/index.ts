@@ -186,6 +186,24 @@ contextBridge.exposeInMainWorld('matrica', {
     export: async (args: { startMs: number; endMs: number }) => ipcRenderer.invoke('chat:export', args),
     deleteMessage: async (args: { messageId: string }) => ipcRenderer.invoke('chat:deleteMessage', args),
   },
+  notes: {
+    usersList: async () => ipcRenderer.invoke('notes:usersList'),
+    list: async () => ipcRenderer.invoke('notes:list'),
+    upsert: async (args: {
+      id?: string;
+      title: string;
+      body: Array<{ id: string; kind: string }>;
+      importance: 'normal' | 'important' | 'burning' | 'later';
+      dueAt?: number | null;
+      sortOrder?: number;
+    }) => ipcRenderer.invoke('notes:upsert', args),
+    delete: async (args: { noteId: string }) => ipcRenderer.invoke('notes:delete', args),
+    share: async (args: { noteId: string; recipientUserId: string }) => ipcRenderer.invoke('notes:share', args),
+    unshare: async (args: { noteId: string; recipientUserId: string }) => ipcRenderer.invoke('notes:unshare', args),
+    hide: async (args: { noteId: string; hidden: boolean }) => ipcRenderer.invoke('notes:hide', args),
+    reorder: async (args: { noteId: string; sortOrder: number }) => ipcRenderer.invoke('notes:reorder', args),
+    burningCount: async () => ipcRenderer.invoke('notes:burningCount'),
+  },
   aiAgent: {
     assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
     logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),

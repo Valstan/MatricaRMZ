@@ -204,13 +204,18 @@ export type ChatDeepLinkPayload = {
     | 'reports'
     | 'admin'
     | 'audit'
+    | 'notes'
     | 'settings'
     | 'auth';
   engineId?: string | null;
+  engineBrandId?: string | null;
   requestId?: string | null;
   partId?: string | null;
   contractId?: string | null;
   employeeId?: string | null;
+  productId?: string | null;
+  serviceId?: string | null;
+  counterpartyId?: string | null;
   breadcrumbs?: string[];
 };
 
@@ -245,6 +250,11 @@ export type ChatUnreadCountResult =
 export type ChatExportResult = { ok: true; path: string } | { ok: false; error: string };
 export type ChatDeleteResult = { ok: true } | { ok: false; error: string };
 
+export type NoteListResult = { ok: true; notes: NoteItem[]; shares: NoteShareItem[] } | { ok: false; error: string };
+export type NoteUpsertResult = { ok: true; id: string } | { ok: false; error: string };
+export type NoteDeleteResult = { ok: true } | { ok: false; error: string };
+export type NoteShareResult = { ok: true } | { ok: false; error: string };
+
 export type AuthLoginResult =
   | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo; permissions: Record<string, boolean> }
   | { ok: false; error: string };
@@ -276,6 +286,7 @@ export type ChangeDecisionResult = { ok: true } | { ok: false; error: string };
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
 import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
 import type { FileRef } from '../domain/fileStorage.js';
+import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
@@ -661,6 +672,24 @@ export type MatricaApi = {
     unreadCount: () => Promise<ChatUnreadCountResult>;
     export: (args: { startMs: number; endMs: number }) => Promise<ChatExportResult>;
     deleteMessage: (args: { messageId: string }) => Promise<ChatDeleteResult>;
+  };
+  notes: {
+    list: () => Promise<NoteListResult>;
+    upsert: (args: {
+      id?: string;
+      title: string;
+      body: NoteBlock[];
+      importance: NoteImportance;
+      dueAt?: number | null;
+      sortOrder?: number;
+    }) => Promise<NoteUpsertResult>;
+    delete: (args: { noteId: string }) => Promise<NoteDeleteResult>;
+    share: (args: { noteId: string; recipientUserId: string }) => Promise<NoteShareResult>;
+    unshare: (args: { noteId: string; recipientUserId: string }) => Promise<NoteShareResult>;
+    hide: (args: { noteId: string; hidden: boolean }) => Promise<NoteShareResult>;
+    reorder: (args: { noteId: string; sortOrder: number }) => Promise<NoteShareResult>;
+    usersList: () => Promise<ChatUsersListResult>;
+    burningCount: () => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   };
   aiAgent: {
     assist: (args: AiAgentAssistRequest) => Promise<AiAgentAssistResponse>;

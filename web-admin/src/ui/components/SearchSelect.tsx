@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type SearchSelectOption = { id: string; label: string };
 
@@ -15,8 +16,10 @@ export function SearchSelect(props: {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState<number>(-1);
+  const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
 
   const selected = useMemo(() => {
     if (!props.value) return null;
@@ -72,7 +75,8 @@ export function SearchSelect(props: {
     const onDoc = (e: MouseEvent) => {
       const el = rootRef.current;
       if (!el) return;
-      if (e.target && el.contains(e.target as any)) return;
+      const target = e.target as Node | null;
+      if (target && (el.contains(target) || popupRef.current?.contains(target))) return;
       setOpen(false);
       setQuery('');
       setActiveIdx(-1);
@@ -81,10 +85,27 @@ export function SearchSelect(props: {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPopupRect({ left: rect.left, top: rect.bottom + 6, width: rect.width });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
   function close() {
     setOpen(false);
     setQuery('');
     setActiveIdx(-1);
+    setPopupRect(null);
   }
 
   function openOrToggle() {
@@ -168,113 +189,117 @@ export function SearchSelect(props: {
         )}
       </div>
 
-      {open && !disabled && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 'calc(100% + 6px)',
-            zIndex: 10,
-            background: '#fff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 12,
-            boxShadow: '0 18px 40px rgba(0,0,0,0.15)',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  close();
-                  return;
-                }
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  if (!filtered.length) return;
-                  setActiveIdx((p) => (p < 0 ? 0 : Math.min(filtered.length - 1, p + 1)));
-                  return;
-                }
-                if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  if (!filtered.length) return;
-                  setActiveIdx((p) => (p <= 0 ? 0 : p - 1));
-                  return;
-                }
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (activeIdx >= 0) pickByIndex(activeIdx);
-                }
-              }}
-              placeholder="Поиск…"
+      {open && !disabled && popupRect
+        ? createPortal(
+            <div
+              ref={popupRef}
               style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: 10,
-                border: '1px solid #d1d5db',
-                outline: 'none',
+                position: 'fixed',
+                left: popupRect.left,
+                top: popupRect.top,
+                width: popupRect.width,
+                zIndex: 5000,
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                boxShadow: '0 18px 40px rgba(0,0,0,0.15)',
+                overflow: 'hidden',
               }}
-              autoFocus
-            />
-          </div>
-          <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
-            {filtered.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>Ничего не найдено</div>}
-            {filtered.map((o, idx) => {
-              const active = props.value === o.id;
-              const focused = activeIdx === idx;
-              return (
-                <div
-                  key={o.id}
-                  data-idx={idx}
-                  onClick={() => {
-                    props.onChange(o.id);
-                    close();
+            >
+              <div style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      close();
+                      return;
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      if (!filtered.length) return;
+                      setActiveIdx((p) => (p < 0 ? 0 : Math.min(filtered.length - 1, p + 1)));
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      if (!filtered.length) return;
+                      setActiveIdx((p) => (p <= 0 ? 0 : p - 1));
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (activeIdx >= 0) pickByIndex(activeIdx);
+                    }
                   }}
-                  onMouseEnter={() => {
-                    setActiveIdx(idx);
-                  }}
+                  placeholder="Поиск…"
                   style={{
-                    padding: '10px 12px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid #f3f4f6',
-                    background: focused ? '#e0f2fe' : active ? '#eef2ff' : '#fff',
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    border: '1px solid #d1d5db',
+                    outline: 'none',
                   }}
-                >
-                  <div style={{ fontWeight: 700, color: '#111827' }}>{o.label}</div>
-                  <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                    {o.id.slice(0, 8)}
-                  </div>
-                </div>
-              );
-            })}
-            {props.onCreate && (
-              <div
-                onClick={async () => {
-                  const label = window.prompt(props.createLabel ?? 'Добавить');
-                  if (!label?.trim()) return;
-                  const id = await props.onCreate?.(label.trim());
-                  if (!id) return;
-                  props.onChange(id);
-                  close();
-                }}
-                style={{
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  borderTop: '1px dashed #e5e7eb',
-                  background: 'transparent',
-                }}
-              >
-                <div style={{ fontWeight: 700, color: '#111827' }}>+ Добавить</div>
-                {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{props.createLabel}</div>}
+                  autoFocus
+                />
               </div>
-            )}
-          </div>
-        </div>
-      )}
+              <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
+                {filtered.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>Ничего не найдено</div>}
+                {filtered.map((o, idx) => {
+                  const active = props.value === o.id;
+                  const focused = activeIdx === idx;
+                  return (
+                    <div
+                      key={o.id}
+                      data-idx={idx}
+                      onClick={() => {
+                        props.onChange(o.id);
+                        close();
+                      }}
+                      onMouseEnter={() => {
+                        setActiveIdx(idx);
+                      }}
+                      style={{
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #f3f4f6',
+                        background: focused ? '#e0f2fe' : active ? '#eef2ff' : '#fff',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: '#111827' }}>{o.label}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                        {o.id.slice(0, 8)}
+                      </div>
+                    </div>
+                  );
+                })}
+                {props.onCreate && (
+                  <div
+                    onClick={async () => {
+                      const label = window.prompt(props.createLabel ?? 'Добавить');
+                      if (!label?.trim()) return;
+                      const id = await props.onCreate?.(label.trim());
+                      if (!id) return;
+                      props.onChange(id);
+                      close();
+                    }}
+                    style={{
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                      borderTop: '1px dashed #e5e7eb',
+                      background: 'transparent',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#111827' }}>+ Добавить</div>
+                    {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{props.createLabel}</div>}
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

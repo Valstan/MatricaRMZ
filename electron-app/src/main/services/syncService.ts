@@ -7,7 +7,19 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
-import { attributeDefs, attributeValues, auditLog, chatMessages, chatReads, entities, entityTypes, operations, userPresence } from '../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  auditLog,
+  chatMessages,
+  chatReads,
+  entities,
+  entityTypes,
+  noteShares,
+  notes,
+  operations,
+  userPresence,
+} from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
@@ -29,6 +41,8 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.ChatMessages]: 800,
   [SyncTableName.ChatReads]: 800,
   [SyncTableName.UserPresence]: 50,
+  [SyncTableName.Notes]: 500,
+  [SyncTableName.NoteShares]: 500,
 };
 
 const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
@@ -450,6 +464,14 @@ async function collectPending(db: BetterSQLite3Database) {
     await db.select().from(chatReads).where(eq(chatReads.syncStatus, pending)).limit(limitFor(SyncTableName.ChatReads)),
   );
   await add(
+    SyncTableName.Notes,
+    await db.select().from(notes).where(eq(notes.syncStatus, pending)).limit(limitFor(SyncTableName.Notes)),
+  );
+  await add(
+    SyncTableName.NoteShares,
+    await db.select().from(noteShares).where(eq(noteShares.syncStatus, pending)).limit(limitFor(SyncTableName.NoteShares)),
+  );
+  await add(
     SyncTableName.UserPresence,
     await db.select().from(userPresence).where(eq(userPresence.syncStatus, pending)).limit(limitFor(SyncTableName.UserPresence)),
   );
@@ -559,6 +581,32 @@ function toSyncRow(table: SyncTableName, row: any): any {
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
+    case SyncTableName.Notes:
+      return {
+        id: row.id,
+        owner_user_id: row.ownerUserId,
+        title: row.title,
+        body_json: row.bodyJson ?? null,
+        importance: row.importance,
+        due_at: row.dueAt ?? null,
+        sort_order: row.sortOrder ?? 0,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.NoteShares:
+      return {
+        id: row.id,
+        note_id: row.noteId,
+        recipient_user_id: row.recipientUserId,
+        hidden: !!row.hidden,
+        sort_order: row.sortOrder ?? 0,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
     case SyncTableName.UserPresence:
       return {
         id: row.id,
@@ -615,6 +663,12 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
         break;
       case SyncTableName.ChatReads:
         await db.update(chatReads).set({ syncStatus: 'synced' }).where(inArray(chatReads.id, chunk));
+        break;
+      case SyncTableName.Notes:
+        await db.update(notes).set({ syncStatus: 'synced' }).where(inArray(notes.id, chunk));
+        break;
+      case SyncTableName.NoteShares:
+        await db.update(noteShares).set({ syncStatus: 'synced' }).where(inArray(noteShares.id, chunk));
         break;
       case SyncTableName.UserPresence:
         await db.update(userPresence).set({ syncStatus: 'synced' }).where(inArray(userPresence.id, chunk));
@@ -725,6 +779,8 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     [SyncTableName.ChatMessages]: [],
     [SyncTableName.ChatReads]: [],
     [SyncTableName.UserPresence]: [],
+    [SyncTableName.Notes]: [],
+    [SyncTableName.NoteShares]: [],
   };
 
   for (const ch of changes) {
@@ -866,6 +922,40 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           });
         }
         break;
+      case SyncTableName.Notes:
+        {
+          const payload = payloadRaw;
+          groups.notes.push({
+            id: payload.id,
+            ownerUserId: payload.owner_user_id,
+            title: payload.title,
+            bodyJson: payload.body_json ?? null,
+            importance: payload.importance,
+            dueAt: payload.due_at ?? null,
+            sortOrder: payload.sort_order ?? 0,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.NoteShares:
+        {
+          const payload = payloadRaw;
+          groups.note_shares.push({
+            id: payload.id,
+            noteId: payload.note_id,
+            recipientUserId: payload.recipient_user_id,
+            hidden: !!payload.hidden,
+            sortOrder: payload.sort_order ?? 0,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
       case SyncTableName.UserPresence:
         {
           const payload = payloadRaw;
@@ -904,6 +994,8 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   groups.audit_log = dedupById(groups.audit_log);
   groups.chat_messages = dedupById(groups.chat_messages);
   groups.chat_reads = dedupById(groups.chat_reads);
+  groups.notes = dedupById(groups.notes);
+  groups.note_shares = dedupById(groups.note_shares);
   groups.user_presence = dedupById(groups.user_presence);
 
   if (groups.attribute_values.length > 0) {
@@ -961,6 +1053,37 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         }
       }
       groups.chat_reads = dedupById(Array.from(byPair.values()));
+    }
+  }
+
+  if (groups.note_shares.length > 0) {
+    const noteIds = Array.from(new Set(groups.note_shares.map((r: any) => String(r.noteId))));
+    const userIds = Array.from(new Set(groups.note_shares.map((r: any) => String(r.recipientUserId))));
+    if (noteIds.length > 0 && userIds.length > 0) {
+      const existing = await db
+        .select({ id: noteShares.id, noteId: noteShares.noteId, recipientUserId: noteShares.recipientUserId })
+        .from(noteShares)
+        .where(and(inArray(noteShares.noteId, noteIds as any), inArray(noteShares.recipientUserId, userIds as any)))
+        .limit(50_000);
+      const keyToId = new Map<string, string>();
+      for (const r of existing as any[]) {
+        keyToId.set(`${String(r.noteId)}::${String(r.recipientUserId)}`, String(r.id));
+      }
+      const remapped = groups.note_shares.map((r: any) => {
+        const key = `${String(r.noteId)}::${String(r.recipientUserId)}`;
+        const existingId = keyToId.get(key);
+        if (existingId && existingId !== String(r.id)) {
+          return { ...r, id: existingId };
+        }
+        return r;
+      });
+      const byPair = new Map<string, any>();
+      for (const r of remapped) {
+        const key = `${String(r.noteId)}::${String(r.recipientUserId)}`;
+        const prev = byPair.get(key);
+        if (!prev || Number(prev.updatedAt ?? 0) < Number(r.updatedAt ?? 0)) byPair.set(key, r);
+      }
+      groups.note_shares = dedupById(Array.from(byPair.values()));
     }
   }
 
@@ -1102,6 +1225,43 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           messageId: sql`excluded.message_id`,
           userId: sql`excluded.user_id`,
           readAt: sql`excluded.read_at`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+
+  if (groups.notes.length > 0) {
+    await db
+      .insert(notes)
+      .values(groups.notes)
+      .onConflictDoUpdate({
+        target: notes.id,
+        set: {
+          ownerUserId: sql`excluded.owner_user_id`,
+          title: sql`excluded.title`,
+          bodyJson: sql`excluded.body_json`,
+          importance: sql`excluded.importance`,
+          dueAt: sql`excluded.due_at`,
+          sortOrder: sql`excluded.sort_order`,
+          updatedAt: sql`excluded.updated_at`,
+          deletedAt: sql`excluded.deleted_at`,
+          syncStatus: 'synced',
+        },
+      });
+  }
+
+  if (groups.note_shares.length > 0) {
+    await db
+      .insert(noteShares)
+      .values(groups.note_shares)
+      .onConflictDoUpdate({
+        target: [noteShares.noteId, noteShares.recipientUserId],
+        set: {
+          id: sql`excluded.id`,
+          hidden: sql`excluded.hidden`,
+          sortOrder: sql`excluded.sort_order`,
           updatedAt: sql`excluded.updated_at`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',

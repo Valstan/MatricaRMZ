@@ -48,6 +48,7 @@ export function tabAccent(tab: string): AccentKey {
     return 'admin';
   if (tab === 'audit') return 'audit';
   if (tab === 'changes') return 'changes';
+  if (tab === 'notes') return 'reports';
   return 'neutral';
 }
 

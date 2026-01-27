@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import * as chatApi from '../api/chat.js';
+import { upsertNote } from '../api/notes.js';
 
 type ChatUserItem = {
   id: string;
@@ -72,6 +73,7 @@ export function ChatPanel(props: {
   meRole?: string;
   canExport: boolean;
   canAdminViewAll: boolean;
+  onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
 }) {
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
   const [users, setUsers] = useState<ChatUserItem[]>([]);
@@ -90,6 +92,16 @@ export function ChatPanel(props: {
     requestId: '',
     partId: '',
   });
+  const [noteDialog, setNoteDialog] = useState<{ open: boolean; message: ChatMessageItem | null; title: string }>({
+    open: false,
+    message: null,
+    title: '',
+  });
+  const [linkDialog, setLinkDialog] = useState<{ open: boolean; title: string }>({ open: false, title: 'Ссылка на раздел' });
+
+  useEffect(() => {
+    props.onChatContextChange?.({ selectedUserId, adminMode });
+  }, [selectedUserId, adminMode]);
   const [sendingFile, setSendingFile] = useState(false);
   const [openInfoId, setOpenInfoId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -290,9 +302,40 @@ export function ChatPanel(props: {
     await refreshUnread();
   }
 
-  async function sendLink() {
-    if (adminMode) return;
-    const payload = {
+  function openNoteDialog(message: ChatMessageItem) {
+    setNoteDialog({ open: true, message, title: 'Заметка из чата' });
+  }
+
+  function closeNoteDialog() {
+    setNoteDialog({ open: false, message: null, title: '' });
+  }
+
+  async function submitNoteFromMessage() {
+    const msg = noteDialog.message;
+    if (!msg) return;
+    const title = noteDialog.title.trim() || 'Заметка из чата';
+    const body: any[] = [];
+    if (msg.messageType === 'text') {
+      body.push({ id: crypto.randomUUID(), kind: 'text', text: msg.bodyText || '' });
+    }
+    if (msg.messageType === 'deep_link') {
+      body.push({ id: crypto.randomUUID(), kind: 'link', appLink: msg.payload });
+    }
+    if (msg.messageType === 'file') {
+      const file = msg.payload as any;
+      const mime = String(file?.mime ?? '');
+      if (mime.startsWith('image/')) {
+        body.push({ id: crypto.randomUUID(), kind: 'image', fileId: file?.id, name: file?.name, mime });
+      } else {
+        body.push({ id: crypto.randomUUID(), kind: 'text', text: `Файл: ${String(file?.name ?? 'Файл')}` });
+      }
+    }
+    await upsertNote({ title, body, importance: 'normal' });
+    closeNoteDialog();
+  }
+
+  function buildLinkPayload() {
+    return {
       kind: 'app_link',
       tab: linkDraft.tab,
       engineId: linkDraft.engineId.trim() || null,
@@ -300,9 +343,21 @@ export function ChatPanel(props: {
       partId: linkDraft.partId.trim() || null,
       breadcrumbs: buildLinkBreadcrumbs(),
     };
+  }
+
+  async function sendLinkToChat() {
+    if (adminMode) return;
+    const payload = buildLinkPayload();
     await chatApi.sendLink({ recipientUserId: selectedUserId, link: payload });
     await refreshMessages();
     await refreshUnread();
+  }
+
+  async function sendLinkToNotes() {
+    const title = linkDialog.title.trim() || 'Ссылка на раздел';
+    const payload = buildLinkPayload();
+    await upsertNote({ title, body: [{ id: crypto.randomUUID(), kind: 'link', appLink: payload }], importance: 'normal' });
+    setLinkDialog({ open: false, title: 'Ссылка на раздел' });
   }
 
   async function handleFilePicked(file: File | null) {
@@ -599,6 +654,15 @@ export function ChatPanel(props: {
                       >
                         Ответить
                       </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setOpenInfoId(null);
+                          openNoteDialog(m);
+                        }}
+                      >
+                        Отправить в заметки
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -669,6 +733,7 @@ export function ChatPanel(props: {
                 <option value="changes">changes</option>
                 <option value="reports">reports</option>
                 <option value="audit">audit</option>
+                <option value="notes">notes</option>
                 <option value="settings">settings</option>
                 <option value="auth">auth</option>
               </select>
@@ -676,7 +741,7 @@ export function ChatPanel(props: {
               <Input value={linkDraft.requestId} onChange={(e) => setLinkDraft((s) => ({ ...s, requestId: e.target.value }))} placeholder="requestId (опц.)" />
               <Input value={linkDraft.partId} onChange={(e) => setLinkDraft((s) => ({ ...s, partId: e.target.value }))} placeholder="partId (опц.)" />
             </div>
-            <Button variant="ghost" onClick={() => void sendLink()}>
+            <Button variant="ghost" onClick={() => setLinkDialog({ open: true, title: 'Ссылка на раздел' })}>
               Отправить ссылку
             </Button>
           </div>
@@ -695,6 +760,89 @@ export function ChatPanel(props: {
           </div>
         )}
       </div>
+
+      {noteDialog.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, width: 420 }}>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Новая заметка</div>
+            <Input
+              value={noteDialog.title}
+              onChange={(e) => setNoteDialog((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Заголовок заметки"
+              onKeyDown={(e: any) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void submitNoteFromMessage();
+                }
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button variant="primary" onClick={() => void submitNoteFromMessage()}>
+                Добавить
+              </Button>
+              <Button variant="ghost" onClick={closeNoteDialog}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {linkDialog.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, width: 420 }}>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Отправить ссылку</div>
+            <Input
+              value={linkDialog.title}
+              onChange={(e) => setLinkDialog((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Заголовок заметки (для заметок)"
+              onKeyDown={(e: any) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void sendLinkToNotes();
+                }
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  void sendLinkToChat();
+                  setLinkDialog({ open: false, title: 'Ссылка на раздел' });
+                }}
+              >
+                Отправить в чат
+              </Button>
+              <Button variant="primary" onClick={() => void sendLinkToNotes()}>
+                Создать заметку
+              </Button>
+              <Button variant="ghost" onClick={() => setLinkDialog({ open: false, title: 'Ссылка на раздел' })}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -63,6 +63,24 @@ body[data-theme='dark'] .card {
   color: #6b7280;
 }
 
+@keyframes notesBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.notes-blink {
+  animation: notesBlink 1s infinite;
+}
+
+.notes-tab-blink {
+  animation: notesBlink 1s infinite;
+}
+
 body[data-theme='dark'] .muted {
   color: #94a3b8;
 }

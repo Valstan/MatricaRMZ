@@ -9,12 +9,14 @@ type DragHandleProps = React.HTMLAttributes<HTMLDivElement> & {
   draggable: boolean;
 };
 
+type DragItemProps = React.HTMLAttributes<HTMLDivElement>;
+
 export function DraggableFieldList<T>(props: {
   items: T[];
   getKey: (item: T) => string;
   canDrag?: boolean;
   onReorder: (next: T[]) => void;
-  renderItem: (item: T, dragHandleProps: DragHandleProps, state: DragState) => React.ReactNode;
+  renderItem: (item: T, itemProps: DragItemProps, dragHandleProps: DragHandleProps, state: DragState) => React.ReactNode;
 }) {
   const { items, getKey, onReorder, renderItem } = props;
   const canDrag = props.canDrag ?? true;
@@ -67,17 +69,20 @@ export function DraggableFieldList<T>(props: {
       {items.map((item, idx) => {
         const isDragging = dragIndex === idx;
         const isOver = overIndex === idx && dragIndex !== null && dragIndex !== idx;
+        const itemProps: DragItemProps = {
+          onDragOver: (e) => handleDragOver(item, e as any),
+          onDrop: () => handleDrop(item),
+          onDragEnd: () => handleDragEnd(),
+        };
         const dragHandleProps: DragHandleProps = {
           draggable: canDrag,
           onDragStart: () => handleDragStart(item),
-          onDragOver: (e) => handleDragOver(item, e),
-          onDrop: () => handleDrop(item),
           onDragEnd: () => handleDragEnd(),
           style: {
             cursor: canDrag ? 'grab' : 'default',
           },
         };
-        return <React.Fragment key={getKey(item)}>{renderItem(item, dragHandleProps, { isDragging, isOver })}</React.Fragment>;
+        return <React.Fragment key={getKey(item)}>{renderItem(item, itemProps, dragHandleProps, { isDragging, isOver })}</React.Fragment>;
       })}
     </div>
   );

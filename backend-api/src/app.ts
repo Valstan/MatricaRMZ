@@ -24,6 +24,7 @@ import { checklistsRouter } from './routes/checklists.js';
 import { diagnosticsRouter } from './routes/diagnostics.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
 import { ledgerRouter } from './routes/ledger.js';
+import { notesRouter } from './routes/notes.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -41,6 +42,7 @@ export function createApp() {
   app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
   app.use('/ledger', requireAuth, requirePermission(PermissionCode.SyncUse), ledgerRouter);
   app.use('/chat', requireAuth, requirePermission(PermissionCode.ChatUse), chatRouter);
+  app.use('/notes', notesRouter);
   app.use('/presence', presenceRouter);
   app.use('/admin', adminUsersRouter);
   app.use('/admin', adminClientsRouter);

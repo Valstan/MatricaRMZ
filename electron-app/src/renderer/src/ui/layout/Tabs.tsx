@@ -28,6 +28,7 @@ export type TabId =
   | 'masterdata'
   | 'admin'
   | 'audit'
+  | 'notes'
   | 'settings';
 
 export type MenuTabId = Exclude<
@@ -73,6 +74,7 @@ export function Tabs(props: {
   userTab: MenuTabId;
   authStatus?: { online: boolean | null };
   right?: React.ReactNode;
+  notesAlertCount?: number;
 }) {
   const menuState = deriveMenuState(props.availableTabs, props.layout);
   const menuItems: MenuItemId[] = useMemo(() => {
@@ -108,6 +110,7 @@ export function Tabs(props: {
     audit: 'Журнал',
     admin: 'Админ',
     auth: 'Вход',
+    notes: 'Заметки',
     settings: 'Настройки',
   };
 
@@ -173,19 +176,24 @@ export function Tabs(props: {
   function tabButton(id: MenuTabId, label: string, opts?: { onContextMenu?: (e: React.MouseEvent) => void }) {
     const acc = theme.accents[tabAccent(id)];
     const active = props.tab === id;
+    const notesCount = id === 'notes' ? Math.max(0, Number(props.notesAlertCount ?? 0)) : 0;
     return (
       <Button
         key={id}
         variant="ghost"
         onClick={() => props.onTab(id)}
         onContextMenu={opts?.onContextMenu}
+        className={notesCount > 0 ? 'notes-tab-blink' : undefined}
         style={
           active
             ? {
-                border: `1px solid ${acc.border}`,
+                border: '2px dashed #dc2626',
                 background: `linear-gradient(135deg, ${acc.bg} 0%, ${acc.border} 120%)`,
                 color: acc.text,
                 boxShadow: '0 12px 22px rgba(0,0,0,0.15)',
+                fontWeight: 700,
+                fontSize: 15,
+                transform: 'scale(1.03)',
               }
             : {
                 border: `1px solid ${acc.border}`,
@@ -195,7 +203,12 @@ export function Tabs(props: {
               }
         }
       >
-        {label}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {label}
+          {notesCount > 0 ? (
+            <span style={{ color: 'var(--danger)', fontWeight: 900 }}>{notesCount}</span>
+          ) : null}
+        </span>
       </Button>
     );
   }

@@ -1,0 +1,34 @@
+{
+  "tables": {
+    "entity_types": {},
+    "entities": {},
+    "attribute_defs": {},
+    "attribute_values": {},
+    "operations": {},
+    "audit_log": {},
+    "chat_messages": {},
+    "chat_reads": {},
+    "user_presence": {},
+    "users": {},
+    "permissions": {},
+    "user_permissions": {},
+    "permission_delegations": {},
+    "file_assets": {},
+    "client_settings": {},
+    "release_registry": {
+      "2df7fb2d-69d7-41a3-b884-53c8f9905a07": {
+        "id": "2df7fb2d-69d7-41a3-b884-53c8f9905a07",
+        "version": "0.9.8",
+        "notes": "release v0.9.8",
+        "sha256": "1f57342abce17b84ebe0017e76809b5c201690671e7ab6228c5b9b09dc545f6f",
+        "file_name": "MatricaRMZ-Setup-0.9.8.exe",
+        "size": 93882797,
+        "payload_json": null,
+        "created_at": 1769466973155,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769466973155
+      }
+    }
+  }
+}
