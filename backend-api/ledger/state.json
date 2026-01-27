@@ -1,10 +1,125 @@
 {
   "tables": {
     "entity_types": {},
-    "entities": {},
+    "entities": {
+      "bcf82083-771d-46a9-91bb-9990a0312e8b": {
+        "id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "deleted_at": null,
+        "updated_at": 1769507166430
+      },
+      "ec90e6cb-fddc-465e-98c3-5b08376e02de": {
+        "id": "ec90e6cb-fddc-465e-98c3-5b08376e02de",
+        "deleted_at": null,
+        "updated_at": 1769507166430
+      },
+      "ae2262ad-f5b6-4edd-a065-9886b62593f2": {
+        "id": "ae2262ad-f5b6-4edd-a065-9886b62593f2",
+        "deleted_at": null,
+        "updated_at": 1769507166430
+      },
+      "c4c751f6-2317-4246-b187-94b4119c9930": {
+        "id": "c4c751f6-2317-4246-b187-94b4119c9930",
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "b7592625-dcf9-4b45-b12a-572a07abd0d2": {
+        "id": "b7592625-dcf9-4b45-b12a-572a07abd0d2",
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "e7e58daa-9497-4f06-8fe6-d3678bf8d0f5": {
+        "id": "e7e58daa-9497-4f06-8fe6-d3678bf8d0f5",
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "0c08ab37-d472-49b5-9d39-6988d0976e2b": {
+        "id": "0c08ab37-d472-49b5-9d39-6988d0976e2b",
+        "deleted_at": null,
+        "updated_at": 1769507501722
+      },
+      "65f2e8a6-f32d-49dc-86fd-65859c723f08": {
+        "id": "65f2e8a6-f32d-49dc-86fd-65859c723f08",
+        "deleted_at": null,
+        "updated_at": 1769507504841
+      },
+      "80a928f0-ce31-44ce-be42-a927c7067933": {
+        "id": "80a928f0-ce31-44ce-be42-a927c7067933",
+        "deleted_at": null,
+        "updated_at": 1769507509752
+      },
+      "95022eab-f138-4ded-abd6-e1a3803df7c9": {
+        "id": "95022eab-f138-4ded-abd6-e1a3803df7c9",
+        "deleted_at": null,
+        "updated_at": 1769507514846
+      },
+      "659d4c63-e7c6-40ab-8f73-b800b40bdf3d": {
+        "id": "659d4c63-e7c6-40ab-8f73-b800b40bdf3d",
+        "deleted_at": null,
+        "updated_at": 1769507570449
+      },
+      "f9d6ca8b-6f15-43f8-b017-3d5fac11850f": {
+        "id": "f9d6ca8b-6f15-43f8-b017-3d5fac11850f",
+        "deleted_at": null,
+        "updated_at": 1769507760759
+      }
+    },
     "attribute_defs": {},
-    "attribute_values": {},
-    "operations": {},
+    "attribute_values": {
+      "f28ef72f-a006-45dd-92be-158958bd8541": {
+        "id": "f28ef72f-a006-45dd-92be-158958bd8541",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "d3a4f6fa-9e0c-445a-862b-7e0026ee4290": {
+        "id": "d3a4f6fa-9e0c-445a-862b-7e0026ee4290",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "7ad996a9-86e4-487e-a92e-496da036e999": {
+        "id": "7ad996a9-86e4-487e-a92e-496da036e999",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "4ffa504d-f01a-4ea3-b476-aef10ec4a8d0": {
+        "id": "4ffa504d-f01a-4ea3-b476-aef10ec4a8d0",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "fd62ae02-26d7-4198-855a-6b82d7525a21": {
+        "id": "fd62ae02-26d7-4198-855a-6b82d7525a21",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "56cde278-86e9-49f0-b0b9-502fd5cd3c74": {
+        "id": "56cde278-86e9-49f0-b0b9-502fd5cd3c74",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507460364
+      },
+      "f8228ad9-26f4-4d0b-a935-3592d24adad7": {
+        "id": "f8228ad9-26f4-4d0b-a935-3592d24adad7",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507760759
+      }
+    },
+    "operations": {
+      "f3bbafae-11e8-43e6-aa48-00039bc9f79a": {
+        "id": "f3bbafae-11e8-43e6-aa48-00039bc9f79a",
+        "status": "checklist",
+        "note": "Лист дефектовки двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769507760759
+      }
+    },
     "audit_log": {},
     "chat_messages": {},
     "chat_reads": {},
@@ -54,6 +169,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769476042242
+      },
+      "fb20d273-fac3-45b0-8e75-feac937f7c65": {
+        "id": "fb20d273-fac3-45b0-8e75-feac937f7c65",
+        "version": "1.0.1",
+        "notes": "fix sqlite notes migration",
+        "sha256": "0b7e656723d9ef176e87beea8f65ef8254b68328a6a39d7387ef8df880f7ba72",
+        "file_name": "MatricaRMZ-Setup-1.0.1.exe",
+        "size": 93897688,
+        "payload_json": null,
+        "created_at": 1769493238274,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769493238274
       }
     }
   }

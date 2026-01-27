@@ -23,6 +23,7 @@ export function SearchSelect(props: {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const createInputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(() => {
@@ -150,6 +151,14 @@ export function SearchSelect(props: {
     input.select();
   }, [open, isCreating]);
 
+  useEffect(() => {
+    if (!open || isCreating) return;
+    const input = searchInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [open, isCreating]);
+
   function startCreate() {
     if (disabled || !props.onCreate) return;
     setIsCreating(true);
@@ -244,6 +253,7 @@ export function SearchSelect(props: {
         ? createPortal(
             <div
               ref={popupRef}
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
                 position: 'fixed',
                 left: popupRect.left,
@@ -259,6 +269,7 @@ export function SearchSelect(props: {
             >
               <div style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
                 <input
+                  ref={searchInputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {

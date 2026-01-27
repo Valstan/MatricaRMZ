@@ -49,6 +49,14 @@ function normalizeDefectRows(rows: Record<string, string | boolean | number>[]) 
         changed = true;
       }
     }
+    if ('repairable_qty' in out && (out.repairable_qty == null || out.repairable_qty === '' || Number.isNaN(out.repairable_qty))) {
+      out.repairable_qty = 0;
+      changed = true;
+    }
+    if ('scrap_qty' in out && (out.scrap_qty == null || out.scrap_qty === '' || Number.isNaN(out.scrap_qty))) {
+      out.scrap_qty = 0;
+      changed = true;
+    }
     return out;
   });
   return { rows: next, changed };
@@ -298,8 +306,8 @@ export function RepairChecklistPanel(props: {
       const rows = r.parts.map((p) => ({
         part_name: String(p.name ?? p.article ?? p.id),
         part_number: '',
-        repairable_qty: '',
-        scrap_qty: '',
+      repairable_qty: 0,
+      scrap_qty: 0,
       }));
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
@@ -791,6 +799,17 @@ function TableEditor(props: {
     if (save && props.canEdit) props.onSave(next);
   }
 
+  function toNumberValue(value: string | number | boolean): number {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return 0;
+      const num = Number(trimmed);
+      return Number.isFinite(num) ? num : 0;
+    }
+    return 0;
+  }
+
   return (
     <div style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflow: 'hidden' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -831,17 +850,73 @@ function TableEditor(props: {
                       <span style={{ color: '#6b7280', fontSize: 12 }}>{(r as any)[c.id] ? 'да' : 'нет'}</span>
                     </label>
                   ) : c.kind === 'number' ? (
-                    <Input
-                      type="number"
-                      value={String((r as any)[c.id] ?? '')}
-                      disabled={!props.canEdit}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        const num = raw === '' ? '' : Number(raw);
-                        setCell(idx, c.id, Number.isFinite(num as number) ? (num as number) : raw);
-                      }}
-                      onBlur={() => props.canEdit && props.onSave(rows)}
-                    />
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={String((r as any)[c.id] ?? '')}
+                        disabled={!props.canEdit}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (!/^\d*$/.test(raw)) return;
+                          setCell(idx, c.id, raw === '' ? '' : Number(raw));
+                        }}
+                        onBlur={() => {
+                          if (!props.canEdit) return;
+                          const current = (rows[idx] as any)?.[c.id];
+                          if (current === '' || current == null || Number.isNaN(current)) {
+                            setCell(idx, c.id, 0, true);
+                            return;
+                          }
+                          props.onSave(rows);
+                        }}
+                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!props.canEdit) return;
+                            const next = toNumberValue((rows[idx] as any)?.[c.id]) + 1;
+                            setCell(idx, c.id, next, true);
+                          }}
+                          style={{
+                            width: 28,
+                            height: 24,
+                            borderRadius: 6,
+                            border: '1px solid var(--input-border)',
+                            background: 'var(--input-bg)',
+                            color: 'var(--text)',
+                            cursor: props.canEdit ? 'pointer' : 'not-allowed',
+                          }}
+                          aria-label="Увеличить"
+                          disabled={!props.canEdit}
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!props.canEdit) return;
+                            const next = Math.max(0, toNumberValue((rows[idx] as any)?.[c.id]) - 1);
+                            setCell(idx, c.id, next, true);
+                          }}
+                          style={{
+                            width: 28,
+                            height: 24,
+                            borderRadius: 6,
+                            border: '1px solid var(--input-border)',
+                            background: 'var(--input-bg)',
+                            color: 'var(--text)',
+                            cursor: props.canEdit ? 'pointer' : 'not-allowed',
+                          }}
+                          aria-label="Уменьшить"
+                          disabled={!props.canEdit}
+                        >
+                          -
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <Input
                       value={String((r as any)[c.id] ?? '')}
@@ -885,7 +960,7 @@ function TableEditor(props: {
             onClick={() => {
               const next = [
                 ...rows,
-                Object.fromEntries(cols.map((c) => [c.id, c.kind === 'boolean' ? false : ''])),
+                Object.fromEntries(cols.map((c) => [c.id, c.kind === 'boolean' ? false : c.kind === 'number' ? 0 : ''])),
               ];
               props.onChange(next);
               props.onSave(next);
