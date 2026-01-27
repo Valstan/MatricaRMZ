@@ -1,0 +1,35 @@
+{
+  "height": 2,
+  "prev_hash": "c60ad1b8c1d36e82820edabbce835d2a6882f684a3f9a3f5d2a481c92129fb5d",
+  "created_at": 1769474236350,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "release_registry",
+      "row": {
+        "id": "8315bafe-733c-4b89-adbc-c80ff041aa7d",
+        "version": "0.9.9",
+        "notes": "notes module, chat integration",
+        "sha256": "1eccc6d5606688013af4c26b110d5e868895cb039c578da2af0f213652d96abd",
+        "file_name": "MatricaRMZ-Setup-0.9.9.exe",
+        "size": 93892676,
+        "payload_json": null,
+        "created_at": 1769474236345,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan"
+      },
+      "row_id": "8315bafe-733c-4b89-adbc-c80ff041aa7d",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769474236345,
+      "seq": 2,
+      "tx_id": "41a4cdbe58dffacd3d2794c89da68ba9eb1cf1c65679f4972c6869df33325367",
+      "signature": "ejDPeAx1SPrcp6XzIVo1lLg4FlTfkkDr56H7uBuvlQvZR6C7N5kAXDfiZA97SdC9W6mIr3STBAc/WBXIxNxpDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "ab53925b34234f0a204fd58adb60cbd59c6a2854356bae87fc30d358584b37ce"
+}

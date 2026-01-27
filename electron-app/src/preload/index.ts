@@ -63,6 +63,13 @@ contextBridge.exposeInMainWorld('matrica', {
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),
   },
+  reportsBuilder: {
+    meta: async () => ipcRenderer.invoke('reportsBuilder:meta'),
+    preview: async (args: any) => ipcRenderer.invoke('reportsBuilder:preview', args),
+    export: async (args: any) => ipcRenderer.invoke('reportsBuilder:export', args),
+    exportPdf: async (args: any) => ipcRenderer.invoke('reportsBuilder:exportPdf', args),
+    print: async (args: any) => ipcRenderer.invoke('reportsBuilder:print', args),
+  },
   admin: {
     entityTypes: {
       list: async () => ipcRenderer.invoke('admin:entityTypes:list'),

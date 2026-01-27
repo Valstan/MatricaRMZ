@@ -255,6 +255,67 @@ export type NoteUpsertResult = { ok: true; id: string } | { ok: false; error: st
 export type NoteDeleteResult = { ok: true } | { ok: false; error: string };
 export type NoteShareResult = { ok: true } | { ok: false; error: string };
 
+export type ReportBuilderOperator =
+  | 'eq'
+  | 'neq'
+  | 'contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'between'
+  | 'in'
+  | 'is_null'
+  | 'not_null';
+
+export type ReportBuilderFilterCondition = {
+  kind: 'condition';
+  column: string;
+  operator: ReportBuilderOperator;
+  value?: string | number | boolean | null | Array<string | number | boolean>;
+};
+
+export type ReportBuilderFilterGroup = {
+  kind: 'group';
+  op: 'and' | 'or';
+  items: ReportBuilderFilter[];
+};
+
+export type ReportBuilderFilter = ReportBuilderFilterCondition | ReportBuilderFilterGroup;
+
+export type ReportBuilderTableRequest = {
+  name: string;
+  filters?: ReportBuilderFilterGroup | null;
+};
+
+export type ReportBuilderPreviewRequest = {
+  tables: ReportBuilderTableRequest[];
+  limit?: number;
+};
+
+export type ReportBuilderColumnMeta = {
+  id: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean' | 'datetime' | 'json';
+};
+
+export type ReportBuilderPreviewTable = {
+  name: string;
+  label: string;
+  columns: ReportBuilderColumnMeta[];
+  rows: Array<Record<string, unknown>>;
+};
+
+export type ReportBuilderPreviewResult =
+  | { ok: true; warning?: string | null; tables: ReportBuilderPreviewTable[] }
+  | { ok: false; error: string };
+
+export type ReportBuilderExportResult =
+  | { ok: true; warning?: string | null; fileName: string; mime: string; contentBase64: string }
+  | { ok: false; error: string };
+
 export type AuthLoginResult =
   | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo; permissions: Record<string, boolean> }
   | { ok: false; error: string };
@@ -396,6 +457,13 @@ export type MatricaApi = {
     periodStagesByLinkCsv: (args: { startMs?: number; endMs: number; linkAttrCode: string }) => Promise<
       { ok: true; csv: string } | { ok: false; error: string }
     >;
+  };
+  reportsBuilder: {
+    preview: (args: ReportBuilderPreviewRequest) => Promise<ReportBuilderPreviewResult>;
+    export: (args: ReportBuilderPreviewRequest & { format: 'html' | 'xlsx' }) => Promise<ReportBuilderExportResult>;
+    print: (args: ReportBuilderPreviewRequest & { htmlTitle?: string | null }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    exportPdf: (args: ReportBuilderPreviewRequest & { htmlTitle?: string | null }) => Promise<ReportBuilderExportResult>;
+    meta: () => Promise<{ ok: true; tables: Array<{ name: string; label: string; columns: ReportBuilderColumnMeta[] }> } | { ok: false; error: string }>;
   };
   admin: {
     entityTypes: {

@@ -17,7 +17,7 @@ const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
 const OLLAMA_MODEL_CHAT = process.env.OLLAMA_MODEL_CHAT || '';
 const OLLAMA_MODEL_ANALYTICS = process.env.OLLAMA_MODEL_ANALYTICS || '';
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 100_000);
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 300_000);
 const OLLAMA_HEALTH_ATTEMPTS = Number(process.env.OLLAMA_HEALTH_ATTEMPTS || 3);
 const OLLAMA_HEALTH_TIMEOUT_MS = Number(process.env.OLLAMA_HEALTH_TIMEOUT_MS || 10_000);
 const AI_ANALYTICS_ENABLED = String(process.env.AI_ANALYTICS_ENABLED ?? 'true').toLowerCase() === 'true';
@@ -31,6 +31,11 @@ const FORBIDDEN_SQL = /\b(insert|update|delete|drop|alter|create|grant|revoke|tr
 
 function nowMs() {
   return Date.now();
+}
+
+function isTimeoutError(err: unknown) {
+  const text = String(err ?? '').toLowerCase();
+  return text.includes('timeout') || text.includes('time-out') || text.includes('abort');
 }
 
 function truncate(text: string, max = 1000) {
@@ -326,7 +331,8 @@ async function logSnapshot(scope: string, payload: unknown, actorId?: string | n
 
 async function callOllama(model: string, systemPrompt: string, userPrompt: string) {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(new Error('ollama timeout')), OLLAMA_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(OLLAMA_TIMEOUT_MS) ? OLLAMA_TIMEOUT_MS : 0;
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('ollama timeout')), timeoutMs) : null;
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: 'POST',
@@ -350,7 +356,7 @@ async function callOllama(model: string, systemPrompt: string, userPrompt: strin
     const content = String(json?.message?.content ?? '').trim();
     return content;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -474,7 +480,6 @@ aiAgentRouter.post('/assist', async (req, res) => {
         { actorId: actor.id, mode: 'analytics', model: getModelForMode('analytics'), context: ctx, lastEvent, message },
         actor.id,
       );
-      return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
     }
 
     if (
@@ -499,7 +504,15 @@ aiAgentRouter.post('/assist', async (req, res) => {
         const formatted = formatRowsForUser(heuristic.rows ?? []);
         return res.json({ ok: true, reply: { kind: 'info', text: formatted } });
       }
-      const proposed = await proposeSql(getModelForMode('analytics'), message, policy);
+      let proposed: Awaited<ReturnType<typeof proposeSql>>;
+      try {
+        proposed = await proposeSql(getModelForMode('analytics'), message, policy);
+      } catch (e) {
+        if (isTimeoutError(e)) {
+          return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
+        }
+        return res.status(500).json({ ok: false, error: String(e ?? 'ollama error') });
+      }
       if (!proposed.ok) {
         return res.json({ ok: true, reply: { kind: 'info', text: proposed.error } });
       }
@@ -527,7 +540,10 @@ aiAgentRouter.post('/assist', async (req, res) => {
     } catch (e) {
       const err = String(e ?? 'ollama error');
       await logSnapshot('ai_agent_assist_error', { actorId: actor.id, context: ctx, lastEvent, message, error: err }, actor.id);
-      return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
+      if (isTimeoutError(e)) {
+        return res.json({ ok: true, reply: { kind: 'info', text: AI_AGENT_BUSY_MESSAGE } });
+      }
+      return res.status(500).json({ ok: false, error: err });
     }
     let reply = { kind: 'info' as const, text: raw, actions: undefined as string[] | undefined };
     try {

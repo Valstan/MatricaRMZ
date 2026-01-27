@@ -28,6 +28,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769466973155
+      },
+      "8315bafe-733c-4b89-adbc-c80ff041aa7d": {
+        "id": "8315bafe-733c-4b89-adbc-c80ff041aa7d",
+        "version": "0.9.9",
+        "notes": "notes module, chat integration",
+        "sha256": "1eccc6d5606688013af4c26b110d5e868895cb039c578da2af0f213652d96abd",
+        "file_name": "MatricaRMZ-Setup-0.9.9.exe",
+        "size": 93892676,
+        "payload_json": null,
+        "created_at": 1769474236345,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769474236345
       }
     }
   }
