@@ -60,10 +60,86 @@
       "f9d6ca8b-6f15-43f8-b017-3d5fac11850f": {
         "id": "f9d6ca8b-6f15-43f8-b017-3d5fac11850f",
         "deleted_at": null,
-        "updated_at": 1769507760759
+        "updated_at": 1769525351823
+      },
+      "3f2c4c22-5a0e-4037-a085-dfe0e85d3d43": {
+        "id": "3f2c4c22-5a0e-4037-a085-dfe0e85d3d43",
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "a9145127-53ac-4121-ada1-76055fd47c1b": {
+        "id": "a9145127-53ac-4121-ada1-76055fd47c1b",
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "477761d8-24c6-4dcd-8571-c0460e4af17a": {
+        "id": "477761d8-24c6-4dcd-8571-c0460e4af17a",
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "37ab3161-35ba-4a94-a547-f55dc678bc6c": {
+        "id": "37ab3161-35ba-4a94-a547-f55dc678bc6c",
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "9b30cf38-eacc-4275-9ecd-3aa83f312fe3": {
+        "id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "7a8d3f80-0285-480d-8985-aac9315fe031": {
+        "id": "7a8d3f80-0285-480d-8985-aac9315fe031",
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "c454fd98-2588-4208-b241-55a0db764dee": {
+        "id": "c454fd98-2588-4208-b241-55a0db764dee",
+        "deleted_at": null,
+        "updated_at": 1769544755686
       }
     },
-    "attribute_defs": {},
+    "attribute_defs": {
+      "5f639725-d7de-4304-93c7-9e1583139161": {
+        "id": "5f639725-d7de-4304-93c7-9e1583139161",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "637c0653-704e-4d1b-9863-bb15ba82272f": {
+        "id": "637c0653-704e-4d1b-9863-bb15ba82272f",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "d9e78aa3-04bb-4514-9634-6dc592c5865d": {
+        "id": "d9e78aa3-04bb-4514-9634-6dc592c5865d",
+        "code": "shop",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "a734c3bb-9514-4a53-ba07-6872d4a7343a": {
+        "id": "a734c3bb-9514-4a53-ba07-6872d4a7343a",
+        "code": "photos",
+        "name": "Фото",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      }
+    },
     "attribute_values": {
       "f28ef72f-a006-45dd-92be-158958bd8541": {
         "id": "f28ef72f-a006-45dd-92be-158958bd8541",
@@ -106,6 +182,72 @@
         "value_json": null,
         "deleted_at": null,
         "updated_at": 1769507760759
+      },
+      "75242e18-b202-46c2-bf2b-ffa50bd010ff": {
+        "id": "75242e18-b202-46c2-bf2b-ffa50bd010ff",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769525336834
+      },
+      "2468e6a0-85e2-452c-99cc-5a1771c0f407": {
+        "id": "2468e6a0-85e2-452c-99cc-5a1771c0f407",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769525336834
+      },
+      "a16976e8-aef3-436c-8f68-bb4bde352e5b": {
+        "id": "a16976e8-aef3-436c-8f68-bb4bde352e5b",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769525351823
+      },
+      "563dae7f-a472-4421-8e13-739513607f4e": {
+        "id": "563dae7f-a472-4421-8e13-739513607f4e",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "342f0225-3333-429a-a00a-4e33a69a9a49": {
+        "id": "342f0225-3333-429a-a00a-4e33a69a9a49",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "5ff8fa0a-79b7-4c6d-bfe1-f54890ccc620": {
+        "id": "5ff8fa0a-79b7-4c6d-bfe1-f54890ccc620",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "cee580f7-116c-44e5-b9f5-a19decd270c7": {
+        "id": "cee580f7-116c-44e5-b9f5-a19decd270c7",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "4a9dea4d-00ae-4aef-bae6-926bb28ff160": {
+        "id": "4a9dea4d-00ae-4aef-bae6-926bb28ff160",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "8297cdfb-0e91-47ca-9bec-b7f23b53211b": {
+        "id": "8297cdfb-0e91-47ca-9bec-b7f23b53211b",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "70bb9b66-0f24-48a2-9350-b74445e6fa2f": {
+        "id": "70bb9b66-0f24-48a2-9350-b74445e6fa2f",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
+      },
+      "6955e749-db82-458e-b440-dc70549d9cd4": {
+        "id": "6955e749-db82-458e-b440-dc70549d9cd4",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
       }
     },
     "operations": {
@@ -117,7 +259,17 @@
         "performed_by": null,
         "meta_json": null,
         "deleted_at": null,
-        "updated_at": 1769507760759
+        "updated_at": 1769525411807
+      },
+      "5d9d7d9e-6fff-42ee-bba9-998a24911f52": {
+        "id": "5d9d7d9e-6fff-42ee-bba9-998a24911f52",
+        "status": "checklist",
+        "note": "Лист дефектовки двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769544755686
       }
     },
     "audit_log": {},
@@ -182,6 +334,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769493238274
+      },
+      "c34cbce4-fe2e-4bcf-91ea-8ab405b1f857": {
+        "id": "c34cbce4-fe2e-4bcf-91ea-8ab405b1f857",
+        "version": "1.0.2",
+        "notes": "fix defect checklist inputs and focus",
+        "sha256": "48321b9b7488b1d85f0a9d0ffaced378d720ecd2fb83e7a8fed0d5b3f3bd25e3",
+        "file_name": "MatricaRMZ-Setup-1.0.2.exe",
+        "size": 93897810,
+        "payload_json": null,
+        "created_at": 1769515979317,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769515979317
       }
     }
   }

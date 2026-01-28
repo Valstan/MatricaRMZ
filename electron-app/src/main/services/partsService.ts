@@ -26,6 +26,7 @@ export async function partsList(
         id: string;
         name?: string;
         article?: string;
+        assemblyUnitNumber?: string;
         updatedAt: number;
         createdAt: number;
       }>;

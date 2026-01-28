@@ -38,6 +38,7 @@ export const OperationTypeCode = {
   Kitting: 'kitting', // комплектовка
   Defect: 'defect', // дефектовка
   Repair: 'repair', // ремонт
+  Completeness: 'completeness', // акт комплектности
   Test: 'test', // испытания
   Disassembly: 'disassembly', // разборка (передача на разборку)
   Otk: 'otk', // ОТК (контроль комплектности/разрешение)

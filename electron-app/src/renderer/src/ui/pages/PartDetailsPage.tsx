@@ -123,6 +123,7 @@ export function PartDetailsPage(props: {
   // Core fields (better UX: always-visible inputs)
   const [name, setName] = useState<string>('');
   const [article, setArticle] = useState<string>('');
+  const [assemblyUnitNumber, setAssemblyUnitNumber] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [purchaseDate, setPurchaseDate] = useState<string>(''); // yyyy-mm-dd
   const [supplier, setSupplier] = useState<string>('');
@@ -410,6 +411,7 @@ export function PartDetailsPage(props: {
     const desired = [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
       { code: 'article', name: 'Артикул / обозначение', dataType: 'text', sortOrder: 20 },
+      { code: 'assembly_unit_number', name: 'Номер сборочной единицы', dataType: 'text', sortOrder: 25 },
       { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 30 },
       { code: 'purchase_date', name: 'Дата покупки', dataType: 'date', sortOrder: 40 },
       {
@@ -435,6 +437,7 @@ export function PartDetailsPage(props: {
 
     const vName = byCode.name?.value;
     const vArticle = byCode.article?.value;
+    const vAssemblyUnitNumber = byCode.assembly_unit_number?.value;
     const vDesc = byCode.description?.value;
     const vPurchase = byCode.purchase_date?.value;
     const vSupplier = byCode.supplier?.value;
@@ -443,6 +446,9 @@ export function PartDetailsPage(props: {
 
     setName(typeof vName === 'string' ? vName : vName == null ? '' : String(vName));
     setArticle(typeof vArticle === 'string' ? vArticle : vArticle == null ? '' : String(vArticle));
+    setAssemblyUnitNumber(
+      typeof vAssemblyUnitNumber === 'string' ? vAssemblyUnitNumber : vAssemblyUnitNumber == null ? '' : String(vAssemblyUnitNumber),
+    );
     setDescription(typeof vDesc === 'string' ? vDesc : vDesc == null ? '' : String(vDesc));
     setPurchaseDate(typeof vPurchase === 'number' ? toInputDate(vPurchase) : '');
     setSupplier(typeof vSupplier === 'string' ? vSupplier : vSupplier == null ? '' : String(vSupplier));
@@ -520,6 +526,7 @@ export function PartDetailsPage(props: {
     // Save sequentially (simple + predictable)
     await saveAttribute('name', name);
     await saveAttribute('article', article);
+    await saveAttribute('assembly_unit_number', assemblyUnitNumber);
     await saveAttribute('description', description);
     await saveAttribute('purchase_date', fromInputDate(purchaseDate));
     await saveAttribute('supplier_id', supplierId || null);
@@ -551,7 +558,16 @@ export function PartDetailsPage(props: {
   }
 
   const sortedAttrs = [...part.attributes].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
-  const coreCodes = new Set(['name', 'article', 'description', 'purchase_date', 'supplier', 'supplier_id', 'engine_brand_ids']);
+  const coreCodes = new Set([
+    'name',
+    'article',
+    'assembly_unit_number',
+    'description',
+    'purchase_date',
+    'supplier',
+    'supplier_id',
+    'engine_brand_ids',
+  ]);
   // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
   const hiddenFromExtra = new Set(['engine_brand_ids', 'drawings', 'tech_docs', 'attachments']);
   const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code) && !hiddenFromExtra.has(a.code));
@@ -589,6 +605,20 @@ export function PartDetailsPage(props: {
             disabled={!props.canEdit}
             onChange={(e) => setArticle(e.target.value)}
             onBlur={() => void saveAttribute('article', article)}
+          />
+        ),
+      },
+      {
+        code: 'assembly_unit_number',
+        defaultOrder: 25,
+        label: 'Номер сборочной единицы',
+        value: assemblyUnitNumber,
+        render: (
+          <Input
+            value={assemblyUnitNumber}
+            disabled={!props.canEdit}
+            onChange={(e) => setAssemblyUnitNumber(e.target.value)}
+            onBlur={() => void saveAttribute('assembly_unit_number', assemblyUnitNumber)}
           />
         ),
       },

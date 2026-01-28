@@ -47,6 +47,7 @@ export const operationRowSchema = z.object({
     'kitting',
     'defect',
     'repair',
+    'completeness',
     'test',
     'disassembly',
     'otk',

@@ -78,6 +78,39 @@ function defaultRepairTemplate(): RepairChecklistTemplate {
   };
 }
 
+function defaultCompletenessTemplate(): RepairChecklistTemplate {
+  return {
+    id: 'completeness_default',
+    code: 'completeness_act_default',
+    name: 'Акт комплектности двигателя (MVP)',
+    stage: 'completeness',
+    version: 1,
+    active: true,
+    items: [
+      { id: 'contract_number', label: 'Номер договора', kind: 'text' },
+      { id: 'engine_brand', label: 'Марка двигателя', kind: 'text', required: true },
+      { id: 'engine_number', label: '№ двигателя', kind: 'text', required: true },
+      { id: 'inspection_method', label: 'Проверка комплектности (способ)', kind: 'text' },
+      {
+        id: 'completeness_items',
+        label: 'Комплектность по группам',
+        kind: 'table',
+        columns: [
+          { id: 'part_name', label: 'Наименование' },
+          { id: 'assembly_unit_number', label: 'Обозначение (№ сборочной единицы)' },
+          { id: 'present', label: 'Наличие', kind: 'boolean' },
+          { id: 'note', label: 'Примечание' },
+        ],
+      },
+      { id: 'approved_by', label: 'Утверждаю: директор по качеству', kind: 'signature' },
+      { id: 'commission_chief', label: 'Врио начальника цеха', kind: 'signature' },
+      { id: 'commission_master', label: 'Мастер цеха', kind: 'signature' },
+      { id: 'commission_otk', label: 'Начальник ОТК', kind: 'signature' },
+      { id: 'act_date', label: 'Дата акта', kind: 'date' },
+    ],
+  };
+}
+
 function defaultDefectTemplate(): RepairChecklistTemplate {
   return {
     id: 'defect_default',
@@ -113,7 +146,7 @@ function defaultDefectTemplate(): RepairChecklistTemplate {
 }
 
 function defaultTemplates(): RepairChecklistTemplate[] {
-  return [defaultRepairTemplate(), defaultDefectTemplate()];
+  return [defaultRepairTemplate(), defaultCompletenessTemplate(), defaultDefectTemplate()];
 }
 
 function filterByStage(templates: RepairChecklistTemplate[], stage?: string) {
@@ -207,6 +240,8 @@ export async function saveRepairChecklistForEngine(
     const note =
       args.stage === 'defect'
         ? 'Лист дефектовки двигателя'
+        : args.stage === 'completeness'
+          ? 'Акт комплектности двигателя'
         : args.stage === 'repair'
           ? 'Контрольный лист ремонта'
           : `Чек-лист: ${args.stage}`;

@@ -130,10 +130,22 @@ export function RepairChecklistPanel(props: {
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
   const [defectOptions, setDefectOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [defectOptionsStatus, setDefectOptionsStatus] = useState<string>('');
+  const [completenessOptions, setCompletenessOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [completenessOptionsStatus, setCompletenessOptionsStatus] = useState<string>('');
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
-  const panelTitle = props.stage === 'defect' ? 'Лист дефектовки' : 'Контрольный лист ремонта';
-  const attachmentsTitle = props.stage === 'defect' ? 'Вложения к листу дефектовки' : 'Вложения к контрольному листу';
+  const panelTitle =
+    props.stage === 'defect'
+      ? 'Лист дефектовки'
+      : props.stage === 'completeness'
+        ? 'Акт комплектности двигателя'
+        : 'Контрольный лист ремонта';
+  const attachmentsTitle =
+    props.stage === 'defect'
+      ? 'Вложения к листу дефектовки'
+      : props.stage === 'completeness'
+        ? 'Вложения к акту комплектности'
+        : 'Вложения к контрольному листу';
 
   async function load() {
     setStatus('Загрузка чек-листа...');
@@ -284,6 +296,34 @@ export function RepairChecklistPanel(props: {
     };
   }, [props.stage, props.engineBrandId]);
 
+  useEffect(() => {
+    if (props.stage !== 'completeness') return;
+    let alive = true;
+    void (async () => {
+      try {
+        setCompletenessOptionsStatus('Загрузка справочников...');
+        const options: Array<{ id: string; label: string }> = [];
+        const partsRes = await partsApi.listParts({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
+        if (partsRes?.ok && Array.isArray(partsRes.parts)) {
+          for (const p of partsRes.parts) {
+            const label = String(p.name ?? p.article ?? p.id);
+            options.push({ id: `part:${p.id}`, label });
+          }
+        }
+        if (!alive) return;
+        options.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setCompletenessOptions(options);
+        setCompletenessOptionsStatus('');
+      } catch (e) {
+        if (!alive) return;
+        setCompletenessOptionsStatus(`Ошибка загрузки: ${String(e)}`);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [props.stage, props.engineBrandId]);
+
   async function createDefectItem(label: string) {
     const name = label.trim();
     if (!name) return null;
@@ -330,6 +370,36 @@ export function RepairChecklistPanel(props: {
         part_number: '',
         repairable_qty: '',
         scrap_qty: '',
+      }));
+      const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+      setAnswers(next);
+      if (props.canEdit) void save(next);
+    })();
+  }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
+
+  useEffect(() => {
+    if (!activeTemplate) return;
+    if (props.stage !== 'completeness') return;
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'completeness_items');
+    if (!tableItem) return;
+    if (payload?.answers) return;
+    const existing = (answers as any)[tableItem.id];
+    if (existing?.kind === 'table' && Array.isArray(existing.rows) && existing.rows.length > 0) {
+      prefillKey.current = `${props.engineBrandId ?? ''}:${activeTemplate.id}`;
+      return;
+    }
+    if (!props.engineBrandId) return;
+    const key = `${props.engineBrandId}:${activeTemplate.id}`;
+    if (prefillKey.current === key) return;
+    prefillKey.current = key;
+    void (async () => {
+      const r = await partsApi.listParts({ engineBrandId: props.engineBrandId, limit: 5000 });
+      if (!r.ok) return;
+      const rows = (r.parts ?? []).map((p: any) => ({
+        part_name: String(p.name ?? p.article ?? p.id),
+        assembly_unit_number: String(p.assemblyUnitNumber ?? ''),
+        present: false,
+        note: '',
       }));
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
@@ -708,7 +778,27 @@ export function RepairChecklistPanel(props: {
                                 );
                               },
                             }
-                          : undefined
+                          : props.stage === 'completeness' && it.id === 'completeness_items'
+                            ? {
+                                part_name: ({ rowIdx, columnId, value, setValue }) => {
+                                  const current = String(value ?? '');
+                                  const match = completenessOptions.find((o) => o.label === current) ?? null;
+                                  const valueId = match?.id ?? null;
+                                  return (
+                                    <SearchSelect
+                                      value={valueId}
+                                      options={completenessOptions}
+                                      disabled={!props.canEdit}
+                                      placeholder="Выберите деталь"
+                                      onChange={(next) => {
+                                        const selected = completenessOptions.find((o) => o.id === next) ?? null;
+                                        setValue(rowIdx, columnId, selected?.label ?? '', true);
+                                      }}
+                                    />
+                                  );
+                                },
+                              }
+                            : undefined
                       }
                       onChange={(rows) => {
                         const next = { ...answers, [it.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
@@ -764,6 +854,14 @@ export function RepairChecklistPanel(props: {
         </div>
       )}
       {!collapsed && props.stage === 'defect' && !props.engineBrandId && (
+        <div style={{ marginTop: 10, color: '#64748b', fontSize: 12 }}>Выберите марку двигателя, чтобы подставить список деталей из справочника.</div>
+      )}
+      {!collapsed && props.stage === 'completeness' && completenessOptionsStatus && (
+        <div style={{ marginTop: 10, color: completenessOptionsStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>
+          {completenessOptionsStatus}
+        </div>
+      )}
+      {!collapsed && props.stage === 'completeness' && !props.engineBrandId && (
         <div style={{ marginTop: 10, color: '#64748b', fontSize: 12 }}>Выберите марку двигателя, чтобы подставить список деталей из справочника.</div>
       )}
     </div>

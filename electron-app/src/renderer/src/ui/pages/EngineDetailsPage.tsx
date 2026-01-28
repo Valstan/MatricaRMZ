@@ -513,6 +513,22 @@ export function EngineDetailsPage(props: {
       {props.canViewOperations && (
         <RepairChecklistPanel
           engineId={props.engineId}
+          stage="completeness"
+          canEdit={props.canEditOperations}
+          canPrint={props.canPrintEngineCard}
+          canExport={props.canExportReports === true}
+          engineNumber={engineNumber}
+          engineBrand={engineBrand}
+          engineBrandId={engineBrandId || undefined}
+          canViewFiles={props.canViewFiles}
+          canUploadFiles={props.canUploadFiles}
+          defaultCollapsed
+        />
+      )}
+
+      {props.canViewOperations && (
+        <RepairChecklistPanel
+          engineId={props.engineId}
           stage="repair"
           canEdit={props.canEditOperations}
           canPrint={props.canPrintEngineCard}

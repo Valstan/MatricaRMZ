@@ -71,6 +71,7 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
   await ensure('name', 'Название', AttributeDataType.Text, 10);
   await ensure('article', 'Артикул / обозначение', AttributeDataType.Text, 20);
   await ensure('description', 'Описание', AttributeDataType.Text, 30);
+  await ensure('assembly_unit_number', 'Номер сборочной единицы', AttributeDataType.Text, 35);
 
   // Links
   await ensure('engine_brand_ids', 'Марки двигателя', AttributeDataType.Json, 40); // string[] of engine_brand ids
@@ -203,6 +204,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         id: string;
         name?: string;
         article?: string;
+        assemblyUnitNumber?: string;
         updatedAt: number;
         createdAt: number;
       }[];
@@ -243,14 +245,20 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       .from(attributeDefs)
       .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'engine_brand_ids')))
       .limit(1);
+    const assemblyAttr = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'assembly_unit_number')))
+      .limit(1);
 
     const nameAttrId = nameAttr[0]?.id;
     const articleAttrId = articleAttr[0]?.id;
     const brandAttrId = brandAttr[0]?.id;
+    const assemblyAttrId = assemblyAttr[0]?.id;
 
     const entityIds = entityRows.map((r) => r.id);
     
-    const attrRows = nameAttrId || articleAttrId
+    const attrRows = nameAttrId || articleAttrId || assemblyAttrId
       ? await db
           .select({
             entityId: attributeValues.entityId,
@@ -260,11 +268,23 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           .from(attributeValues)
           .where(
             and(
-              nameAttrId && articleAttrId
-                ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, articleAttrId))
-                : nameAttrId
-                  ? eq(attributeValues.attributeDefId, nameAttrId)
-                  : eq(attributeValues.attributeDefId, articleAttrId!),
+              nameAttrId && articleAttrId && assemblyAttrId
+                ? or(
+                    eq(attributeValues.attributeDefId, nameAttrId),
+                    eq(attributeValues.attributeDefId, articleAttrId),
+                    eq(attributeValues.attributeDefId, assemblyAttrId),
+                  )
+                : nameAttrId && articleAttrId
+                  ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, articleAttrId))
+                  : nameAttrId && assemblyAttrId
+                    ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, assemblyAttrId))
+                    : articleAttrId && assemblyAttrId
+                      ? or(eq(attributeValues.attributeDefId, articleAttrId), eq(attributeValues.attributeDefId, assemblyAttrId))
+                      : nameAttrId
+                        ? eq(attributeValues.attributeDefId, nameAttrId)
+                        : articleAttrId
+                          ? eq(attributeValues.attributeDefId, articleAttrId)
+                          : eq(attributeValues.attributeDefId, assemblyAttrId!),
               inArray(attributeValues.entityId, entityIds),
               isNull(attributeValues.deletedAt),
             ),
@@ -283,7 +303,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           .limit(10_000)
       : [];
 
-    const attrsByEntity: Record<string, { name?: string; article?: string }> = {};
+    const attrsByEntity: Record<string, { name?: string; article?: string; assemblyUnitNumber?: string }> = {};
     for (const attr of attrRows) {
       if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
       const val = attr.valueJson ? safeJsonParse(attr.valueJson) : null;
@@ -293,6 +313,8 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           entityAttrs.name = val;
         } else if (attr.attributeDefId === articleAttrId && typeof val === 'string') {
           entityAttrs.article = val;
+        } else if (attr.attributeDefId === assemblyAttrId && typeof val === 'string') {
+          entityAttrs.assemblyUnitNumber = val;
         }
       }
     }
@@ -325,6 +347,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         id: e.id,
         ...(attrs?.name && { name: attrs.name }),
         ...(attrs?.article && { article: attrs.article }),
+        ...(attrs?.assemblyUnitNumber && { assemblyUnitNumber: attrs.assemblyUnitNumber }),
         createdAt: Number(e.createdAt),
         updatedAt: Number(e.updatedAt),
       };
