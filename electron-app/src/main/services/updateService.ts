@@ -606,6 +606,50 @@ async function cacheInstaller(filePath: string, version?: string) {
   return outPath;
 }
 
+async function readSeedInfo(): Promise<{ version: string; installerPath: string; torrentPath: string } | null> {
+  try {
+    const raw = await readFile(join(getUpdatesRootDir(), 'torrent-seed.json'), 'utf8');
+    const json = JSON.parse(raw) as any;
+    if (!json?.version || !json?.installerPath || !json?.torrentPath) return null;
+    return { version: String(json.version), installerPath: String(json.installerPath), torrentPath: String(json.torrentPath) };
+  } catch {
+    return null;
+  }
+}
+
+async function findInstallerForVersion(version: string): Promise<string | null> {
+  const dir = join(getUpdatesRootDir(), version);
+  const files = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const candidates = files.filter((f) => f.isFile() && f.name.toLowerCase().endsWith('.exe')).map((f) => f.name);
+  if (candidates.length === 0) return null;
+  const preferred = candidates.find((n) => isSetupInstallerName(n)) ?? candidates[0];
+  return join(dir, preferred);
+}
+
+export async function ensureTorrentSeedForCurrentVersion(apiBaseUrl: string) {
+  try {
+    const current = app.getVersion();
+    const existing = await readSeedInfo();
+    if (existing?.version === current) {
+      const stInstaller = await stat(existing.installerPath).catch(() => null);
+      const stTorrent = await stat(existing.torrentPath).catch(() => null);
+      if (stInstaller?.isFile() && stTorrent?.isFile()) return;
+    }
+    const installerPath = await findInstallerForVersion(current);
+    if (!installerPath) return;
+    const st = await stat(installerPath).catch(() => null);
+    if (!st?.isFile() || st.size <= 0) return;
+    const manifest = await fetchTorrentManifest(apiBaseUrl).catch(() => null);
+    if (!manifest?.version || manifest.version !== current || !manifest.torrentUrl) return;
+    const torrentPath = await saveTorrentFileForVersion(current, buildTorrentManifestUrl(apiBaseUrl, manifest.torrentUrl));
+    if (!torrentPath) return;
+    await saveTorrentSeedInfo({ version: current, installerPath, torrentPath });
+    await writeUpdaterLog(`torrent seed info refreshed version=${current} installer=${installerPath}`);
+  } catch (e) {
+    await writeUpdaterLog(`torrent seed refresh failed: ${String(e)}`);
+  }
+}
+
 async function cleanupUpdateCache(keepVersion: string) {
   const updatesDir = getUpdatesRootDir();
   const entries = await readdir(updatesDir, { withFileTypes: true }).catch(() => []);

@@ -999,6 +999,18 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   groups.user_presence = dedupById(groups.user_presence);
 
   if (groups.attribute_values.length > 0) {
+    const invalid = groups.attribute_values.filter((row: any) => !row.entityId || !row.attributeDefId);
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop attribute_values without entity_id/attribute_def_id count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.attribute_values = groups.attribute_values.filter((row: any) => !!row.entityId && !!row.attributeDefId);
+    }
+  }
+  if (groups.attribute_values.length > 0) {
     const entityIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.entityId))));
     const defIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.attributeDefId))));
     if (entityIds.length > 0 && defIds.length > 0) {

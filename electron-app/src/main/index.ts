@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { initNetworkService, onNetworkChange } from './services/networkService.js';
 import {
   applyPendingUpdateIfAny,
+  ensureTorrentSeedForCurrentVersion,
   initAutoUpdate,
   initLanUpdateSharing,
   runAutoUpdateFlow,
@@ -254,6 +255,7 @@ app.whenReady().then(() => {
       }
 
       if (torrentEnabled) {
+        await ensureTorrentSeedForCurrentVersion(apiBaseUrl);
         await startTorrentSeeding();
       } else {
         await stopTorrentSeeding();
