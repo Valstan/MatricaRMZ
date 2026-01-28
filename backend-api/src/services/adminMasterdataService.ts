@@ -164,6 +164,112 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
+function toValueJson(value: unknown): string | null {
+  const json = JSON.stringify(value);
+  if (json === undefined) return null;
+  return json;
+}
+
+function normalizeValueForCompare(valueJson: string | null | undefined): string | null {
+  if (valueJson == null) return null;
+  const parsed = safeJsonParse(String(valueJson));
+  if (parsed == null) return null;
+  if (typeof parsed === 'string') {
+    if (parsed.trim() === '') return null;
+    return JSON.stringify(parsed);
+  }
+  if (Array.isArray(parsed) && parsed.length === 0) return null;
+  return JSON.stringify(parsed);
+}
+
+async function findDuplicateEntityId(args: {
+  entityId: string;
+  entityTypeId: string;
+  nextAttrDefId: string;
+  nextValueJson: string | null;
+}): Promise<string | null> {
+  const { entityId, entityTypeId, nextAttrDefId, nextValueJson } = args;
+  const { defs, byCode } = await getDefsByType(entityTypeId);
+  const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
+  const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
+  if (!labelDefId) return null;
+
+  const defIds = defs.map((d) => String(d.id));
+  if (defIds.length === 0) return null;
+
+  const currentValues = await db
+    .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, entityId as any), inArray(attributeValues.attributeDefId, defIds as any), isNull(attributeValues.deletedAt)))
+    .limit(50_000);
+  const valueByDefId = new Map<string, string | null>();
+  for (const row of currentValues as any[]) {
+    valueByDefId.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+  }
+  valueByDefId.set(nextAttrDefId, nextValueJson);
+
+  const labelValueJson = valueByDefId.get(labelDefId) ?? null;
+  if (!normalizeValueForCompare(labelValueJson)) return null;
+
+  const candidates = await db
+    .select({ entityId: attributeValues.entityId })
+    .from(attributeValues)
+    .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+    .where(
+      and(
+        eq(attributeValues.attributeDefId, labelDefId as any),
+        eq(attributeValues.valueJson, labelValueJson),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+        eq(entities.typeId, entityTypeId as any),
+      ),
+    )
+    .limit(5000);
+  const candidateIds = candidates.map((r) => String(r.entityId)).filter((id) => id !== entityId);
+  if (candidateIds.length === 0) return null;
+
+  const candidateValues = await db
+    .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, candidateIds as any),
+        inArray(attributeValues.attributeDefId, defIds as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const currentNormalized = new Map<string, string | null>();
+  for (const defId of defIds) {
+    currentNormalized.set(defId, normalizeValueForCompare(valueByDefId.get(defId) ?? null));
+  }
+
+  const valuesByEntity = new Map<string, Map<string, string | null>>();
+  for (const row of candidateValues as any[]) {
+    const eid = String(row.entityId);
+    const map = valuesByEntity.get(eid) ?? new Map<string, string | null>();
+    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+    valuesByEntity.set(eid, map);
+  }
+
+  for (const candidateId of candidateIds) {
+    const map = valuesByEntity.get(candidateId) ?? new Map<string, string | null>();
+    let matches = true;
+    for (const defId of defIds) {
+      const a = currentNormalized.get(defId) ?? null;
+      const b = normalizeValueForCompare(map.get(defId) ?? null);
+      if (a !== b) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return candidateId;
+  }
+
+  return null;
+}
+
 async function getEntityDisplayName(entityId: string, entityTypeId: string): Promise<string | null> {
   const { byCode } = await getDefsByType(entityTypeId);
   const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
@@ -650,7 +756,16 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
     .where(and(eq(attributeValues.entityId, entityId as any), eq(attributeValues.attributeDefId, defId as any)))
     .limit(1);
 
-  const payloadJson = JSON.stringify(value);
+  const payloadJson = toValueJson(value);
+  const duplicateId = await findDuplicateEntityId({
+    entityId,
+    entityTypeId: String(e[0].typeId),
+    nextAttrDefId: defId,
+    nextValueJson: payloadJson,
+  });
+  if (duplicateId) {
+    return { ok: false as const, error: `Дубликат: уже существует объект ${duplicateId}` };
+  }
   if (existing[0]) {
     await db
       .update(attributeValues)

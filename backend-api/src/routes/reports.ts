@@ -66,6 +66,63 @@ type TableSpec = {
   columns: ColumnSpec[];
 };
 
+const HIDDEN_COLUMN_IDS = new Set([
+  'syncstatus',
+  'deletedat',
+  'payloadjson',
+  'metajson',
+  'passwordhash',
+  'tokenhash',
+  'localrelpath',
+  'yandexdiskpath',
+  'previewlocalrelpath',
+  'previewmime',
+  'previewsize',
+  'rowid',
+  'serverseq',
+  'typeid',
+  'entitytypeid',
+  'entityid',
+  'attributedefid',
+]);
+
+function isHiddenColumn(id: string) {
+  const key = String(id || '').toLowerCase();
+  if (HIDDEN_COLUMN_IDS.has(key)) return true;
+  if (key.endsWith('hash')) return true;
+  if (key.endsWith('path')) return true;
+  return false;
+}
+
+function visibleColumns(table: TableSpec): ColumnSpec[] {
+  return table.columns.filter((c) => !isHiddenColumn(c.id));
+}
+
+function entityTypeNameSql(typeIdCol: any) {
+  return sql`(select et.name from entity_types et where et.id = ${typeIdCol} and et.deleted_at is null limit 1)`;
+}
+
+function entityTypeNameByEntityIdSql(entityIdCol: any) {
+  return sql`(select et.name
+    from entities e
+    join entity_types et on et.id = e.type_id
+    where e.id = ${entityIdCol} and e.deleted_at is null and et.deleted_at is null
+    limit 1)`;
+}
+
+function entityDisplayNameSql(entityIdCol: any) {
+  return sql`(select trim(both '"' from av.value_json)
+    from attribute_values av
+    join attribute_defs ad on ad.id = av.attribute_def_id
+    where ad.code = 'name' and ad.deleted_at is null
+      and av.entity_id = ${entityIdCol} and av.deleted_at is null
+    limit 1)`;
+}
+
+function attributeNameSql(attributeDefIdCol: any) {
+  return sql`(select ad.name from attribute_defs ad where ad.id = ${attributeDefIdCol} and ad.deleted_at is null limit 1)`;
+}
+
 const TABLES: TableSpec[] = [
   {
     name: 'entity_types',
@@ -89,7 +146,9 @@ const TABLES: TableSpec[] = [
     table: entities,
     columns: [
       { id: 'id', label: 'ID', type: 'string', col: entities.id },
-      { id: 'typeId', label: 'Тип', type: 'string', col: entities.typeId },
+      { id: 'typeId', label: 'Тип (ID)', type: 'string', col: entities.typeId },
+      { id: 'entityTypeName', label: 'Тип', type: 'string', col: entityTypeNameSql(entities.typeId) },
+      { id: 'displayName', label: 'Название', type: 'string', col: entityDisplayNameSql(entities.id) },
       { id: 'createdAt', label: 'Создано', type: 'datetime', col: entities.createdAt },
       { id: 'updatedAt', label: 'Обновлено', type: 'datetime', col: entities.updatedAt },
       { id: 'deletedAt', label: 'Удалено', type: 'datetime', col: entities.deletedAt },
@@ -103,7 +162,8 @@ const TABLES: TableSpec[] = [
     table: attributeDefs,
     columns: [
       { id: 'id', label: 'ID', type: 'string', col: attributeDefs.id },
-      { id: 'entityTypeId', label: 'EntityType', type: 'string', col: attributeDefs.entityTypeId },
+      { id: 'entityTypeId', label: 'Тип (ID)', type: 'string', col: attributeDefs.entityTypeId },
+      { id: 'entityTypeName', label: 'Тип', type: 'string', col: entityTypeNameSql(attributeDefs.entityTypeId) },
       { id: 'code', label: 'Код', type: 'string', col: attributeDefs.code },
       { id: 'name', label: 'Название', type: 'string', col: attributeDefs.name },
       { id: 'dataType', label: 'Тип', type: 'string', col: attributeDefs.dataType },
@@ -123,9 +183,12 @@ const TABLES: TableSpec[] = [
     table: attributeValues,
     columns: [
       { id: 'id', label: 'ID', type: 'string', col: attributeValues.id },
-      { id: 'entityId', label: 'Entity', type: 'string', col: attributeValues.entityId },
-      { id: 'attributeDefId', label: 'Def', type: 'string', col: attributeValues.attributeDefId },
-      { id: 'valueJson', label: 'Value', type: 'json', col: attributeValues.valueJson },
+      { id: 'entityId', label: 'Сущность (ID)', type: 'string', col: attributeValues.entityId },
+      { id: 'entityTypeName', label: 'Тип сущности', type: 'string', col: entityTypeNameByEntityIdSql(attributeValues.entityId) },
+      { id: 'entityName', label: 'Сущность', type: 'string', col: entityDisplayNameSql(attributeValues.entityId) },
+      { id: 'attributeDefId', label: 'Свойство (ID)', type: 'string', col: attributeValues.attributeDefId },
+      { id: 'attributeName', label: 'Свойство', type: 'string', col: attributeNameSql(attributeValues.attributeDefId) },
+      { id: 'valueJson', label: 'Значение', type: 'json', col: attributeValues.valueJson },
       { id: 'createdAt', label: 'Создано', type: 'datetime', col: attributeValues.createdAt },
       { id: 'updatedAt', label: 'Обновлено', type: 'datetime', col: attributeValues.updatedAt },
       { id: 'deletedAt', label: 'Удалено', type: 'datetime', col: attributeValues.deletedAt },
@@ -607,8 +670,8 @@ reportsRouter.get('/builder/meta', async (_req, res) => {
       tables: TABLES.map((t) => ({
         name: t.name,
         label: t.label,
-        columns: t.columns.map(({ id, label, type }) => ({ id, label, type })),
-      })),
+        columns: visibleColumns(t).map(({ id, label, type }) => ({ id, label, type })),
+      })).filter((t) => t.columns.length > 0),
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -633,15 +696,17 @@ reportsRouter.post('/builder/preview', async (req, res) => {
         warning = 'Доступ к некоторым данным запрещен для вашего аккаунта. Вывод данных в отчете будет неполным';
         continue;
       }
+      const cols = visibleColumns(meta);
+      if (!cols.length) continue;
       const selectMap: Record<string, any> = {};
-      for (const c of meta.columns) selectMap[c.id] = c.col;
+      for (const c of cols) selectMap[c.id] = c.col;
       const where = buildGroup(meta, t.filters ?? null);
       const query = db.select(selectMap).from(meta.table);
       const rows = await (where ? query.where(where) : query).limit(limit);
       tables.push({
         name: meta.name,
         label: meta.label,
-        columns: meta.columns.map(({ id, label, type }) => ({ id, label, type })),
+        columns: cols.map(({ id, label, type }) => ({ id, label, type })),
         rows: rows as any[],
       });
     }
@@ -669,15 +734,17 @@ reportsRouter.post('/builder/export', async (req, res) => {
         warning = 'Доступ к некоторым данным запрещен для вашего аккаунта. Вывод данных в отчете будет неполным';
         continue;
       }
+      const cols = visibleColumns(meta);
+      if (!cols.length) continue;
       const selectMap: Record<string, any> = {};
-      for (const c of meta.columns) selectMap[c.id] = c.col;
+      for (const c of cols) selectMap[c.id] = c.col;
       const where = buildGroup(meta, t.filters ?? null);
       const query = db.select(selectMap).from(meta.table);
       const rows = await (where ? query.where(where) : query).limit(limit);
       tables.push({
         name: meta.name,
         label: meta.label,
-        columns: meta.columns.map(({ id, label, type }) => ({ id, label, type })),
+        columns: cols.map(({ id, label, type }) => ({ id, label, type })),
         rows: rows as any[],
       });
     }

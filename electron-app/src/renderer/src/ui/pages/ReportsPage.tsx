@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   ReportBuilderColumnMeta,
@@ -10,6 +10,8 @@ import type {
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SearchSelect } from '../components/SearchSelect.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 
 function toInputDate(ms: number) {
   const d = new Date(ms);
@@ -109,6 +111,9 @@ export function ReportsPage(props: { canExport: boolean }) {
   const [preview, setPreview] = useState<ReportBuilderPreviewResult | null>(null);
   const [builderStatus, setBuilderStatus] = useState<string>('');
   const [builderWarning, setBuilderWarning] = useState<string>('');
+  const previewTimer = useRef<number | null>(null);
+  const [entityTypeOptions, setEntityTypeOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [attributeNameOptions, setAttributeNameOptions] = useState<Array<{ id: string; label: string }>>([]);
 
   useEffect(() => {
     let alive = true;
@@ -116,6 +121,45 @@ export function ReportsPage(props: { canExport: boolean }) {
       const r = await window.matrica.reportsBuilder.meta().catch(() => null);
       if (!alive) return;
       if (r && (r as any).ok) setBuilderMeta((r as any).tables ?? []);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const types = await window.matrica.admin.entityTypes.list();
+        if (!alive) return;
+        const typeRows = Array.isArray(types) ? (types as any[]) : [];
+        const typeOptions = typeRows
+          .map((t) => ({ id: String(t.name ?? t.code ?? t.id), label: String(t.name ?? t.code ?? t.id) }))
+          .filter((o) => o.label.trim() !== '');
+        typeOptions.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setEntityTypeOptions(typeOptions);
+
+        const attrOptions: Array<{ id: string; label: string }> = [];
+        for (const t of typeRows) {
+          const typeId = String(t.id ?? '');
+          if (!typeId) continue;
+          const defs = await window.matrica.admin.attributeDefs.listByEntityType(typeId).catch(() => []);
+          if (!alive) return;
+          for (const d of defs as any[]) {
+            const name = String(d.name ?? '').trim();
+            if (!name) continue;
+            attrOptions.push({ id: name, label: name });
+          }
+        }
+        const unique = Array.from(new Map(attrOptions.map((o) => [o.id, o])).values());
+        unique.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setAttributeNameOptions(unique);
+      } catch {
+        if (!alive) return;
+        setEntityTypeOptions([]);
+        setAttributeNameOptions([]);
+      }
     })();
     return () => {
       alive = false;
@@ -227,6 +271,22 @@ export function ReportsPage(props: { canExport: boolean }) {
     setBuilderStatus('Готово.');
   }
 
+  useEffect(() => {
+    if (!selectedTables.length) {
+      setPreview(null);
+      setBuilderStatus('');
+      setBuilderWarning('');
+      return;
+    }
+    if (previewTimer.current) window.clearTimeout(previewTimer.current);
+    previewTimer.current = window.setTimeout(() => {
+      void runPreview();
+    }, 350);
+    return () => {
+      if (previewTimer.current) window.clearTimeout(previewTimer.current);
+    };
+  }, [selectedTables, filtersByTable]);
+
   function downloadBase64(contentBase64: string, fileName: string, mime: string) {
     const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: mime });
@@ -300,7 +360,31 @@ export function ReportsPage(props: { canExport: boolean }) {
         ? ['eq', 'neq', 'is_null', 'not_null']
         : type === 'number' || type === 'datetime'
           ? ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'in', 'is_null', 'not_null']
-          : ['eq', 'neq', 'contains', 'starts_with', 'ends_with', 'in', 'is_null', 'not_null'];
+          : ['eq', 'neq', 'contains', 'starts_with', 'ends_with', 'between', 'in', 'is_null', 'not_null'];
+    const opLabels: Record<ReportBuilderFilterCondition['operator'], string> = {
+      eq: 'равно',
+      neq: 'не равно',
+      contains: 'содержит',
+      starts_with: 'начинается с',
+      ends_with: 'заканчивается на',
+      gt: 'больше',
+      gte: 'больше или равно',
+      lt: 'меньше',
+      lte: 'меньше или равно',
+      between: 'диапазон',
+      in: 'в списке',
+      is_null: 'пусто',
+      not_null: 'не пусто',
+    };
+    const lookupOptions =
+      column?.id === 'entityTypeName' ? entityTypeOptions : column?.id === 'attributeName' ? attributeNameOptions : null;
+    const listValues =
+      typeof cond.value === 'string'
+        ? cond.value
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : [];
     return (
       <div key={`cond-${index}`} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select
@@ -321,12 +405,13 @@ export function ReportsPage(props: { canExport: boolean }) {
         >
           {ops.map((op) => (
             <option key={op} value={op}>
-              {op}
+              {opLabels[op as ReportBuilderFilterCondition['operator']] ?? op}
             </option>
           ))}
         </select>
         {cond.operator === 'between' ? (
-          <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>с</div>
             <Input
               type={type === 'datetime' ? 'datetime-local' : type === 'number' ? 'number' : 'text'}
               value={typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? String((cond.value as any).from ?? '') : ''}
@@ -335,7 +420,9 @@ export function ReportsPage(props: { canExport: boolean }) {
                   value: { ...(typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? cond.value : {}), from: e.target.value },
                 })
               }
+              placeholder={type === 'datetime' ? 'дата и время' : 'значение'}
             />
+            <div style={{ fontSize: 12, color: '#6b7280' }}>по</div>
             <Input
               type={type === 'datetime' ? 'datetime-local' : type === 'number' ? 'number' : 'text'}
               value={typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? String((cond.value as any).to ?? '') : ''}
@@ -344,13 +431,21 @@ export function ReportsPage(props: { canExport: boolean }) {
                   value: { ...(typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? cond.value : {}), to: e.target.value },
                 })
               }
+              placeholder={type === 'datetime' ? 'дата и время' : 'значение'}
             />
-          </>
+          </div>
+        ) : cond.operator === 'in' && lookupOptions && lookupOptions.length > 0 ? (
+          <MultiSearchSelect
+            values={listValues}
+            options={lookupOptions}
+            onChange={(next) => updateCondition(table, path, index, { value: next.join(', ') })}
+            placeholder="Выберите значения"
+          />
         ) : cond.operator === 'in' ? (
           <Input
             value={typeof cond.value === 'string' ? cond.value : ''}
             onChange={(e) => updateCondition(table, path, index, { value: e.target.value })}
-            placeholder="a,b,c"
+            placeholder="значения через запятую"
           />
         ) : cond.operator === 'is_null' || cond.operator === 'not_null' ? null : type === 'boolean' ? (
           <select
@@ -358,14 +453,22 @@ export function ReportsPage(props: { canExport: boolean }) {
             onChange={(e) => updateCondition(table, path, index, { value: e.target.value })}
             style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
           >
-            <option value="true">true</option>
-            <option value="false">false</option>
+            <option value="true">да</option>
+            <option value="false">нет</option>
           </select>
+        ) : lookupOptions && lookupOptions.length > 0 && (cond.operator === 'eq' || cond.operator === 'neq') ? (
+          <SearchSelect
+            value={typeof cond.value === 'string' && cond.value ? cond.value : null}
+            options={lookupOptions}
+            placeholder="Выберите значение"
+            onChange={(next) => updateCondition(table, path, index, { value: next ?? '' })}
+          />
         ) : (
           <Input
             type={type === 'datetime' ? 'datetime-local' : type === 'number' ? 'number' : 'text'}
             value={cond.value == null ? '' : String(cond.value)}
             onChange={(e) => updateCondition(table, path, index, { value: e.target.value })}
+            placeholder="значение"
           />
         )}
         <Button variant="ghost" onClick={() => removeItem(table, path, index)}>
@@ -379,14 +482,14 @@ export function ReportsPage(props: { canExport: boolean }) {
     return (
       <div style={{ border: '1px dashed #e5e7eb', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ fontWeight: 700 }}>Группа</div>
+          <div style={{ fontWeight: 700 }}>Группа условий</div>
           <select
             value={group.op}
             onChange={(e) => updateGroupOp(table, path, e.target.value as any)}
             style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
           >
-            <option value="and">AND</option>
-            <option value="or">OR</option>
+            <option value="and">И</option>
+            <option value="or">ИЛИ</option>
           </select>
           <Button variant="ghost" onClick={() => addCondition(table, path)}>
             + Условие
@@ -444,7 +547,7 @@ export function ReportsPage(props: { canExport: boolean }) {
 
       <h3 style={{ margin: '8px 0' }}>Конструктор выгрузок</h3>
       <div style={{ color: '#6b7280', marginBottom: 12 }}>
-        Выберите таблицы и настройте многоуровневые фильтры. При отсутствии доступа к части таблиц выгрузка будет неполной.
+        Выберите таблицы и настройте фильтры. Предпросмотр обновляется автоматически. При отсутствии доступа к части таблиц выгрузка будет неполной.
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -474,7 +577,7 @@ export function ReportsPage(props: { canExport: boolean }) {
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <Button variant="ghost" onClick={() => void runPreview()} disabled={!selectedTables.length}>
-          Предпросмотр
+          Обновить предпросмотр
         </Button>
         <Button variant="ghost" onClick={() => void exportBuilder('html')} disabled={!selectedTables.length}>
           HTML

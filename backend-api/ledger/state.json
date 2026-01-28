@@ -100,7 +100,17 @@
       "9918125a-741e-45c4-aefc-304cefda035d": {
         "id": "9918125a-741e-45c4-aefc-304cefda035d",
         "deleted_at": null,
-        "updated_at": 1769602308708
+        "updated_at": 1769627252945
+      },
+      "276722cd-bfc8-4c68-b931-6125623d9b15": {
+        "id": "276722cd-bfc8-4c68-b931-6125623d9b15",
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "2e197d9e-9d8b-4d8d-93de-482f112c8fcc": {
+        "id": "2e197d9e-9d8b-4d8d-93de-482f112c8fcc",
+        "deleted_at": null,
+        "updated_at": 1769634462683
       }
     },
     "attribute_defs": {
@@ -265,6 +275,48 @@
         "value_json": null,
         "deleted_at": null,
         "updated_at": 1769602308708
+      },
+      "db8ac2ae-b453-4a0b-a7aa-d635e7b92dea": {
+        "id": "db8ac2ae-b453-4a0b-a7aa-d635e7b92dea",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769627252945
+      },
+      "006abde0-01fa-4972-8b15-c2145f0fc3a3": {
+        "id": "006abde0-01fa-4972-8b15-c2145f0fc3a3",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "48cf7bff-ef25-49fb-a751-1b207dd8f8bd": {
+        "id": "48cf7bff-ef25-49fb-a751-1b207dd8f8bd",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "76a9bfd1-adde-4a27-a777-f31a597387af": {
+        "id": "76a9bfd1-adde-4a27-a777-f31a597387af",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "903185cf-171b-4a6a-a819-cba39026722c": {
+        "id": "903185cf-171b-4a6a-a819-cba39026722c",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "26ae78a7-f32c-46b8-8530-c14489556160": {
+        "id": "26ae78a7-f32c-46b8-8530-c14489556160",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "666d65a3-6d0e-4533-903f-8b92ab9068c8": {
+        "id": "666d65a3-6d0e-4533-903f-8b92ab9068c8",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769634462683
       }
     },
     "operations": {
@@ -317,6 +369,26 @@
         "meta_json": null,
         "deleted_at": null,
         "updated_at": 1769602308708
+      },
+      "3ac3d0e3-c05f-4544-aad8-d2f752bf432b": {
+        "id": "3ac3d0e3-c05f-4544-aad8-d2f752bf432b",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769627252945
+      },
+      "4932b390-05b7-435a-9ed6-ef972cc5a89a": {
+        "id": "4932b390-05b7-435a-9ed6-ef972cc5a89a",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769627252945
       }
     },
     "audit_log": {},
@@ -462,6 +534,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769607777353
+      },
+      "9d068e2a-138b-42fc-be68-98701d35cc3b": {
+        "id": "9d068e2a-138b-42fc-be68-98701d35cc3b",
+        "version": "1.0.7",
+        "notes": "collapse all engine checklists by default",
+        "sha256": "d10858a56f705e94ca5a1c36aaf9486d209b8d85fc94c6919e8d173dd801dceb",
+        "file_name": "MatricaRMZ-Setup-1.0.7.exe",
+        "size": 93902382,
+        "payload_json": null,
+        "created_at": 1769614909090,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769614909090
       }
     },
     "notes": {
@@ -474,6 +559,26 @@
         "sort_order": 0,
         "deleted_at": null,
         "updated_at": 1769596033575
+      },
+      "31538776-cb8f-4990-a438-a094b4638ba8": {
+        "id": "31538776-cb8f-4990-a438-a094b4638ba8",
+        "title": "Напомни мне",
+        "body_json": null,
+        "importance": "normal",
+        "due_at": null,
+        "sort_order": 0,
+        "deleted_at": null,
+        "updated_at": 1769634462683
+      },
+      "574547f7-9ef8-44ab-8330-8016c70d6697": {
+        "id": "574547f7-9ef8-44ab-8330-8016c70d6697",
+        "title": "Новая заметка",
+        "body_json": null,
+        "importance": "normal",
+        "due_at": null,
+        "sort_order": 0,
+        "deleted_at": null,
+        "updated_at": 1769634462683
       }
     }
   }

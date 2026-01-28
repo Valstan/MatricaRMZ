@@ -17,6 +17,17 @@ type Row = {
   updatedAt: number;
 };
 
+function formatAccessRole(role: string | null | undefined) {
+  const normalized = String(role ?? '').trim().toLowerCase();
+  if (!normalized) return 'Пользователь';
+  if (normalized === 'superadmin') return 'Суперадминистратор';
+  if (normalized === 'admin') return 'Администратор';
+  if (normalized === 'employee') return 'Сотрудник';
+  if (normalized === 'pending') return 'Ожидает подтверждения';
+  if (normalized === 'user') return 'Пользователь';
+  return normalized;
+}
+
 export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean; refreshKey?: number }) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
@@ -117,8 +128,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
               const status = String(row.employmentStatus ?? '').toLowerCase();
               const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
               const accessState = row.accessEnabled;
-              const hasAccess = accessState === true;
-              const accessLabel = accessState === true ? 'Доступ разрешён' : accessState === false ? 'Доступ запрещён' : 'Нет данных';
+              const accessLabel = accessState === true ? formatAccessRole(row.systemRole) : accessState === false ? 'Запрещен' : 'Нет данных';
               const accessColor = accessState === true ? '#065f46' : accessState === false ? '#b91c1c' : '#6b7280';
               return (
                 <tr

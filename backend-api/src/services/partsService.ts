@@ -20,6 +20,24 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
+function toValueJson(value: unknown): string | null {
+  const json = JSON.stringify(value);
+  if (json === undefined) return null;
+  return json;
+}
+
+function normalizeValueForCompare(valueJson: string | null | undefined): string | null {
+  if (valueJson == null) return null;
+  const parsed = safeJsonParse(String(valueJson));
+  if (parsed == null) return null;
+  if (typeof parsed === 'string') {
+    if (parsed.trim() === '') return null;
+    return JSON.stringify(parsed);
+  }
+  if (Array.isArray(parsed) && parsed.length === 0) return null;
+  return JSON.stringify(parsed);
+}
+
 function normalizeSearch(s: string): string {
   return String(s || '')
     .toLowerCase()
@@ -109,6 +127,162 @@ async function ensurePartEntityType(): Promise<string> {
 
   await ensurePartAttributeDefs(id);
   return id;
+}
+
+async function findPartDuplicateId(args: {
+  typeId: string;
+  attrDefs: { id: string; code: string }[];
+  attributes?: Record<string, unknown>;
+}): Promise<string | null> {
+  const nameDef = args.attrDefs.find((d) => String(d.code) === 'name');
+  if (!nameDef) return null;
+  const nameValueJson = toValueJson(args.attributes?.name);
+  if (!normalizeValueForCompare(nameValueJson)) return null;
+
+  const candidates = await db
+    .select({ entityId: attributeValues.entityId })
+    .from(attributeValues)
+    .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+    .where(
+      and(
+        eq(attributeValues.attributeDefId, nameDef.id),
+        eq(attributeValues.valueJson, nameValueJson),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+        eq(entities.typeId, args.typeId),
+      ),
+    )
+    .limit(5000);
+  const candidateIds = candidates.map((r) => String(r.entityId));
+  if (candidateIds.length === 0) return null;
+
+  const defIds = args.attrDefs.map((d) => String(d.id));
+  const candidateValues = await db
+    .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, candidateIds as any),
+        inArray(attributeValues.attributeDefId, defIds as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const currentNormalized = new Map<string, string | null>();
+  for (const def of args.attrDefs) {
+    const valueJson = toValueJson(args.attributes?.[def.code]);
+    currentNormalized.set(String(def.id), normalizeValueForCompare(valueJson));
+  }
+
+  const valuesByEntity = new Map<string, Map<string, string | null>>();
+  for (const row of candidateValues as any[]) {
+    const eid = String(row.entityId);
+    const map = valuesByEntity.get(eid) ?? new Map<string, string | null>();
+    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+    valuesByEntity.set(eid, map);
+  }
+
+  for (const candidateId of candidateIds) {
+    const map = valuesByEntity.get(candidateId) ?? new Map<string, string | null>();
+    let matches = true;
+    for (const def of args.attrDefs) {
+      const a = currentNormalized.get(String(def.id)) ?? null;
+      const b = normalizeValueForCompare(map.get(String(def.id)) ?? null);
+      if (a !== b) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return candidateId;
+  }
+
+  return null;
+}
+
+async function findPartDuplicateOnUpdate(args: {
+  partId: string;
+  typeId: string;
+  attrDefs: { id: string; code: string }[];
+  nextDefId: string;
+  nextValueJson: string | null;
+}): Promise<string | null> {
+  const nameDef = args.attrDefs.find((d) => String(d.code) === 'name');
+  if (!nameDef) return null;
+
+  const defIds = args.attrDefs.map((d) => String(d.id));
+  const currentValues = await db
+    .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, args.partId), inArray(attributeValues.attributeDefId, defIds as any), isNull(attributeValues.deletedAt)))
+    .limit(50_000);
+
+  const valueByDefId = new Map<string, string | null>();
+  for (const row of currentValues as any[]) {
+    valueByDefId.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+  }
+  valueByDefId.set(args.nextDefId, args.nextValueJson);
+
+  const labelValueJson = valueByDefId.get(String(nameDef.id)) ?? null;
+  if (!normalizeValueForCompare(labelValueJson)) return null;
+
+  const candidates = await db
+    .select({ entityId: attributeValues.entityId })
+    .from(attributeValues)
+    .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+    .where(
+      and(
+        eq(attributeValues.attributeDefId, nameDef.id),
+        eq(attributeValues.valueJson, labelValueJson),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+        eq(entities.typeId, args.typeId),
+      ),
+    )
+    .limit(5000);
+  const candidateIds = candidates.map((r) => String(r.entityId)).filter((id) => id !== args.partId);
+  if (candidateIds.length === 0) return null;
+
+  const candidateValues = await db
+    .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, candidateIds as any),
+        inArray(attributeValues.attributeDefId, defIds as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const currentNormalized = new Map<string, string | null>();
+  for (const defId of defIds) {
+    currentNormalized.set(defId, normalizeValueForCompare(valueByDefId.get(defId) ?? null));
+  }
+
+  const valuesByEntity = new Map<string, Map<string, string | null>>();
+  for (const row of candidateValues as any[]) {
+    const eid = String(row.entityId);
+    const map = valuesByEntity.get(eid) ?? new Map<string, string | null>();
+    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+    valuesByEntity.set(eid, map);
+  }
+
+  for (const candidateId of candidateIds) {
+    const map = valuesByEntity.get(candidateId) ?? new Map<string, string | null>();
+    let matches = true;
+    for (const defId of defIds) {
+      const a = currentNormalized.get(defId) ?? null;
+      const b = normalizeValueForCompare(map.get(defId) ?? null);
+      if (a !== b) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return candidateId;
+  }
+
+  return null;
 }
 
 export async function createPartAttributeDef(args: {
@@ -461,6 +635,16 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
 > {
   try {
     const typeId = await ensurePartEntityType();
+    const attrDefs = await db
+      .select({ id: attributeDefs.id, code: attributeDefs.code })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)));
+
+    const duplicateId = await findPartDuplicateId({ typeId, attrDefs, attributes: args.attributes });
+    if (duplicateId) {
+      return { ok: false, error: `duplicate part exists: ${duplicateId}` };
+    }
+
     const id = randomUUID();
     const ts = nowMs();
 
@@ -475,13 +659,12 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
 
     // Устанавливаем начальные атрибуты если переданы
     if (args.attributes) {
-      const attrDefs = await db
+      const attrDefsFull = await db
         .select()
         .from(attributeDefs)
         .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)));
-
       for (const [code, value] of Object.entries(args.attributes)) {
-        const def = attrDefs.find((ad) => ad.code === code);
+        const def = attrDefsFull.find((ad) => ad.code === code);
         if (!def) continue;
 
         await db
@@ -490,7 +673,7 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
             id: randomUUID(),
             entityId: id,
             attributeDefId: def.id,
-            valueJson: JSON.stringify(value),
+            valueJson: toValueJson(value),
             createdAt: ts,
             updatedAt: ts,
             deletedAt: null,
@@ -499,7 +682,7 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
           .onConflictDoUpdate({
             target: [attributeValues.entityId, attributeValues.attributeDefId],
             set: {
-              valueJson: JSON.stringify(value),
+              valueJson: toValueJson(value),
               updatedAt: ts,
               syncStatus: 'pending',
             },
@@ -570,6 +753,22 @@ export async function updatePartAttribute(args: {
     const attrDef = attrDefRows[0];
     if (!attrDef) return { ok: false, error: 'attribute not found' };
     const ts = nowMs();
+
+    const attrDefs = await db
+      .select({ id: attributeDefs.id, code: attributeDefs.code })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)));
+
+    const duplicateId = await findPartDuplicateOnUpdate({
+      partId,
+      typeId,
+      attrDefs,
+      nextDefId: String(attrDef.id),
+      nextValueJson: toValueJson(args.value),
+    });
+    if (duplicateId) {
+      return { ok: false, error: `duplicate part exists: ${duplicateId}` };
+    }
 
     const actorRole = String(args.actor.role || '').toLowerCase();
     const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';

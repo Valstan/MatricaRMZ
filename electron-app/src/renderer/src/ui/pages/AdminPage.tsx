@@ -38,6 +38,8 @@ export function MasterdataPage(props: {
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   const [status, setStatus] = useState<string>('');
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
+  const [entityFilter, setEntityFilter] = useState<'all' | 'named' | 'empty'>('all');
+  const [showDefsPanel, setShowDefsPanel] = useState(false);
   const [engineBrandName, setEngineBrandName] = useState<string>('');
   const [partsOptions, setPartsOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
@@ -104,12 +106,15 @@ export function MasterdataPage(props: {
 
   const filteredEntities = useMemo(() => {
     const q = entityQuery.trim().toLowerCase();
-    if (!q) return entities;
-    return entities.filter((e) => {
+    let list = entities;
+    if (entityFilter === 'named') list = list.filter((e) => String(e.displayName ?? '').trim());
+    if (entityFilter === 'empty') list = list.filter((e) => !String(e.displayName ?? '').trim());
+    if (!q) return list;
+    return list.filter((e) => {
       const label = (e.displayName ? `${e.displayName} ` : '') + e.id;
       return label.toLowerCase().includes(q);
     });
-  }, [entities, entityQuery]);
+  }, [entities, entityQuery, entityFilter]);
 
   const linkTargetByCode: Record<string, string> = {
     customer_id: 'customer',
@@ -599,177 +604,97 @@ export function MasterdataPage(props: {
       </div>
 
       {props.canViewMasterData && (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, gridColumn: '1 / -1' }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>Справочники</strong>
-            <span style={{ flex: 1 }} />
-            <Button variant="ghost" onClick={() => void refreshTypes()}>
-              Обновить
-            </Button>
-            {props.canEditMasterData && (
-              <Button
-                variant="ghost"
-                disabled={!selectedTypeId}
-                onClick={() => {
-                  if (!selectedTypeId) return;
-                  void openTypeDeleteDialog(selectedTypeId);
-                }}
-                style={{ color: '#b91c1c' }}
-              >
-                Удалить раздел
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <strong>Справочники</strong>
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={() => void refreshTypes()}>
+                Обновить
               </Button>
+              {props.canEditMasterData && (
+                <Button
+                  variant="ghost"
+                  disabled={!selectedTypeId}
+                  onClick={() => {
+                    if (!selectedTypeId) return;
+                    void openTypeDeleteDialog(selectedTypeId);
+                  }}
+                  style={{ color: '#b91c1c' }}
+                >
+                  Удалить раздел
+                </Button>
+              )}
+            </div>
+
+            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {visibleTypes.map((t) => {
+                const active = t.id === selectedTypeId;
+                return (
+                  <Button
+                    key={t.id}
+                    variant="ghost"
+                    onClick={() => setSelectedTypeId(t.id)}
+                    style={
+                      active
+                        ? {
+                            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
+                            border: '1px solid #1e40af',
+                            color: '#fff',
+                            boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
+                          }
+                        : undefined
+                    }
+                  >
+                    {t.name}
+                  </Button>
+                );
+              })}
+              {visibleTypes.length === 0 && <div style={{ color: '#6b7280' }}>(справочники не настроены)</div>}
+            </div>
+
+            {props.canEditMasterData && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить раздел</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  <NewEntityTypeForm
+                    existingCodes={types.map((t) => t.code)}
+                    onSubmit={async (code, name) => {
+                      setStatus('Сохранение раздела...');
+                      const r = await window.matrica.admin.entityTypes.upsert({ code, name });
+                      setStatus(r.ok ? 'Раздел сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                      await refreshTypes();
+                      if (r.ok && r.id) setSelectedTypeId(String(r.id));
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </div>
 
-          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {visibleTypes.map((t) => {
-              const active = t.id === selectedTypeId;
-              return (
-                <Button
-                  key={t.id}
-                  variant="ghost"
-                  onClick={() => setSelectedTypeId(t.id)}
-                  style={
-                    active
-                      ? {
-                          background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
-                          border: '1px solid #1e40af',
-                          color: '#fff',
-                          boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
-                        }
-                      : undefined
-                  }
-                >
-                  {t.name}
-                </Button>
-              );
-            })}
-            {visibleTypes.length === 0 && <div style={{ color: '#6b7280' }}>(справочники не настроены)</div>}
-          </div>
-
-          {props.canEditMasterData && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить раздел</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-              <NewEntityTypeForm
-                existingCodes={types.map((t) => t.code)}
-                onSubmit={async (code, name) => {
-                  setStatus('Сохранение раздела...');
-                  const r = await window.matrica.admin.entityTypes.upsert({ code, name });
-                  setStatus(r.ok ? 'Раздел сохранён' : `Ошибка: ${r.error ?? 'unknown'}`);
-                  await refreshTypes();
-                  if (r.ok && r.id) setSelectedTypeId(String(r.id));
-                }}
-              />
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 8, alignItems: 'center' }}>
+              <select
+                value={entityFilter}
+                onChange={(e) => setEntityFilter(e.target.value as any)}
+                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+              >
+                <option value="all">Все записи</option>
+                <option value="named">Только с названием</option>
+                <option value="empty">Без названия</option>
+              </select>
+              <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск записей…" />
+              <Button variant="ghost" disabled={!selectedTypeId} onClick={() => setShowDefsPanel(true)}>
+                Свойства справочника
+              </Button>
             </div>
           </div>
-          )}
-        </div>
 
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>{selectedType ? `Свойства ${selectedType.name}` : 'Свойства'}</strong>
-            <span style={{ flex: 1 }} />
-            <Button variant="ghost" onClick={() => selectedTypeId && void refreshDefs(selectedTypeId)}>
-              Обновить
-            </Button>
-          </div>
-
-          <div style={{ marginTop: 12 }}>
-            {selectedTypeId ? (
-              <>
-                {props.canEditMasterData && (
-                <NewAttrDefForm
-                  entityTypeId={selectedTypeId}
-                  types={types}
-                  linkRules={linkRules}
-                  onStandardLink={async (fieldName, targetTypeCode) => {
-                    await upsertLinkRule(fieldName, targetTypeCode);
-                  }}
-                  onSubmit={async (payload) => {
-                    setStatus('Сохранение свойства...');
-                    const r = await window.matrica.admin.attributeDefs.upsert(payload);
-                    setStatus(r.ok ? 'Свойство сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
-                    await refreshDefs(selectedTypeId);
-                  }}
-                />
-                )}
-                <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ background: 'linear-gradient(135deg, #db2777 0%, #9d174d 120%)', color: '#fff' }}>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Код</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Название</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
-                        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Обяз.</th>
-                        {props.canEditMasterData && (
-                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>
-                            Действия
-                          </th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleDefs.map((d) => (
-                        <tr key={d.id}>
-                          <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.code}</td>
-                          <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.name}</td>
-                          <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatDefDataType(d)}</td>
-                          <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.isRequired ? 'да' : 'нет'}</td>
-                          {props.canEditMasterData && (
-                            <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }} onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                variant="ghost"
-                                style={{ color: '#b91c1c' }}
-                                onClick={() => {
-                                  void openDefDeleteDialog(d);
-                                }}
-                              >
-                                Удалить
-                              </Button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                      {visibleDefs.length === 0 && (
-                        <tr>
-                          <td style={{ padding: 12, color: '#6b7280' }} colSpan={props.canEditMasterData ? 5 : 4}>
-                            Свойств нет
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : (
-              <div style={{ color: '#6b7280' }}>Выберите раздел номенклатуры</div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <strong>{selectedType ? `Список ${selectedType.name}` : 'Список'}</strong>
-            <span style={{ flex: 1 }} />
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (selectedTypeId) void refreshEntities(selectedTypeId);
-              }}
-            >
-              Обновить
-            </Button>
-          </div>
-
-          {!selectedTypeId ? (
-            <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите раздел номенклатуры</div>
-          ) : (
-            <>
-              <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
-                {props.canEditMasterData && (
-                  <>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <strong>{selectedType ? `Список ${selectedType.name}` : 'Список'}</strong>
+              <span style={{ flex: 1 }} />
+              {props.canEditMasterData && selectedTypeId && (
                 <Button
                   onClick={async () => {
                     setStatus('Создание записи...');
@@ -783,195 +708,190 @@ export function MasterdataPage(props: {
                     setSelectedEntityId(r.id);
                   }}
                 >
-                  Создать
+                  Добавить запись
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    if (!selectedEntityId) return;
-                    await openDeleteDialog(selectedEntityId);
-                  }}
-                >
-                  Удалить
-                </Button>
-                  </>
-                )}
-                <span style={{ flex: 1 }} />
-                <div style={{ color: '#6b7280', fontSize: 12 }}>
-                  {selectedEntity ? 'Выбрано' : 'Всего'}: {selectedEntity ? selectedEntity.displayName ?? selectedEntity.id.slice(0, 8) : entities.length}
-                </div>
-              </div>
+              )}
+            </div>
 
-              <div style={{ marginTop: 10 }}>
-                <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск записей…" />
-
-                <div style={{ marginTop: 8, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                  <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-                    {filteredEntities.map((e) => {
-                      const active = e.id === selectedEntityId;
-                      return (
-                        <div
-                          key={e.id}
-                          onClick={() => setSelectedEntityId(e.id)}
-                          style={{
-                            padding: '10px 12px',
-                            cursor: 'pointer',
-                            borderBottom: '1px solid #f3f4f6',
-                            background: active ? '#ecfeff' : '#fff',
-                          }}
-                          title={e.id}
-                        >
-                          <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>
-                            {e.displayName ?? e.id.slice(0, 8)}
-                          </div>
-                          <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>
-                            <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.id.slice(0, 8)}</span>
-                            {'  '}| sync: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.syncStatus}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {filteredEntities.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
-                  </div>
-                </div>
-              </div>
-
-              {selectedEntity ? (
-                <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-                  <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
-                    {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
-                  </div>
-
-                  {selectedType?.code === 'engine_brand' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
-                      <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-                      <Input
-                        value={engineBrandName}
-                        disabled={!props.canEditMasterData}
-                        onChange={(e) => setEngineBrandName(e.target.value)}
-                        onBlur={async () => {
-                          const next = engineBrandName.trim();
-                          const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', next || null);
-                          if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                          else setStatus('Сохранено');
-                          await refreshEntities(selectedTypeId);
+            {!selectedTypeId ? (
+              <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите справочник</div>
+            ) : (
+              <div style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  {filteredEntities.map((e) => {
+                    const active = e.id === selectedEntityId;
+                    const label = e.displayName?.trim() ? e.displayName : 'Без названия';
+                    return (
+                      <div
+                        key={e.id}
+                        onClick={() => setSelectedEntityId(e.id)}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid #f3f4f6',
+                          background: active ? '#ecfeff' : '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
                         }}
-                      />
-
-                      <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Детали</div>
-                      <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                          <Button variant="ghost" onClick={() => void loadPartsOptions()}>
-                            Обновить список
-                          </Button>
-                          <span style={{ color: '#6b7280', fontSize: 12 }}>
-                            Выбрано: {engineBrandPartIds.length}
-                          </span>
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{label}</div>
+                          <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{e.id.slice(0, 8)}</div>
                         </div>
-                        <MultiSearchSelect
-                          values={engineBrandPartIds}
-                          options={partsOptions}
-                          disabled={!props.canEditMasterData}
-                          placeholder="Выберите детали для этой марки"
-                          onChange={(next) => {
-                            const labelById = new Map(partsOptions.map((o) => [o.id, o.label]));
-                            const sorted = [...next].sort((a, b) =>
-                              String(labelById.get(a) ?? a).localeCompare(String(labelById.get(b) ?? b), 'ru'),
-                            );
-                            setEngineBrandPartIds(sorted);
-                            if (props.canEditMasterData) void updateBrandParts(sorted);
+                        <span style={{ flex: 1 }} />
+                        {props.canEditMasterData && (
+                          <Button
+                            variant="ghost"
+                            style={{ color: '#b91c1c' }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void openDeleteDialog(e.id);
+                            }}
+                          >
+                            Удалить
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {filteredEntities.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {selectedEntity ? (
+            <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+              <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
+                {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
+              </div>
+
+              {selectedType?.code === 'engine_brand' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                  <div style={{ color: '#6b7280' }}>Марка двигателя</div>
+                  <Input
+                    value={engineBrandName}
+                    disabled={!props.canEditMasterData}
+                    onChange={(e) => setEngineBrandName(e.target.value)}
+                    onBlur={async () => {
+                      const next = engineBrandName.trim();
+                      const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', next || null);
+                      if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                      else setStatus('Сохранено');
+                      await refreshEntities(selectedTypeId);
+                    }}
+                  />
+
+                  <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Детали</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <Button variant="ghost" onClick={() => void loadPartsOptions()}>
+                        Обновить список
+                      </Button>
+                      <span style={{ color: '#6b7280', fontSize: 12 }}>Выбрано: {engineBrandPartIds.length}</span>
+                    </div>
+                    <MultiSearchSelect
+                      values={engineBrandPartIds}
+                      options={partsOptions}
+                      disabled={!props.canEditMasterData}
+                      placeholder="Выберите детали для этой марки"
+                      onChange={(next) => {
+                        const labelById = new Map(partsOptions.map((o) => [o.id, o.label]));
+                        const sorted = [...next].sort((a, b) =>
+                          String(labelById.get(a) ?? a).localeCompare(String(labelById.get(b) ?? b), 'ru'),
+                        );
+                        setEngineBrandPartIds(sorted);
+                        if (props.canEditMasterData) void updateBrandParts(sorted);
+                      }}
+                    />
+                    {partsStatus && (
+                      <div style={{ color: partsStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{partsStatus}</div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                    {visibleDefs.map((d) => (
+                      <React.Fragment key={d.id}>
+                        <div style={{ color: '#6b7280' }}>{d.name}</div>
+                        <FieldEditor
+                          def={d}
+                          canEdit={props.canEditMasterData}
+                          value={entityAttrs[d.code]}
+                          linkOptions={linkOptions[d.code] ?? []}
+                          lookupOptions={lookupOptionsByCode[d.code] ?? []}
+                          lookupCreate={
+                            d.code === 'unit' || d.code === 'shop'
+                              ? async (label) => await createLookupEntity(d.code as 'unit' | 'shop', label)
+                              : undefined
+                          }
+                          onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
+                          onSave={async (v) => {
+                            const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
+                            if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                            else setStatus('Сохранено');
+                            await refreshEntities(selectedTypeId);
                           }}
                         />
-                        {partsStatus && (
-                          <div style={{ color: partsStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>
-                            {partsStatus}
+                      </React.Fragment>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <strong>Связи</strong>
+                      <span style={{ flex: 1 }} />
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          if (selectedEntityId) void refreshIncomingLinks(selectedEntityId);
+                        }}
+                      >
+                        Обновить
+                      </Button>
+                    </div>
+
+                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
+                        {outgoingLinks.length === 0 ? (
+                          <div style={{ color: '#6b7280' }}>В этом разделе нет связанных полей.</div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                            {outgoingLinks.map((l) => (
+                              <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
+                                  <div style={{ fontSize: 12, color: '#6b7280' }}>
+                                    → {l.targetTypeName}
+                                    {l.targetEntityId ? (
+                                      <>
+                                        {' '}
+                                        | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>
+                                        {l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}
+                                      </>
+                                    ) : (
+                                      ' | (не выбрано)'
+                                    )}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  disabled={!l.targetTypeId || !l.targetEntityId}
+                                  onClick={() => {
+                                    if (!l.targetTypeId || !l.targetEntityId) return;
+                                    void jumpToEntity(l.targetTypeId, l.targetEntityId);
+                                  }}
+                                >
+                                  Перейти
+                                </Button>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
-                        {visibleDefs.map((d) => (
-                          <React.Fragment key={d.id}>
-                            <div style={{ color: '#6b7280' }}>{d.name}</div>
-                            <FieldEditor
-                              def={d}
-                              canEdit={props.canEditMasterData}
-                              value={entityAttrs[d.code]}
-                              linkOptions={linkOptions[d.code] ?? []}
-                            lookupOptions={lookupOptionsByCode[d.code] ?? []}
-                            lookupCreate={
-                              d.code === 'unit' || d.code === 'shop'
-                                ? async (label) => await createLookupEntity(d.code as 'unit' | 'shop', label)
-                                : undefined
-                            }
-                              onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
-                              onSave={async (v) => {
-                                const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
-                                if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                                else setStatus('Сохранено');
-                                await refreshEntities(selectedTypeId);
-                              }}
-                            />
-                          </React.Fragment>
-                        ))}
-                      </div>
-
-                      <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                          <strong>Связи</strong>
-                          <span style={{ flex: 1 }} />
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              if (selectedEntityId) void refreshIncomingLinks(selectedEntityId);
-                            }}
-                          >
-                            Обновить
-                          </Button>
-                        </div>
-
-                        <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                          <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-                            <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
-                            {outgoingLinks.length === 0 ? (
-                              <div style={{ color: '#6b7280' }}>В этом разделе нет связанных полей.</div>
-                            ) : (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                                {outgoingLinks.map((l) => (
-                                  <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                    <div style={{ flex: 1 }}>
-                                      <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
-                                      <div style={{ fontSize: 12, color: '#6b7280' }}>
-                                        → {l.targetTypeName}
-                                        {l.targetEntityId ? (
-                                          <>
-                                            {' '}
-                                            | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>
-                                            {l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}
-                                          </>
-                                        ) : (
-                                          ' | (не выбрано)'
-                                        )}
-                                      </div>
-                                    </div>
-                                    <Button
-                                      variant="ghost"
-                                      disabled={!l.targetTypeId || !l.targetEntityId}
-                                      onClick={() => {
-                                        if (!l.targetTypeId || !l.targetEntityId) return;
-                                        void jumpToEntity(l.targetTypeId, l.targetEntityId);
-                                      }}
-                                    >
-                                      Перейти
-                                    </Button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
 
                       <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                         <div style={{ fontWeight: 800, marginBottom: 8 }}>Входящие</div>
@@ -1009,16 +929,13 @@ export function MasterdataPage(props: {
                       </div>
                     </div>
                   </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите запись</div>
+                </>
               )}
-            </>
+            </div>
+          ) : (
+            <div style={{ color: '#6b7280' }}>Выберите запись справочника.</div>
           )}
         </div>
-      </div>
       )}
 
       {typeDeleteDialog.open && (
@@ -1243,6 +1160,118 @@ export function MasterdataPage(props: {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {showDefsPanel && (
+        <div
+          onClick={() => setShowDefsPanel(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 9996,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 920,
+              maxWidth: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              background: '#fff',
+              borderRadius: 16,
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              padding: 16,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
+                {selectedType ? `Свойства справочника: ${selectedType.name}` : 'Свойства справочника'}
+              </div>
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={() => setShowDefsPanel(false)}>
+                Закрыть
+              </Button>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              {selectedTypeId ? (
+                <>
+                  {props.canEditMasterData && (
+                    <NewAttrDefForm
+                      entityTypeId={selectedTypeId}
+                      types={types}
+                      linkRules={linkRules}
+                      onStandardLink={async (fieldName, targetTypeCode) => {
+                        await upsertLinkRule(fieldName, targetTypeCode);
+                      }}
+                      onSubmit={async (payload) => {
+                        setStatus('Сохранение свойства...');
+                        const r = await window.matrica.admin.attributeDefs.upsert(payload);
+                        setStatus(r.ok ? 'Свойство сохранено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                        await refreshDefs(selectedTypeId);
+                      }}
+                    />
+                  )}
+                  <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: 'linear-gradient(135deg, #db2777 0%, #9d174d 120%)', color: '#fff' }}>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Код</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Название</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Обяз.</th>
+                          {props.canEditMasterData && (
+                            <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>
+                              Действия
+                            </th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleDefs.map((d) => (
+                          <tr key={d.id}>
+                            <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.code}</td>
+                            <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.name}</td>
+                            <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatDefDataType(d)}</td>
+                            <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.isRequired ? 'да' : 'нет'}</td>
+                            {props.canEditMasterData && (
+                              <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }} onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  style={{ color: '#b91c1c' }}
+                                  onClick={() => {
+                                    void openDefDeleteDialog(d);
+                                  }}
+                                >
+                                  Удалить
+                                </Button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                        {visibleDefs.length === 0 && (
+                          <tr>
+                            <td style={{ padding: 12, color: '#6b7280' }} colSpan={props.canEditMasterData ? 5 : 4}>
+                              Свойств нет
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div style={{ color: '#6b7280' }}>Выберите справочник.</div>
+              )}
+            </div>
           </div>
         </div>
       )}

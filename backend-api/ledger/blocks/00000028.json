@@ -1,0 +1,32 @@
+{
+  "height": 28,
+  "prev_hash": "bf0d32c1c48f532338631d92f344115466e628dae6b2b399f18144a810bab736",
+  "created_at": 1769634162279,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "notes",
+      "row": {
+        "id": "31538776-cb8f-4990-a438-a094b4638ba8",
+        "title": "Напомни мне",
+        "body_json": null,
+        "importance": "normal",
+        "due_at": null,
+        "sort_order": 0,
+        "deleted_at": null
+      },
+      "row_id": "31538776-cb8f-4990-a438-a094b4638ba8",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769634162277,
+      "seq": 75,
+      "tx_id": "fc3604087c6760c9e9bd4ff83bda4ff3b94a0fbe70aea320c7cb96ab82d40a2c",
+      "signature": "8fTZ60mDASr7iPN5f/WNGmCBEOFz7BkG/Nc1uhanm2jr4n76tfHTCeTj9XMD8+3PHstmQeB53851q6tItA+IAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "687223015ef9bae3fc840fd2f99841a2aebebfc73ee6147ed8129b3e7e9a7f67"
+}
