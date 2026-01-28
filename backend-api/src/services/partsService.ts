@@ -138,6 +138,7 @@ async function findPartDuplicateId(args: {
   if (!nameDef) return null;
   const nameValueJson = toValueJson(args.attributes?.name);
   if (!normalizeValueForCompare(nameValueJson)) return null;
+  const nameValueCondition = nameValueJson == null ? isNull(attributeValues.valueJson) : eq(attributeValues.valueJson, nameValueJson);
 
   const candidates = await db
     .select({ entityId: attributeValues.entityId })
@@ -146,7 +147,7 @@ async function findPartDuplicateId(args: {
     .where(
       and(
         eq(attributeValues.attributeDefId, nameDef.id),
-        eq(attributeValues.valueJson, nameValueJson),
+        nameValueCondition,
         isNull(attributeValues.deletedAt),
         isNull(entities.deletedAt),
         eq(entities.typeId, args.typeId),
@@ -225,6 +226,8 @@ async function findPartDuplicateOnUpdate(args: {
 
   const labelValueJson = valueByDefId.get(String(nameDef.id)) ?? null;
   if (!normalizeValueForCompare(labelValueJson)) return null;
+  const labelValueCondition =
+    labelValueJson == null ? isNull(attributeValues.valueJson) : eq(attributeValues.valueJson, labelValueJson);
 
   const candidates = await db
     .select({ entityId: attributeValues.entityId })
@@ -233,7 +236,7 @@ async function findPartDuplicateOnUpdate(args: {
     .where(
       and(
         eq(attributeValues.attributeDefId, nameDef.id),
-        eq(attributeValues.valueJson, labelValueJson),
+        labelValueCondition,
         isNull(attributeValues.deletedAt),
         isNull(entities.deletedAt),
         eq(entities.typeId, args.typeId),
@@ -640,7 +643,7 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
       .from(attributeDefs)
       .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)));
 
-    const duplicateId = await findPartDuplicateId({ typeId, attrDefs, attributes: args.attributes });
+    const duplicateId = await findPartDuplicateId(args.attributes ? { typeId, attrDefs, attributes: args.attributes } : { typeId, attrDefs });
     if (duplicateId) {
       return { ok: false, error: `duplicate part exists: ${duplicateId}` };
     }

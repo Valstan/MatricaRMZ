@@ -210,6 +210,8 @@ async function findDuplicateEntityId(args: {
 
   const labelValueJson = valueByDefId.get(labelDefId) ?? null;
   if (!normalizeValueForCompare(labelValueJson)) return null;
+  const labelValueCondition =
+    labelValueJson == null ? isNull(attributeValues.valueJson) : eq(attributeValues.valueJson, labelValueJson);
 
   const candidates = await db
     .select({ entityId: attributeValues.entityId })
@@ -218,7 +220,7 @@ async function findDuplicateEntityId(args: {
     .where(
       and(
         eq(attributeValues.attributeDefId, labelDefId as any),
-        eq(attributeValues.valueJson, labelValueJson),
+        labelValueCondition,
         isNull(attributeValues.deletedAt),
         isNull(entities.deletedAt),
         eq(entities.typeId, entityTypeId as any),
