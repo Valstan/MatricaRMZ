@@ -1107,6 +1107,18 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       });
   }
   if (groups.entities.length > 0) {
+    const invalid = groups.entities.filter((row: any) => !row.typeId);
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop entities without type_id count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.entities = groups.entities.filter((row: any) => !!row.typeId);
+    }
+  }
+  if (groups.entities.length > 0) {
     await db
       .insert(entities)
       .values(groups.entities)
@@ -1119,6 +1131,18 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           syncStatus: 'synced',
         },
       });
+  }
+  if (groups.attribute_defs.length > 0) {
+    const invalid = groups.attribute_defs.filter((row: any) => !row.entityTypeId);
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop attribute_defs without entity_type_id count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.attribute_defs = groups.attribute_defs.filter((row: any) => !!row.entityTypeId);
+    }
   }
   if (groups.attribute_defs.length > 0) {
     await db

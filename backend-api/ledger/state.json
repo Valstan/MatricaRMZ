@@ -360,6 +360,31 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769578304277
+      },
+      "935181b7-99ac-4fba-b6d7-e1388ea67892": {
+        "id": "935181b7-99ac-4fba-b6d7-e1388ea67892",
+        "version": "1.0.4",
+        "notes": "update installer launch uses normal shell open",
+        "sha256": "e09c4302933a3521c394f35cf9f61304c38334130aedb860f36e44cf63b56fa2",
+        "file_name": "MatricaRMZ-Setup-1.0.4.exe",
+        "size": 93898735,
+        "payload_json": null,
+        "created_at": 1769584323093,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769584323093
+      }
+    },
+    "notes": {
+      "d1b08bab-5da9-4ffb-a12b-8d16e1ee15bf": {
+        "id": "d1b08bab-5da9-4ffb-a12b-8d16e1ee15bf",
+        "title": "Новая заметка",
+        "body_json": null,
+        "importance": "normal",
+        "due_at": null,
+        "sort_order": 0,
+        "deleted_at": null,
+        "updated_at": 1769596033575
       }
     }
   }
