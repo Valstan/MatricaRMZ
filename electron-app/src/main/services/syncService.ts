@@ -1010,6 +1010,18 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       groups.attribute_values = groups.attribute_values.filter((row: any) => !!row.entityId && !!row.attributeDefId);
     }
   }
+  if (groups.operations.length > 0) {
+    const invalid = groups.operations.filter((row: any) => !row.engineEntityId);
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop operations without engine_entity_id count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.operations = groups.operations.filter((row: any) => !!row.engineEntityId);
+    }
+  }
   if (groups.attribute_values.length > 0) {
     const entityIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.entityId))));
     const defIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.attributeDefId))));

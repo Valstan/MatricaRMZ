@@ -49,6 +49,15 @@ export type TorrentClientStats = {
   peers: TorrentPeerInfo[];
 };
 
+export type TorrentRuntimeStatus = {
+  ok: true;
+  mode: 'idle' | 'downloading' | 'seeding';
+  stats: TorrentClientStats | null;
+  localPeers: number;
+  updatedAt: number;
+  infoHash?: string;
+};
+
 type TorrentSeedInfo = {
   version: string;
   installerPath: string;
@@ -70,6 +79,30 @@ let seedingTorrent: any | null = null;
 let downloadClient: any | null = null;
 let downloadTorrent: any | null = null;
 let networkEpoch = 0;
+let seedingStatsTimer: NodeJS.Timeout | null = null;
+let torrentRuntimeStatus: TorrentRuntimeStatus = {
+  ok: true,
+  mode: 'idle',
+  stats: null,
+  localPeers: 0,
+  updatedAt: Date.now(),
+};
+
+function updateRuntimeStatus(mode: TorrentRuntimeStatus['mode'], stats: TorrentClientStats | null, infoHash?: string) {
+  const localPeers = stats ? stats.peers.filter((p) => p.local).length : 0;
+  torrentRuntimeStatus = {
+    ok: true,
+    mode,
+    stats,
+    localPeers,
+    updatedAt: Date.now(),
+    infoHash,
+  };
+}
+
+export function getTorrentRuntimeStatus(): TorrentRuntimeStatus {
+  return torrentRuntimeStatus;
+}
 
 async function pruneLogFile(path: string, maxDays: number) {
   try {
@@ -218,6 +251,50 @@ function listLocalPrivateIps(): string[] {
   return Array.from(new Set(out));
 }
 
+function buildTorrentStats(torrent: any): TorrentClientStats {
+  const pct = Math.max(0, Math.min(100, Math.floor(Number(torrent?.progress ?? 0) * 100)));
+  const peers: TorrentPeerInfo[] = [];
+  const wires = Array.isArray(torrent?.wires) ? torrent.wires : [];
+  for (const wire of wires) {
+    const address = String((wire as any)?.remoteAddress ?? '').trim();
+    const port = Number((wire as any)?.remotePort ?? 0) || undefined;
+    if (!address) continue;
+    const dl = (wire as any)?.downloadSpeed;
+    const ul = (wire as any)?.uploadSpeed;
+    const downloadSpeed = typeof dl === 'function' ? Number(dl()) : Number(dl ?? 0);
+    const uploadSpeed = typeof ul === 'function' ? Number(ul()) : Number(ul ?? 0);
+    peers.push({
+      address,
+      port,
+      downloadSpeed: Number.isFinite(downloadSpeed) ? downloadSpeed : undefined,
+      uploadSpeed: Number.isFinite(uploadSpeed) ? uploadSpeed : undefined,
+      peerId: (wire as any)?.peerId ? String((wire as any).peerId) : undefined,
+      client: (wire as any)?.client ? String((wire as any).client) : undefined,
+      local: Boolean((wire as any)?.local ?? (wire as any)?.peer?.local) || isPrivateIp(address),
+      amChoking: Boolean((wire as any)?.amChoking),
+      peerChoking: Boolean((wire as any)?.peerChoking),
+      amInterested: Boolean((wire as any)?.amInterested),
+      peerInterested: Boolean((wire as any)?.peerInterested),
+    });
+  }
+  return {
+    progressPct: pct,
+    downloadSpeed: Number(torrent?.downloadSpeed ?? 0),
+    uploadSpeed: Number(torrent?.uploadSpeed ?? 0),
+    numPeers: Number(torrent?.numPeers ?? peers.length),
+    numSeeds: Number(torrent?.numSeeds ?? 0),
+    timeRemainingMs: Number(torrent?.timeRemaining ?? 0),
+    ratio: Number(torrent?.ratio ?? 0),
+    downloaded: Number(torrent?.downloaded ?? 0),
+    uploaded: Number(torrent?.uploaded ?? 0),
+    peers: peers.slice(0, 12),
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function pickInstallerFile(files: Array<{ name: string; path: string }>, preferredName: string) {
   const byName = files.find((f) => f.name === preferredName || basename(f.name) === preferredName);
   if (byName) return byName;
@@ -262,6 +339,52 @@ export async function fetchTorrentStatus(baseUrl: string): Promise<{ ok: true; s
   }
 }
 
+export async function probeTorrentLanPeers(
+  manifest: TorrentUpdateManifest,
+  opts?: { waitMs?: number; onLog?: (line: string) => void },
+): Promise<{ ok: true; localPeers: number; stats: TorrentClientStats | null } | { ok: false; error: string }> {
+  try {
+    const client = await ensureDownloadClient();
+    if (!client) return { ok: false, error: 'torrent engine unavailable' };
+    const outDir = join(TORRENT_CACHE_ROOT(), manifest.version);
+    await mkdir(outDir, { recursive: true });
+    const torrentPath = await writeTorrentFile(outDir, manifest.torrentUrl);
+    const torrentBuf = await readFile(torrentPath);
+    try {
+      if (downloadTorrent?.infoHash) client.remove(downloadTorrent.infoHash, () => {});
+    } catch {
+      // ignore
+    }
+    const torrent = client.add(torrentBuf, {
+      path: outDir,
+      announce: manifest.trackers && manifest.trackers.length > 0 ? manifest.trackers : undefined,
+    });
+    downloadTorrent = torrent;
+    updateRuntimeStatus('downloading', buildTorrentStats(torrent), torrent?.infoHash);
+    const waitMs = Math.max(1500, opts?.waitMs ?? 3500);
+    const startedAt = Date.now();
+    let best: TorrentClientStats | null = null;
+    while (Date.now() - startedAt < waitMs) {
+      const stats = buildTorrentStats(torrent);
+      updateRuntimeStatus('downloading', stats, torrent?.infoHash);
+      if (!best || (stats.numPeers ?? 0) > (best.numPeers ?? 0)) best = stats;
+      await sleep(500);
+    }
+    try {
+      if (torrent?.infoHash) client.remove(torrent.infoHash, () => {});
+    } catch {
+      // ignore
+    }
+    if (torrentRuntimeStatus.mode === 'downloading') updateRuntimeStatus('idle', null);
+    const localPeers = best ? best.peers.filter((p) => p.local).length : 0;
+    opts?.onLog?.(`torrent LAN probe peers=${best?.numPeers ?? 0} local=${localPeers}`);
+    return { ok: true, localPeers, stats: best };
+  } catch (e) {
+    if (torrentRuntimeStatus.mode === 'downloading') updateRuntimeStatus('idle', null);
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function downloadTorrentUpdate(
   manifest: TorrentUpdateManifest,
   opts?: {
@@ -297,6 +420,7 @@ export async function downloadTorrentUpdate(
         done = true;
         clearInterval(progressTimer);
         if (peerTimer) clearInterval(peerTimer);
+        if (torrentRuntimeStatus.mode === 'downloading') updateRuntimeStatus('idle', null);
         resolve(result);
       };
 
@@ -377,6 +501,7 @@ export async function downloadTorrentUpdate(
         announce: manifest.trackers && manifest.trackers.length > 0 ? manifest.trackers : undefined,
       });
       downloadTorrent = torrent;
+      updateRuntimeStatus('downloading', buildTorrentStats(torrent), torrent?.infoHash);
       if (typeof torrent?.maxConns === 'number') torrent.maxConns = 200;
       torrent.on('download', () => {
         lastProgressAt = Date.now();
@@ -387,6 +512,7 @@ export async function downloadTorrentUpdate(
         } catch {
           // ignore
         }
+        if (torrentRuntimeStatus.mode === 'downloading') updateRuntimeStatus('idle', null);
         finish({ ok: false, error: String(err) });
       });
 
@@ -406,44 +532,9 @@ export async function downloadTorrentUpdate(
           lastProgressAt = Date.now();
         }
         opts?.onProgress?.(pct, torrent.numPeers ?? 0);
-        if (opts?.onStats) {
-          const peers: TorrentPeerInfo[] = [];
-          const wires = Array.isArray(torrent?.wires) ? torrent.wires : [];
-          for (const wire of wires) {
-            const address = String((wire as any)?.remoteAddress ?? '').trim();
-            const port = Number((wire as any)?.remotePort ?? 0) || undefined;
-            if (!address) continue;
-            const dl = (wire as any)?.downloadSpeed;
-            const ul = (wire as any)?.uploadSpeed;
-            const downloadSpeed = typeof dl === 'function' ? Number(dl()) : Number(dl ?? 0);
-            const uploadSpeed = typeof ul === 'function' ? Number(ul()) : Number(ul ?? 0);
-            peers.push({
-              address,
-              port,
-              downloadSpeed: Number.isFinite(downloadSpeed) ? downloadSpeed : undefined,
-              uploadSpeed: Number.isFinite(uploadSpeed) ? uploadSpeed : undefined,
-              peerId: (wire as any)?.peerId ? String((wire as any).peerId) : undefined,
-              client: (wire as any)?.client ? String((wire as any).client) : undefined,
-              local: Boolean((wire as any)?.local ?? (wire as any)?.peer?.local) || isPrivateIp(address),
-              amChoking: Boolean((wire as any)?.amChoking),
-              peerChoking: Boolean((wire as any)?.peerChoking),
-              amInterested: Boolean((wire as any)?.amInterested),
-              peerInterested: Boolean((wire as any)?.peerInterested),
-            });
-          }
-          opts.onStats({
-            progressPct: pct,
-            downloadSpeed: Number(torrent.downloadSpeed ?? 0),
-            uploadSpeed: Number(torrent.uploadSpeed ?? 0),
-            numPeers: Number(torrent.numPeers ?? peers.length),
-            numSeeds: Number(torrent.numSeeds ?? 0),
-            timeRemainingMs: Number(torrent.timeRemaining ?? 0),
-            ratio: Number(torrent.ratio ?? 0),
-            downloaded: Number(torrent.downloaded ?? 0),
-            uploaded: Number(torrent.uploaded ?? 0),
-            peers: peers.slice(0, 12),
-          });
-        }
+        const stats = buildTorrentStats(torrent);
+        updateRuntimeStatus('downloading', stats, torrent?.infoHash);
+        if (opts?.onStats) opts.onStats(stats);
 
         const now = Date.now();
         if (!fallbackAttempted && pct >= 99 && now - lastProgressAt > NEAR_COMPLETE_FALLBACK_MS) {
@@ -588,6 +679,12 @@ export async function startTorrentSeeding(): Promise<void> {
       utp: true,
     });
     seedingTorrent = seedingClient.add(torrentBuf, { path: dirname(seed.installerPath) });
+    updateRuntimeStatus('seeding', buildTorrentStats(seedingTorrent), seedingTorrent?.infoHash);
+    if (seedingStatsTimer) clearInterval(seedingStatsTimer);
+    seedingStatsTimer = setInterval(() => {
+      if (!seedingTorrent) return;
+      updateRuntimeStatus('seeding', buildTorrentStats(seedingTorrent), seedingTorrent?.infoHash);
+    }, 1500);
   } catch {
     // ignore seeding errors
   }
@@ -595,6 +692,10 @@ export async function startTorrentSeeding(): Promise<void> {
 
 export async function stopTorrentSeeding(): Promise<void> {
   if (!seedingClient) return;
+  if (seedingStatsTimer) {
+    clearInterval(seedingStatsTimer);
+    seedingStatsTimer = null;
+  }
   await new Promise<void>((resolve) => {
     try {
       if (seedingTorrent?.infoHash) {
@@ -611,6 +712,7 @@ export async function stopTorrentSeeding(): Promise<void> {
     seedingClient = null;
     seedingTorrent = null;
   });
+  if (torrentRuntimeStatus.mode === 'seeding') updateRuntimeStatus('idle', null);
 }
 
 export async function restartTorrentClients(): Promise<void> {
@@ -638,6 +740,7 @@ export async function stopTorrentDownload(): Promise<void> {
     downloadClient = null;
     downloadTorrent = null;
   });
+  if (torrentRuntimeStatus.mode === 'downloading') updateRuntimeStatus('idle', null);
 }
 
 export function buildTorrentManifestUrl(baseUrl: string, torrentUrl: string) {

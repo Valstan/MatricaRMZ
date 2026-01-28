@@ -10,6 +10,7 @@ import {
   downloadTorrentUpdate,
   fetchTorrentManifest,
   fetchTorrentStatus,
+  probeTorrentLanPeers,
   saveTorrentFileForVersion,
   saveTorrentSeedInfo,
   stopTorrentDownload,
@@ -204,6 +205,38 @@ async function pruneLogFile(path: string, maxDays: number) {
 
 function isSetupInstallerName(name: string) {
   return /(setup|installer)/i.test(name);
+}
+
+function isIntegrityError(error?: string) {
+  const msg = String(error ?? '').toLowerCase();
+  return msg.includes('sha256 mismatch') || msg.includes('size mismatch') || msg.includes('ledger');
+}
+
+async function queuePendingWithIntegrityRetry(args: {
+  version: string;
+  installerPath: string;
+  expectedName?: string;
+  retryLabel: string;
+  retryDownload: () => Promise<{ ok: true; installerPath: string } | { ok: false; error: string }>;
+}): Promise<{ ok: true; installerPath: string } | { ok: false; error: string }> {
+  const queued = await queuePendingUpdate({
+    version: args.version,
+    installerPath: args.installerPath,
+    expectedName: args.expectedName,
+  });
+  if (queued.ok) return { ok: true, installerPath: args.installerPath };
+  if (!isIntegrityError(queued.error)) return { ok: false, error: queued.error };
+  await writeUpdaterLog(`integrity failed (${args.retryLabel}): ${queued.error}`);
+  await rm(args.installerPath, { force: true }).catch(() => {});
+  const retry = await args.retryDownload();
+  if (!retry.ok) return { ok: false, error: retry.error };
+  const queuedRetry = await queuePendingUpdate({
+    version: args.version,
+    installerPath: retry.installerPath,
+    expectedName: args.expectedName,
+  });
+  if (!queuedRetry.ok) return { ok: false, error: queuedRetry.error };
+  return { ok: true, installerPath: retry.installerPath };
 }
 
 async function validateInstallerPath(
@@ -635,12 +668,34 @@ export async function ensureTorrentSeedForCurrentVersion(apiBaseUrl: string) {
       const stTorrent = await stat(existing.torrentPath).catch(() => null);
       if (stInstaller?.isFile() && stTorrent?.isFile()) return;
     }
-    const installerPath = await findInstallerForVersion(current);
-    if (!installerPath) return;
-    const st = await stat(installerPath).catch(() => null);
-    if (!st?.isFile() || st.size <= 0) return;
     const manifest = await fetchTorrentManifest(apiBaseUrl).catch(() => null);
     if (!manifest?.version || manifest.version !== current || !manifest.torrentUrl) return;
+    let installerPath = await findInstallerForVersion(current);
+    if (!installerPath) {
+      const fileUrl = `${String(apiBaseUrl).replace(/\/+$/, '')}/updates/file/${encodeURIComponent(manifest.fileName)}`;
+      const outDir = join(getUpdatesRootDir(), current);
+      await mkdir(outDir, { recursive: true });
+      const outPath = join(outDir, manifest.fileName);
+      await writeUpdaterLog(`torrent seed missing installer, downloading ${fileUrl}`);
+      const dl = await downloadWithResume(fileUrl, outPath, {
+        attempts: 2,
+        timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+        backoffMs: 800,
+        maxBackoffMs: 5000,
+        jitterMs: 200,
+      });
+      if (!dl.ok || !dl.filePath) {
+        await writeUpdaterLog(`torrent seed download failed: ${String(dl.error ?? 'unknown')}`);
+        return;
+      }
+      installerPath = dl.filePath;
+    }
+    const st = await stat(installerPath).catch(() => null);
+    if (!st?.isFile() || st.size <= 0) return;
+    if (manifest.size && st.size !== Number(manifest.size)) {
+      await writeUpdaterLog(`torrent seed size mismatch expected=${manifest.size} actual=${st.size}`);
+      return;
+    }
     const torrentPath = await saveTorrentFileForVersion(current, buildTorrentManifestUrl(apiBaseUrl, manifest.torrentUrl));
     if (!torrentPath) return;
     await saveTorrentSeedInfo({ version: current, installerPath, torrentPath });
@@ -936,7 +991,31 @@ async function backgroundTorrentDownload(
   }
   const cachedPath = await cacheInstaller(tdl.installerPath, version);
   await saveTorrentSeedInfo({ version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
-  const queued = await queuePendingUpdate({ version, installerPath: cachedPath, expectedName: manifest.fileName });
+  const queued = await queuePendingWithIntegrityRetry({
+    version,
+    installerPath: cachedPath,
+    expectedName: manifest.fileName,
+    retryLabel: 'torrent',
+    retryDownload: async () => {
+      await cleanupUpdateCache(version);
+      const retry = await downloadTorrentUpdate(manifest, {
+        onProgress: (pct, peers) => {
+          setUpdateState({
+            state: 'downloading',
+            source: 'torrent',
+            version,
+            progress: pct,
+            message: `Скачиваем обновление… Пиры: ${peers}`,
+          });
+        },
+        onLog: (line) => void addUpdateLog(line),
+      });
+      if (!retry.ok) return { ok: false, error: String(retry.error ?? 'torrent download failed') };
+      const retryPath = await cacheInstaller(retry.installerPath, version);
+      await saveTorrentSeedInfo({ version, installerPath: retryPath, torrentPath: retry.torrentPath });
+      return { ok: true, installerPath: retryPath };
+    },
+  });
   if (!queued.ok) {
     setUpdateState({ state: 'error', source: 'torrent', version, message: queued.error });
     return { ok: false, error: queued.error };
@@ -976,7 +1055,19 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     }
     const cachedPath = await cacheInstaller(gdl.filePath, version);
     await ensureTorrentSeedArtifacts(torrentManifest ?? null, cachedPath, version);
-    const queued = await queuePendingUpdate({ version, installerPath: cachedPath });
+    const queued = await queuePendingWithIntegrityRetry({
+      version,
+      installerPath: cachedPath,
+      retryLabel: 'github',
+      retryDownload: async () => {
+        await cleanupUpdateCache(version);
+        const retry = await downloadGithubUpdate(gh.downloadUrl, version);
+        if (!retry.ok || !retry.filePath) return { ok: false, error: retry.error ?? 'download failed' };
+        const retryPath = await cacheInstaller(retry.filePath, version);
+        await ensureTorrentSeedArtifacts(torrentManifest ?? null, retryPath, version);
+        return { ok: true, installerPath: retryPath };
+      },
+    });
     if (!queued.ok) {
       setUpdateState({ state: 'error', source: 'github', version, message: queued.error });
       return { ok: false, error: queued.error };
@@ -1011,7 +1102,19 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     }
     const cachedPath = await cacheInstaller(ydl.filePath, version);
     await ensureTorrentSeedArtifacts(torrentManifest ?? null, cachedPath, version);
-    const queued = await queuePendingUpdate({ version, installerPath: cachedPath });
+    const queued = await queuePendingWithIntegrityRetry({
+      version,
+      installerPath: cachedPath,
+      retryLabel: 'yandex',
+      retryDownload: async () => {
+        await cleanupUpdateCache(version);
+        const retry = await downloadYandexUpdate(y);
+        if (!retry.ok || !retry.filePath) return { ok: false, error: retry.error ?? 'download failed' };
+        const retryPath = await cacheInstaller(retry.filePath, version);
+        await ensureTorrentSeedArtifacts(torrentManifest ?? null, retryPath, version);
+        return { ok: true, installerPath: retryPath };
+      },
+    });
     if (!queued.ok) {
       setUpdateState({ state: 'error', source: 'yandex', version, message: queued.error });
       return { ok: false, error: queued.error };
@@ -1075,7 +1178,17 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         return;
       }
       const prepared = manifest ? { ...manifest, torrentUrl: buildTorrentManifestUrl(baseUrl, manifest.torrentUrl) } : null;
+      let preferTorrent = false;
       if (prepared && targetVersion) {
+        const probe = await probeTorrentLanPeers(prepared, { onLog: (line) => void addUpdateLog(line) });
+        if (probe.ok && probe.localPeers > 0) {
+          preferTorrent = true;
+          await addUpdateLog(`LAN‑пиры найдены: ${probe.localPeers}. Используем торрент.`);
+        } else {
+          await addUpdateLog('LAN‑пиры не найдены. Пробуем GitHub/Yandex.');
+        }
+      }
+      if (preferTorrent && prepared && targetVersion) {
         const tdl = await backgroundTorrentDownload(prepared, targetVersion);
         if (tdl.ok) {
           await releaseUpdateLock();
@@ -1105,6 +1218,18 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         showUpdateWindow(null);
         await installNow({ installerPath: y.installerPath, version: y.version });
         return;
+      }
+
+      if (!preferTorrent && prepared && targetVersion) {
+        const tdl = await backgroundTorrentDownload(prepared, targetVersion);
+        if (tdl.ok) {
+          await releaseUpdateLock();
+          lockReleased = true;
+          backgroundInFlight = false;
+          showUpdateWindow(null);
+          await installNow({ installerPath: tdl.installerPath, version: tdl.version });
+          return;
+        }
       }
 
       setUpdateState({ state: 'idle' });
@@ -1158,9 +1283,22 @@ export async function runAutoUpdateFlow(
     await stageUpdate('Проверяем торрент-обновления…', 10);
     const torrentCheck = await checkTorrentForUpdates();
     let torrentManifest: TorrentUpdateManifest | null = null;
+    let preferTorrent = false;
     if (torrentCheck.ok && torrentCheck.updateAvailable && torrentCheck.manifest) {
       torrentManifest = torrentCheck.manifest;
-      await stageUpdate(`Найдена новая версия (Torrent). Подключаемся…`, 5, torrentCheck.version);
+      await stageUpdate(`Проверяем LAN‑пиры для торрента…`, 12, torrentCheck.version);
+      const probe = await probeTorrentLanPeers(torrentManifest, { onLog: (line) => void addUpdateLog(line) });
+      if (probe.ok && probe.localPeers > 0) {
+        preferTorrent = true;
+        await addUpdateLog(`LAN‑пиры найдены: ${probe.localPeers}. Используем торрент.`);
+      } else {
+        await addUpdateLog('LAN‑пиры не найдены. Пробуем GitHub/Yandex.');
+      }
+    }
+
+    const runTorrentDownload = async (label: string) => {
+      if (!torrentManifest) return false;
+      await stageUpdate(label, 5, torrentCheck.version ?? torrentManifest.version);
       await stopTorrentSeeding().catch(() => {});
       await stopTorrentDownload().catch(() => {});
       await cleanupUpdateCache(torrentCheck.version ?? torrentManifest.version);
@@ -1180,8 +1318,35 @@ export async function runAutoUpdateFlow(
           const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
           lastDownloadedInstallerPath = cachedPath;
           await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
-          await installNow({ installerPath: cachedPath, version: torrentCheck.version ?? torrentManifest.version });
-          return { action: 'update_started' };
+          const queued = await queuePendingWithIntegrityRetry({
+            version: torrentCheck.version ?? torrentManifest.version,
+            installerPath: cachedPath,
+            expectedName: torrentManifest.fileName,
+            retryLabel: 'torrent',
+            retryDownload: async () => {
+              await cleanupUpdateCache(torrentCheck.version ?? torrentManifest.version);
+              const retry = await downloadTorrentUpdate(torrentManifest, {
+                onProgress: (pct, peers) => {
+                  void setUpdateUi(`Скачиваем (Torrent)… Пиры: ${peers}`, pct, torrentCheck.version);
+                },
+                onStats: (stats) => {
+                  void setTorrentDebug(stats);
+                },
+                onLog: (line) => void addUpdateLog(line),
+              });
+              if (!retry.ok) return { ok: false, error: String(retry.error ?? 'torrent download failed') };
+              const retryPath = await cacheInstaller(retry.installerPath, torrentCheck.version);
+              await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: retryPath, torrentPath: retry.torrentPath });
+              return { ok: true, installerPath: retryPath };
+            },
+          });
+          if (!queued.ok) {
+            await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, torrentCheck.version);
+            closeUpdateWindowSoon(3500);
+            return false;
+          }
+          await installNow({ installerPath: queued.installerPath, version: torrentCheck.version ?? torrentManifest.version });
+          return true;
         }
         lastError = String(tdl.error ?? 'torrent download failed');
         if (isSizeMismatchError(lastError)) {
@@ -1199,6 +1364,11 @@ export async function runAutoUpdateFlow(
         }
         break;
       }
+      return false;
+    };
+
+    if (preferTorrent && (await runTorrentDownload('Найдена новая версия (Torrent). Подключаемся…'))) {
+      return { action: 'update_started' };
     }
 
     await stageUpdate('Проверяем обновления через GitHub…', 20);
@@ -1217,7 +1387,25 @@ export async function runAutoUpdateFlow(
       const cachedPath = await cacheInstaller(download.filePath, check.version);
       lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(null, cachedPath, check.version);
-      await installNow({ installerPath: cachedPath, version: check.version });
+      const queued = await queuePendingWithIntegrityRetry({
+        version: check.version ?? 'latest',
+        installerPath: cachedPath,
+        retryLabel: 'github',
+        retryDownload: async () => {
+          await cleanupUpdateCache(check.version ?? 'latest');
+          const retry = await downloadUpdate(check.version);
+          if (!retry.ok || !retry.filePath) return { ok: false, error: retry.error ?? 'download failed' };
+          const retryPath = await cacheInstaller(retry.filePath, check.version);
+          await ensureTorrentSeedArtifacts(null, retryPath, check.version);
+          return { ok: true, installerPath: retryPath };
+        },
+      });
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, check.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: queued.error };
+      }
+      await installNow({ installerPath: queued.installerPath, version: check.version });
       return { action: 'update_started' };
     }
 
@@ -1240,7 +1428,25 @@ export async function runAutoUpdateFlow(
       const cachedPath = await cacheInstaller(gdl.filePath, gh.version);
       lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(null, cachedPath, gh.version);
-      await installNow({ installerPath: cachedPath, version: gh.version });
+      const queued = await queuePendingWithIntegrityRetry({
+        version: gh.version ?? 'latest',
+        installerPath: cachedPath,
+        retryLabel: 'github',
+        retryDownload: async () => {
+          await cleanupUpdateCache(gh.version ?? 'latest');
+          const retry = await downloadGithubUpdate(gh.downloadUrl, gh.version);
+          if (!retry.ok || !retry.filePath) return { ok: false, error: retry.error ?? 'download failed' };
+          const retryPath = await cacheInstaller(retry.filePath, gh.version);
+          await ensureTorrentSeedArtifacts(null, retryPath, gh.version);
+          return { ok: true, installerPath: retryPath };
+        },
+      });
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, gh.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: queued.error };
+      }
+      await installNow({ installerPath: queued.installerPath, version: gh.version });
       return { action: 'update_started' };
     }
 
@@ -1267,7 +1473,33 @@ export async function runAutoUpdateFlow(
       const cachedPath = await cacheInstaller(ydl.filePath, fallback.version);
       lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(null, cachedPath, fallback.version);
-      await installNow({ installerPath: cachedPath, version: fallback.version });
+      const queued = await queuePendingWithIntegrityRetry({
+        version: fallback.version ?? 'latest',
+        installerPath: cachedPath,
+        retryLabel: 'yandex',
+        retryDownload: async () => {
+          await cleanupUpdateCache(fallback.version ?? 'latest');
+          const retry = await downloadYandexUpdate(fallback, {
+            onProgress: (pct) => {
+              void setUpdateUi(`Скачиваем (Yandex)…`, pct, fallback.version);
+            },
+          });
+          if (!retry.ok || !retry.filePath) return { ok: false, error: retry.error ?? 'download failed' };
+          const retryPath = await cacheInstaller(retry.filePath, fallback.version);
+          await ensureTorrentSeedArtifacts(null, retryPath, fallback.version);
+          return { ok: true, installerPath: retryPath };
+        },
+      });
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, fallback.version);
+        closeUpdateWindowSoon(3500);
+        return { action: 'error', error: queued.error };
+      }
+      await installNow({ installerPath: queued.installerPath, version: fallback.version });
+      return { action: 'update_started' };
+    }
+
+    if (!preferTorrent && (await runTorrentDownload('LAN‑пиров нет. Пробуем торрент…'))) {
       return { action: 'update_started' };
     }
     await setTorrentDebug(null);

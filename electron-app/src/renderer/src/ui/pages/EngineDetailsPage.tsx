@@ -507,6 +507,7 @@ export function EngineDetailsPage(props: {
           engineBrandId={engineBrandId || undefined}
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}
+          defaultCollapsed
         />
       )}
 

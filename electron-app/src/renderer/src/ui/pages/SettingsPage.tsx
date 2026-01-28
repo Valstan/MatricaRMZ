@@ -29,6 +29,8 @@ export function SettingsPage(props: {
   );
   const [e2eExport, setE2eExport] = useState<string>('');
   const [e2eLoading, setE2eLoading] = useState<boolean>(false);
+  const [torrentStatus, setTorrentStatus] = useState<any | null>(null);
+  const [torrentLoading, setTorrentLoading] = useState<boolean>(false);
 
   function formatError(e: unknown): string {
     if (e == null) return 'unknown error';
@@ -112,10 +114,32 @@ export function SettingsPage(props: {
     }
   }
 
+  async function refreshTorrentStatus() {
+    try {
+      setTorrentLoading(true);
+      const r = await window.matrica.update.torrentStatus().catch(() => null);
+      if (r && (r as any).ok) {
+        setTorrentStatus((r as any).status ?? null);
+      } else {
+        setTorrentStatus(null);
+      }
+    } catch {
+      setTorrentStatus(null);
+    } finally {
+      setTorrentLoading(false);
+    }
+  }
+
   useEffect(() => {
     void loadSettings();
     void refreshBackups();
     void refreshE2eStatus();
+    void refreshTorrentStatus();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => void refreshTorrentStatus(), 5000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -332,6 +356,39 @@ export function SettingsPage(props: {
             />
           </div>
         )}
+      </div>
+
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Обновления</h3>
+        <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
+          Статистика раздачи обновлений по торрента. Помогает понять, сидирует ли этот клиент и есть ли пиры.
+        </p>
+        {torrentStatus ? (
+          <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+            <div className="muted">
+              Статус: {torrentStatus.mode === 'seeding' ? 'раздает' : torrentStatus.mode === 'downloading' ? 'скачивает' : 'не активен'}
+            </div>
+            <div className="muted">
+              Пиры: {torrentStatus.stats?.numPeers ?? 0} • LAN‑пиры: {torrentStatus.localPeers ?? 0}
+            </div>
+            <div className="muted">
+              Скорость: ↓ {Math.round(Number(torrentStatus.stats?.downloadSpeed ?? 0) / 1024)} KB/s • ↑{' '}
+              {Math.round(Number(torrentStatus.stats?.uploadSpeed ?? 0) / 1024)} KB/s
+            </div>
+            <div className="muted">
+              Обновлено: {torrentStatus.updatedAt ? new Date(torrentStatus.updatedAt).toLocaleString() : '—'}
+            </div>
+          </div>
+        ) : (
+          <div className="muted" style={{ marginBottom: 12 }}>
+            Статус торрента недоступен.
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button variant="ghost" disabled={torrentLoading} onClick={() => void refreshTorrentStatus()}>
+            Обновить статус
+          </Button>
+        </div>
       </div>
 
       <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
