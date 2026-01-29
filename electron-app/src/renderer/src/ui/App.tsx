@@ -34,6 +34,7 @@ import { Input } from './components/Input.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
+import { theme } from './theme.js';
 
 export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
@@ -90,6 +91,9 @@ export function App() {
       .then((s) => {
         setAuthStatus(s);
         prevUserId.current = s.loggedIn ? s.user?.id ?? null : null;
+        if (s.loggedIn) {
+          void window.matrica.auth.sync().then((next) => setAuthStatus(next)).catch(() => {});
+        }
       })
       .catch(() => {})
       .finally(() => setAuthReady(true));
@@ -1104,6 +1108,7 @@ export function App() {
               canExport={canChatExport}
               canAdminViewAll={canChatAdminView}
               viewMode={viewMode}
+              chatSide="left"
               onHide={() => setChatOpen(false)}
               onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
@@ -1505,6 +1510,7 @@ export function App() {
               canExport={canChatExport}
               canAdminViewAll={canChatAdminView}
               viewMode={viewMode}
+              chatSide="right"
               onHide={() => setChatOpen(false)}
               onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {

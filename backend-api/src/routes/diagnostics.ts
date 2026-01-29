@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
+import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 
 export const diagnosticsRouter = Router();
 
@@ -47,6 +48,15 @@ diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.S
       entityTypes: parsed.data.entityTypes ?? {},
     });
     return res.json({ ok: true, snapshot });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/sync-schema', requirePermission(PermissionCode.SyncUse), async (_req, res) => {
+  try {
+    const schema = await getSyncSchemaSnapshot();
+    return res.json({ ok: true, schema });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

@@ -4,6 +4,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
 
 import { logMessage, logMessageGetEnabled, logMessageGetMode, logMessageSetEnabled, logMessageSetMode } from '../../services/logService.js';
+import { authSettingsUpdate } from '../../services/authService.js';
 
 export function registerLoggingIpc(ctx: IpcContext) {
   ipcMain.handle('log:send', async (_e, payload: { level: 'debug' | 'info' | 'warn' | 'error'; message: string }) => {
@@ -28,6 +29,7 @@ export function registerLoggingIpc(ctx: IpcContext) {
     if (!gate.ok) return gate;
 
     await logMessageSetEnabled(ctx.sysDb, enabled, ctx.mgr.getApiBaseUrl());
+    await authSettingsUpdate(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), loggingEnabled: enabled }).catch(() => {});
     return { ok: true };
   });
 
@@ -37,6 +39,7 @@ export function registerLoggingIpc(ctx: IpcContext) {
 
     const next = mode === 'dev' ? 'dev' : 'prod';
     await logMessageSetMode(ctx.sysDb, next);
+    await authSettingsUpdate(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), loggingMode: next }).catch(() => {});
     return { ok: true, mode: next };
   });
 }

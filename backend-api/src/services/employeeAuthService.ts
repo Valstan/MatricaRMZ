@@ -14,6 +14,8 @@ const AUTH_CODES = {
   accessEnabled: 'access_enabled',
   fullName: 'full_name',
   chatDisplayName: 'chat_display_name',
+  loggingEnabled: 'logging_enabled',
+  loggingMode: 'logging_mode',
 } as const;
 
 function nowMs() {
@@ -306,6 +308,8 @@ export async function ensureEmployeeAuthDefs() {
   await ensure(AUTH_CODES.systemRole, 'Системная роль', 'text');
   await ensure(AUTH_CODES.accessEnabled, 'Доступ разрешен', 'boolean');
   await ensure(AUTH_CODES.chatDisplayName, 'Имя в чате', 'text');
+  await ensure(AUTH_CODES.loggingEnabled, 'Логи включены (сервер)', 'boolean');
+  await ensure(AUTH_CODES.loggingMode, 'Режим логирования (сервер)', 'text');
 
   return { ok: true as const, employeeTypeId, defs: byCode };
 }
@@ -348,6 +352,57 @@ export async function getEmployeeChatDisplayNameDefId() {
     .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), eq(attributeDefs.code, AUTH_CODES.chatDisplayName), isNull(attributeDefs.deletedAt)))
     .limit(1);
   return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function getEmployeeLoggingDefIds() {
+  await ensureEmployeeAuthDefs().catch(() => null);
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return null;
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const byCode: Record<string, string> = {};
+  for (const d of defs as any[]) byCode[String(d.code)] = String(d.id);
+  const loggingEnabledDefId = byCode[AUTH_CODES.loggingEnabled];
+  const loggingModeDefId = byCode[AUTH_CODES.loggingMode];
+  if (!loggingEnabledDefId || !loggingModeDefId) return null;
+  return { loggingEnabledDefId, loggingModeDefId };
+}
+
+export async function getEmployeeLoggingSettings(employeeId: string) {
+  const defs = await getEmployeeLoggingDefIds();
+  if (!defs) return { loggingEnabled: false, loggingMode: 'prod' as const };
+  const vals = await db
+    .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, employeeId as any), inArray(attributeValues.attributeDefId, [defs.loggingEnabledDefId, defs.loggingModeDefId] as any), isNull(attributeValues.deletedAt)))
+    .limit(10);
+  const byDefId: Record<string, unknown> = {};
+  for (const v of vals as any[]) {
+    byDefId[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
+  }
+  const loggingEnabled = byDefId[defs.loggingEnabledDefId] === true;
+  const rawMode = String(byDefId[defs.loggingModeDefId] ?? '').trim().toLowerCase();
+  const loggingMode = rawMode === 'dev' ? 'dev' : 'prod';
+  return { loggingEnabled, loggingMode };
+}
+
+export async function setEmployeeLoggingSettings(
+  employeeId: string,
+  args: { loggingEnabled?: boolean | null; loggingMode?: 'dev' | 'prod' | null },
+) {
+  const defs = await getEmployeeLoggingDefIds();
+  if (!defs) return { ok: false as const, error: 'logging defs not found' };
+  if (args.loggingEnabled !== undefined) {
+    await upsertAttrValue(employeeId, defs.loggingEnabledDefId, args.loggingEnabled === true);
+  }
+  if (args.loggingMode !== undefined) {
+    const mode = args.loggingMode === 'dev' ? 'dev' : 'prod';
+    await upsertAttrValue(employeeId, defs.loggingModeDefId, mode);
+  }
+  return { ok: true as const };
 }
 
 async function getEmployeeAttrDefId(code: string) {

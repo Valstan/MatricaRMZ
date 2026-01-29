@@ -348,7 +348,7 @@
         "performed_by": null,
         "meta_json": null,
         "deleted_at": null,
-        "updated_at": 1769602308708
+        "updated_at": 1769677660092
       },
       "b6868c5b-0667-437a-8b23-dc3a282fa4cd": {
         "id": "b6868c5b-0667-437a-8b23-dc3a282fa4cd",
@@ -547,6 +547,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769614909090
+      },
+      "8995afb8-f8c5-4d1a-a4e8-823ea8b35434": {
+        "id": "8995afb8-f8c5-4d1a-a4e8-823ea8b35434",
+        "version": "1.0.9",
+        "notes": "Список сотрудников: русские названия ролей и запрет доступа. Исправлена сборка backend при проверке дубликатов.",
+        "sha256": "3e5f32cfa9cd44a96c45b77f9b393fc47037b7757bea5679eb87e00dc1cfb71f",
+        "file_name": "MatricaRMZ-Setup-1.0.9.exe",
+        "size": 93903214,
+        "payload_json": null,
+        "created_at": 1769638477680,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769638477680
       }
     },
     "notes": {

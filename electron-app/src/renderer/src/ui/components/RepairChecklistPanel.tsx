@@ -62,6 +62,25 @@ function normalizeDefectRows(rows: Record<string, string | boolean | number>[]) 
   return { rows: next, changed };
 }
 
+function normalizeDefectAnswers(
+  template: RepairChecklistTemplate | null,
+  answers: RepairChecklistAnswers,
+): { next: RepairChecklistAnswers; changed: boolean } {
+  if (!template) return { next: answers, changed: false };
+  const tableItem = template.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
+  if (!tableItem) return { next: answers, changed: false };
+  const current = (answers as any)[tableItem.id];
+  if (!current || current.kind !== 'table') return { next: answers, changed: false };
+  const rows = Array.isArray(current.rows) ? current.rows : [];
+  if (rows.length === 0) return { next: answers, changed: false };
+  const normalized = normalizeDefectRows(rows as any);
+  if (!normalized.changed) return { next: answers, changed: false };
+  return {
+    next: { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers,
+    changed: true,
+  };
+}
+
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -157,9 +176,15 @@ export function RepairChecklistPanel(props: {
     setPayload(r.payload ?? null);
 
     const t = (r.templates ?? []).find((x) => x.id === preferred) ?? (r.templates?.[0] ?? null);
-    if (r.payload?.answers) setAnswers(r.payload.answers);
-    else if (t) setAnswers(emptyAnswersForTemplate(t));
-    else setAnswers({});
+    if (r.payload?.answers) {
+      const base = r.payload.answers;
+      const normalized = props.stage === 'defect' ? normalizeDefectAnswers(t ?? null, base) : { next: base, changed: false };
+      setAnswers(normalized.next);
+    } else if (t) {
+      setAnswers(emptyAnswersForTemplate(t));
+    } else {
+      setAnswers({});
+    }
 
     setStatus('');
   }
@@ -385,32 +410,21 @@ export function RepairChecklistPanel(props: {
     })();
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
-  useEffect(() => {
-    if (!activeTemplate) return;
-    if (props.stage !== 'defect') return;
-    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
-    if (!tableItem) return;
-    const current = (answers as any)[tableItem.id];
-    if (!current || current.kind !== 'table') return;
-    const rows = Array.isArray(current.rows) ? current.rows : [];
-    if (rows.length === 0) return;
-    const normalized = normalizeDefectRows(rows as any);
-    if (!normalized.changed) return;
-    const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
-    setAnswers(next);
-    if (props.canEdit) void save(next);
-  }, [activeTemplate?.id, props.stage, answers, props.canEdit]);
+  // Note: normalization happens on load/save to avoid focus loss on each keystroke.
 
   async function save(nextAnswers: RepairChecklistAnswers) {
     if (!activeTemplate) return;
     if (!props.canEdit) return;
     setStatus('Сохранение...');
+    const normalized =
+      props.stage === 'defect' ? normalizeDefectAnswers(activeTemplate, nextAnswers) : { next: nextAnswers, changed: false };
+    if (normalized.changed) setAnswers(normalized.next);
     const r = await window.matrica.checklists.engineSave({
       engineId: props.engineId,
       stage: props.stage,
       templateId: activeTemplate.id,
       operationId,
-      answers: nextAnswers,
+      answers: normalized.next,
     });
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);

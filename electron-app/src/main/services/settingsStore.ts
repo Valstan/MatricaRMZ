@@ -12,6 +12,8 @@ export const SettingsKey = {
   LastSyncAt: 'lastSyncAt',
   LastAppliedAt: 'lastAppliedAt',
   DiagnosticsLastSentAt: 'diagnostics.lastSentAt',
+  DiagnosticsSchemaLastFetchedAt: 'diagnostics.schemaLastFetchedAt',
+  DiagnosticsSchemaJson: 'diagnostics.schemaJson',
 
   // Auth (encrypted JSON payload)
   AuthSession: 'auth.session',

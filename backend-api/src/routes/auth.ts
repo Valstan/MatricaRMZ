@@ -20,10 +20,12 @@ import {
   getEmployeeTypeId,
   getSuperadminUserId,
   getEmployeeProfileById,
+  getEmployeeLoggingSettings,
   isLoginTaken,
   isSuperadminLogin,
   normalizeRole,
   setEmployeeAuth,
+  setEmployeeLoggingSettings,
   setEmployeeProfile,
 } from '../services/employeeAuthService.js';
 import { SyncTableName } from '@matricarmz/shared';
@@ -235,6 +237,42 @@ authRouter.get('/profile', requireAuth, async (req, res) => {
     return res.json({ ok: true, profile });
   } catch (e) {
     logError('auth profile get failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const settings = await getEmployeeLoggingSettings(actor.id);
+    return res.json({ ok: true, settings });
+  } catch (e) {
+    logError('auth settings get failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const schema = z.object({
+      loggingEnabled: z.boolean().optional().nullable(),
+      loggingMode: z.enum(['dev', 'prod']).optional().nullable(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const r = await setEmployeeLoggingSettings(actor.id, {
+      loggingEnabled: parsed.data.loggingEnabled ?? undefined,
+      loggingMode: parsed.data.loggingMode ?? undefined,
+    });
+    if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+    const settings = await getEmployeeLoggingSettings(actor.id);
+    return res.json({ ok: true, settings });
+  } catch (e) {
+    logError('auth settings update failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

@@ -330,6 +330,62 @@ export async function authProfileUpdate(
     return { ok: false, error: String(e) };
   }
 }
+
+export async function authSettingsGet(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string },
+): Promise<{ ok: true; settings: { loggingEnabled: boolean; loggingMode: 'dev' | 'prod' } } | { ok: false; error: string }> {
+  try {
+    const session = await getSession(db).catch(() => null);
+    if (!session?.accessToken) return { ok: false, error: 'missing session' };
+    const r = await net.fetch(`${args.apiBaseUrl}/auth/settings`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `settings HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !json?.settings) return { ok: false, error: json?.error ?? 'bad settings response' };
+    const loggingEnabled = json.settings.loggingEnabled === true;
+    const rawMode = String(json.settings.loggingMode ?? '').trim().toLowerCase();
+    const loggingMode = rawMode === 'dev' ? 'dev' : 'prod';
+    return { ok: true, settings: { loggingEnabled, loggingMode } };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function authSettingsUpdate(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string; loggingEnabled?: boolean; loggingMode?: 'dev' | 'prod' },
+): Promise<{ ok: true; settings: { loggingEnabled: boolean; loggingMode: 'dev' | 'prod' } } | { ok: false; error: string }> {
+  try {
+    const session = await getSession(db).catch(() => null);
+    if (!session?.accessToken) return { ok: false, error: 'missing session' };
+    const r = await net.fetch(`${args.apiBaseUrl}/auth/settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({
+        ...(args.loggingEnabled !== undefined ? { loggingEnabled: args.loggingEnabled } : {}),
+        ...(args.loggingMode !== undefined ? { loggingMode: args.loggingMode } : {}),
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `settings HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !json?.settings) return { ok: false, error: json?.error ?? 'bad settings response' };
+    const loggingEnabled = json.settings.loggingEnabled === true;
+    const rawMode = String(json.settings.loggingMode ?? '').trim().toLowerCase();
+    const loggingMode = rawMode === 'dev' ? 'dev' : 'prod';
+    return { ok: true, settings: { loggingEnabled, loggingMode } };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
 export async function presenceMe(
   db: BetterSQLite3Database,
   args: { apiBaseUrl: string },

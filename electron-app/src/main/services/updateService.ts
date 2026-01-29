@@ -2087,6 +2087,36 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     { delayMs: 10_000, label: 'retry-3' },
   ];
 
+  const trySpawn = async (label: string, cmd: string, args: string[]) => {
+    try {
+      await writeUpdaterLog(`installer launch strategy=${label}`);
+      const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+      child.unref();
+      return await new Promise<boolean>((resolve) => {
+        let done = false;
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
+          resolve(ok);
+        };
+        child.once('error', (err) => {
+          void writeUpdaterLog(`installer launch error (${label}): ${String(err)}`);
+          finish(false);
+        });
+        setTimeout(() => finish(true), 200);
+      });
+    } catch (e) {
+      await writeUpdaterLog(`installer launch exception (${label}): ${String(e)}`);
+      return false;
+    }
+  };
+
+  const tryPowerShell = async () => {
+    const escaped = installerPath.replace(/"/g, '`"');
+    const cmd = `Start-Process -FilePath "${escaped}" -Verb RunAs`;
+    return await trySpawn('powershell-start', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]);
+  };
+
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i];
     await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
@@ -2103,6 +2133,16 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
       const msg = String(e);
       await writeUpdaterLog(`installer launch exception (shell-open): ${msg}`);
       if (!msg.toLowerCase().includes('ebusy')) return false;
+    }
+    if (process.platform === 'win32') {
+      if (await trySpawn('cmd-start', 'cmd.exe', ['/c', 'start', '', installerPath])) {
+        await writeUpdaterLog(`installer launched via cmd-start (${attempt.label})`);
+        return true;
+      }
+      if (await tryPowerShell()) {
+        await writeUpdaterLog(`installer launched via powershell-start (${attempt.label})`);
+        return true;
+      }
     }
     await writeUpdaterLog(`installer launch attempt ${attempt.label} failed, retrying`);
   }

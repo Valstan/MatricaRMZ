@@ -7,6 +7,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
+import { getSqliteHandle } from '../database/db.js';
 import {
   attributeDefs,
   attributeValues,
@@ -22,7 +23,7 @@ import {
 } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
-import { SettingsKey, settingsGetNumber, settingsSetNumber } from './settingsStore.js';
+import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { fetchWithRetry } from './netFetch.js';
 import { getKeyRing, keyRingToBuffers } from './e2eKeyService.js';
@@ -48,6 +49,7 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
 const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
 const LEDGER_BLOCKS_PAGE_SIZE = 200;
 const LEDGER_E2E_ENV = 'MATRICA_LEDGER_E2E';
+const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
 
 function nowMs() {
   return Date.now();
@@ -60,6 +62,251 @@ function logSync(message: string) {
     appendFileSync(join(dir, 'matricarmz.log'), `[${new Date().toISOString()}] sync ${message}\n`);
   } catch {
     // ignore
+  }
+}
+
+type SyncSchemaColumn = {
+  name: string;
+  notNull: boolean;
+};
+
+type SyncSchemaForeignKey = {
+  column: string;
+  refTable: string;
+  refColumn: string;
+};
+
+type SyncSchemaTable = {
+  columns: SyncSchemaColumn[];
+  foreignKeys: SyncSchemaForeignKey[];
+  uniqueConstraints?: Array<{ columns: string[]; isPrimary?: boolean }>;
+};
+
+type SyncSchemaSnapshot = {
+  generatedAt: number;
+  tables: Record<string, SyncSchemaTable>;
+};
+
+function quoteIdent(name: string) {
+  return `"${String(name).replace(/"/g, '""')}"`;
+}
+
+async function loadCachedSyncSchema(db: BetterSQLite3Database): Promise<SyncSchemaSnapshot | null> {
+  const raw = await settingsGetString(db, SettingsKey.DiagnosticsSchemaJson).catch(() => null);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as SyncSchemaSnapshot;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed.tables || typeof parsed.tables !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSyncSchemaSnapshot(db: BetterSQLite3Database, apiBaseUrl: string): Promise<SyncSchemaSnapshot | null> {
+  const lastFetched = await settingsGetNumber(db, SettingsKey.DiagnosticsSchemaLastFetchedAt, 0);
+  const cached = await loadCachedSyncSchema(db);
+  const now = nowMs();
+  if (cached && now - lastFetched < SYNC_SCHEMA_CACHE_TTL_MS) return cached;
+  const url = `${apiBaseUrl}/diagnostics/sync-schema`;
+  const res = await fetchAuthed(db, apiBaseUrl, url, { method: 'GET' }, { attempts: 2, timeoutMs: 15_000, label: 'pull' });
+  if (!res.ok) {
+    const body = await safeBodyText(res);
+    logSync(`sync schema fetch failed status=${res.status} body=${body}`);
+    return cached ?? null;
+  }
+  try {
+    const json = (await res.json()) as { ok: boolean; schema?: SyncSchemaSnapshot };
+    if (!json?.schema || typeof json.schema !== 'object') return cached ?? null;
+    await settingsSetString(db, SettingsKey.DiagnosticsSchemaJson, JSON.stringify(json.schema));
+    await settingsSetNumber(db, SettingsKey.DiagnosticsSchemaLastFetchedAt, now);
+    return json.schema;
+  } catch (e) {
+    logSync(`sync schema parse failed err=${formatError(e)}`);
+    return cached ?? null;
+  }
+}
+
+function getLocalTableInfo(sqlite: any, table: string) {
+  return sqlite.prepare(`PRAGMA table_info(${quoteIdent(table)})`).all() as Array<{
+    name: string;
+    notnull: number;
+    dflt_value: string | null;
+  }>;
+}
+
+function getLocalForeignKeys(sqlite: any, table: string) {
+  return sqlite.prepare(`PRAGMA foreign_key_list(${quoteIdent(table)})`).all() as Array<{
+    table: string;
+    from: string;
+    to: string;
+  }>;
+}
+
+function getLocalUniqueConstraints(sqlite: any, table: string) {
+  const indexes = sqlite.prepare(`PRAGMA index_list(${quoteIdent(table)})`).all() as Array<{
+    name: string;
+    unique: number;
+    origin: string;
+  }>;
+  const uniques = indexes.filter((idx) => Number(idx.unique) === 1 && idx.origin !== 'pk');
+  const result: Array<{ columns: string[]; isPrimary: boolean }> = [];
+  for (const idx of uniques) {
+    const cols = sqlite.prepare(`PRAGMA index_info(${quoteIdent(idx.name)})`).all() as Array<{ name: string }>;
+    const names = cols.map((c) => String(c.name)).filter(Boolean);
+    if (names.length > 0) result.push({ columns: names, isPrimary: false });
+  }
+  return result;
+}
+
+function pickSurvivor(rows: Array<{ id: string; updated_at: number | null; deleted_at: number | null }>) {
+  return rows
+    .slice()
+    .sort((a, b) => {
+      const aAlive = a.deleted_at == null ? 1 : 0;
+      const bAlive = b.deleted_at == null ? 1 : 0;
+      if (aAlive !== bAlive) return bAlive - aAlive;
+      const aUpdated = Number(a.updated_at ?? 0);
+      const bUpdated = Number(b.updated_at ?? 0);
+      return bUpdated - aUpdated;
+    })[0];
+}
+
+async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: SyncSchemaSnapshot | null) {
+  const sqlite = getSqliteHandle();
+  if (!sqlite) return;
+  const tables = Object.values(SyncTableName);
+  const localInfoByTable = new Map<string, ReturnType<typeof getLocalTableInfo>>();
+  for (const table of tables) {
+    localInfoByTable.set(table, getLocalTableInfo(sqlite, table));
+  }
+  const reverseFks = new Map<string, Array<{ table: string; column: string }>>();
+  if (serverSchema?.tables) {
+    for (const [table, info] of Object.entries(serverSchema.tables)) {
+      for (const fk of info.foreignKeys ?? []) {
+        if (!fk?.refTable || !fk?.column) continue;
+        const arr = reverseFks.get(fk.refTable) ?? [];
+        arr.push({ table, column: fk.column });
+        reverseFks.set(fk.refTable, arr);
+      }
+    }
+  } else {
+    for (const table of tables) {
+      const fkList = getLocalForeignKeys(sqlite, table);
+      for (const fk of fkList) {
+        const arr = reverseFks.get(fk.table) ?? [];
+        arr.push({ table, column: fk.from });
+        reverseFks.set(fk.table, arr);
+      }
+    }
+  }
+  for (const table of tables) {
+    const pragma = localInfoByTable.get(table) ?? [];
+    if (!pragma || pragma.length === 0) continue;
+    const localByName = new Map(pragma.map((c) => [c.name, c]));
+    const serverCols = serverSchema?.tables?.[table]?.columns ?? null;
+    const requiredCols =
+      serverCols && serverCols.length > 0
+        ? serverCols.filter((c) => c.notNull && localByName.has(c.name)).map((c) => c.name)
+        : pragma.filter((c) => Number(c.notnull) === 1).map((c) => c.name);
+    const notNullCols = requiredCols.map((name) => localByName.get(name)).filter(Boolean) as Array<{
+      name: string;
+      notnull: number;
+      dflt_value: string | null;
+    }>;
+    if (notNullCols.length > 0) {
+      for (const col of notNullCols) {
+        if (col.dflt_value != null) {
+          const update = sqlite.prepare(
+            `UPDATE ${quoteIdent(table)} SET ${quoteIdent(col.name)} = ${col.dflt_value} WHERE ${quoteIdent(
+              col.name,
+            )} IS NULL`,
+          );
+          const res = update.run();
+          const fixed = Number((res as any)?.changes ?? 0);
+          if (fixed > 0) logSync(`repair ${table} set default ${col.name} count=${fixed}`);
+        }
+      }
+      const where = notNullCols.map((c) => `${quoteIdent(c.name)} IS NULL`).join(' OR ');
+      if (where) {
+        const del = sqlite.prepare(`DELETE FROM ${quoteIdent(table)} WHERE ${where}`);
+        const res = del.run();
+        const dropped = Number((res as any)?.changes ?? 0);
+        if (dropped > 0) logSync(`repair ${table} dropped=${dropped}`);
+      }
+    }
+
+    const uniqueConstraints =
+      serverSchema?.tables?.[table]?.uniqueConstraints?.length
+        ? serverSchema.tables[table].uniqueConstraints ?? []
+        : getLocalUniqueConstraints(sqlite, table);
+    for (const uq of uniqueConstraints) {
+      const cols = Array.isArray(uq.columns) ? uq.columns.map(String).filter(Boolean) : [];
+      if (cols.length === 0) continue;
+      if (uq.isPrimary) continue;
+      if (cols.length === 1 && cols[0] === 'id') continue;
+      if (cols.some((c) => !localByName.has(c))) continue;
+      const whereNotNull = cols.map((c) => `${quoteIdent(c)} IS NOT NULL`).join(' AND ');
+      const groups = sqlite
+        .prepare(
+          `SELECT ${cols.map(quoteIdent).join(', ')}, COUNT(*) AS cnt
+           FROM ${quoteIdent(table)}
+           WHERE ${whereNotNull}
+           GROUP BY ${cols.map(quoteIdent).join(', ')}
+           HAVING cnt > 1`,
+        )
+        .all() as Array<Record<string, unknown>>;
+      for (const g of groups) {
+        const values = cols.map((c) => g[c]);
+        const rows = sqlite
+          .prepare(
+            `SELECT id, updated_at, deleted_at FROM ${quoteIdent(table)} WHERE ${cols
+              .map((c) => `${quoteIdent(c)} = ?`)
+              .join(' AND ')}`,
+          )
+          .all(values) as Array<{ id: string; updated_at: number | null; deleted_at: number | null }>;
+        if (!rows || rows.length <= 1) continue;
+        const survivor = pickSurvivor(rows);
+        const refs = reverseFks.get(table) ?? [];
+        for (const row of rows) {
+          if (!row?.id || row.id === survivor.id) continue;
+          for (const ref of refs) {
+            const refInfo = localInfoByTable.get(ref.table) ?? [];
+            const refCols = new Set(refInfo.map((c) => c.name));
+            if (!refCols.has(ref.column)) continue;
+            sqlite
+              .prepare(
+                `UPDATE ${quoteIdent(ref.table)} SET ${quoteIdent(ref.column)} = ? WHERE ${quoteIdent(ref.column)} = ?`,
+              )
+              .run(survivor.id, row.id);
+          }
+          sqlite.prepare(`DELETE FROM ${quoteIdent(table)} WHERE id = ?`).run(row.id);
+        }
+      }
+    }
+
+    const fkList =
+      serverSchema?.tables?.[table]?.foreignKeys?.length
+        ? serverSchema.tables[table].foreignKeys
+        : getLocalForeignKeys(sqlite, table).map((fk) => ({ column: fk.from, refTable: fk.table, refColumn: fk.to }));
+    for (const fk of fkList) {
+      if (!fk?.column || !fk?.refTable || !fk?.refColumn) continue;
+      if (!localByName.has(fk.column)) continue;
+      const refInfo = localInfoByTable.get(fk.refTable) ?? [];
+      if (!refInfo || refInfo.length === 0) continue;
+      const refColNames = new Set(refInfo.map((c) => c.name));
+      if (!refColNames.has(fk.refColumn)) continue;
+      const orphanSql = `DELETE FROM ${quoteIdent(table)}
+        WHERE ${quoteIdent(fk.column)} IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ${quoteIdent(fk.refTable)}
+            WHERE ${quoteIdent(fk.refTable)}.${quoteIdent(fk.refColumn)} = ${quoteIdent(table)}.${quoteIdent(fk.column)}
+          )`;
+      const resFk = sqlite.prepare(orphanSql).run();
+      const droppedFk = Number((resFk as any)?.changes ?? 0);
+      if (droppedFk > 0) logSync(`repair ${table} orphan fk=${fk.column}->${fk.refTable}.${fk.refColumn} dropped=${droppedFk}`);
+    }
   }
 }
 
@@ -1022,6 +1269,22 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       groups.operations = groups.operations.filter((row: any) => !!row.engineEntityId);
     }
   }
+  if (groups.chat_reads.length > 0) {
+    const invalid = groups.chat_reads.filter(
+      (row: any) => !row.messageId || !row.userId || row.readAt == null,
+    );
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop chat_reads without message_id/user_id/read_at count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.chat_reads = groups.chat_reads.filter(
+        (row: any) => !!row.messageId && !!row.userId && row.readAt != null,
+      );
+    }
+  }
   if (groups.attribute_values.length > 0) {
     const entityIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.entityId))));
     const defIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.attributeDefId))));
@@ -1345,6 +1608,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       void logMessage(db, apiBaseUrl, 'warn', 'sync blocked: auth required', { component: 'sync', action: 'run', critical: true });
       return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
     }
+
+    const schema = await fetchSyncSchemaSnapshot(db, apiBaseUrl).catch(() => null);
+    await repairLocalSyncTables(db, schema ?? null).catch(() => {});
 
     logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
     const pullOnce = async (sinceValue: number) => {

@@ -61,6 +61,7 @@ export function ChatPanel(props: {
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
+  chatSide: 'left' | 'right';
 }) {
   const [users, setUsers] = useState<ChatUserItem[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export function ChatPanel(props: {
   const othersButtonRef = useRef<HTMLButtonElement | null>(null);
   const othersMenuRef = useRef<HTMLDivElement | null>(null);
   const [othersMenuPos, setOthersMenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const chatRootRef = useRef<HTMLDivElement | null>(null);
   const [noteDialog, setNoteDialog] = useState<{ open: boolean; message: ChatMessageItem | null; title: string }>({
     open: false,
     message: null,
@@ -192,11 +194,19 @@ export function ChatPanel(props: {
       if (!btn || !menu) return;
       const rect = btn.getBoundingClientRect();
       const menuRect = menu.getBoundingClientRect();
+      const chatRect = chatRootRef.current?.getBoundingClientRect() ?? null;
       const padding = 8;
       const viewportW = window.innerWidth;
       const viewportH = window.innerHeight;
       const maxHeight = Math.min(360, viewportH - padding * 2);
       let left = rect.right - menuRect.width;
+      if (chatRect) {
+        if (props.chatSide === 'right') {
+          left = chatRect.left - menuRect.width - padding;
+        } else {
+          left = chatRect.right + padding;
+        }
+      }
       if (left < padding) left = padding;
       if (left + menuRect.width > viewportW - padding) left = viewportW - padding - menuRect.width;
       let top = rect.bottom + 6;
@@ -216,7 +226,7 @@ export function ChatPanel(props: {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onResize);
     };
-  }, [othersOpen, otherUsers.length]);
+  }, [othersOpen, otherUsers.length, props.chatSide]);
 
   useEffect(() => {
     if (!othersOpen) return;
@@ -346,7 +356,7 @@ export function ChatPanel(props: {
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+    <div ref={chatRootRef} style={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ fontWeight: 900, color: theme.colors.text, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           Чат с пользователями
