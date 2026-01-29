@@ -114,6 +114,18 @@ export function ReportsPage(props: { canExport: boolean }) {
   const previewTimer = useRef<number | null>(null);
   const [entityTypeOptions, setEntityTypeOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [attributeNameOptions, setAttributeNameOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [defectStartDate, setDefectStartDate] = useState<string>(() =>
+    toInputDate(new Date(today.getFullYear(), today.getMonth(), 1).getTime()),
+  );
+  const [defectEndDate, setDefectEndDate] = useState<string>(() => toInputDate(Date.now()));
+  const [contractOptions, setContractOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [selectedContracts, setSelectedContracts] = useState<string[]>([]);
+  const [defectStatus, setDefectStatus] = useState<string>('');
+  const [defectPreview, setDefectPreview] = useState<{
+    rows: any[];
+    totals: { scrapQty: number; missingQty: number };
+    totalsByContract: Array<{ contractLabel: string; scrapQty: number; missingQty: number }>;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -159,6 +171,35 @@ export function ReportsPage(props: { canExport: boolean }) {
         if (!alive) return;
         setEntityTypeOptions([]);
         setAttributeNameOptions([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const types = await window.matrica.admin.entityTypes.list();
+        if (!alive) return;
+        const contractType = (types as any[]).find((t) => String(t.code) === 'contract') ?? null;
+        if (!contractType?.id) {
+          setContractOptions([]);
+          return;
+        }
+        const rows = await window.matrica.admin.entities.listByEntityType(String(contractType.id));
+        if (!alive) return;
+        const opts = (rows as any[]).map((r) => ({
+          id: String(r.id),
+          label: String(r.displayName ?? r.id),
+        }));
+        opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setContractOptions(opts);
+      } catch {
+        if (!alive) return;
+        setContractOptions([]);
       }
     })();
     return () => {
@@ -296,6 +337,72 @@ export function ReportsPage(props: { canExport: boolean }) {
     a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function runDefectPreview() {
+    const startMs = fromInputDate(defectStartDate);
+    const endMsRaw = fromInputDate(defectEndDate);
+    const endMs = endMsRaw ? endMsRaw + 24 * 60 * 60 * 1000 - 1 : null;
+    if (!endMs) {
+      setDefectStatus('Некорректная дата окончания.');
+      return;
+    }
+    setDefectStatus('Формирование отчёта...');
+    const r = await window.matrica.reports
+      .defectSupplyPreview({ startMs: startMs ?? undefined, endMs, contractIds: selectedContracts })
+      .catch(() => null);
+    if (!r || !(r as any).ok) {
+      setDefectPreview(null);
+      setDefectStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось сформировать'}`);
+      return;
+    }
+    setDefectPreview({
+      rows: (r as any).rows ?? [],
+      totals: (r as any).totals ?? { scrapQty: 0, missingQty: 0 },
+      totalsByContract: (r as any).totalsByContract ?? [],
+    });
+    setDefectStatus('Готово.');
+  }
+
+  async function exportDefectPdf() {
+    const startMs = fromInputDate(defectStartDate);
+    const endMsRaw = fromInputDate(defectEndDate);
+    const endMs = endMsRaw ? endMsRaw + 24 * 60 * 60 * 1000 - 1 : null;
+    if (!endMs) {
+      setDefectStatus('Некорректная дата окончания.');
+      return;
+    }
+    setDefectStatus('Генерация PDF...');
+    const labels = contractOptions.filter((o) => selectedContracts.includes(o.id)).map((o) => o.label);
+    const r = await window.matrica.reports
+      .defectSupplyPdf({ startMs: startMs ?? undefined, endMs, contractIds: selectedContracts, contractLabels: labels })
+      .catch(() => null);
+    if (!r || !(r as any).ok) {
+      setDefectStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось создать PDF'}`);
+      return;
+    }
+    downloadBase64((r as any).contentBase64, (r as any).fileName, (r as any).mime);
+    setDefectStatus('Готово.');
+  }
+
+  async function printDefectReport() {
+    const startMs = fromInputDate(defectStartDate);
+    const endMsRaw = fromInputDate(defectEndDate);
+    const endMs = endMsRaw ? endMsRaw + 24 * 60 * 60 * 1000 - 1 : null;
+    if (!endMs) {
+      setDefectStatus('Некорректная дата окончания.');
+      return;
+    }
+    setDefectStatus('Отправка на печать...');
+    const labels = contractOptions.filter((o) => selectedContracts.includes(o.id)).map((o) => o.label);
+    const r = await window.matrica.reports
+      .defectSupplyPrint({ startMs: startMs ?? undefined, endMs, contractIds: selectedContracts, contractLabels: labels })
+      .catch(() => null);
+    if (!r || !(r as any).ok) {
+      setDefectStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось печатать'}`);
+      return;
+    }
+    setDefectStatus('Готово.');
   }
 
   async function exportBuilder(format: 'html' | 'xlsx') {
@@ -542,6 +649,147 @@ export function ReportsPage(props: { canExport: boolean }) {
       </div>
 
       {status && <div style={{ marginTop: 10, color: '#6b7280' }}>{status}</div>}
+
+      <hr style={{ margin: '20px 0', border: 'none', borderTop: '1px solid #e5e7eb' }} />
+
+      <h3 style={{ margin: '8px 0' }}>Дефектовка и комплектность</h3>
+      <div style={{ color: '#6b7280', marginBottom: 12 }}>
+        Сводный отчет для снабжения: утиль по дефектовке и недокомплект по акту комплектности.
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ width: 200 }}>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Начало (включительно)</div>
+          <Input type="date" value={defectStartDate} onChange={(e) => setDefectStartDate(e.target.value)} />
+        </div>
+        <div style={{ width: 200 }}>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Конец (включительно)</div>
+          <Input type="date" value={defectEndDate} onChange={(e) => setDefectEndDate(e.target.value)} />
+        </div>
+        <div style={{ minWidth: 260, flex: 1 }}>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Контракты</div>
+          <MultiSearchSelect
+            values={selectedContracts}
+            options={contractOptions}
+            onChange={setSelectedContracts}
+            placeholder="Все контракты"
+          />
+        </div>
+        <div style={{ flex: 1 }} />
+        <Button variant="ghost" onClick={() => void runDefectPreview()}>
+          Предпросмотр
+        </Button>
+        <Button variant="ghost" onClick={() => void printDefectReport()}>
+          Печать
+        </Button>
+        <Button variant="ghost" onClick={() => void exportDefectPdf()}>
+          PDF
+        </Button>
+      </div>
+
+      {defectStatus && <div style={{ marginTop: 10, color: '#6b7280' }}>{defectStatus}</div>}
+
+      {defectPreview ? (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Результаты</div>
+          <div style={{ marginBottom: 10, color: '#334155' }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Итого по контрактам</div>
+            {defectPreview.totalsByContract.length === 0 ? (
+              <div style={{ color: '#6b7280' }}>Нет данных</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 4 }}>
+                {defectPreview.totalsByContract.map((t) => (
+                  <div key={t.contractLabel}>
+                    {t.contractLabel}: утиль {t.scrapQty}, недокомплект {t.missingQty}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Контракт</th>
+                  <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Деталь</th>
+                  <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #e5e7eb' }}>№ детали</th>
+                  <th style={{ textAlign: 'right', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Утиль</th>
+                  <th style={{ textAlign: 'right', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Недокомплект</th>
+                </tr>
+              </thead>
+              <tbody>
+                {defectPreview.rows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 10, color: '#6b7280' }}>
+                      Нет данных
+                    </td>
+                  </tr>
+                )}
+                {(() => {
+                  const subtotalByContract = new Map(
+                    defectPreview.totalsByContract.map((t) => [t.contractLabel, t] as const),
+                  );
+                  let current = '';
+                  const out: React.ReactNode[] = [];
+                  defectPreview.rows.forEach((r: any, idx: number) => {
+                    if (current && current !== r.contractLabel) {
+                      const subtotal = subtotalByContract.get(current);
+                      if (subtotal) {
+                        out.push(
+                          <tr key={`subtotal-${current}`} style={{ background: '#f8fafc', fontWeight: 700 }}>
+                            <td colSpan={3} style={{ padding: 8, borderBottom: '1px solid #e5e7eb' }}>
+                              Итого по контракту: {current}
+                            </td>
+                            <td style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>
+                              {subtotal.scrapQty}
+                            </td>
+                            <td style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>
+                              {subtotal.missingQty}
+                            </td>
+                          </tr>,
+                        );
+                      }
+                    }
+                    current = r.contractLabel;
+                    out.push(
+                      <tr key={`${r.contractLabel}-${r.partName}-${r.partNumber}-${idx}`}>
+                        <td style={{ padding: 8, borderBottom: '1px solid #f1f5f9' }}>{r.contractLabel}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid #f1f5f9' }}>{r.partName}</td>
+                        <td style={{ padding: 8, borderBottom: '1px solid #f1f5f9' }}>{r.partNumber}</td>
+                        <td style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>{r.scrapQty}</td>
+                        <td style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>
+                          {r.missingQty}
+                        </td>
+                      </tr>,
+                    );
+                  });
+                  if (current) {
+                    const subtotal = subtotalByContract.get(current);
+                    if (subtotal) {
+                      out.push(
+                        <tr key={`subtotal-${current}`} style={{ background: '#f8fafc', fontWeight: 700 }}>
+                          <td colSpan={3} style={{ padding: 8, borderBottom: '1px solid #e5e7eb' }}>
+                            Итого по контракту: {current}
+                          </td>
+                          <td style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>
+                            {subtotal.scrapQty}
+                          </td>
+                          <td style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>
+                            {subtotal.missingQty}
+                          </td>
+                        </tr>,
+                      );
+                    }
+                  }
+                  return out;
+                })()}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 8, fontWeight: 700 }}>
+            Итого: утиль {defectPreview.totals.scrapQty}, недокомплект {defectPreview.totals.missingQty}
+          </div>
+        </div>
+      ) : null}
 
       <hr style={{ margin: '20px 0', border: 'none', borderTop: '1px solid #e5e7eb' }} />
 

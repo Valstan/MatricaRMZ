@@ -645,6 +645,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769680031274
+      },
+      "3d894055-c8cb-497f-aeba-a0874974bcc3": {
+        "id": "3d894055-c8cb-497f-aeba-a0874974bcc3",
+        "version": "1.0.12",
+        "notes": "Defect checklist UI: remove blocking confirm, add part/node toggle; engine brand parts UI permission gating; misc UI fixes",
+        "sha256": "439b2adaa4b6c94a3ed513452aa9bddc5fd148565ab5ce10aaaf2b56d1dcd865",
+        "file_name": "MatricaRMZ-Setup-1.0.12.exe",
+        "size": 93905996,
+        "payload_json": null,
+        "created_at": 1769682802367,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769682802367
       }
     },
     "notes": {

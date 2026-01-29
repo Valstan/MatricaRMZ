@@ -99,7 +99,12 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       throw new Error('offline');
     }
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
+    let timeoutId: NodeJS.Timeout | null = null;
+    const armTimeout = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
+    };
+    armTimeout();
     try {
       let existingSize = 0;
       const st = await stat(outPath).catch(() => null);
@@ -122,6 +127,7 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       let transferred = start;
       const stream = Readable.fromWeb(res.body as any);
       stream.on('data', (chunk) => {
+        armTimeout();
         const len = chunk?.length ?? 0;
         transferred += len;
         const pct = total ? Math.max(0, Math.min(99, Math.floor((transferred / total) * 100))) : 0;
@@ -136,7 +142,7 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       if (!isTransientNetworkError(e) || attempt >= opts.attempts) break;
       await sleep(getBackoffMs(attempt, opts));
     } finally {
-      clearTimeout(timer);
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
   return { ok: false as const, error: String(lastErr ?? 'download failed') };

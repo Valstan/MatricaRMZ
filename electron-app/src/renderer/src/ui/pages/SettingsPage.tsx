@@ -31,6 +31,7 @@ export function SettingsPage(props: {
   const [e2eLoading, setE2eLoading] = useState<boolean>(false);
   const [torrentStatus, setTorrentStatus] = useState<any | null>(null);
   const [torrentLoading, setTorrentLoading] = useState<boolean>(false);
+  const [updateResetLoading, setUpdateResetLoading] = useState<boolean>(false);
 
   function formatError(e: unknown): string {
     if (e == null) return 'unknown error';
@@ -127,6 +128,25 @@ export function SettingsPage(props: {
       setTorrentStatus(null);
     } finally {
       setTorrentLoading(false);
+    }
+  }
+
+  async function handleResetUpdates() {
+    if (!confirm('Сбросить кэш обновлений и начать загрузку заново?')) return;
+    try {
+      setUpdateResetLoading(true);
+      const r = await window.matrica.update.reset();
+      if (r?.ok) {
+        setStatus('Кэш обновлений очищен. При следующей проверке начнется новая загрузка.');
+        setTimeout(() => setStatus(''), 4000);
+      } else {
+        setStatus(`Ошибка сброса обновлений: ${formatError(r?.error ?? 'unknown error')}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка сброса обновлений: ${formatError(e)}`);
+    } finally {
+      setUpdateResetLoading(false);
+      void refreshTorrentStatus();
     }
   }
 
@@ -387,6 +407,9 @@ export function SettingsPage(props: {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <Button variant="ghost" disabled={torrentLoading} onClick={() => void refreshTorrentStatus()}>
             Обновить статус
+          </Button>
+          <Button variant="ghost" disabled={updateResetLoading} onClick={() => void handleResetUpdates()}>
+            Сбросить кэш обновлений
           </Button>
         </div>
       </div>

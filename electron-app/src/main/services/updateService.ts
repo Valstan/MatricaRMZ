@@ -42,8 +42,8 @@ export type UpdateHelperArgs = {
 
 const autoUpdater = updater.autoUpdater;
 
-const UPDATE_CHECK_TIMEOUT_MS = 10_000;
-const UPDATE_DOWNLOAD_TIMEOUT_MS = 30_000;
+const UPDATE_CHECK_TIMEOUT_MS = 20_000;
+const UPDATE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 const LAN_PEER_PING_MS = 30_000;
 
 function getUpdateApiBaseUrl() {
@@ -226,6 +226,7 @@ async function queuePendingWithIntegrityRetry(args: {
   });
   if (queued.ok) return { ok: true, installerPath: args.installerPath };
   if (!isIntegrityError(queued.error)) return { ok: false, error: queued.error };
+  await stageUpdate('Обнаружено повреждение update-кэша, перекачиваем…', 10, args.version);
   await writeUpdaterLog(`integrity failed (${args.retryLabel}): ${queued.error}`);
   await rm(args.installerPath, { force: true }).catch(() => {});
   const retry = await args.retryDownload();
@@ -659,6 +660,58 @@ async function findInstallerForVersion(version: string): Promise<string | null> 
   return join(dir, preferred);
 }
 
+async function findYandexInstallerForVersion(version: string): Promise<string | null> {
+  const cfg = await getYandexConfig();
+  if (!cfg) return null;
+  const { publicKey, basePath } = cfg;
+  const items = await listPublicFolder(publicKey, basePath).catch(() => []);
+  const match = items.find((n) => extractVersionFromFileName(n) === version) ?? null;
+  if (!match) return null;
+  const href = await getYandexDownloadHref(publicKey, joinPosix(basePath, match));
+  if (!href) return null;
+  const outDir = getUpdateDownloadDir(version, match);
+  await mkdir(outDir, { recursive: true });
+  const outPath = join(outDir, match);
+  const dl = await downloadWithResume(href, outPath, {
+    attempts: 3,
+    timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+    backoffMs: 800,
+    maxBackoffMs: 6000,
+    jitterMs: 300,
+  });
+  return dl.ok ? dl.filePath : null;
+}
+
+async function findGithubInstallerForVersion(version: string): Promise<string | null> {
+  const cfg = await getGithubConfig();
+  if (!cfg) return null;
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/releases/latest`;
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'MatricaRMZ-Updater',
+      },
+    },
+    { attempts: 3, timeoutMs: UPDATE_CHECK_TIMEOUT_MS, backoffMs: 600, maxBackoffMs: 4000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+  ).catch(() => null);
+  if (!res || !res.ok) return null;
+  const json = (await res.json().catch(() => null)) as any;
+  if (!json || json.draft) return null;
+  const tag = String(json?.tag_name ?? '').trim().replace(/^v/i, '');
+  if (!tag || compareSemver(tag, version) !== 0) return null;
+  const assets = Array.isArray(json?.assets) ? json.assets : [];
+  const exeCandidates = assets.filter((a: any) => String(a?.name ?? '').toLowerCase().endsWith('.exe'));
+  if (!exeCandidates.length) return null;
+  const preferred = exeCandidates.find((a: any) => isSetupInstallerName(String(a?.name ?? ''))) ?? exeCandidates[0];
+  const downloadUrl = preferred?.browser_download_url ? String(preferred.browser_download_url) : '';
+  if (!downloadUrl) return null;
+  const gdl = await downloadGithubUpdate(downloadUrl, version);
+  return gdl.ok ? gdl.filePath : null;
+}
+
 export async function ensureTorrentSeedForCurrentVersion(apiBaseUrl: string) {
   try {
     const current = app.getVersion();
@@ -686,15 +739,27 @@ export async function ensureTorrentSeedForCurrentVersion(apiBaseUrl: string) {
       });
       if (!dl.ok || !dl.filePath) {
         await writeUpdaterLog(`torrent seed download failed: ${String(dl.error ?? 'unknown')}`);
-        return;
+      } else {
+        installerPath = dl.filePath;
       }
-      installerPath = dl.filePath;
     }
+    if (!installerPath) {
+      installerPath = (await findGithubInstallerForVersion(current)) ?? (await findYandexInstallerForVersion(current));
+    }
+    if (!installerPath) return;
     const st = await stat(installerPath).catch(() => null);
     if (!st?.isFile() || st.size <= 0) return;
     if (manifest.size && st.size !== Number(manifest.size)) {
       await writeUpdaterLog(`torrent seed size mismatch expected=${manifest.size} actual=${st.size}`);
-      return;
+      await rm(installerPath, { force: true }).catch(() => {});
+      installerPath = (await findGithubInstallerForVersion(current)) ?? (await findYandexInstallerForVersion(current));
+      if (!installerPath) return;
+      const stRetry = await stat(installerPath).catch(() => null);
+      if (!stRetry?.isFile() || stRetry.size <= 0) return;
+      if (manifest.size && stRetry.size !== Number(manifest.size)) {
+        await writeUpdaterLog(`torrent seed retry size mismatch expected=${manifest.size} actual=${stRetry.size}`);
+        return;
+      }
     }
     const torrentPath = await saveTorrentFileForVersion(current, buildTorrentManifestUrl(apiBaseUrl, manifest.torrentUrl));
     if (!torrentPath) return;
@@ -702,6 +767,51 @@ export async function ensureTorrentSeedForCurrentVersion(apiBaseUrl: string) {
     await writeUpdaterLog(`torrent seed info refreshed version=${current} installer=${installerPath}`);
   } catch (e) {
     await writeUpdaterLog(`torrent seed refresh failed: ${String(e)}`);
+  }
+}
+
+export async function recoverStuckUpdateState(): Promise<void> {
+  if (updateInFlight || backgroundInFlight) return;
+  const lock = updateLockPath();
+  const lockStat = await stat(lock).catch(() => null);
+  if (!lockStat?.isFile()) return;
+  const current = app.getVersion();
+  const pending = await readPendingUpdate();
+  let keepCache = false;
+  if (pending?.installerPath) {
+    const validation = await validateInstallerPath(pending.installerPath, pending.installerPath);
+    if (!validation.ok || (pending.version && compareSemver(pending.version, current) <= 0)) {
+      await writeUpdaterLog(`stale update cleared: ${validation.ok ? 'version <= current' : validation.error}`);
+      await clearPendingUpdate();
+    } else {
+      keepCache = true;
+    }
+  }
+  if (!keepCache) {
+    await cleanupUpdateCache(current);
+  }
+  await releaseUpdateLock();
+  await writeUpdaterLog('stale update lock removed, update flow reset');
+}
+
+export async function resetUpdateCache(reason = 'manual'): Promise<void> {
+  try {
+    updateInFlight = false;
+    backgroundInFlight = false;
+    await stopTorrentDownload().catch(() => {});
+    await stopTorrentSeeding().catch(() => {});
+    await clearPendingUpdate();
+    await releaseUpdateLock();
+    const updatesDir = getUpdatesRootDir();
+    const entries = await readdir(updatesDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const entryPath = join(updatesDir, entry.name);
+      await rm(entryPath, { recursive: true, force: true }).catch(() => {});
+    }
+    setUpdateState({ state: 'idle', message: 'Кэш обновлений очищен.' });
+    await writeUpdaterLog(`update cache reset (${reason})`);
+  } catch (e) {
+    await writeUpdaterLog(`update cache reset failed: ${String(e)}`);
   }
 }
 
@@ -1821,7 +1931,7 @@ async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | Githu
           'User-Agent': 'MatricaRMZ-Updater',
         },
       },
-      { attempts: 3, timeoutMs: 10_000, backoffMs: 600, maxBackoffMs: 4000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+      { attempts: 3, timeoutMs: 20_000, backoffMs: 600, maxBackoffMs: 4000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
     );
     if (!res.ok) return { ok: false, error: `github release HTTP ${res.status}` };
     const json = (await res.json().catch(() => null)) as any;

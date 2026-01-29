@@ -3,7 +3,13 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
 
-import { buildPeriodStagesCsv, buildPeriodStagesCsvByLink } from '../../services/reportService.js';
+import {
+  buildPeriodStagesCsv,
+  buildPeriodStagesCsvByLink,
+  buildDefectSupplyReport,
+  exportDefectSupplyReportPdf,
+  printDefectSupplyReport,
+} from '../../services/reportService.js';
 import {
   reportsBuilderExport,
   reportsBuilderExportPdf,
@@ -24,6 +30,33 @@ export function registerReportsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as any;
     return buildPeriodStagesCsvByLink(ctx.dataDb(), args);
   });
+
+  ipcMain.handle(
+    'reports:defectSupplyPreview',
+    async (_e, args: { startMs?: number; endMs: number; contractIds?: string[] }) => {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      return buildDefectSupplyReport(ctx.dataDb(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'reports:defectSupplyPdf',
+    async (_e, args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      return exportDefectSupplyReportPdf(ctx.dataDb(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'reports:defectSupplyPrint',
+    async (_e, args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      return printDefectSupplyReport(ctx.dataDb(), args);
+    },
+  );
 
   ipcMain.handle('reportsBuilder:meta', async () => {
     const gate = await requirePermOrResult(ctx, 'reports.view');

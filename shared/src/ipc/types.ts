@@ -502,6 +502,23 @@ export type MatricaApi = {
     periodStagesByLinkCsv: (args: { startMs?: number; endMs: number; linkAttrCode: string }) => Promise<
       { ok: true; csv: string } | { ok: false; error: string }
     >;
+    defectSupplyPreview: (args: { startMs?: number; endMs: number; contractIds?: string[] }) => Promise<
+      | {
+          ok: true;
+          rows: Array<{ contractId: string; contractLabel: string; partName: string; partNumber: string; scrapQty: number; missingQty: number }>;
+          totals: { scrapQty: number; missingQty: number };
+          totalsByContract: Array<{ contractLabel: string; scrapQty: number; missingQty: number }>;
+        }
+      | { ok: false; error: string }
+    >;
+    defectSupplyPdf: (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => Promise<
+      | { ok: true; contentBase64: string; fileName: string; mime: string }
+      | { ok: false; error: string }
+    >;
+    defectSupplyPrint: (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => Promise<
+      | { ok: true }
+      | { ok: false; error: string }
+    >;
   };
   reportsBuilder: {
     preview: (args: ReportBuilderPreviewRequest) => Promise<ReportBuilderPreviewResult>;

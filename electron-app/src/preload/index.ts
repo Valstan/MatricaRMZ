@@ -62,6 +62,12 @@ contextBridge.exposeInMainWorld('matrica', {
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),
+    defectSupplyPreview: async (args: { startMs?: number; endMs: number; contractIds?: string[] }) =>
+      ipcRenderer.invoke('reports:defectSupplyPreview', args),
+    defectSupplyPdf: async (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) =>
+      ipcRenderer.invoke('reports:defectSupplyPdf', args),
+    defectSupplyPrint: async (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) =>
+      ipcRenderer.invoke('reports:defectSupplyPrint', args),
   },
   reportsBuilder: {
     meta: async () => ipcRenderer.invoke('reportsBuilder:meta'),
@@ -140,6 +146,7 @@ contextBridge.exposeInMainWorld('matrica', {
     check: async () => ipcRenderer.invoke('update:check'),
     status: async () => ipcRenderer.invoke('update:status'),
     torrentStatus: async () => ipcRenderer.invoke('update:torrentStatus'),
+    reset: async () => ipcRenderer.invoke('update:reset'),
   },
   checklists: {
     templatesList: async (args?: { stage?: string }) => ipcRenderer.invoke('checklists:templates:list', args),

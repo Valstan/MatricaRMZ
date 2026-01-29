@@ -12,6 +12,7 @@ import {
   ensureTorrentSeedForCurrentVersion,
   initAutoUpdate,
   initLanUpdateSharing,
+  recoverStuckUpdateState,
   runAutoUpdateFlow,
   runUpdateHelperFlow,
   startBackgroundUpdatePolling,
@@ -244,6 +245,7 @@ app.whenReady().then(() => {
 
       if (updatesEnabled) {
         initLanUpdateSharing(apiBaseUrl);
+        await recoverStuckUpdateState();
         const pendingApplied = await applyPendingUpdateIfAny(null);
         if (pendingApplied) return;
         const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: null });
