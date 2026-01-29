@@ -11,6 +11,8 @@ export function EngineBrandDetailsPage(props: {
   brandId: string;
   canEdit: boolean;
   canViewParts: boolean;
+  canCreateParts: boolean;
+  canEditParts: boolean;
   canViewMasterData: boolean;
   onOpenPart: (partId: string) => void;
   canViewFiles: boolean;
@@ -112,7 +114,7 @@ export function EngineBrandDetailsPage(props: {
   }
 
   async function updateBrandParts(nextIds: string[]) {
-    if (!props.canEdit) return;
+    if (!props.canEdit || !props.canEditParts) return;
     const prev = new Set(engineBrandPartIds);
     const next = new Set(nextIds);
     const toAdd = nextIds.filter((id) => !prev.has(id));
@@ -160,6 +162,7 @@ export function EngineBrandDetailsPage(props: {
 
   async function addPart(partId: string) {
     if (!partId) return;
+    if (!props.canEdit || !props.canEditParts) return;
     if (engineBrandPartIds.includes(partId)) {
       setAddPartId(null);
       setShowAddPart(false);
@@ -173,7 +176,7 @@ export function EngineBrandDetailsPage(props: {
   }
 
   async function createAndAddPart(label: string) {
-    if (!props.canEdit) return null;
+    if (!props.canEdit || !props.canCreateParts) return null;
     const name = label.trim();
     if (!name) return null;
     setPartsStatus('Создание детали...');
@@ -257,20 +260,20 @@ export function EngineBrandDetailsPage(props: {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <div style={{ fontWeight: 600 }}>Детали для марки</div>
           <div style={{ flex: 1 }} />
-          {props.canEdit && props.canViewParts && (
+          {props.canEdit && props.canViewParts && props.canEditParts && (
             <Button variant="ghost" onClick={() => setShowAddPart((v) => !v)}>
               + Добавить деталь
             </Button>
           )}
         </div>
 
-        {showAddPart && props.canViewParts && (
+        {showAddPart && props.canViewParts && props.canEditParts && (
           <div style={{ marginBottom: 10 }}>
             <SearchSelectWithCreate
               value={addPartId}
               options={partsOptions}
-              disabled={!props.canEdit}
-              canCreate={props.canEdit}
+              disabled={!props.canEdit || !props.canEditParts}
+              canCreate={props.canCreateParts}
               createLabel="Добавить новую деталь"
               onChange={(next) => {
                 setAddPartId(next);
@@ -318,7 +321,7 @@ export function EngineBrandDetailsPage(props: {
                     event.stopPropagation();
                     void updateBrandParts(engineBrandPartIds.filter((id) => id !== p.id));
                   }}
-                  disabled={!props.canEdit}
+                  disabled={!props.canEdit || !props.canEditParts}
                   style={{ color: '#b91c1c' }}
                 >
                   Убрать

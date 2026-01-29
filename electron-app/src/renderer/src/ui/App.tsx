@@ -1261,6 +1261,8 @@ export function App() {
             brandId={selectedEngineBrandId}
             canEdit={caps.canEditMasterData}
             canViewParts={caps.canViewParts}
+            canCreateParts={caps.canCreateParts}
+            canEditParts={caps.canEditParts}
             canViewMasterData={caps.canViewMasterData}
             onOpenPart={openPart}
             canViewFiles={caps.canViewFiles}

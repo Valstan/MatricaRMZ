@@ -500,6 +500,7 @@ export function EngineDetailsPage(props: {
           engineId={props.engineId}
           stage="defect"
           canEdit={props.canEditOperations}
+          canEditMasterData={props.canEditMasterData}
           canPrint={props.canPrintEngineCard}
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
@@ -516,6 +517,7 @@ export function EngineDetailsPage(props: {
           engineId={props.engineId}
           stage="completeness"
           canEdit={props.canEditOperations}
+          canEditMasterData={props.canEditMasterData}
           canPrint={props.canPrintEngineCard}
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
@@ -532,6 +534,7 @@ export function EngineDetailsPage(props: {
           engineId={props.engineId}
           stage="repair"
           canEdit={props.canEditOperations}
+          canEditMasterData={props.canEditMasterData}
           canPrint={props.canPrintEngineCard}
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}

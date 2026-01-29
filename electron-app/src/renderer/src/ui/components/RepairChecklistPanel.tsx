@@ -147,6 +147,7 @@ export function RepairChecklistPanel(props: {
   const [defectOptionsStatus, setDefectOptionsStatus] = useState<string>('');
   const [completenessOptions, setCompletenessOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [completenessOptionsStatus, setCompletenessOptionsStatus] = useState<string>('');
+  const [defectCreateKind, setDefectCreateKind] = useState<'part' | 'node'>('part');
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const panelTitle =
@@ -330,8 +331,10 @@ export function RepairChecklistPanel(props: {
   async function createDefectItem(label: string) {
     const name = label.trim();
     if (!name) return null;
-    const createNode = confirm('Создать как узел двигателя? (OK = узел, Отмена = деталь)');
-    if (createNode) {
+    const wantsNode = defectCreateKind === 'node';
+    if (wantsNode && !props.canEditMasterData) return null;
+
+    if (wantsNode) {
       const types = await window.matrica.admin.entityTypes.list();
       const nodeType = (types as any[]).find((t) => String(t.code) === 'engine_node');
       if (!nodeType?.id) return null;
@@ -342,6 +345,7 @@ export function RepairChecklistPanel(props: {
       setDefectOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
       return opt.id;
     }
+
     const created = await window.matrica.parts.create({ attributes: { name } }).catch(() => null);
     if (!created || !(created as any).ok || !(created as any).part?.id) return null;
     const part = (created as any).part;
@@ -653,6 +657,34 @@ export function RepairChecklistPanel(props: {
         <div style={{ color: '#64748b', fontSize: 12 }}>
           stage: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{props.stage}</span>
         </div>
+        {props.stage === 'defect' && props.canEdit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ color: '#64748b', fontSize: 12 }}>Создавать:</div>
+            {(['part', 'node'] as const).map((kind) => {
+              const active = defectCreateKind === kind;
+              const disabled = kind === 'node' && !props.canEditMasterData;
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => !disabled && setDefectCreateKind(kind)}
+                  disabled={disabled}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: active ? '1px solid #2563eb' : '1px solid rgba(15, 23, 42, 0.25)',
+                    background: active ? 'rgba(37, 99, 235, 0.12)' : 'var(--input-bg)',
+                    color: disabled ? '#94a3b8' : 'var(--text)',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  {kind === 'part' ? 'Деталь' : 'Узел'}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div style={{ flex: 1 }} />
         {status && <div style={{ color: '#64748b', fontSize: 12 }}>{status}</div>}
       </div>

@@ -111,6 +111,16 @@
         "id": "2e197d9e-9d8b-4d8d-93de-482f112c8fcc",
         "deleted_at": null,
         "updated_at": 1769634462683
+      },
+      "60366b41-baa6-4194-aa26-715f16ef173f": {
+        "id": "60366b41-baa6-4194-aa26-715f16ef173f",
+        "deleted_at": null,
+        "updated_at": 1769681188143
+      },
+      "064be67a-0fc1-49e0-b36a-32cb51750cea": {
+        "id": "064be67a-0fc1-49e0-b36a-32cb51750cea",
+        "deleted_at": null,
+        "updated_at": 1769681203151
       }
     },
     "attribute_defs": {
@@ -317,6 +327,18 @@
         "value_json": null,
         "deleted_at": null,
         "updated_at": 1769634462683
+      },
+      "3ff8d23d-130e-4728-bc2d-d0a46488ec87": {
+        "id": "3ff8d23d-130e-4728-bc2d-d0a46488ec87",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769681188143
+      },
+      "868da1e2-191e-47fd-9b8f-bf7834a15d50": {
+        "id": "868da1e2-191e-47fd-9b8f-bf7834a15d50",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769681188143
       }
     },
     "operations": {
@@ -328,7 +350,7 @@
         "performed_by": null,
         "meta_json": null,
         "deleted_at": null,
-        "updated_at": 1769525411807
+        "updated_at": 1769680871717
       },
       "5d9d7d9e-6fff-42ee-bba9-998a24911f52": {
         "id": "5d9d7d9e-6fff-42ee-bba9-998a24911f52",
@@ -389,6 +411,56 @@
         "meta_json": null,
         "deleted_at": null,
         "updated_at": 1769627252945
+      },
+      "de5a8e92-1796-45d0-933d-0004d89cc983": {
+        "id": "de5a8e92-1796-45d0-933d-0004d89cc983",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769680871717
+      },
+      "8b387581-4cd6-4af2-a196-a5ac4bfb01b4": {
+        "id": "8b387581-4cd6-4af2-a196-a5ac4bfb01b4",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769680871717
+      },
+      "098925a0-0916-42ca-9ca9-edd02b593e45": {
+        "id": "098925a0-0916-42ca-9ca9-edd02b593e45",
+        "status": "checklist",
+        "note": "Лист дефектовки двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769681188143
+      },
+      "e7de2e86-c035-42ec-b478-3881b976966e": {
+        "id": "e7de2e86-c035-42ec-b478-3881b976966e",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769681188143
+      },
+      "9c75b6b9-91c5-4144-aa94-994c4d6a08a4": {
+        "id": "9c75b6b9-91c5-4144-aa94-994c4d6a08a4",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769681188143
       }
     },
     "audit_log": {},
@@ -560,6 +632,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769638477680
+      },
+      "3e0470ce-026a-4921-93bb-6094765ff4a0": {
+        "id": "3e0470ce-026a-4921-93bb-6094765ff4a0",
+        "version": "1.0.11",
+        "notes": "UI fixes: send-link dialog, checklist focus, chat menu; settings/logging persistence; updater launch fallback; sync repair/schema improvements",
+        "sha256": "eb6c46d4a431d80fb813e6871f7530528d0e34414f7c1dc018f69a6a1add432f",
+        "file_name": "MatricaRMZ-Setup-1.0.11.exe",
+        "size": 93906023,
+        "payload_json": null,
+        "created_at": 1769680031274,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769680031274
       }
     },
     "notes": {
