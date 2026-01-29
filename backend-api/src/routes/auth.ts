@@ -264,10 +264,10 @@ authRouter.patch('/settings', requireAuth, async (req, res) => {
     const parsed = schema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const r = await setEmployeeLoggingSettings(actor.id, {
-      loggingEnabled: parsed.data.loggingEnabled ?? undefined,
-      loggingMode: parsed.data.loggingMode ?? undefined,
-    });
+    const next: { loggingEnabled?: boolean | null; loggingMode?: 'dev' | 'prod' | null } = {};
+    if (parsed.data.loggingEnabled !== undefined) next.loggingEnabled = parsed.data.loggingEnabled;
+    if (parsed.data.loggingMode !== undefined) next.loggingMode = parsed.data.loggingMode;
+    const r = await setEmployeeLoggingSettings(actor.id, next);
     if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
     const settings = await getEmployeeLoggingSettings(actor.id);
     return res.json({ ok: true, settings });

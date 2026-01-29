@@ -110,8 +110,14 @@ export async function getSyncSchemaSnapshot(): Promise<SyncSchemaSnapshot> {
   );
 
   const snapshot: SyncSchemaSnapshot = { generatedAt: Date.now(), tables: {} };
+  const ensureTable = (tableName: string) => {
+    if (!snapshot.tables[tableName]) {
+      snapshot.tables[tableName] = { columns: [], foreignKeys: [], uniqueConstraints: [] };
+    }
+    return snapshot.tables[tableName];
+  };
   for (const table of tables) {
-    snapshot.tables[table] = { columns: [], foreignKeys: [], uniqueConstraints: [] };
+    ensureTable(table);
   }
 
   for (const row of columnsRes.rows as Array<{
@@ -121,10 +127,8 @@ export async function getSyncSchemaSnapshot(): Promise<SyncSchemaSnapshot> {
     column_default: string | null;
     data_type: string;
   }>) {
-    if (!snapshot.tables[row.table_name]) {
-      snapshot.tables[row.table_name] = { columns: [], foreignKeys: [], uniqueConstraints: [] };
-    }
-    snapshot.tables[row.table_name].columns.push({
+    const table = ensureTable(row.table_name);
+    table.columns.push({
       name: row.column_name,
       dataType: row.data_type,
       notNull: row.is_nullable === 'NO',
@@ -140,10 +144,8 @@ export async function getSyncSchemaSnapshot(): Promise<SyncSchemaSnapshot> {
     confupdtype: string;
     confdeltype: string;
   }>) {
-    if (!snapshot.tables[row.table_name]) {
-      snapshot.tables[row.table_name] = { columns: [], foreignKeys: [], uniqueConstraints: [] };
-    }
-    snapshot.tables[row.table_name].foreignKeys.push({
+    const table = ensureTable(row.table_name);
+    table.foreignKeys.push({
       column: row.column_name,
       refTable: row.ref_table,
       refColumn: row.ref_column,
@@ -157,12 +159,10 @@ export async function getSyncSchemaSnapshot(): Promise<SyncSchemaSnapshot> {
     columns: string[];
     is_primary: boolean;
   }>) {
-    if (!snapshot.tables[row.table_name]) {
-      snapshot.tables[row.table_name] = { columns: [], foreignKeys: [], uniqueConstraints: [] };
-    }
+    const table = ensureTable(row.table_name);
     const cols = Array.isArray(row.columns) ? row.columns.filter(Boolean) : [];
     if (cols.length === 0) continue;
-    snapshot.tables[row.table_name].uniqueConstraints.push({
+    table.uniqueConstraints.push({
       columns: cols.map(String),
       isPrimary: !!row.is_primary,
     });
