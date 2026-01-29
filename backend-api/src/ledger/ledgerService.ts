@@ -3,10 +3,28 @@ import { join, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { LedgerStore, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
 import { generateLedgerKeyPair } from '@matricarmz/ledger';
+import { SyncTableName } from '@matricarmz/shared';
+import { sql } from 'drizzle-orm';
+
+import { db } from '../database/db.js';
+import {
+  attributeDefs,
+  attributeValues,
+  auditLog,
+  chatMessages,
+  chatReads,
+  entities,
+  entityTypes,
+  notes,
+  noteShares,
+  operations,
+  userPresence,
+} from '../database/schema.js';
 
 const DEFAULT_LEDGER_DIR = resolve(process.cwd(), 'ledger');
 const KEY_FILE = 'server-key.json';
 const DATA_KEY_FILE = 'data-key.json';
+const BOOTSTRAP_FILE = 'bootstrap.json';
 
 let store: LedgerStore | null = null;
 let serverKeys: { publicKeyPem: string; privateKeyPem: string } | null = null;
@@ -42,6 +60,145 @@ function loadOrCreateDataKey(ledgerDir: string): Buffer {
   writeFileSync(keyPath, JSON.stringify({ keyBase64: key.toString('base64') }, null, 2));
   dataKey = key;
   return key;
+}
+
+function toSyncRow(table: SyncTableName, row: any): any {
+  switch (table) {
+    case SyncTableName.EntityTypes:
+      return {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.Entities:
+      return {
+        id: row.id,
+        type_id: row.typeId,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.AttributeDefs:
+      return {
+        id: row.id,
+        entity_type_id: row.entityTypeId,
+        code: row.code,
+        name: row.name,
+        data_type: row.dataType,
+        is_required: row.isRequired,
+        sort_order: row.sortOrder,
+        meta_json: row.metaJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.AttributeValues:
+      return {
+        id: row.id,
+        entity_id: row.entityId,
+        attribute_def_id: row.attributeDefId,
+        value_json: row.valueJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.Operations:
+      return {
+        id: row.id,
+        engine_entity_id: row.engineEntityId,
+        operation_type: row.operationType,
+        status: row.status,
+        note: row.note ?? null,
+        performed_at: row.performedAt ?? null,
+        performed_by: row.performedBy ?? null,
+        meta_json: row.metaJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.AuditLog:
+      return {
+        id: row.id,
+        actor: row.actor,
+        action: row.action,
+        entity_id: row.entityId ?? null,
+        table_name: row.tableName ?? null,
+        payload_json: row.payloadJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.ChatMessages:
+      return {
+        id: row.id,
+        sender_user_id: row.senderUserId,
+        sender_username: row.senderUsername,
+        recipient_user_id: row.recipientUserId ?? null,
+        message_type: row.messageType,
+        body_text: row.bodyText ?? null,
+        payload_json: row.payloadJson ?? null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.ChatReads:
+      return {
+        id: row.id,
+        message_id: row.messageId,
+        user_id: row.userId,
+        read_at: row.readAt,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.UserPresence:
+      return {
+        id: row.id,
+        user_id: row.userId,
+        last_activity_at: row.lastActivityAt,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.Notes:
+      return {
+        id: row.id,
+        owner_user_id: row.ownerUserId,
+        title: row.title,
+        body_json: row.bodyJson ?? null,
+        importance: row.importance ?? 'normal',
+        due_at: row.dueAt ?? null,
+        sort_order: row.sortOrder ?? 0,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+    case SyncTableName.NoteShares:
+      return {
+        id: row.id,
+        note_id: row.noteId,
+        recipient_user_id: row.recipientUserId,
+        hidden: !!row.hidden,
+        sort_order: row.sortOrder ?? 0,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        deleted_at: row.deletedAt ?? null,
+        sync_status: row.syncStatus,
+      };
+  }
 }
 
 function encryptText(value: string, key: Buffer): string {
@@ -156,6 +313,76 @@ export function listBlocksSince(height: number, limit: number) {
   const ledger = getLedgerStore();
   const safeLimit = Math.max(1, Math.min(2000, Number(limit) || 200));
   return ledger.listBlocksSince(height, safeLimit);
+}
+
+export async function ensureLedgerBootstrap(): Promise<{ ran: boolean; reason: string }> {
+  const ledgerDir = resolveLedgerDir();
+  const markerPath = join(ledgerDir, BOOTSTRAP_FILE);
+  if (existsSync(markerPath)) return { ran: false, reason: 'marker exists' };
+
+  const ledger = getLedgerStore();
+  const state = ledger.loadState();
+  const ledgerCounts = {
+    entityTypes: Object.keys(state.tables[SyncTableName.EntityTypes] ?? {}).length,
+    entities: Object.keys(state.tables[SyncTableName.Entities] ?? {}).length,
+    attributeDefs: Object.keys(state.tables[SyncTableName.AttributeDefs] ?? {}).length,
+    attributeValues: Object.keys(state.tables[SyncTableName.AttributeValues] ?? {}).length,
+  };
+
+  const dbCounts = {
+    entityTypes: Number((await db.select({ count: sql<number>`count(*)` }).from(entityTypes).limit(1))[0]?.count ?? 0),
+    entities: Number((await db.select({ count: sql<number>`count(*)` }).from(entities).limit(1))[0]?.count ?? 0),
+    attributeDefs: Number((await db.select({ count: sql<number>`count(*)` }).from(attributeDefs).limit(1))[0]?.count ?? 0),
+    attributeValues: Number((await db.select({ count: sql<number>`count(*)` }).from(attributeValues).limit(1))[0]?.count ?? 0),
+  };
+
+  const needsBootstrap =
+    ledgerCounts.entityTypes < dbCounts.entityTypes ||
+    ledgerCounts.entities < dbCounts.entities ||
+    ledgerCounts.attributeDefs < dbCounts.attributeDefs ||
+    ledgerCounts.attributeValues < dbCounts.attributeValues;
+
+  if (!needsBootstrap) {
+    writeFileSync(markerPath, JSON.stringify({ at: Date.now(), reason: 'counts-ok', ledgerCounts, dbCounts }, null, 2));
+    return { ran: false, reason: 'counts ok' };
+  }
+
+  const actor = { userId: 'system', username: 'system', role: 'system' };
+  const CHUNK_SIZE = 1000;
+  const importTable = async (tableName: SyncTableName, rows: any[]) => {
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      const payloads: LedgerTxPayload[] = chunk.map((row) => {
+        const syncRow = toSyncRow(tableName, row);
+        const deletedAt = syncRow.deleted_at ?? null;
+        const ts = Number(syncRow.updated_at ?? Date.now());
+        return {
+          type: deletedAt ? 'delete' : 'upsert',
+          table: tableName,
+          row: syncRow,
+          row_id: syncRow.id,
+          actor,
+          ts,
+        };
+      });
+      signAndAppend(payloads);
+    }
+  };
+
+  await importTable(SyncTableName.EntityTypes, await db.select().from(entityTypes));
+  await importTable(SyncTableName.Entities, await db.select().from(entities));
+  await importTable(SyncTableName.AttributeDefs, await db.select().from(attributeDefs));
+  await importTable(SyncTableName.AttributeValues, await db.select().from(attributeValues));
+  await importTable(SyncTableName.Operations, await db.select().from(operations));
+  await importTable(SyncTableName.AuditLog, await db.select().from(auditLog));
+  await importTable(SyncTableName.ChatMessages, await db.select().from(chatMessages));
+  await importTable(SyncTableName.ChatReads, await db.select().from(chatReads));
+  await importTable(SyncTableName.UserPresence, await db.select().from(userPresence));
+  await importTable(SyncTableName.Notes, await db.select().from(notes));
+  await importTable(SyncTableName.NoteShares, await db.select().from(noteShares));
+
+  writeFileSync(markerPath, JSON.stringify({ at: Date.now(), reason: 'bootstrap', ledgerCounts, dbCounts }, null, 2));
+  return { ran: true, reason: 'bootstrap complete' };
 }
 
 export function queryState(

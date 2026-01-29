@@ -6,6 +6,7 @@ import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
+import { getUpdatesRootDir } from './updatePaths.js';
 
 export type TorrentUpdateManifest = {
   ok: true;
@@ -64,8 +65,8 @@ type TorrentSeedInfo = {
   torrentPath: string;
 };
 
-const TORRENT_CACHE_ROOT = () => join(app.getPath('downloads'), 'MatricaRMZ-Updates');
-const SEED_INFO_PATH = () => join(TORRENT_CACHE_ROOT(), 'torrent-seed.json');
+const TORRENT_CACHE_ROOT = () => getUpdatesRootDir();
+const SEED_INFO_PATH = () => join(getUpdatesRootDir(), 'torrent-seed.json');
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 const NO_PROGRESS_TIMEOUT_MS = 120_000;

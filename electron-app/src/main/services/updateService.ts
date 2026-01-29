@@ -20,6 +20,7 @@ import {
 } from './torrentUpdateService.js';
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
+import { getUpdatesRootDir } from './updatePaths.js';
 import { registerLanPeer, startLanUpdateServer } from './lanUpdateService.js';
 import { createHash } from 'node:crypto';
 
@@ -115,10 +116,6 @@ async function openInstallerFolder(installerPath: string) {
 
 function updaterLogPath() {
   return join(app.getPath('userData'), 'matricarmz-updater.log');
-}
-
-function getUpdatesRootDir() {
-  return join(app.getPath('downloads'), 'MatricaRMZ-Updates');
 }
 
 function updateLockPath() {

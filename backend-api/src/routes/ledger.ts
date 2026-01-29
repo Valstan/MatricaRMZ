@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
 import { randomUUID } from 'node:crypto';
-import { listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
+import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 
 export const ledgerRouter = Router();
@@ -149,7 +149,7 @@ ledgerRouter.get('/state/query', (req, res) => {
   return res.json({ ok: true, rows });
 });
 
-ledgerRouter.get('/state/changes', (req, res) => {
+ledgerRouter.get('/state/changes', async (req, res) => {
   const parsed = z
     .object({
       since: z.coerce.number().int().nonnegative().default(0),
@@ -157,6 +157,9 @@ ledgerRouter.get('/state/changes', (req, res) => {
     })
     .safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  if (parsed.data.since === 0) {
+    await ensureLedgerBootstrap().catch(() => null);
+  }
   const { hasMore, lastSeq, changes } = listChangesSince(parsed.data.since, parsed.data.limit ?? 5000);
   return res.json({
     server_cursor: lastSeq,
