@@ -1271,6 +1271,22 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       groups.operations = groups.operations.filter((row: any) => !!row.engineEntityId);
     }
   }
+  if (groups.chat_messages.length > 0) {
+    const invalid = groups.chat_messages.filter(
+      (row: any) => !row.senderUserId || !row.senderUsername || !row.messageType,
+    );
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop chat_messages without sender_user_id/sender_username/message_type count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.chat_messages = groups.chat_messages.filter(
+        (row: any) => !!row.senderUserId && !!row.senderUsername && !!row.messageType,
+      );
+    }
+  }
   if (groups.chat_reads.length > 0) {
     const invalid = groups.chat_reads.filter(
       (row: any) => !row.messageId || !row.userId || row.readAt == null,

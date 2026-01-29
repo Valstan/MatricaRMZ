@@ -1,0 +1,16 @@
+{
+  "at": 1769717003151,
+  "reason": "bootstrap",
+  "ledgerCounts": {
+    "entityTypes": 32,
+    "entities": 28,
+    "attributeDefs": 174,
+    "attributeValues": 42
+  },
+  "dbCounts": {
+    "entityTypes": 222,
+    "entities": 347,
+    "attributeDefs": 127,
+    "attributeValues": 403
+  }
+}

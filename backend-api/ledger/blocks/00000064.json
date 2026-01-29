@@ -1,0 +1,32 @@
+{
+  "height": 64,
+  "prev_hash": "3ca5ef1c5929ef3637c9f3d9e80fed0be24352952f7e3779ab79e927c0d0fc28",
+  "created_at": 1769718276642,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "operations",
+      "row": {
+        "id": "370a3c24-d444-4e4b-bc42-4e57f3f2733f",
+        "status": "checklist",
+        "note": "Лист дефектовки двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null
+      },
+      "row_id": "370a3c24-d444-4e4b-bc42-4e57f3f2733f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769718276641,
+      "seq": 2371,
+      "tx_id": "d59a126268a7a9fe26dc86c1abdfa70f961791a645db157bc45185c7caaab073",
+      "signature": "BslVVXFHIwN8Z8Vrqff2VP412Lol4QjT12wOqKkvDD8m1o23SmGoP/qDToYvElT6xB+RyPY0lSNA458rNg6ODQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "205666e252da2f09aa6d4fac7e951b6eeab5a15f0fb4bd9fc9bbbe8144c31a3e"
+}
