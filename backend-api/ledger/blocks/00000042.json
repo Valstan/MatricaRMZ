@@ -1,0 +1,35 @@
+{
+  "height": 42,
+  "prev_hash": "7a5ba28991c4aa77fb8573656d151819de63cbb8a2da341804783336d8cbc937",
+  "created_at": 1769691090078,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "release_registry",
+      "row": {
+        "id": "d900f15f-0728-44e0-927a-0479449601b3",
+        "version": "1.0.15",
+        "notes": "Fix sync: drop invalid notes rows; updater now leaves app running after update check",
+        "sha256": "56f4749735d0802e1419d4fa189d9b78639252a95879030ec8218396790ba188",
+        "file_name": "MatricaRMZ-Setup-1.0.15.exe",
+        "size": 93911136,
+        "payload_json": null,
+        "created_at": 1769691090074,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin"
+      },
+      "row_id": "d900f15f-0728-44e0-927a-0479449601b3",
+      "actor": {
+        "userId": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "username": "admin",
+        "role": "admin"
+      },
+      "ts": 1769691090074,
+      "seq": 105,
+      "tx_id": "7b8eeb64a9ff5ba3a5114ddb748130961ee21ecfb5f485964066931091984266",
+      "signature": "LWiIxfeK2WdarUxeBOIsrKG4JCVLlaGgz/XJ3hqs2Cze43Kk7pPVujZv0n199F9mOpzE/NIIUw2HOM6jx06gCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "9b2cf9ac30f428ce8f12c93cad03d56621a5f0fc9c8a1288c331eeef208f7d31"
+}

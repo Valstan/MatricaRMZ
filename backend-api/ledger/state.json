@@ -120,7 +120,27 @@
       "064be67a-0fc1-49e0-b36a-32cb51750cea": {
         "id": "064be67a-0fc1-49e0-b36a-32cb51750cea",
         "deleted_at": null,
-        "updated_at": 1769681203151
+        "updated_at": 1769692308947
+      },
+      "83ff99f2-f3e3-40da-b271-54caef261344": {
+        "id": "83ff99f2-f3e3-40da-b271-54caef261344",
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "0d1bfc7c-6968-4016-a45b-159ac12746b0": {
+        "id": "0d1bfc7c-6968-4016-a45b-159ac12746b0",
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "e075af9e-29c2-4208-870c-5763b5e38e50": {
+        "id": "e075af9e-29c2-4208-870c-5763b5e38e50",
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "6b5fe3b4-08a5-4e75-b89a-9d7a4d6575e5": {
+        "id": "6b5fe3b4-08a5-4e75-b89a-9d7a4d6575e5",
+        "deleted_at": null,
+        "updated_at": 1769692586354
       }
     },
     "attribute_defs": {
@@ -163,6 +183,66 @@
         "meta_json": null,
         "deleted_at": null,
         "updated_at": 1769544755686
+      },
+      "bc01398e-2cb6-445b-aaa9-9b73c7f2caf9": {
+        "id": "bc01398e-2cb6-445b-aaa9-9b73c7f2caf9",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "b32e5950-9439-4634-b3bc-f2ad6b745273": {
+        "id": "b32e5950-9439-4634-b3bc-f2ad6b745273",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "4a00b546-ab46-4606-acc6-52fe9dc886a7": {
+        "id": "4a00b546-ab46-4606-acc6-52fe9dc886a7",
+        "code": "description",
+        "name": "Описание",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "f6a8ea04-389f-4c46-b953-39bc68bbb4ae": {
+        "id": "f6a8ea04-389f-4c46-b953-39bc68bbb4ae",
+        "code": "shop",
+        "name": "Магазин",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "425bfea0-5045-4ca1-9688-81da4a10abdb": {
+        "id": "425bfea0-5045-4ca1-9688-81da4a10abdb",
+        "code": "article",
+        "name": "Артикул",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "052b2599-a5a3-46d2-b55e-451944b1068e": {
+        "id": "052b2599-a5a3-46d2-b55e-451944b1068e",
+        "code": "price",
+        "name": "Цена",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
       }
     },
     "attribute_values": {
@@ -339,6 +419,84 @@
         "value_json": null,
         "deleted_at": null,
         "updated_at": 1769681188143
+      },
+      "6c1b2918-1cec-46a7-97d0-c5351d199cfe": {
+        "id": "6c1b2918-1cec-46a7-97d0-c5351d199cfe",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692308947
+      },
+      "63f1fad1-6ade-478b-9574-5c0ac72358cf": {
+        "id": "63f1fad1-6ade-478b-9574-5c0ac72358cf",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692308947
+      },
+      "b5ff671c-9b5a-428d-a9ed-a1be7551492f": {
+        "id": "b5ff671c-9b5a-428d-a9ed-a1be7551492f",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692308947
+      },
+      "a95d3b75-41fc-44fe-b10c-53d322beb740": {
+        "id": "a95d3b75-41fc-44fe-b10c-53d322beb740",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692308947
+      },
+      "2dfa548f-8c6c-4948-a0f1-42418f8a9bda": {
+        "id": "2dfa548f-8c6c-4948-a0f1-42418f8a9bda",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "a1a7a92a-e4d1-405a-8064-16427c49cdc7": {
+        "id": "a1a7a92a-e4d1-405a-8064-16427c49cdc7",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692308947
+      },
+      "f1695868-5501-43a2-8974-7ddb85f54b25": {
+        "id": "f1695868-5501-43a2-8974-7ddb85f54b25",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "9505afcf-6b9f-4d03-abcb-1fd2539e0f05": {
+        "id": "9505afcf-6b9f-4d03-abcb-1fd2539e0f05",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "c7c7279d-c26c-4e03-9f96-ff05adcc99c0": {
+        "id": "c7c7279d-c26c-4e03-9f96-ff05adcc99c0",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692308947
+      },
+      "b4473246-8d62-428a-88a8-2d932b0345ba": {
+        "id": "b4473246-8d62-428a-88a8-2d932b0345ba",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "4199f0e8-9563-459b-bbe7-2ef18c952033": {
+        "id": "4199f0e8-9563-459b-bbe7-2ef18c952033",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "3254887c-6856-46fe-b042-63c900b2c8fc": {
+        "id": "3254887c-6856-46fe-b042-63c900b2c8fc",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
+      },
+      "e28e1c61-58b2-444e-9023-f7b21945aca6": {
+        "id": "e28e1c61-58b2-444e-9023-f7b21945aca6",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769692586354
       }
     },
     "operations": {
@@ -671,6 +829,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769687657422
+      },
+      "d900f15f-0728-44e0-927a-0479449601b3": {
+        "id": "d900f15f-0728-44e0-927a-0479449601b3",
+        "version": "1.0.15",
+        "notes": "Fix sync: drop invalid notes rows; updater now leaves app running after update check",
+        "sha256": "56f4749735d0802e1419d4fa189d9b78639252a95879030ec8218396790ba188",
+        "file_name": "MatricaRMZ-Setup-1.0.15.exe",
+        "size": 93911136,
+        "payload_json": null,
+        "created_at": 1769691090074,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769691090074
       }
     },
     "notes": {

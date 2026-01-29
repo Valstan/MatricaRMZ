@@ -32,6 +32,7 @@ export function SettingsPage(props: {
   const [torrentStatus, setTorrentStatus] = useState<any | null>(null);
   const [torrentLoading, setTorrentLoading] = useState<boolean>(false);
   const [updateResetLoading, setUpdateResetLoading] = useState<boolean>(false);
+  const [localDbResetLoading, setLocalDbResetLoading] = useState<boolean>(false);
 
   function formatError(e: unknown): string {
     if (e == null) return 'unknown error';
@@ -147,6 +148,28 @@ export function SettingsPage(props: {
     } finally {
       setUpdateResetLoading(false);
       void refreshTorrentStatus();
+    }
+  }
+
+  async function handleResetLocalDb() {
+    if (
+      !confirm(
+        'Сбросить локальную базу данных? Все локальные данные, настройки и авторизация будут удалены. Клиент перезапустится и попросит вход заново.',
+      )
+    )
+      return;
+    try {
+      setLocalDbResetLoading(true);
+      const r = await window.matrica.sync.resetLocalDb();
+      if (r?.ok) {
+        setStatus('Локальная база очищена. Клиент перезапускается...');
+      } else {
+        setStatus(`Ошибка сброса базы: ${formatError(r?.error ?? 'unknown error')}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка сброса базы: ${formatError(e)}`);
+    } finally {
+      setLocalDbResetLoading(false);
     }
   }
 
@@ -410,6 +433,18 @@ export function SettingsPage(props: {
           </Button>
           <Button variant="ghost" disabled={updateResetLoading} onClick={() => void handleResetUpdates()}>
             Сбросить кэш обновлений
+          </Button>
+        </div>
+      </div>
+
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--surface)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Локальная база</h3>
+        <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
+          Сброс удаляет локальные данные и настройки пользователя. После перезапуска потребуется войти заново и дождаться синхронизации.
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button variant="ghost" disabled={localDbResetLoading} onClick={() => void handleResetLocalDb()}>
+            Сбросить локальную базу
           </Button>
         </div>
       </div>

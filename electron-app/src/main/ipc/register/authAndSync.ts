@@ -1,4 +1,4 @@
-import { ipcMain, net } from 'electron';
+import { app, ipcMain, net } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
 import {
@@ -14,7 +14,7 @@ import {
   presenceMe,
 } from '../../services/authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
-import { resetSyncState } from '../../services/syncService.js';
+import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { isViewMode } from '../ipcContext.js';
 import { logMessageSetEnabled, logMessageSetMode } from '../../services/logService.js';
 
@@ -72,6 +72,21 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
     await resetSyncState(ctx.sysDb);
     return { ok: true as const };
+  });
+  ipcMain.handle('sync:resetLocalDb', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
+    ctx.mgr.stopAuto();
+    const res = await resetLocalDatabase(ctx.sysDb, 'ui');
+    if (!res.ok) return res;
+    setTimeout(() => {
+      try {
+        app.relaunch();
+      } catch {
+        // ignore
+      }
+      app.exit(0);
+    }, 500);
+    return { ok: true as const, restarting: true };
   });
   ipcMain.handle('sync:config:get', async () => {
     try {

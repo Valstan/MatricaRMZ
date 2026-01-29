@@ -4,6 +4,7 @@ import { app } from 'electron';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
@@ -1612,179 +1613,293 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   await setSyncStateNumber(db, SettingsKey.LastAppliedAt, ts);
 }
 
+function normalizeApiBaseUrl(raw: string): string {
+  return String(raw ?? '').trim().replace(/\/+$/, '');
+}
+
+function isNotFoundSyncError(err: string): boolean {
+  const text = String(err ?? '');
+  return text.includes('HTTP 404') || text.includes('status=404');
+}
+
+async function probeServerHealth(baseUrl: string): Promise<boolean> {
+  const safeBase = normalizeApiBaseUrl(baseUrl);
+  if (!safeBase) return false;
+  const healthUrl = `${safeBase}/health`;
+  try {
+    const res = await fetchWithRetry(
+      healthUrl,
+      { method: 'GET' },
+      { attempts: 2, timeoutMs: 6000, backoffMs: 400, maxBackoffMs: 1500, jitterMs: 150, allowOffline: true },
+    );
+    if (!res.ok) return false;
+    const json = (await res.json().catch(() => null)) as any;
+    if (json && (json.ok === true || json.version || json.buildDate)) return true;
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function apiBaseCandidates(baseUrl: string): string[] {
+  const base = normalizeApiBaseUrl(baseUrl);
+  if (!base) return [];
+  const candidates = new Set<string>();
+  candidates.add(base);
+  if (base.endsWith('/api')) {
+    candidates.add(base.replace(/\/api$/, ''));
+  } else {
+    candidates.add(`${base}/api`);
+  }
+  if (base.endsWith('/api/v1')) {
+    candidates.add(base.replace(/\/api\/v1$/, ''));
+  } else {
+    candidates.add(`${base}/api/v1`);
+  }
+  return Array.from(candidates);
+}
+
+async function tryRecoverApiBaseUrl(db: BetterSQLite3Database, current: string): Promise<string | null> {
+  const candidates = apiBaseCandidates(current);
+  for (const candidate of candidates) {
+    if (candidate === current) continue;
+    const ok = await probeServerHealth(candidate);
+    if (!ok) continue;
+    await settingsSetString(db, SettingsKey.ApiBaseUrl, candidate).catch(() => {});
+    logSync(`sync auto-fix apiBaseUrl=${candidate}`);
+    return candidate;
+  }
+  return null;
+}
+
+export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui') {
+  try {
+    logSync(`local db reset requested reason=${reason}`);
+    await clearSession(db).catch(() => {});
+
+    const sqlite = getSqliteHandle();
+    if (sqlite) {
+      try {
+        sqlite.pragma('wal_checkpoint(TRUNCATE)');
+      } catch {
+        // ignore
+      }
+      try {
+        sqlite.close();
+      } catch {
+        // ignore
+      }
+    }
+
+    const userData = app.getPath('userData');
+    const dbPath = join(userData, 'matricarmz.sqlite');
+    await rm(dbPath, { force: true });
+    await rm(`${dbPath}-wal`, { force: true });
+    await rm(`${dbPath}-shm`, { force: true });
+    await rm(join(userData, 'ledger'), { recursive: true, force: true });
+    await rm(join(userData, 'ledger-client-key.json'), { force: true });
+    return { ok: true as const };
+  } catch (e) {
+    logSync(`local db reset failed: ${String(e)}`);
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function runSync(db: BetterSQLite3Database, clientId: string, apiBaseUrl: string): Promise<SyncRunResult> {
   const startedAt = nowMs();
-  try {
-    const session = await getSession(db).catch(() => null);
-    if (!session?.accessToken) {
-      void logMessage(db, apiBaseUrl, 'warn', 'sync blocked: auth required', { component: 'sync', action: 'run', critical: true });
-      return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
-    }
-
-    const schema = await fetchSyncSchemaSnapshot(db, apiBaseUrl).catch(() => null);
-    await repairLocalSyncTables(db, schema ?? null).catch(() => {});
-
-    logSync(`start clientId=${clientId} apiBaseUrl=${apiBaseUrl}`);
-    const pullOnce = async (sinceValue: number) => {
-      const pullUrl = `${apiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}`;
-      const pull = await fetchAuthed(db, apiBaseUrl, pullUrl, { method: 'GET' }, { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' });
-      if (!pull.ok) {
-        const body = await safeBodyText(pull);
-        logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
-        if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
-        throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
+  let currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  let attemptedFix = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const session = await getSession(db).catch(() => null);
+      if (!session?.accessToken) {
+        void logMessage(db, currentApiBaseUrl, 'warn', 'sync blocked: auth required', { component: 'sync', action: 'run', critical: true });
+        return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
       }
-      const pullJson = (await pull.json()) as SyncPullResponse;
-      await applyPulledChanges(db, pullJson.changes);
-      await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
-      await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
-      return pullJson;
-    };
-    const pullAll = async (sinceValue: number) => {
-      let sinceCursor = sinceValue;
-      let totalPulled = 0;
-      let last: SyncPullResponse | null = null;
-      for (let i = 0; i < 2000; i += 1) {
-        const res = await pullOnce(sinceCursor);
-        totalPulled += res.changes.length;
-        last = res;
-        if (!res.has_more) break;
-        if (res.server_cursor === sinceCursor) {
-          logSync(`pull paging stalled cursor=${sinceCursor}, stopping`);
-          break;
-        }
-        sinceCursor = res.server_cursor;
-      }
-      return { last, totalPulled };
-    };
-    let upserts = await collectPending(db);
-    let pushed = 0;
 
-    if (upserts.length > 0) {
-      let attemptedChatReadsFix = false;
-      let attemptedDependencyRecovery = false;
-      let pushedPacks = upserts;
+      const schema = await fetchSyncSchemaSnapshot(db, currentApiBaseUrl).catch(() => null);
+      await repairLocalSyncTables(db, schema ?? null).catch(() => {});
 
-      while (pushedPacks.length > 0) {
-        const summary = pushedPacks.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
-        const total = pushedPacks.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
-        logSync(`push pending total=${total} packs=[${summary}]`);
-        const ledgerTxs = pushedPacks.flatMap((pack) => (pack.rows as any[]).map((row) => toLedgerTx(pack.table, row)));
-        const pushBody = { txs: ledgerTxs };
-        const pushUrl = `${apiBaseUrl}/ledger/tx/submit`;
-        const r = await fetchAuthed(
+      logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
+      const pullOnce = async (sinceValue: number) => {
+        const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}`;
+        const pull = await fetchAuthed(
           db,
-          apiBaseUrl,
-          pushUrl,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
-          { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
+          currentApiBaseUrl,
+          pullUrl,
+          { method: 'GET' },
+          { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' },
         );
-        if (!r.ok) {
-          const body = await safeBodyText(r);
-          logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
-          if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
-          if (!attemptedChatReadsFix && r.status >= 500 && isChatReadsDuplicateError(body)) {
-            const chatReadsPack = pushedPacks.find((p) => p.table === SyncTableName.ChatReads);
-            const messageIds = (chatReadsPack?.rows as any[] | undefined)
-              ?.map((row) => String((row as any).message_id ?? (row as any).messageId ?? ''))
-              .filter(Boolean);
-            const session = await getSession(db).catch(() => null);
-            const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
-            logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
-            attemptedChatReadsFix = true;
-            pushedPacks = await collectPending(db);
-            if (pushedPacks.length === 0) {
-              pushed = 0;
-              break;
-            }
-            continue;
-          }
-          if (!attemptedDependencyRecovery && isDependencyMissingError(body)) {
-            attemptedDependencyRecovery = true;
-            logSync(`push dependency missing: forcing full pull and retry`);
-            await resetSyncState(db);
-            await pullAll(0);
-            await markAllEntityTypesPending(db);
-            await markAllAttributeDefsPending(db);
-            pushedPacks = await collectPending(db);
-            if (pushedPacks.length === 0) {
-              pushed = 0;
-              break;
-            }
-            continue;
-          }
-          throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
+        if (!pull.ok) {
+          const body = await safeBodyText(pull);
+          logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
+          if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
+          throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
         }
-        const json = (await r.json()) as { ok: boolean; applied?: number };
-        pushed = json.applied ?? 0;
-
-        // После успешного push помечаем отправленные строки как synced.
-        for (const pack of pushedPacks) {
-          const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
-          await markAllSynced(db, pack.table, ids);
+        const pullJson = (await pull.json()) as SyncPullResponse;
+        await applyPulledChanges(db, pullJson.changes);
+        await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
+        await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
+        return pullJson;
+      };
+      const pullAll = async (sinceValue: number) => {
+        let sinceCursor = sinceValue;
+        let totalPulled = 0;
+        let last: SyncPullResponse | null = null;
+        for (let i = 0; i < 2000; i += 1) {
+          const res = await pullOnce(sinceCursor);
+          totalPulled += res.changes.length;
+          last = res;
+          if (!res.has_more) break;
+          if (res.server_cursor === sinceCursor) {
+            logSync(`pull paging stalled cursor=${sinceCursor}, stopping`);
+            break;
+          }
+          sinceCursor = res.server_cursor;
         }
-        break;
-      }
-    }
+        return { last, totalPulled };
+      };
+      let upserts = await collectPending(db);
+      let pushed = 0;
 
-    let since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
-    // Self-heal: if cursor is advanced but local DB looks empty/corrupted, force a full pull.
-    // This can happen if a previous client version updated cursor but failed to apply pulled rows.
-    if (since > 0) {
-      const requiredTypes = [
-        EntityTypeCode.Engine,
-        EntityTypeCode.EngineBrand,
-        EntityTypeCode.Part,
-        EntityTypeCode.Employee,
-        EntityTypeCode.Contract,
-        EntityTypeCode.Customer,
-      ];
-      for (const code of requiredTypes) {
-        const t = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.code, code)).limit(1);
-        if (!t[0]?.id) {
-          logSync(`force full pull (since=0): missing local entity_type '${code}' while since=${since}`);
-          since = 0;
+      if (upserts.length > 0) {
+        let attemptedChatReadsFix = false;
+        let attemptedDependencyRecovery = false;
+        let pushedPacks = upserts;
+
+        while (pushedPacks.length > 0) {
+          const summary = pushedPacks.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
+          const total = pushedPacks.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
+          logSync(`push pending total=${total} packs=[${summary}]`);
+          const ledgerTxs = pushedPacks.flatMap((pack) => (pack.rows as any[]).map((row) => toLedgerTx(pack.table, row)));
+          const pushBody = { txs: ledgerTxs };
+          const pushUrl = `${currentApiBaseUrl}/ledger/tx/submit`;
+          const r = await fetchAuthed(
+            db,
+            currentApiBaseUrl,
+            pushUrl,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
+            { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
+          );
+          if (!r.ok) {
+            const body = await safeBodyText(r);
+            logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
+            if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
+            if (!attemptedChatReadsFix && r.status >= 500 && isChatReadsDuplicateError(body)) {
+              const chatReadsPack = pushedPacks.find((p) => p.table === SyncTableName.ChatReads);
+              const messageIds = (chatReadsPack?.rows as any[] | undefined)
+                ?.map((row) => String((row as any).message_id ?? (row as any).messageId ?? ''))
+                .filter(Boolean);
+              const session = await getSession(db).catch(() => null);
+              const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
+              logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
+              attemptedChatReadsFix = true;
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedDependencyRecovery && isDependencyMissingError(body)) {
+              attemptedDependencyRecovery = true;
+              logSync(`push dependency missing: forcing full pull and retry`);
+              await resetSyncState(db);
+              await pullAll(0);
+              await markAllEntityTypesPending(db);
+              await markAllAttributeDefsPending(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
+          }
+          const json = (await r.json()) as { ok: boolean; applied?: number };
+          pushed = json.applied ?? 0;
+
+          // После успешного push помечаем отправленные строки как synced.
+          for (const pack of pushedPacks) {
+            const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
+            await markAllSynced(db, pack.table, ids);
+          }
           break;
         }
       }
+
+      let since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
+      // Self-heal: if cursor is advanced but local DB looks empty/corrupted, force a full pull.
+      // This can happen if a previous client version updated cursor but failed to apply pulled rows.
       if (since > 0) {
-        const engineBrandType = await db
-          .select({ id: entityTypes.id })
-          .from(entityTypes)
-          .where(eq(entityTypes.code, EntityTypeCode.EngineBrand))
-          .limit(1);
-        const engineBrandTypeId = engineBrandType[0]?.id ? String(engineBrandType[0].id) : null;
-        if (!engineBrandTypeId) {
-          logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.EngineBrand}' while since=${since}`);
-          since = 0;
-        } else {
-          const nameDef = await db
-            .select({ id: attributeDefs.id })
-            .from(attributeDefs)
-            .where(and(eq(attributeDefs.entityTypeId, engineBrandTypeId), eq(attributeDefs.code, 'name')))
-            .limit(1);
-          if (!nameDef[0]?.id) {
-            logSync(`force full pull (since=0): missing attr 'name' for '${EntityTypeCode.EngineBrand}' while since=${since}`);
+        const requiredTypes = [
+          EntityTypeCode.Engine,
+          EntityTypeCode.EngineBrand,
+          EntityTypeCode.Part,
+          EntityTypeCode.Employee,
+          EntityTypeCode.Contract,
+          EntityTypeCode.Customer,
+        ];
+        for (const code of requiredTypes) {
+          const t = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.code, code)).limit(1);
+          if (!t[0]?.id) {
+            logSync(`force full pull (since=0): missing local entity_type '${code}' while since=${since}`);
             since = 0;
+            break;
+          }
+        }
+        if (since > 0) {
+          const engineBrandType = await db
+            .select({ id: entityTypes.id })
+            .from(entityTypes)
+            .where(eq(entityTypes.code, EntityTypeCode.EngineBrand))
+            .limit(1);
+          const engineBrandTypeId = engineBrandType[0]?.id ? String(engineBrandType[0].id) : null;
+          if (!engineBrandTypeId) {
+            logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.EngineBrand}' while since=${since}`);
+            since = 0;
+          } else {
+            const nameDef = await db
+              .select({ id: attributeDefs.id })
+              .from(attributeDefs)
+              .where(and(eq(attributeDefs.entityTypeId, engineBrandTypeId), eq(attributeDefs.code, 'name')))
+              .limit(1);
+            if (!nameDef[0]?.id) {
+              logSync(`force full pull (since=0): missing attr 'name' for '${EntityTypeCode.EngineBrand}' while since=${since}`);
+              since = 0;
+            }
           }
         }
       }
+
+      const pullRes = await pullAll(since);
+      const pullJson = pullRes.last ?? { server_cursor: since, has_more: false, changes: [] };
+      const pulled = pullRes.totalPulled;
+
+      logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
+      await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
+      await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
+      return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
+    } catch (e) {
+      const err = formatError(e);
+      if (!attemptedFix && isNotFoundSyncError(err)) {
+        attemptedFix = true;
+        const recovered = await tryRecoverApiBaseUrl(db, currentApiBaseUrl);
+        if (recovered && recovered !== currentApiBaseUrl) {
+          currentApiBaseUrl = recovered;
+          continue;
+        }
+      }
+      logSync(`error ${err}`);
+      void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, { component: 'sync', action: 'run', critical: true });
+      return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
     }
-
-    const pullRes = await pullAll(since);
-    const pullJson = pullRes.last ?? { server_cursor: since, has_more: false, changes: [] };
-    const pulled = pullRes.totalPulled;
-
-    logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
-    await sendDiagnosticsSnapshot(db, apiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
-    await syncLedgerBlocks(db, apiBaseUrl).catch(() => {});
-    return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
-  } catch (e) {
-    const err = formatError(e);
-    logSync(`error ${err}`);
-    void logMessage(db, apiBaseUrl, 'error', `sync failed: ${err}`, { component: 'sync', action: 'run', critical: true });
-    return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
   }
+  const err = 'sync failed: apiBaseUrl auto-fix exhausted';
+  logSync(`error ${err}`);
+  void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, { component: 'sync', action: 'run', critical: true });
+  return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
 }
 
 

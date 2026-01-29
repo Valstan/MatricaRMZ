@@ -486,6 +486,7 @@ export type MatricaApi = {
     configGet: () => Promise<{ ok: boolean; apiBaseUrl?: string; error?: string }>;
     configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
     reset: () => Promise<{ ok: boolean; error?: string }>;
+    resetLocalDb: () => Promise<{ ok: boolean; restarting?: boolean; error?: string }>;
   };
   changes: {
     list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;

@@ -48,7 +48,8 @@ contextBridge.exposeInMainWorld('matrica', {
     status: async () => ipcRenderer.invoke('sync:status'),
     configGet: async () => ipcRenderer.invoke('sync:config:get'),
     configSet: async (args: { apiBaseUrl: string }) => ipcRenderer.invoke('sync:config:set', args),
-      reset: async () => ipcRenderer.invoke('sync:reset'),
+    reset: async () => ipcRenderer.invoke('sync:reset'),
+    resetLocalDb: async () => ipcRenderer.invoke('sync:resetLocalDb'),
   },
   changes: {
     list: async (args?: { status?: string; limit?: number }) => ipcRenderer.invoke('changes:list', args),
