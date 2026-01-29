@@ -15,6 +15,10 @@ export const SettingsKey = {
   DiagnosticsSchemaLastFetchedAt: 'diagnostics.schemaLastFetchedAt',
   DiagnosticsSchemaJson: 'diagnostics.schemaJson',
 
+  // Client schema/migrations
+  ClientSchemaVersion: 'schema.clientVersion',
+  ServerSchemaHash: 'schema.serverHash',
+
   // Auth (encrypted JSON payload)
   AuthSession: 'auth.session',
 

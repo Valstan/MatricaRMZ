@@ -24,6 +24,7 @@ import {
 } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
+import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { fetchWithRetry } from './netFetch.js';
@@ -1392,6 +1393,11 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   // callback (which MUST be synchronous) is unsafe.
   // For correctness we apply pulled rows sequentially without wrapping them in a SQLite transaction.
   if (groups.entity_types.length > 0) {
+    groups.entity_types = groups.entity_types.map((row) => {
+      const createdAt = Number.isFinite(Number(row.createdAt ?? NaN)) ? Number(row.createdAt) : Number(row.updatedAt ?? ts);
+      const updatedAt = Number.isFinite(Number(row.updatedAt ?? NaN)) ? Number(row.updatedAt) : createdAt;
+      return { ...row, createdAt, updatedAt };
+    });
     await db
       .insert(entityTypes)
       .values(groups.entity_types)
@@ -1718,6 +1724,21 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       }
 
       const schema = await fetchSyncSchemaSnapshot(db, currentApiBaseUrl).catch(() => null);
+      const compatibility = await ensureClientSchemaCompatible(db, schema ?? null, { log: logSync }).catch((e) => ({
+        action: 'rebuild' as const,
+        reason: `compat check failed: ${String(e)}`,
+      }));
+      if (compatibility.action === 'rebuild') {
+        logSync(`schema rebuild: ${compatibility.reason ?? 'unknown'}`);
+        await resetLocalDatabase(db, 'schema_mismatch');
+        return {
+          ok: false,
+          pushed: 0,
+          pulled: 0,
+          serverCursor: 0,
+          error: 'local database rebuilt for schema compatibility; please login again',
+        };
+      }
       await repairLocalSyncTables(db, schema ?? null).catch(() => {});
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
