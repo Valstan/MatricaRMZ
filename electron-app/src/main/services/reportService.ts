@@ -468,12 +468,3 @@ export async function buildPeriodStagesCsvByLink(
   }
 }
 
-function safeJsonParse(s: string): unknown {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return s;
-  }
-}
-
-
