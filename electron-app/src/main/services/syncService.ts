@@ -1285,6 +1285,18 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       );
     }
   }
+  if (groups.notes.length > 0) {
+    const invalid = groups.notes.filter((row: any) => !row.ownerUserId || !row.title);
+    if (invalid.length > 0) {
+      logSync(
+        `pull drop notes without owner_user_id/title count=${invalid.length} sample=${invalid
+          .slice(0, 3)
+          .map((r: any) => r.id)
+          .join(',')}`,
+      );
+      groups.notes = groups.notes.filter((row: any) => !!row.ownerUserId && !!row.title);
+    }
+  }
   if (groups.attribute_values.length > 0) {
     const entityIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.entityId))));
     const defIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.attributeDefId))));

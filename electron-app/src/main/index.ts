@@ -285,7 +285,11 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform === 'darwin') return;
+  // During startup update flow, the update window can be the only window.
+  // Prevent quitting before the main window is ready.
+  if (!allowMainWindowShow) return;
+  app.quit();
 });
 
 // Тестовый IPC: проверяем связку renderer -> main.

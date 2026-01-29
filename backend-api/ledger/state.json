@@ -658,6 +658,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769682802367
+      },
+      "8e1dfc54-8baf-43a6-8458-587e0be4f935": {
+        "id": "8e1dfc54-8baf-43a6-8458-587e0be4f935",
+        "version": "1.0.14",
+        "notes": "Supply reports: defect/supply stats with contract totals; updater recovery/reset and cache integrity messaging",
+        "sha256": "4217fbc2248b0333b2ae779e53face815f785d1fba52141049e3843380a62323",
+        "file_name": "MatricaRMZ-Setup-1.0.14.exe",
+        "size": 93911020,
+        "payload_json": null,
+        "created_at": 1769687657422,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769687657422
       }
     },
     "notes": {
