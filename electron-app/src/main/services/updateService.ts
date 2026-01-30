@@ -45,6 +45,8 @@ const autoUpdater = updater.autoUpdater;
 
 const UPDATE_CHECK_TIMEOUT_MS = 20_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+const UPDATE_DOWNLOAD_NO_PROGRESS_MS = 45_000;
+const UPDATE_BITS_TIMEOUT_MS = 12 * 60_000;
 const LAN_PEER_PING_MS = 30_000;
 
 function getUpdateApiBaseUrl() {
@@ -672,6 +674,9 @@ async function findYandexInstallerForVersion(version: string): Promise<string | 
   const dl = await downloadWithResume(href, outPath, {
     attempts: 3,
     timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+    noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+    useBitsOnWindows: true,
+    bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
     backoffMs: 800,
     maxBackoffMs: 6000,
     jitterMs: 300,
@@ -730,6 +735,9 @@ export async function ensureTorrentSeedForCurrentVersion(apiBaseUrl: string) {
       const dl = await downloadWithResume(fileUrl, outPath, {
         attempts: 2,
         timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+        noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+        useBitsOnWindows: true,
+        bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
         backoffMs: 800,
         maxBackoffMs: 5000,
         jitterMs: 200,
@@ -1698,7 +1706,18 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     await sleep(800);
     await setUpdateUi('Запускаем установку…', 80, args.version);
     await writeUpdaterLog(`update-helper launching installer (detached)`);
-    const ok = await spawnInstallerDetached(args.installerPath, 1400);
+    const launchAttempts = [
+      { delayMs: 1400, label: 'helper-try-1' },
+      { delayMs: 3500, label: 'helper-try-2' },
+      { delayMs: 7000, label: 'helper-try-3' },
+    ];
+    let ok = false;
+    for (const attempt of launchAttempts) {
+      await writeUpdaterLog(`update-helper launch attempt=${attempt.label}`);
+      ok = await spawnInstallerDetached(args.installerPath, attempt.delayMs);
+      if (ok) break;
+      await writeUpdaterLog(`update-helper launch failed (${attempt.label})`);
+    }
     if (!ok) {
       await writeUpdaterLog('installer launch failed, returning to app');
       await setUpdateUi('Не удалось запустить установщик (возможно файл занят). Возвращаемся в приложение…', 100, args.version);
@@ -1978,6 +1997,9 @@ async function downloadYandexUpdate(
     return await downloadWithResume(href, outPath, {
       attempts: 4,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+      noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+      useBitsOnWindows: true,
+      bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
@@ -2001,6 +2023,9 @@ async function downloadGithubUpdate(
     return await downloadWithResume(url, outPath, {
       attempts: 4,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+      noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+      useBitsOnWindows: true,
+      bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,

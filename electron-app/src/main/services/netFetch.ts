@@ -1,4 +1,5 @@
 import { net } from 'electron';
+import { spawn } from 'node:child_process';
 import { stat, rename } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
@@ -16,6 +17,9 @@ export type RetryOptions = {
 
 type DownloadOptions = RetryOptions & {
   onProgress?: (pct: number, transferred: number, total: number | null) => void;
+  noProgressTimeoutMs?: number;
+  useBitsOnWindows?: boolean;
+  bitsTimeoutMs?: number;
 };
 
 const RETRYABLE_CODES = new Set([
@@ -30,6 +34,55 @@ const RETRYABLE_CODES = new Set([
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function escapePowerShellString(value: string) {
+  return value.replace(/"/g, '`"');
+}
+
+async function downloadWithBits(url: string, outPath: string, timeoutMs?: number): Promise<{ ok: boolean; error?: string }> {
+  if (process.platform !== 'win32') return { ok: false, error: 'bits unsupported' };
+  const escapedUrl = escapePowerShellString(url);
+  const escapedPath = escapePowerShellString(outPath);
+  const cmd = [
+    `$ProgressPreference='SilentlyContinue'`,
+    `Start-BitsTransfer -Source "${escapedUrl}" -Destination "${escapedPath}" -TransferType Download -Priority Foreground -ErrorAction Stop`,
+  ].join('; ');
+  return await new Promise((resolve) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    let done = false;
+    const finish = (ok: boolean, error?: string) => {
+      if (done) return;
+      done = true;
+      resolve(ok ? { ok: true } : { ok: false, error: error ?? 'bits failed' });
+    };
+    const timer =
+      timeoutMs && Number.isFinite(timeoutMs)
+        ? setTimeout(() => {
+            try {
+              child.kill();
+            } catch {
+              // ignore
+            }
+            finish(false, 'bits timeout');
+          }, Math.max(10_000, timeoutMs))
+        : null;
+    child.once('error', (err) => {
+      if (timer) clearTimeout(timer);
+      finish(false, String(err));
+    });
+    child.once('exit', (code) => {
+      if (timer) clearTimeout(timer);
+      if (code === 0) {
+        finish(true);
+      } else {
+        finish(false, `bits exit ${code ?? 'unknown'}`);
+      }
+    });
+  });
 }
 
 function getBackoffMs(attempt: number, opts: RetryOptions) {
@@ -50,6 +103,7 @@ export function isTransientNetworkError(e: unknown): boolean {
   if (name === 'AbortError') return true;
   return (
     message.includes('timeout') ||
+    message.includes('no-progress') ||
     message.includes('socket hang up') ||
     message.includes('network') ||
     message.includes('ENOTFOUND') ||
@@ -100,6 +154,7 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
     }
     const ac = new AbortController();
     let timeoutId: NodeJS.Timeout | null = null;
+    let noProgressTimer: NodeJS.Timeout | null = null;
     const armTimeout = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
@@ -109,6 +164,21 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       let existingSize = 0;
       const st = await stat(outPath).catch(() => null);
       if (st?.isFile()) existingSize = st.size;
+
+      let lastProgressAt = Date.now();
+      const noProgressMs = Math.max(
+        10_000,
+        Number.isFinite(opts.noProgressTimeoutMs)
+          ? Math.max(5_000, Number(opts.noProgressTimeoutMs))
+          : Math.min(60_000, Math.floor(opts.timeoutMs / 2)),
+      );
+      if (noProgressMs > 0) {
+        noProgressTimer = setInterval(() => {
+          if (Date.now() - lastProgressAt > noProgressMs) {
+            ac.abort(new Error('no-progress-timeout'));
+          }
+        }, Math.min(5000, Math.max(1000, Math.floor(noProgressMs / 2))));
+      }
 
       const headers = new Headers();
       if (existingSize > 0) headers.set('Range', `bytes=${existingSize}-`);
@@ -128,6 +198,7 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       const stream = Readable.fromWeb(res.body as any);
       stream.on('data', (chunk) => {
         armTimeout();
+        lastProgressAt = Date.now();
         const len = chunk?.length ?? 0;
         transferred += len;
         const pct = total ? Math.max(0, Math.min(99, Math.floor((transferred / total) * 100))) : 0;
@@ -143,7 +214,13 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       await sleep(getBackoffMs(attempt, opts));
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      if (noProgressTimer) clearInterval(noProgressTimer);
     }
+  }
+  if (opts.useBitsOnWindows && process.platform === 'win32') {
+    const bits = await downloadWithBits(url, outPath, opts.bitsTimeoutMs ?? opts.timeoutMs);
+    if (bits.ok) return { ok: true as const, filePath: outPath };
+    return { ok: false as const, error: String(bits.error ?? lastErr ?? 'download failed') };
   }
   return { ok: false as const, error: String(lastErr ?? 'download failed') };
 }

@@ -454,6 +454,9 @@ export async function downloadTorrentUpdate(
           const r = await downloadWithResume(url, installerPath, {
             attempts: 2,
             timeoutMs: 20_000,
+          noProgressTimeoutMs: 20_000,
+          useBitsOnWindows: true,
+          bitsTimeoutMs: 120_000,
             backoffMs: 800,
             maxBackoffMs: 5000,
             jitterMs: 300,
@@ -473,6 +476,9 @@ export async function downloadTorrentUpdate(
         const r = await downloadWithResume(fileUrl, installerPath, {
           attempts: 3,
           timeoutMs: 30_000,
+          noProgressTimeoutMs: 30_000,
+          useBitsOnWindows: true,
+          bitsTimeoutMs: 180_000,
           backoffMs: 1000,
           maxBackoffMs: 8000,
           jitterMs: 300,

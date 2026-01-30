@@ -24451,6 +24451,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769718933010
+      },
+      "d6a56f77-3b80-471f-acb9-eab488d7f13e": {
+        "id": "d6a56f77-3b80-471f-acb9-eab488d7f13e",
+        "version": "1.0.21",
+        "notes": "release 1.0.21",
+        "sha256": "7e8b095afa692a75373a0e385465d012f29a35d6b1bdc8ccc89ed846e7122b6e",
+        "file_name": "MatricaRMZ-Setup-1.0.21.exe",
+        "size": 93913797,
+        "payload_json": null,
+        "created_at": 1769810859053,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769810859053
       }
     },
     "notes": {

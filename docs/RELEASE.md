@@ -39,6 +39,8 @@ pnpm release:auto
 После выпуска релиза **обязательно** зафиксировать его в on‑chain реестре.
 Клиент сверяет версию/имя/размер/SHA256 установщика с данными ledger и откажется устанавливать
 пакет при несовпадении.
+Токен для публикации хранится в `.env` (не коммитится). Рекомендуемая переменная: `MATRICA_LEDGER_RELEASE_TOKEN`
+в `backend-api/.env`. Если переменная не задана, используйте токен вручную в заголовке Authorization.
 ```bash
 curl -sS -X POST http://127.0.0.1:3001/ledger/releases/publish \
   -H "Content-Type: application/json" \
@@ -55,6 +57,7 @@ sha256sum "MatricaRMZ-Setup-X.Y.Z.exe"
 - `MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS` — количество попыток ожидания (по умолчанию 6).
 - `MATRICA_RELEASE_DOWNLOAD_ATTEMPTS` — количество попыток скачивания артефакта (по умолчанию 3).
 - `MATRICA_RELEASE_STATUS_WAIT_MS` — таймаут ожидания `/updates/status` (по умолчанию 120000 мс).
+Также на сервере доступен `sudo` без пароля для операций перезапуска сервисов и управления файлами.
 
 ## Быстрый релиз (оптимальный путь)
 1) Обновить `VERSION` (если нужен переход MAJOR/MINOR).
