@@ -1,0 +1,32 @@
+{
+  "height": 82,
+  "prev_hash": "a6b96b6a95b7ddb97fafe45e673287f2b0a88241e1485c6848c418e7196e9f82",
+  "created_at": 1769807265547,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "operations",
+      "row": {
+        "id": "6bd795f2-c29b-4d91-b0ed-3d294d06cc72",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null
+      },
+      "row_id": "6bd795f2-c29b-4d91-b0ed-3d294d06cc72",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769807265546,
+      "seq": 2625,
+      "tx_id": "ece1755364a72057b536631df889f5fda97212b3532a32f9dfdfc4aab659def9",
+      "signature": "a/HgA3srIh2YwG2EMpgBr+Fd+Y/SUIFspG9fTIn6y7v3YNKxZM+VRUyOM0Frjqojya079ogbcU0T8FbI8jfyBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "5c7afd4542a7477933d200ff8e668b940d2d3948b3bb5e930f99c141f60a2a39"
+}

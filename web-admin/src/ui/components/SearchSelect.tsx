@@ -16,10 +16,15 @@ export function SearchSelect(props: {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState<number>(-1);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createValue, setCreateValue] = useState('');
+  const [createBusy, setCreateBusy] = useState(false);
   const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const createInputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(() => {
     if (!props.value) return null;
@@ -80,6 +85,8 @@ export function SearchSelect(props: {
       setOpen(false);
       setQuery('');
       setActiveIdx(-1);
+      setIsCreating(false);
+      setCreateValue('');
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -105,6 +112,9 @@ export function SearchSelect(props: {
     setOpen(false);
     setQuery('');
     setActiveIdx(-1);
+    setIsCreating(false);
+    setCreateValue('');
+    setCreateBusy(false);
     setPopupRect(null);
   }
 
@@ -115,6 +125,8 @@ export function SearchSelect(props: {
       if (!next) {
         setQuery('');
         setActiveIdx(-1);
+        setIsCreating(false);
+        setCreateValue('');
       }
       return next;
     });
@@ -125,6 +137,48 @@ export function SearchSelect(props: {
     if (!o) return;
     props.onChange(o.id);
     close();
+  }
+
+  useEffect(() => {
+    if (!open || !isCreating) return;
+    const input = createInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [open, isCreating]);
+
+  useEffect(() => {
+    if (!open || isCreating) return;
+    const input = searchInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [open, isCreating]);
+
+  function startCreate() {
+    if (disabled || !props.onCreate) return;
+    setIsCreating(true);
+    setCreateBusy(false);
+    setCreateValue(query.trim());
+    setActiveIdx(-1);
+  }
+
+  async function submitCreate() {
+    if (!props.onCreate || createBusy) return;
+    const label = createValue.trim();
+    if (!label) return;
+    setCreateBusy(true);
+    const id = await props.onCreate(label).catch(() => null);
+    setCreateBusy(false);
+    if (!id) return;
+    props.onChange(id);
+    close();
+  }
+
+  function cancelCreate() {
+    setIsCreating(false);
+    setCreateValue('');
+    setCreateBusy(false);
   }
 
   return (
@@ -193,6 +247,7 @@ export function SearchSelect(props: {
         ? createPortal(
             <div
               ref={popupRef}
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
                 position: 'fixed',
                 left: popupRect.left,
@@ -208,6 +263,7 @@ export function SearchSelect(props: {
             >
               <div style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
                 <input
+                  ref={searchInputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -275,24 +331,77 @@ export function SearchSelect(props: {
                   );
                 })}
                 {props.onCreate && (
-                  <div
-                    onClick={async () => {
-                      const label = window.prompt(props.createLabel ?? 'Добавить');
-                      if (!label?.trim()) return;
-                      const id = await props.onCreate?.(label.trim());
-                      if (!id) return;
-                      props.onChange(id);
-                      close();
-                    }}
-                    style={{
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      borderTop: '1px dashed #e5e7eb',
-                      background: 'transparent',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, color: '#111827' }}>+ Добавить</div>
-                    {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{props.createLabel}</div>}
+                  <div style={{ borderTop: '1px dashed #e5e7eb' }}>
+                    {isCreating ? (
+                      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <input
+                          ref={createInputRef}
+                          value={createValue}
+                          onChange={(e) => setCreateValue(e.target.value)}
+                          placeholder={props.createLabel ?? 'Добавить'}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void submitCreate();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelCreate();
+                            }
+                          }}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            border: '1px solid #d1d5db',
+                            outline: 'none',
+                          }}
+                          disabled={createBusy}
+                        />
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => void submitCreate()}
+                            disabled={createBusy || !createValue.trim()}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: '1px solid #d1d5db',
+                              background: '#fff',
+                              color: '#111827',
+                              cursor: createBusy ? 'default' : 'pointer',
+                            }}
+                          >
+                            {createBusy ? 'Добавляем…' : 'Добавить'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelCreate}
+                            disabled={createBusy}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: '1px solid #e5e7eb',
+                              background: 'transparent',
+                              color: '#6b7280',
+                              cursor: createBusy ? 'default' : 'pointer',
+                            }}
+                          >
+                            Отмена
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={startCreate}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          background: 'transparent',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: '#111827' }}>+ Добавить</div>
+                        {props.createLabel && <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{props.createLabel}</div>}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

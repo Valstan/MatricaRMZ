@@ -93,6 +93,7 @@ export function ContractDetailsPage(props: {
   canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onClose: () => void;
 }) {
   const [contract, setContract] = useState<ContractEntity | null>(null);
   const [defs, setDefs] = useState<AttributeDef[]>([]);
@@ -288,6 +289,38 @@ export function ContractDetailsPage(props: {
     await saveAttr('contract_amount_rub', contractAmount ? Number(contractAmount) : null);
     await saveAttr('unit_price_rub', unitPrice ? Number(unitPrice) : null);
     await saveEngineCounts(engineCountItems);
+  }
+
+  async function saveAllAndClose() {
+    if (props.canEditMasterData) {
+      await saveCore();
+      const pending = Object.entries(editingAttr);
+      if (pending.length > 0) {
+        for (const [code, value] of pending) {
+          await saveAttr(code, value);
+        }
+        setEditingAttr({});
+      }
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!props.canEditMasterData) return;
+    if (!confirm('Удалить контракт?')) return;
+    try {
+      setStatus('Удаление…');
+      const r = await window.matrica.admin.entities.softDelete(props.contractId);
+      if (!r?.ok) {
+        setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Удалено');
+      setTimeout(() => setStatus(''), 900);
+      props.onClose();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
   }
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
@@ -611,6 +644,16 @@ export function ContractDetailsPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
+        {props.canEditMasterData && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        {props.canEditMasterData && (
+          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+            Удалить
+          </Button>
+        )}
         <Button variant="ghost" onClick={printContractCard}>
           Распечатать
         </Button>

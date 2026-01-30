@@ -11,6 +11,7 @@ import {
   upsertEntityType,
   createEntity,
   getEntity,
+  softDeleteEntity,
 } from '../api/masterdata.js';
 
 type Row = {
@@ -193,6 +194,7 @@ export function ContractsPage(props: {
                 <th style={{ textAlign: 'left', padding: 8 }}>Внутр. номер</th>
                 <th style={{ textAlign: 'left', padding: 8 }}>Дата</th>
                 <th style={{ textAlign: 'left', padding: 8 }}>Обновлено</th>
+                {props.canEditMasterData && <th style={{ textAlign: 'left', padding: 8, width: 120 }}>Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -206,11 +208,38 @@ export function ContractsPage(props: {
                   <td style={{ padding: 8, color: '#6b7280' }}>{row.internalNumber || '—'}</td>
                   <td style={{ padding: 8, color: '#6b7280' }}>{row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}</td>
                   <td style={{ padding: 8, color: '#6b7280' }}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}</td>
+                  {props.canEditMasterData && (
+                    <td style={{ padding: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        onClick={async () => {
+                          if (!confirm('Удалить контракт?')) return;
+                          try {
+                            setStatus('Удаление…');
+                            const r = await softDeleteEntity(row.id);
+                            if (!r?.ok) {
+                              setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+                              return;
+                            }
+                            setStatus('Удалено');
+                            setTimeout(() => setStatus(''), 900);
+                            await loadContracts();
+                            if (selectedId === row.id) setSelectedId(null);
+                          } catch (err) {
+                            setStatus(`Ошибка: ${String(err)}`);
+                          }
+                        }}
+                        style={{ color: '#b91c1c' }}
+                      >
+                        Удалить
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ padding: 10, color: '#6b7280' }}>
+                  <td colSpan={props.canEditMasterData ? 5 : 4} style={{ padding: 10, color: '#6b7280' }}>
                     Нет контрактов
                   </td>
                 </tr>
@@ -226,6 +255,7 @@ export function ContractsPage(props: {
               canEditMasterData={props.canEditMasterData}
               canViewFiles={props.canViewFiles}
               canUploadFiles={props.canUploadFiles}
+              onClose={() => setSelectedId(null)}
             />
           </div>
         )}

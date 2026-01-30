@@ -211,23 +211,27 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
     }
 
-    async function filterStaleByUpdatedAt<T extends { id: string; updated_at: number }>(
+    async function filterStaleByUpdatedAt<T extends { id: string; updated_at: number; deleted_at?: number | null }>(
       table: any,
       rows: T[],
     ): Promise<T[]> {
       if (rows.length === 0) return rows;
       const ids = rows.map((r) => r.id);
       const existing = await tx
-        .select({ id: table.id, updatedAt: table.updatedAt })
+        .select({ id: table.id, updatedAt: table.updatedAt, deletedAt: table.deletedAt })
         .from(table)
         .where(inArray(table.id, ids as any));
-      const map = new Map<string, number>();
+      const map = new Map<string, { updatedAt: number; deletedAt: number | null }>();
       for (const r of existing as any[]) {
-        if (r?.id) map.set(String(r.id), Number(r.updatedAt));
+        if (r?.id) map.set(String(r.id), { updatedAt: Number(r.updatedAt), deletedAt: r.deletedAt ?? null });
       }
       return rows.filter((r) => {
         const cur = map.get(String(r.id));
-        return !(typeof cur === 'number' && Number.isFinite(cur) && cur > r.updated_at);
+        if (!cur || !Number.isFinite(cur.updatedAt)) return true;
+        // Allow deletes to go through even if server updatedAt is newer,
+        // so local deletes aren't blocked by clock skew.
+        if (r.deleted_at && cur.deletedAt == null) return true;
+        return !(cur.updatedAt > r.updated_at);
       });
     }
 
@@ -310,7 +314,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               code: r.code,
               name: r.name,
               createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, appliedAt),
+              updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
               syncStatus: 'synced',
             })),
@@ -320,7 +324,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
             set: {
               code: sql`excluded.code`,
               name: sql`excluded.name`,
-              updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+              updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
             },
@@ -387,7 +391,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               id: r.id,
               typeId: r.type_id,
               createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, appliedAt),
+              updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
               syncStatus: 'synced',
             })),
@@ -396,7 +400,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
             target: entities.id,
             set: {
               typeId: sql`excluded.type_id`,
-              updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+              updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
             },
@@ -545,7 +549,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               sortOrder: r.sort_order,
               metaJson: r.meta_json ?? null,
               createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, appliedAt),
+              updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
               syncStatus: 'synced',
             })),
@@ -560,7 +564,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               isRequired: sql`excluded.is_required`,
               sortOrder: sql`excluded.sort_order`,
               metaJson: sql`excluded.meta_json`,
-              updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+              updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
             },
@@ -651,7 +655,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               attributeDefId: r.attribute_def_id,
               valueJson: r.value_json ?? null,
               createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, appliedAt),
+              updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
               syncStatus: 'synced',
             })),
@@ -660,7 +664,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
             target: [attributeValues.entityId, attributeValues.attributeDefId],
             set: {
               valueJson: sql`excluded.value_json`,
-              updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+              updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
             },
@@ -737,7 +741,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               performedBy: r.performed_by ?? null,
               metaJson: r.meta_json ?? null,
               createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, appliedAt),
+              updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
               syncStatus: 'synced',
             })),
@@ -752,7 +756,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               performedAt: sql`excluded.performed_at`,
               performedBy: sql`excluded.performed_by`,
               metaJson: sql`excluded.meta_json`,
-              updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+              updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
             },
@@ -793,7 +797,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               tableName: r.table_name ?? null,
               payloadJson: r.payload_json ?? null,
               createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, appliedAt),
+              updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
               syncStatus: 'synced',
             })),
@@ -806,7 +810,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               entityId: sql`excluded.entity_id`,
               tableName: sql`excluded.table_name`,
               payloadJson: sql`excluded.payload_json`,
-              updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+              updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
             },
@@ -889,7 +893,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 bodyText: r.body_text ?? null,
                 payloadJson: r.payload_json ?? null,
                 createdAt: r.created_at,
-                updatedAt: Math.max(r.updated_at, appliedAt),
+                updatedAt: r.updated_at,
                 deletedAt: r.deleted_at ?? null,
                 syncStatus: 'synced',
               })),
@@ -903,7 +907,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 messageType: sql`excluded.message_type`,
                 bodyText: sql`excluded.body_text`,
                 payloadJson: sql`excluded.payload_json`,
-                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                updatedAt: sql`excluded.updated_at`,
                 deletedAt: sql`excluded.deleted_at`,
                 syncStatus: 'synced',
               },
@@ -957,7 +961,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 userId: r.user_id as any,
                 readAt: r.read_at,
                 createdAt: r.created_at,
-                updatedAt: Math.max(r.updated_at, appliedAt),
+                updatedAt: r.updated_at,
                 deletedAt: r.deleted_at ?? null,
                 syncStatus: 'synced',
               })),
@@ -968,7 +972,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 messageId: sql`excluded.message_id`,
                 userId: sql`excluded.user_id`,
                 readAt: sql`GREATEST(excluded.read_at, ${chatReads.readAt})`,
-                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                updatedAt: sql`excluded.updated_at`,
                 deletedAt: sql`excluded.deleted_at`,
                 syncStatus: 'synced',
               },
@@ -1035,7 +1039,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 dueAt: r.due_at ?? null,
                 sortOrder: r.sort_order ?? 0,
                 createdAt: r.created_at,
-                updatedAt: Math.max(r.updated_at, appliedAt),
+                updatedAt: r.updated_at,
                 deletedAt: r.deleted_at ?? null,
                 syncStatus: 'synced',
               })),
@@ -1049,7 +1053,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 importance: sql`excluded.importance`,
                 dueAt: sql`excluded.due_at`,
                 sortOrder: sql`excluded.sort_order`,
-                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                updatedAt: sql`excluded.updated_at`,
                 deletedAt: sql`excluded.deleted_at`,
                 syncStatus: 'synced',
               },
@@ -1141,7 +1145,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 hidden: !!r.hidden,
                 sortOrder: r.sort_order ?? 0,
                 createdAt: r.created_at,
-                updatedAt: Math.max(r.updated_at, appliedAt),
+                updatedAt: r.updated_at,
                 deletedAt: r.deleted_at ?? null,
                 syncStatus: 'synced',
               })),
@@ -1152,7 +1156,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 id: sql`excluded.id`,
                 hidden: sql`excluded.hidden`,
                 sortOrder: sql`excluded.sort_order`,
-                updatedAt: sql`GREATEST(excluded.updated_at, ${appliedAt})`,
+                updatedAt: sql`excluded.updated_at`,
                 deletedAt: sql`excluded.deleted_at`,
                 syncStatus: 'synced',
               },

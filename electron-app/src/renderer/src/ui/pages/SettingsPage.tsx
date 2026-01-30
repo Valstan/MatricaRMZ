@@ -45,9 +45,8 @@ export function SettingsPage(props: {
     }
   }
 
-  async function loadSettings() {
+  async function refreshLoggingConfig() {
     try {
-      setLoading(true);
       const r = await window.matrica.logging.getConfig();
       if (r.ok) {
         setLoggingEnabled(r.enabled);
@@ -55,6 +54,15 @@ export function SettingsPage(props: {
       } else {
         setStatus(`Ошибка загрузки: ${formatError(r.error)}`);
       }
+    } catch (e) {
+      setStatus(`Ошибка: ${formatError(e)}`);
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      setLoading(true);
+      await refreshLoggingConfig();
       const auth = await window.matrica.auth.status().catch(() => null);
       if (auth?.loggedIn) {
         setAuthUser(auth.user ?? null);
@@ -69,8 +77,6 @@ export function SettingsPage(props: {
           setProfileUser({ login: String(auth.user.username ?? ''), role: String(auth.user.role ?? '') });
         }
       }
-    } catch (e) {
-      setStatus(`Ошибка: ${formatError(e)}`);
     } finally {
       setLoading(false);
     }
@@ -178,6 +184,11 @@ export function SettingsPage(props: {
     void refreshBackups();
     void refreshE2eStatus();
     void refreshTorrentStatus();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => void refreshLoggingConfig(), 10_000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {

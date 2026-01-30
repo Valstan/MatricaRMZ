@@ -347,6 +347,17 @@ export function RepairChecklistPanel(props: {
     return opt.id;
   }
 
+  async function createCompletenessItem(label: string) {
+    const name = label.trim();
+    if (!name) return null;
+    const created = await partsApi.createPart({ attributes: { name } } as any).catch(() => null);
+    if (!created || !(created as any).ok || !(created as any).part?.id) return null;
+    const part = (created as any).part;
+    const opt = { id: `part:${part.id}`, label: name };
+    setCompletenessOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return opt.id;
+  }
+
   useEffect(() => {
     if (!activeTemplate) return;
     if (props.stage !== 'defect') return;
@@ -790,6 +801,8 @@ export function RepairChecklistPanel(props: {
                                       options={completenessOptions}
                                       disabled={!props.canEdit}
                                       placeholder="Выберите деталь"
+                                      createLabel="Добавить"
+                                      onCreate={props.canEdit ? createCompletenessItem : undefined}
                                       onChange={(next) => {
                                         const selected = completenessOptions.find((o) => o.id === next) ?? null;
                                         setValue(rowIdx, columnId, selected?.label ?? '', true);

@@ -1204,6 +1204,7 @@ export function App() {
           <EngineBrandsPage
             onOpen={openEngineBrand}
             canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
         )}
@@ -1252,6 +1253,11 @@ export function App() {
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedEngineId(null);
+              setEngineDetails(null);
+              setTab('engines');
+            }}
           />
       )}
 
@@ -1267,6 +1273,10 @@ export function App() {
             onOpenPart={openPart}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedEngineBrandId(null);
+              setTab('engine_brands');
+            }}
           />
         )}
         {tab === 'engine' && selectedEngineId && !engineDetails && (
@@ -1293,6 +1303,10 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedRequestId(null);
+              setTab('requests');
+            }}
           />
         )}
 
@@ -1345,6 +1359,10 @@ export function App() {
             canDelete={caps.canDeleteParts}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedPartId(null);
+              setTab('parts');
+            }}
           />
         )}
 
@@ -1356,6 +1374,10 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedContractId(null);
+              setTab('contracts');
+            }}
           />
         )}
 
@@ -1366,6 +1388,10 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedCounterpartyId(null);
+              setTab('counterparties');
+            }}
           />
         )}
 
@@ -1379,6 +1405,10 @@ export function App() {
             canManageUsers={caps.canManageUsers}
             onAccessChanged={triggerEmployeesRefresh}
             me={authStatus.user}
+            onClose={() => {
+              setSelectedEmployeeId(null);
+              setTab('employees');
+            }}
           />
         )}
 
@@ -1392,6 +1422,10 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedProductId(null);
+              setTab('products');
+            }}
           />
         )}
 
@@ -1405,6 +1439,10 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onClose={() => {
+              setSelectedServiceId(null);
+              setTab('services');
+            }}
           />
         )}
 

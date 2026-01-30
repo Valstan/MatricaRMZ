@@ -159,6 +159,7 @@ export function EmployeeDetailsPage(props: {
   canManageUsers: boolean;
   onAccessChanged?: () => void;
   me?: { id: string; role: string; username: string } | null;
+  onClose: () => void;
 }) {
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [status, setStatus] = useState('');
@@ -361,6 +362,43 @@ export function EmployeeDetailsPage(props: {
     }
     setStatus('Сохранено');
     setTimeout(() => setStatus(''), 1200);
+  }
+
+  async function saveAllAndClose() {
+    if (props.canEdit) {
+      await saveAttr('last_name', lastName.trim() || null);
+      await saveAttr('first_name', firstName.trim() || null);
+      await saveAttr('middle_name', middleName.trim() || null);
+      await saveAttr('full_name', computedFullName || null);
+      await saveAttr('personnel_number', personnelNumber.trim() || null);
+      await saveAttr('birth_date', fromInputDate(birthDate));
+      await saveAttr('role', position.trim() || null);
+      await saveAttr('employment_status', employmentStatus);
+      await saveAttr('hire_date', fromInputDate(hireDate));
+      await saveAttr('termination_date', fromInputDate(terminationDate));
+      await saveAttr('department_id', departmentId || null);
+      await saveAttr('transfers', transfers);
+      await saveAttr('attachments', attachments);
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!props.canEdit) return;
+    if (!confirm('Удалить сотрудника?')) return;
+    try {
+      setStatus('Удаление…');
+      const r = await window.matrica.employees.delete(props.employeeId);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Удалено');
+      setTimeout(() => setStatus(''), 900);
+      props.onClose();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
   }
 
   async function loadCustomDefs() {
@@ -922,6 +960,16 @@ export function EmployeeDetailsPage(props: {
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         {departmentLabel && <span style={{ color: '#6b7280' }}>• {departmentLabel}</span>}
         <span style={{ flex: 1 }} />
+        {props.canEdit && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        {props.canEdit && (
+          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+            Удалить
+          </Button>
+        )}
         <Button variant="ghost" onClick={printEmployeeCard}>
           Распечатать
         </Button>

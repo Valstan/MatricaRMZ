@@ -1202,6 +1202,230 @@
         "updated_at": 1769420310206,
         "deleted_at": null,
         "sync_status": "synced"
+      },
+      "0330c1a3-249b-421e-b192-cc2f1a3d629a": {
+        "id": "0330c1a3-249b-421e-b192-cc2f1a3d629a",
+        "code": "engine",
+        "name": "Двигатель",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "0559fcf3-cae0-4713-8d25-41716da03c09": {
+        "id": "0559fcf3-cae0-4713-8d25-41716da03c09",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "a4a6770d-0116-4747-bd78-72b35dcb15a2": {
+        "id": "a4a6770d-0116-4747-bd78-72b35dcb15a2",
+        "code": "customer",
+        "name": "Контрагенты",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "7da3a93a-6e2b-4a80-822b-e22f19ee2499": {
+        "id": "7da3a93a-6e2b-4a80-822b-e22f19ee2499",
+        "code": "contract",
+        "name": "Контракт",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "7a721b4f-7e05-4b74-b49d-b65b6a13e3e8": {
+        "id": "7a721b4f-7e05-4b74-b49d-b65b6a13e3e8",
+        "code": "work_order",
+        "name": "Наряд",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "d2d01339-f0e4-4eaf-bc42-2b93b6c9bfc7": {
+        "id": "d2d01339-f0e4-4eaf-bc42-2b93b6c9bfc7",
+        "code": "workshop",
+        "name": "Цех",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "b374feaa-4307-455c-8664-a10045f3ff9b": {
+        "id": "b374feaa-4307-455c-8664-a10045f3ff9b",
+        "code": "section",
+        "name": "Участок",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "8de2e7da-8524-4493-a440-1c31e701cb19": {
+        "id": "8de2e7da-8524-4493-a440-1c31e701cb19",
+        "code": "department",
+        "name": "Подразделение / служба",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "8e2236c0-a17f-40a5-8a4f-3bb6d0a98bac": {
+        "id": "8e2236c0-a17f-40a5-8a4f-3bb6d0a98bac",
+        "code": "product",
+        "name": "Продукты",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "3f1ade91-ab6d-4761-a626-70b003e60fc7": {
+        "id": "3f1ade91-ab6d-4761-a626-70b003e60fc7",
+        "code": "service",
+        "name": "Услуги",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e65d2e93-c50b-4ea2-b6ad-a46412386096": {
+        "id": "e65d2e93-c50b-4ea2-b6ad-a46412386096",
+        "code": "category",
+        "name": "Категории",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "6cc1bca0-6016-4cb1-9b6f-9ed0375870cd": {
+        "id": "6cc1bca0-6016-4cb1-9b6f-9ed0375870cd",
+        "code": "employee",
+        "name": "Сотрудник",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "8e6c0c43-d0c4-41e3-821d-bc8bf1e2422b": {
+        "id": "8e6c0c43-d0c4-41e3-821d-bc8bf1e2422b",
+        "code": "unit",
+        "name": "Единицы измерения",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e38f71c2-06ca-4693-ba7f-c7db64b19f3c": {
+        "id": "e38f71c2-06ca-4693-ba7f-c7db64b19f3c",
+        "code": "store",
+        "name": "Магазины",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "f35ce6cb-f475-4d1a-8daf-1d05de2ab44d": {
+        "id": "f35ce6cb-f475-4d1a-8daf-1d05de2ab44d",
+        "code": "engine_node",
+        "name": "Узлы двигателя",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "5d6af6f5-2b95-43ad-9192-c9d02842a9c5": {
+        "id": "5d6af6f5-2b95-43ad-9192-c9d02842a9c5",
+        "code": "link_field_rule",
+        "name": "Подсказки link-полей",
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "065b3470-0a0c-4057-8c99-fef85fd9e0e2": {
+        "id": "065b3470-0a0c-4057-8c99-fef85fd9e0e2",
+        "code": "engine",
+        "name": "Двигатель",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "51ebf7ae-ed22-4ea9-bef1-10ce54c5304e": {
+        "id": "51ebf7ae-ed22-4ea9-bef1-10ce54c5304e",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "c5ecab8f-7d33-484d-a878-982eaf45f174": {
+        "id": "c5ecab8f-7d33-484d-a878-982eaf45f174",
+        "code": "customer",
+        "name": "Контрагенты",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "5f2a6771-5b67-459b-aae4-661ce8084dcc": {
+        "id": "5f2a6771-5b67-459b-aae4-661ce8084dcc",
+        "code": "contract",
+        "name": "Контракт",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "b2a964e3-b6f9-44ca-96b0-df844d396454": {
+        "id": "b2a964e3-b6f9-44ca-96b0-df844d396454",
+        "code": "work_order",
+        "name": "Наряд",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "4228a099-9ee8-44a9-9fd6-2c61bf989c4e": {
+        "id": "4228a099-9ee8-44a9-9fd6-2c61bf989c4e",
+        "code": "workshop",
+        "name": "Цех",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "37bd1d79-cf4c-4d06-ae2d-e901d6e31bab": {
+        "id": "37bd1d79-cf4c-4d06-ae2d-e901d6e31bab",
+        "code": "section",
+        "name": "Участок",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "cc1e3408-a827-4513-bc55-979d5851c070": {
+        "id": "cc1e3408-a827-4513-bc55-979d5851c070",
+        "code": "department",
+        "name": "Подразделение / служба",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "dca852fa-b553-4427-8f22-7970adf433bb": {
+        "id": "dca852fa-b553-4427-8f22-7970adf433bb",
+        "code": "product",
+        "name": "Продукты",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "4a2a1831-557b-4994-8210-641443236848": {
+        "id": "4a2a1831-557b-4994-8210-641443236848",
+        "code": "service",
+        "name": "Услуги",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "c79757a1-629f-407c-aeba-1446d783f41b": {
+        "id": "c79757a1-629f-407c-aeba-1446d783f41b",
+        "code": "category",
+        "name": "Категории",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "8a0b4612-c3f1-4e93-9f86-8f9a9112383f": {
+        "id": "8a0b4612-c3f1-4e93-9f86-8f9a9112383f",
+        "code": "employee",
+        "name": "Сотрудник",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "d9b60999-fb18-47ba-a52c-ddd7f0fdf049": {
+        "id": "d9b60999-fb18-47ba-a52c-ddd7f0fdf049",
+        "code": "unit",
+        "name": "Единицы измерения",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "d0d93a60-ccbe-45bd-a63a-9b3567a0a71c": {
+        "id": "d0d93a60-ccbe-45bd-a63a-9b3567a0a71c",
+        "code": "store",
+        "name": "Магазины",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "974f30f4-f549-49e5-833d-912d5a999956": {
+        "id": "974f30f4-f549-49e5-833d-912d5a999956",
+        "code": "engine_node",
+        "name": "Узлы двигателя",
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "7a6411a0-e2cc-4f54-bb57-123d121717da": {
+        "id": "7a6411a0-e2cc-4f54-bb57-123d121717da",
+        "code": "link_field_rule",
+        "name": "Подсказки link-полей",
+        "deleted_at": null,
+        "updated_at": 1769778984337
       }
     },
     "entities": {
@@ -1323,11 +1547,8 @@
       },
       "9918125a-741e-45c4-aefc-304cefda035d": {
         "id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769381741442,
-        "updated_at": 1769383080507,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769806362968
       },
       "276722cd-bfc8-4c68-b931-6125623d9b15": {
         "id": "276722cd-bfc8-4c68-b931-6125623d9b15",
@@ -3210,7 +3431,7 @@
       "b6f3cacb-fb85-4487-a878-70feac77857b": {
         "id": "b6f3cacb-fb85-4487-a878-70feac77857b",
         "deleted_at": null,
-        "updated_at": 1769718187316
+        "updated_at": 1769772102410
       },
       "ad52fcc0-8cd4-49ce-aeb1-0f7faf174d03": {
         "id": "ad52fcc0-8cd4-49ce-aeb1-0f7faf174d03",
@@ -3490,11 +3711,8 @@
       },
       "2d84eb6d-081f-4a43-8ac1-880dd1130654": {
         "id": "2d84eb6d-081f-4a43-8ac1-880dd1130654",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769174545052,
-        "updated_at": 1769182528989,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769806362968
       },
       "483a0b7b-32f0-4986-9ff5-953f9caf0c34": {
         "deleted_at": 1769420846287,
@@ -3534,16 +3752,13 @@
       },
       "e3918695-9f84-41f5-97c4-d529b8d50dde": {
         "id": "e3918695-9f84-41f5-97c4-d529b8d50dde",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769424623474,
-        "updated_at": 1769424640159,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769806362968
       },
       "96470080-e208-49af-a1fa-12c9b9fc6b12": {
         "id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
         "deleted_at": null,
-        "updated_at": 1769718156649
+        "updated_at": 1769779124472
       },
       "ab493d8b-e70a-4e48-b10f-4adf44e8f0e1": {
         "id": "ab493d8b-e70a-4e48-b10f-4adf44e8f0e1",
@@ -3572,17 +3787,17 @@
       "8cbff343-f534-4510-a6ba-cb7b64084eed": {
         "id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
         "deleted_at": null,
-        "updated_at": 1769718156649
+        "updated_at": 1769779124472
       },
       "0a4bf1c3-7c8e-42ac-9213-390cf178fe50": {
         "id": "0a4bf1c3-7c8e-42ac-9213-390cf178fe50",
         "deleted_at": null,
-        "updated_at": 1769718156649
+        "updated_at": 1769779124472
       },
       "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3": {
         "id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
         "deleted_at": null,
-        "updated_at": 1769718156649
+        "updated_at": 1769779124472
       },
       "b1aac85c-d77f-43c4-915e-faea527530ef": {
         "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
@@ -3639,6 +3854,21 @@
         "updated_at": 1769680639605,
         "deleted_at": null,
         "sync_status": "pending"
+      },
+      "ed625dd3-d102-4bc6-97e7-1c87dc8f4464": {
+        "id": "ed625dd3-d102-4bc6-97e7-1c87dc8f4464",
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "430e1729-b83c-4504-860e-f4fe99cc4392": {
+        "id": "430e1729-b83c-4504-860e-f4fe99cc4392",
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "33a82a6f-43b8-4fc0-aee1-b2557d439d03": {
+        "id": "33a82a6f-43b8-4fc0-aee1-b2557d439d03",
+        "deleted_at": null,
+        "updated_at": 1769777447238
       }
     },
     "attribute_defs": {
@@ -6949,6 +7179,1646 @@
         "updated_at": 1769420310206,
         "deleted_at": null,
         "sync_status": "synced"
+      },
+      "e46b7072-2b81-4f13-8ced-7f3bfcf5008c": {
+        "id": "e46b7072-2b81-4f13-8ced-7f3bfcf5008c",
+        "code": "engine_number",
+        "name": "Номер двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "9710f479-3a6e-4840-90ae-cba882d0f47d": {
+        "id": "9710f479-3a6e-4840-90ae-cba882d0f47d",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e0064b68-e972-4220-b0de-8e3865d8fc4a": {
+        "id": "e0064b68-e972-4220-b0de-8e3865d8fc4a",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя (справочник)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "9c97e339-f843-4ecd-98af-ea1092b9038a": {
+        "id": "9c97e339-f843-4ecd-98af-ea1092b9038a",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "a2fb1402-ef49-4057-bceb-8b1be43de0c8": {
+        "id": "a2fb1402-ef49-4057-bceb-8b1be43de0c8",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "bf3ec9dd-5987-4314-bd78-2a784adef251": {
+        "id": "bf3ec9dd-5987-4314-bd78-2a784adef251",
+        "code": "contract_id",
+        "name": "Контракт",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "2e97e69e-67ee-4100-b7bd-cb3b83a78286": {
+        "id": "2e97e69e-67ee-4100-b7bd-cb3b83a78286",
+        "code": "work_order_id",
+        "name": "Наряд",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "8de27895-e78d-48be-90b1-33a4aedf79aa": {
+        "id": "8de27895-e78d-48be-90b1-33a4aedf79aa",
+        "code": "workshop_id",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "82b0f0ab-241b-43cf-b2e1-a76aff2588f2": {
+        "id": "82b0f0ab-241b-43cf-b2e1-a76aff2588f2",
+        "code": "section_id",
+        "name": "Участок",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "70566047-4a49-4b8d-9d6f-b191fdca0435": {
+        "id": "70566047-4a49-4b8d-9d6f-b191fdca0435",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "71adf810-030d-4476-bc44-944df225780e": {
+        "id": "71adf810-030d-4476-bc44-944df225780e",
+        "code": "parent_id",
+        "name": "Родительская категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "138c4ed7-328e-4fb8-a484-929e49c82e2b": {
+        "id": "138c4ed7-328e-4fb8-a484-929e49c82e2b",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "17d635ac-8b8e-4aee-9de9-1f75380a3749": {
+        "id": "17d635ac-8b8e-4aee-9de9-1f75380a3749",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "ff77f1ae-684c-4ff9-9f7b-78cb26e7e688": {
+        "id": "ff77f1ae-684c-4ff9-9f7b-78cb26e7e688",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "0cd03bce-34db-49a3-a443-c3ba0b37c61d": {
+        "id": "0cd03bce-34db-49a3-a443-c3ba0b37c61d",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "1466fa04-ba55-4ab8-b08d-97fff2965969": {
+        "id": "1466fa04-ba55-4ab8-b08d-97fff2965969",
+        "code": "inn",
+        "name": "ИНН",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "48faca85-f8a7-4960-9626-69e8f08e2a82": {
+        "id": "48faca85-f8a7-4960-9626-69e8f08e2a82",
+        "code": "kpp",
+        "name": "КПП",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "47f0cafb-31c5-425b-beb5-638b94d13160": {
+        "id": "47f0cafb-31c5-425b-beb5-638b94d13160",
+        "code": "address",
+        "name": "Адрес",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "81bd5d61-d2d4-41e9-a13d-495dc8e9fde5": {
+        "id": "81bd5d61-d2d4-41e9-a13d-495dc8e9fde5",
+        "code": "phone",
+        "name": "Телефон",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "1197060f-5840-4f5b-aebd-338f42674c40": {
+        "id": "1197060f-5840-4f5b-aebd-338f42674c40",
+        "code": "email",
+        "name": "Email",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "505b4360-590e-4bc0-8f90-e32f0b4c18e3": {
+        "id": "505b4360-590e-4bc0-8f90-e32f0b4c18e3",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "2467b682-0646-4111-a549-b73df96591d8": {
+        "id": "2467b682-0646-4111-a549-b73df96591d8",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "dd14c304-81ff-4a62-9a9c-57091e221fba": {
+        "id": "dd14c304-81ff-4a62-9a9c-57091e221fba",
+        "code": "number",
+        "name": "Номер договора",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "514e597f-5b94-41b0-8467-2c4bededad56": {
+        "id": "514e597f-5b94-41b0-8467-2c4bededad56",
+        "code": "date",
+        "name": "Дата договора",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e4eb613c-db2d-4d19-8886-928c6146389c": {
+        "id": "e4eb613c-db2d-4d19-8886-928c6146389c",
+        "code": "internal_number",
+        "name": "Внутренний номер",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "baa23752-d8cd-4c94-9f1d-8c4573a7e06b": {
+        "id": "baa23752-d8cd-4c94-9f1d-8c4573a7e06b",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "5e4d5d7e-4ed7-4412-81aa-3a0709f59dc7": {
+        "id": "5e4d5d7e-4ed7-4412-81aa-3a0709f59dc7",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "9099531b-5b9e-4910-8976-592f26629e91": {
+        "id": "9099531b-5b9e-4910-8976-592f26629e91",
+        "code": "engine_count_items",
+        "name": "Количество двигателей (детализация)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "9a4ab4f2-26de-4429-9fbb-768f96a3677c": {
+        "id": "9a4ab4f2-26de-4429-9fbb-768f96a3677c",
+        "code": "engine_count_total",
+        "name": "Количество двигателей (итого)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "d8364455-beb3-4f8a-9553-5763eccd6b0f": {
+        "id": "d8364455-beb3-4f8a-9553-5763eccd6b0f",
+        "code": "contract_amount_rub",
+        "name": "Сумма контракта (₽)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "3392d1ed-9925-48e9-a24d-6c814eb1528d": {
+        "id": "3392d1ed-9925-48e9-a24d-6c814eb1528d",
+        "code": "unit_price_rub",
+        "name": "Цена за единицу (₽)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "1ede3f60-9ddb-42ce-831f-bb625ef44113": {
+        "id": "1ede3f60-9ddb-42ce-831f-bb625ef44113",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "51c54bc7-5104-4f19-beb3-308cd6d75398": {
+        "id": "51c54bc7-5104-4f19-beb3-308cd6d75398",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "f538b49a-ee36-482d-b269-7940ea28be45": {
+        "id": "f538b49a-ee36-482d-b269-7940ea28be45",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "6cb6eec4-d671-445f-b323-0958545476b6": {
+        "id": "6cb6eec4-d671-445f-b323-0958545476b6",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "4a0e8d13-d92e-4234-b0a4-ac5ee7d77c46": {
+        "id": "4a0e8d13-d92e-4234-b0a4-ac5ee7d77c46",
+        "code": "address",
+        "name": "Адрес",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "7b395d89-afd3-4e32-a586-e1b0346fa195": {
+        "id": "7b395d89-afd3-4e32-a586-e1b0346fa195",
+        "code": "inn",
+        "name": "ИНН",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "abf319e7-61e4-4b6e-86f0-83f3c1786f44": {
+        "id": "abf319e7-61e4-4b6e-86f0-83f3c1786f44",
+        "code": "phone",
+        "name": "Телефон",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "a0eb7cb5-7fba-40db-9363-488256cb72b1": {
+        "id": "a0eb7cb5-7fba-40db-9363-488256cb72b1",
+        "code": "email",
+        "name": "Email",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "7a5eb242-1e84-4d29-996b-60311942c393": {
+        "id": "7a5eb242-1e84-4d29-996b-60311942c393",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "c5e368c5-963c-40ef-be61-f0c41ef5476a": {
+        "id": "c5e368c5-963c-40ef-be61-f0c41ef5476a",
+        "code": "number",
+        "name": "Номер наряда",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "9ecdc8e8-2f70-45b4-9613-9dd0a0d1e832": {
+        "id": "9ecdc8e8-2f70-45b4-9613-9dd0a0d1e832",
+        "code": "date",
+        "name": "Дата наряда",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "69b6d91b-d19f-4d55-b3f3-a8f398c09cd7": {
+        "id": "69b6d91b-d19f-4d55-b3f3-a8f398c09cd7",
+        "code": "contract_id",
+        "name": "Контракт",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "6043b21a-7efc-4e2c-982b-9408bd4029c3": {
+        "id": "6043b21a-7efc-4e2c-982b-9408bd4029c3",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "8ab723e8-767b-4f55-9f21-7295ff68a565": {
+        "id": "8ab723e8-767b-4f55-9f21-7295ff68a565",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "170fa6fd-69d7-4de3-9959-58025c721b89": {
+        "id": "170fa6fd-69d7-4de3-9959-58025c721b89",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "2d2aeaec-1af4-47a2-b03f-b39c8164046c": {
+        "id": "2d2aeaec-1af4-47a2-b03f-b39c8164046c",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "2692b1ca-2b2b-4b73-a284-eca7a3087a67": {
+        "id": "2692b1ca-2b2b-4b73-a284-eca7a3087a67",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "3d98d72a-83ac-4352-889f-f28e02ffee22": {
+        "id": "3d98d72a-83ac-4352-889f-f28e02ffee22",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "ed88dfeb-3305-45bb-ad91-8614b33242b3": {
+        "id": "ed88dfeb-3305-45bb-ad91-8614b33242b3",
+        "code": "workshop_id",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "674deffd-839f-4fe3-a86a-faaa93eb7224": {
+        "id": "674deffd-839f-4fe3-a86a-faaa93eb7224",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e1974aab-7f56-49c1-90aa-e6271051b519": {
+        "id": "e1974aab-7f56-49c1-90aa-e6271051b519",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "ab4479fc-22f6-4d50-a91c-90a0aeb0a4dd": {
+        "id": "ab4479fc-22f6-4d50-a91c-90a0aeb0a4dd",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "5ca2f6da-abdc-4b87-9525-351eb9e17648": {
+        "id": "5ca2f6da-abdc-4b87-9525-351eb9e17648",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "6f6d6035-36f2-425c-bd81-a5c03f47ff3e": {
+        "id": "6f6d6035-36f2-425c-bd81-a5c03f47ff3e",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "5f581b30-7282-4123-af80-1a41b923549e": {
+        "id": "5f581b30-7282-4123-af80-1a41b923549e",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "7381da6f-47aa-4461-a157-869cee191bc9": {
+        "id": "7381da6f-47aa-4461-a157-869cee191bc9",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "5d155a30-c4ca-4475-a1d1-d46b960eb8f6": {
+        "id": "5d155a30-c4ca-4475-a1d1-d46b960eb8f6",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e7308b79-e17b-4d22-81ad-f61e10e502be": {
+        "id": "e7308b79-e17b-4d22-81ad-f61e10e502be",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "a12511e0-a144-4d62-afa6-4fe3c4b77eb5": {
+        "id": "a12511e0-a144-4d62-afa6-4fe3c4b77eb5",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "d340f43d-aa40-4cda-8850-3040696c857d": {
+        "id": "d340f43d-aa40-4cda-8850-3040696c857d",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "722e4f38-0e23-4bb7-8fe2-c7357ab4dc7b": {
+        "id": "722e4f38-0e23-4bb7-8fe2-c7357ab4dc7b",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "c4eec567-29c5-4e36-845c-1dbb2fea2b27": {
+        "id": "c4eec567-29c5-4e36-845c-1dbb2fea2b27",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "24d33951-4d44-4b48-88e4-6ea31e924f02": {
+        "id": "24d33951-4d44-4b48-88e4-6ea31e924f02",
+        "code": "last_name",
+        "name": "Фамилия",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "8839812a-4b42-4c66-9e8f-27f3a4e472b3": {
+        "id": "8839812a-4b42-4c66-9e8f-27f3a4e472b3",
+        "code": "first_name",
+        "name": "Имя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e3429272-5126-41fa-82ac-428af92105b7": {
+        "id": "e3429272-5126-41fa-82ac-428af92105b7",
+        "code": "middle_name",
+        "name": "Отчество",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "084a6feb-776f-45f7-9f26-813e3e3bc1ab": {
+        "id": "084a6feb-776f-45f7-9f26-813e3e3bc1ab",
+        "code": "full_name",
+        "name": "ФИО",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "ee68ac7a-f913-4fef-b54a-560ebc46ebd2": {
+        "id": "ee68ac7a-f913-4fef-b54a-560ebc46ebd2",
+        "code": "personnel_number",
+        "name": "Табельный номер",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "b766168b-6383-4864-8ade-328a860f0748": {
+        "id": "b766168b-6383-4864-8ade-328a860f0748",
+        "code": "birth_date",
+        "name": "Дата рождения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "ba744f0c-bebe-420a-b697-a1019e95572a": {
+        "id": "ba744f0c-bebe-420a-b697-a1019e95572a",
+        "code": "role",
+        "name": "Должность",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "e17b7be6-f962-4ebd-9de6-db46c55126f6": {
+        "id": "e17b7be6-f962-4ebd-9de6-db46c55126f6",
+        "code": "employment_status",
+        "name": "Статус (работает/уволен)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "c3447e43-a065-4f50-92ef-dfb88fd7a1a0": {
+        "id": "c3447e43-a065-4f50-92ef-dfb88fd7a1a0",
+        "code": "hire_date",
+        "name": "Дата приема на работу",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "69cb3270-7d0a-437e-9876-48e7dda1361f": {
+        "id": "69cb3270-7d0a-437e-9876-48e7dda1361f",
+        "code": "termination_date",
+        "name": "Дата увольнения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "913a7c03-212b-4c14-8090-c19ed3e64df2": {
+        "id": "913a7c03-212b-4c14-8090-c19ed3e64df2",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "7a1e9c06-9b94-4af1-9761-6e2877d64a70": {
+        "id": "7a1e9c06-9b94-4af1-9761-6e2877d64a70",
+        "code": "department_id",
+        "name": "Подразделение",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "13cfc28e-f5e8-4fe7-8cb6-c74e5f1dd17f": {
+        "id": "13cfc28e-f5e8-4fe7-8cb6-c74e5f1dd17f",
+        "code": "section_id",
+        "name": "Участок",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "0ca1cc34-0945-4739-b23d-d6d7f26956c6": {
+        "id": "0ca1cc34-0945-4739-b23d-d6d7f26956c6",
+        "code": "transfers",
+        "name": "Переводы",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "2165638e-1736-4f22-81e4-c2726f09cb0b": {
+        "id": "2165638e-1736-4f22-81e4-c2726f09cb0b",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "737aee2a-edbb-4e18-9ceb-4c5d17f9b0f2": {
+        "id": "737aee2a-edbb-4e18-9ceb-4c5d17f9b0f2",
+        "code": "field_name",
+        "name": "Название поля",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "530ff2aa-e77c-43d9-97aa-95588e6a9ba0": {
+        "id": "530ff2aa-e77c-43d9-97aa-95588e6a9ba0",
+        "code": "target_type_code",
+        "name": "Код справочника",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "acfac7ae-ec54-44bf-875a-e21a634ecf82": {
+        "id": "acfac7ae-ec54-44bf-875a-e21a634ecf82",
+        "code": "priority",
+        "name": "Приоритет",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "3d5d3191-10a2-4f48-bc4e-d7fc4891e13c": {
+        "id": "3d5d3191-10a2-4f48-bc4e-d7fc4891e13c",
+        "code": "note",
+        "name": "Комментарий",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778854612
+      },
+      "a12aff56-822a-4c92-b643-c0de417adada": {
+        "id": "a12aff56-822a-4c92-b643-c0de417adada",
+        "code": "engine_number",
+        "name": "Номер двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "eac2d968-0b2d-4aed-b84c-4463abed76c7": {
+        "id": "eac2d968-0b2d-4aed-b84c-4463abed76c7",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "1f918ee2-1b0d-4ab4-97f5-d85c22e4b45c": {
+        "id": "1f918ee2-1b0d-4ab4-97f5-d85c22e4b45c",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя (справочник)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "5f531435-e87b-424d-8707-230fe17ee6c6": {
+        "id": "5f531435-e87b-424d-8707-230fe17ee6c6",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "e2d18cfe-e7b9-4cd0-b2de-7a41790c01d2": {
+        "id": "e2d18cfe-e7b9-4cd0-b2de-7a41790c01d2",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "9cce20de-fdf7-47c1-ad1a-1ac9407bfaf3": {
+        "id": "9cce20de-fdf7-47c1-ad1a-1ac9407bfaf3",
+        "code": "contract_id",
+        "name": "Контракт",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "589adaa5-8a64-458a-8859-e4988f2926c9": {
+        "id": "589adaa5-8a64-458a-8859-e4988f2926c9",
+        "code": "work_order_id",
+        "name": "Наряд",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "bf7e3ef8-b704-45cf-985b-1f2ed5c85a64": {
+        "id": "bf7e3ef8-b704-45cf-985b-1f2ed5c85a64",
+        "code": "workshop_id",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "52341577-182f-487c-97b2-3fb8d0ab5595": {
+        "id": "52341577-182f-487c-97b2-3fb8d0ab5595",
+        "code": "section_id",
+        "name": "Участок",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "c69df4b1-e085-4415-b975-cc35032f494e": {
+        "id": "c69df4b1-e085-4415-b975-cc35032f494e",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "f62eddac-b2b9-413a-9c0f-df525b8d0759": {
+        "id": "f62eddac-b2b9-413a-9c0f-df525b8d0759",
+        "code": "parent_id",
+        "name": "Родительская категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "c0956726-e4a3-480c-9cac-f5a37ffeb5f2": {
+        "id": "c0956726-e4a3-480c-9cac-f5a37ffeb5f2",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "ebc893b4-1a2f-4855-be7f-95e1aef49e53": {
+        "id": "ebc893b4-1a2f-4855-be7f-95e1aef49e53",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "d943d3ea-61cc-48f5-af90-45b425034316": {
+        "id": "d943d3ea-61cc-48f5-af90-45b425034316",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "530e08f8-dd52-49cc-b1a7-ae6f0b7e5d67": {
+        "id": "530e08f8-dd52-49cc-b1a7-ae6f0b7e5d67",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "13d72051-10d8-4053-9f7b-86d9131dd0e0": {
+        "id": "13d72051-10d8-4053-9f7b-86d9131dd0e0",
+        "code": "inn",
+        "name": "ИНН",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "9b58460e-a84d-48a1-95ba-cf2d48b46080": {
+        "id": "9b58460e-a84d-48a1-95ba-cf2d48b46080",
+        "code": "kpp",
+        "name": "КПП",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "73b93e9e-18d5-4ca0-a1be-0bc9594d1569": {
+        "id": "73b93e9e-18d5-4ca0-a1be-0bc9594d1569",
+        "code": "address",
+        "name": "Адрес",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "db1383b4-3887-4088-96eb-8b60755433a1": {
+        "id": "db1383b4-3887-4088-96eb-8b60755433a1",
+        "code": "phone",
+        "name": "Телефон",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "0f2247ec-1a84-4ebd-8057-ce7988d7ee4d": {
+        "id": "0f2247ec-1a84-4ebd-8057-ce7988d7ee4d",
+        "code": "email",
+        "name": "Email",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "595bca50-7eef-4274-a2b3-713fec17cb91": {
+        "id": "595bca50-7eef-4274-a2b3-713fec17cb91",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "ad4468f3-5c24-4d3c-8697-a6ece13cf2f8": {
+        "id": "ad4468f3-5c24-4d3c-8697-a6ece13cf2f8",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "bc8ec9b7-6196-48c5-96a1-0ee99dd75725": {
+        "id": "bc8ec9b7-6196-48c5-96a1-0ee99dd75725",
+        "code": "number",
+        "name": "Номер договора",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "00963553-286b-49ce-a103-059add7fe8c2": {
+        "id": "00963553-286b-49ce-a103-059add7fe8c2",
+        "code": "date",
+        "name": "Дата договора",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "f41159c6-0bf4-48a7-9ee5-139f26eab2de": {
+        "id": "f41159c6-0bf4-48a7-9ee5-139f26eab2de",
+        "code": "internal_number",
+        "name": "Внутренний номер",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "ebd9f68f-9268-4a24-80e7-4ea6fd272188": {
+        "id": "ebd9f68f-9268-4a24-80e7-4ea6fd272188",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "eeaf2cff-a1e1-49f7-89e1-0ebda54d8b31": {
+        "id": "eeaf2cff-a1e1-49f7-89e1-0ebda54d8b31",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "45c97cb8-cb08-44c8-95b9-5e941041a613": {
+        "id": "45c97cb8-cb08-44c8-95b9-5e941041a613",
+        "code": "engine_count_items",
+        "name": "Количество двигателей (детализация)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "86348bb3-1b7b-41c0-ab19-7b66e735ec3b": {
+        "id": "86348bb3-1b7b-41c0-ab19-7b66e735ec3b",
+        "code": "engine_count_total",
+        "name": "Количество двигателей (итого)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "3d854788-3f4f-42c1-80ba-3a1569fdb362": {
+        "id": "3d854788-3f4f-42c1-80ba-3a1569fdb362",
+        "code": "contract_amount_rub",
+        "name": "Сумма контракта (₽)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "18d8ee22-f98a-4f60-8e41-08543576849e": {
+        "id": "18d8ee22-f98a-4f60-8e41-08543576849e",
+        "code": "unit_price_rub",
+        "name": "Цена за единицу (₽)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "baffe563-6343-4b91-8790-5c99c2179cb1": {
+        "id": "baffe563-6343-4b91-8790-5c99c2179cb1",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "fa5a8372-56f9-41ea-8b95-9303e766bf7a": {
+        "id": "fa5a8372-56f9-41ea-8b95-9303e766bf7a",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "f1804fda-84e9-4cd8-9d60-d54f202aec32": {
+        "id": "f1804fda-84e9-4cd8-9d60-d54f202aec32",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "f6bb28cd-177e-46f3-91ff-50d19ce740ba": {
+        "id": "f6bb28cd-177e-46f3-91ff-50d19ce740ba",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "4d56963f-67e6-421a-9c3c-4e158cc1446f": {
+        "id": "4d56963f-67e6-421a-9c3c-4e158cc1446f",
+        "code": "address",
+        "name": "Адрес",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "730f5a60-7695-43f5-8956-9fdb49cc0928": {
+        "id": "730f5a60-7695-43f5-8956-9fdb49cc0928",
+        "code": "inn",
+        "name": "ИНН",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "d1d1acb0-bd18-460c-b5d4-ca8aa76e31a9": {
+        "id": "d1d1acb0-bd18-460c-b5d4-ca8aa76e31a9",
+        "code": "phone",
+        "name": "Телефон",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "9d1f2b65-1a72-4b65-8e73-8fae9c6b9f81": {
+        "id": "9d1f2b65-1a72-4b65-8e73-8fae9c6b9f81",
+        "code": "email",
+        "name": "Email",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "b3ad2a14-6898-4872-b498-61713fdac790": {
+        "id": "b3ad2a14-6898-4872-b498-61713fdac790",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "d155ec83-3d81-48e4-95de-a51f1df7ebbd": {
+        "id": "d155ec83-3d81-48e4-95de-a51f1df7ebbd",
+        "code": "number",
+        "name": "Номер наряда",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "a0c18c2e-213a-4a75-b208-6cd6025c87ca": {
+        "id": "a0c18c2e-213a-4a75-b208-6cd6025c87ca",
+        "code": "date",
+        "name": "Дата наряда",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "48e2689d-6352-41bc-afd3-bb269d717b36": {
+        "id": "48e2689d-6352-41bc-afd3-bb269d717b36",
+        "code": "contract_id",
+        "name": "Контракт",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "ab7307d1-fa71-432b-80f0-3c08bd2610eb": {
+        "id": "ab7307d1-fa71-432b-80f0-3c08bd2610eb",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "9d4dfbcc-83e9-4315-a7ea-c08d15d37b02": {
+        "id": "9d4dfbcc-83e9-4315-a7ea-c08d15d37b02",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "9ddcf35c-6a36-4258-998b-3f307d071c0c": {
+        "id": "9ddcf35c-6a36-4258-998b-3f307d071c0c",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "7655ab77-177b-4371-9fd7-da7db8dac7af": {
+        "id": "7655ab77-177b-4371-9fd7-da7db8dac7af",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "3e113a89-4382-48d6-bcbf-d78d05fffa0a": {
+        "id": "3e113a89-4382-48d6-bcbf-d78d05fffa0a",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "4c054708-aef6-43cc-841a-00083b2800ea": {
+        "id": "4c054708-aef6-43cc-841a-00083b2800ea",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "55e6f35c-b177-48b3-8111-39650a7d1878": {
+        "id": "55e6f35c-b177-48b3-8111-39650a7d1878",
+        "code": "workshop_id",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "80d082c7-ca3c-486e-9476-d4ed418f9238": {
+        "id": "80d082c7-ca3c-486e-9476-d4ed418f9238",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "e31604d2-4b27-4790-9d25-0e66cb06b4da": {
+        "id": "e31604d2-4b27-4790-9d25-0e66cb06b4da",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "9b9dbfcc-0689-4a21-b701-99d829fb186b": {
+        "id": "9b9dbfcc-0689-4a21-b701-99d829fb186b",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "d8291c76-5408-4912-850d-9fdee666c4a8": {
+        "id": "d8291c76-5408-4912-850d-9fdee666c4a8",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "227a971e-0da4-4950-8d71-d590f21b188f": {
+        "id": "227a971e-0da4-4950-8d71-d590f21b188f",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "efe7edb5-31bc-4242-b8d7-208db381d632": {
+        "id": "efe7edb5-31bc-4242-b8d7-208db381d632",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "77c8ce15-601e-438b-b8bf-78c76849681c": {
+        "id": "77c8ce15-601e-438b-b8bf-78c76849681c",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "31799546-53ec-4189-9c19-5d9b86d159d9": {
+        "id": "31799546-53ec-4189-9c19-5d9b86d159d9",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "137dcf9c-d3dc-4b60-826a-aa9aa7a1047a": {
+        "id": "137dcf9c-d3dc-4b60-826a-aa9aa7a1047a",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "c80e6dc5-012f-44ac-8f5e-a044aafa9e05": {
+        "id": "c80e6dc5-012f-44ac-8f5e-a044aafa9e05",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "28aec2b3-a7f2-48ba-8151-a411a013a128": {
+        "id": "28aec2b3-a7f2-48ba-8151-a411a013a128",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "b7443f45-ea7d-4290-ace5-e8334b3d30e0": {
+        "id": "b7443f45-ea7d-4290-ace5-e8334b3d30e0",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "af40ff24-902f-476f-9390-c548d174b96e": {
+        "id": "af40ff24-902f-476f-9390-c548d174b96e",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "5f302cdf-b5d7-4846-acfa-67719e248b3a": {
+        "id": "5f302cdf-b5d7-4846-acfa-67719e248b3a",
+        "code": "last_name",
+        "name": "Фамилия",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "c44f6817-a846-4e62-91b5-2e30634a66b5": {
+        "id": "c44f6817-a846-4e62-91b5-2e30634a66b5",
+        "code": "first_name",
+        "name": "Имя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "7f90915a-0d4e-4564-9711-b2a10cea2239": {
+        "id": "7f90915a-0d4e-4564-9711-b2a10cea2239",
+        "code": "middle_name",
+        "name": "Отчество",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "a9f1cc8d-3f30-41e4-a032-0a42022cce12": {
+        "id": "a9f1cc8d-3f30-41e4-a032-0a42022cce12",
+        "code": "full_name",
+        "name": "ФИО",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "db3580b0-a9dd-46de-b288-9986691e7176": {
+        "id": "db3580b0-a9dd-46de-b288-9986691e7176",
+        "code": "personnel_number",
+        "name": "Табельный номер",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "6d8c8206-44a7-42df-8d3c-3993122b7521": {
+        "id": "6d8c8206-44a7-42df-8d3c-3993122b7521",
+        "code": "birth_date",
+        "name": "Дата рождения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "ab144563-4146-468f-be06-3248c821cf45": {
+        "id": "ab144563-4146-468f-be06-3248c821cf45",
+        "code": "role",
+        "name": "Должность",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "f9fa1dc7-5910-4921-b892-6be209f30949": {
+        "id": "f9fa1dc7-5910-4921-b892-6be209f30949",
+        "code": "employment_status",
+        "name": "Статус (работает/уволен)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "28f99123-c2dd-4a2e-9b49-6a918b8991ad": {
+        "id": "28f99123-c2dd-4a2e-9b49-6a918b8991ad",
+        "code": "hire_date",
+        "name": "Дата приема на работу",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "16df3af6-d89d-46d4-9ca1-8135c00413f7": {
+        "id": "16df3af6-d89d-46d4-9ca1-8135c00413f7",
+        "code": "termination_date",
+        "name": "Дата увольнения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "7efba614-116a-40e9-8597-f9895c41cc5e": {
+        "id": "7efba614-116a-40e9-8597-f9895c41cc5e",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "3d89d5bb-3a18-475e-98c4-5f15fe083e1a": {
+        "id": "3d89d5bb-3a18-475e-98c4-5f15fe083e1a",
+        "code": "department_id",
+        "name": "Подразделение",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "2aaf8e9e-cb0b-4735-bd64-8faa78af881f": {
+        "id": "2aaf8e9e-cb0b-4735-bd64-8faa78af881f",
+        "code": "section_id",
+        "name": "Участок",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "42df1b92-a32d-4863-8e69-47b1a699660b": {
+        "id": "42df1b92-a32d-4863-8e69-47b1a699660b",
+        "code": "transfers",
+        "name": "Переводы",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "a9ea4c7c-0604-41f4-b16a-30a755434430": {
+        "id": "a9ea4c7c-0604-41f4-b16a-30a755434430",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "68652c35-856e-4b80-b9d1-b75e5fe52e2b": {
+        "id": "68652c35-856e-4b80-b9d1-b75e5fe52e2b",
+        "code": "field_name",
+        "name": "Название поля",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "cc79a0d5-7d03-460f-8f20-c3e8f06bfdd5": {
+        "id": "cc79a0d5-7d03-460f-8f20-c3e8f06bfdd5",
+        "code": "target_type_code",
+        "name": "Код справочника",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "605e3d8b-bcbc-49b4-b69c-da6cb345c242": {
+        "id": "605e3d8b-bcbc-49b4-b69c-da6cb345c242",
+        "code": "priority",
+        "name": "Приоритет",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
+      },
+      "aae793b0-0be5-43dd-a3fb-47c2c053bf73": {
+        "id": "aae793b0-0be5-43dd-a3fb-47c2c053bf73",
+        "code": "note",
+        "name": "Комментарий",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769778984337
       }
     },
     "attribute_values": {
@@ -11131,6 +13001,84 @@
         "value_json": null,
         "deleted_at": null,
         "updated_at": 1769718187316
+      },
+      "7eed8d8b-a314-4ac9-94da-b2c21a17c661": {
+        "id": "7eed8d8b-a314-4ac9-94da-b2c21a17c661",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "776cc7d2-3d79-42cf-9b68-4ba062b56b80": {
+        "id": "776cc7d2-3d79-42cf-9b68-4ba062b56b80",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "815fb50b-5258-4774-b6a2-abfa1a64339a": {
+        "id": "815fb50b-5258-4774-b6a2-abfa1a64339a",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "28035248-60d2-4de4-9546-962fe1096e52": {
+        "id": "28035248-60d2-4de4-9546-962fe1096e52",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "2b1db38e-1360-4c29-8349-a94d731cb707": {
+        "id": "2b1db38e-1360-4c29-8349-a94d731cb707",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "c593aaaa-b0ba-40a3-9c63-a206ec5642bf": {
+        "id": "c593aaaa-b0ba-40a3-9c63-a206ec5642bf",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "7a5e653b-1d46-40da-bd2c-20777051fee3": {
+        "id": "7a5e653b-1d46-40da-bd2c-20777051fee3",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "f5a58f4a-6505-4f39-90ab-0985685f0f55": {
+        "id": "f5a58f4a-6505-4f39-90ab-0985685f0f55",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "5f76d6a0-b559-4a07-8d81-07324a810366": {
+        "id": "5f76d6a0-b559-4a07-8d81-07324a810366",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "7139a84a-fcfe-4e49-9c27-a7b1d99eadee": {
+        "id": "7139a84a-fcfe-4e49-9c27-a7b1d99eadee",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "b9f2baf5-86dc-42e9-abf3-1a2f2b24fa6e": {
+        "id": "b9f2baf5-86dc-42e9-abf3-1a2f2b24fa6e",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769768437613
+      },
+      "63e19d36-47ec-4bc5-b483-5147bf3c6350": {
+        "id": "63e19d36-47ec-4bc5-b483-5147bf3c6350",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772102410
+      },
+      "ac97dc94-cb7d-4e6a-9d22-36d5d86e0d86": {
+        "id": "ac97dc94-cb7d-4e6a-9d22-36d5d86e0d86",
+        "value_json": null,
+        "deleted_at": null,
+        "updated_at": 1769777447238
       }
     },
     "operations": {
@@ -11164,17 +13112,13 @@
       },
       "346c33a0-16e4-4936-b58b-9cf915ffcc2b": {
         "id": "346c33a0-16e4-4936-b58b-9cf915ffcc2b",
-        "engine_entity_id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "operation_type": "defect",
         "status": "checklist",
         "note": "Лист дефектовки двигателя",
-        "performed_at": 1769381745457,
-        "performed_by": "nastya_tech",
-        "meta_json": "enc:v1:1iIh//nnYHMa2X9j:53uK0J2d0xxCaNK6oR/dxg==:5yaV86xPRT8qcIeX4b8sZx1/5hHIxgqRwo9+oaCqyKycCL4KE6noqLa6BdJNW/ix9r3u9FgG3nBFPOIFtUN3m6cH4rSykK54xOqeNf4+jDXN3TpEIbjAyO9DdPwTFi3I58p7VFi32yji+9A1tG+GdPkje9OidTcGbZLTrmOF5SYcR3Ts3myyLu2RsjzbpqlFC/6sdbssK1Z/4waWxy40YAYG0dqnNRD2maJl0y08ro8KmS9EeeB6m2n+2O43KxMFJYpxAvyzLaTDpinV8grY5KGArYNy7k67bL7CopASVcLc6zR//Hbf6BdipeQ+yO6oiXi/VOlFIV8rqd2GoJgtbrn9LvU+8P5nRqjre7EvgCFaF8kwUoEzhCpSZGL+BfrcukrT5WZgxUwmYwIaJrc6+2BiyyyP/BxS+0/vkajxVnX/lkZ1wfcLlMbDHIM5QLHRjHRWg4Q3XfrrUrzPnjsz6CyBJyavmOsBdFKpBkdLkn2l4ReImMCKjilt8kJlBWvG/Skr6fdWZsMzyzxTwpzi/83cBZQjosDe3sKscpRX51TmatwbkiX6qawgA/fEK5RpZHDd4hHq4Axr21hVf9y0e0QSEI3TT5nfQ/H0s6AnpjJRBuFI5dFxQsB5PcnVQ1vVzQ7VdTS7E2heopGkv7/UgPBk70daYy8cYpfipm/6CHuhWZl2O8fmmZ8JJ2Qdv6P0JisB44au8tFO41vNWnZkx4jpUZhVAlLUVeAX4tu6L1Rd8l8oOORjINMj8rSEoBzj35pRMvkkT9Hlin99i9FQRAuLEBVdPlf5pwFX1uYciKaxw7MKWMiPoTf5/J34chyi109GEMaBJPEQuFDXeYOqbETHXbvn2dTQRpuuvwq/bhexGyEmtXCyy2pJbIT9hIvKoyX7aWwKqraRBatfoo848A1oBhJEdsLoE0qry2iYw4QAEI5z5FMWyJUXjhnwtz/iyyGg7ONfwVv9pDgQLFkNJObDfA0qsp3UjtC7Bpw3KtPdElnoSvJNLNO5wrJEmi03p020gUVkC/nMw0KjraWCm+cmlwIbWbIAjGF2c4vw/2Y9ebS87qsQjRLyHyfhQma/ztcb9JBcbGrDm1xcoScYr1w3RmhPRQV7aNap0rcHv59zcxi1T5QMGcg5Kh6qad2XhsKmmdKjk5tw4L5EUGLyxJJK3jdqMnEinY3hTTSk3GCQpZZddrDNR5Aaaw1WWZshVA3A9dsVSox34ypqhQIljUO96NW3xgmytVZfHiUmPCAdEQ==",
-        "created_at": 1769381745457,
-        "updated_at": 1769383080507,
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769806362968
       },
       "b6868c5b-0667-437a-8b23-dc3a282fa4cd": {
         "id": "b6868c5b-0667-437a-8b23-dc3a282fa4cd",
@@ -14262,17 +16206,13 @@
       },
       "e997edc7-294b-451e-a446-98790f76580e": {
         "id": "e997edc7-294b-451e-a446-98790f76580e",
-        "engine_entity_id": "d2cc557c-9821-4e3f-8211-9b3751f12abe",
-        "operation_type": "defect",
         "status": "checklist",
         "note": "Лист дефектовки двигателя",
-        "performed_at": 1769424371578,
-        "performed_by": "fatyhova",
-        "meta_json": "enc:v1:1jdvmaHTKuN8tNW8:U1XvcQEXRI4TeDbcpjU5eg==:/Ane/nWGdFOZ77EroZueOA2jixStehh8vqGWxjp6Shft5vupoRAbvsAbWaYE5CQgB2B87OFoLTZSxOldpArPBTkd0kxCMsBazi1C7bD+1zcjXMHBqyxeZA1IjLaGLKATxSq+QgoN30mQUdQJvJmna9UIEjHENbrGFzBY7yCgkR7WJb8Qdk/ash3ZXr6BeDQsEVyy9yB9J6AxWI8p/6bxvV7ZdySJWSOl4p6QyFkP3UNuMZ1lnFUfS6A1Jo5nQcCmSECxUrskIFTvSPG6+otLQxo6OOLsUQ9oYU2jCPxtkpNUp1VRabJg/XG6829PYy5DU4lN5Jn89lAAw2x3XSJTHPJDexePiEiMVcA7hnvv2JCYfESFwWNP55p44O4EH15HSwzJgXPG//X/7n49hG4l+smPF2QQ0wUqbwuwFcB3VaJMymqrfoi/g0NjW0JwlELhim3uE/PkAGzUVzhOKOKI/q9wa6iZWZvuizr8rwPtSK9aZ279ml4/wIp7nlRcJvzfqIkIzk91CW4CWar2H0OMANp0EitW26BrUjC/tQOuXTRyA9z0WYuSuSSPj61fNQQB2LZy+5nMRsiZecT/zgi6DCSufr0FQYmA8HALvbwnYhDgU3bpQ9aiZxXm3uVQJyLE9rTgndSKlJgbgtb8xm6N3Msd1sksNKJkq5bK34vtKtAzp1Z9PSDLJHCVQrD0zNl1+04azMpaWkbzKYG7pU6+gPYIdImeLWt6I1UBfEot1X5hD7/S3OYRaDLOzkReXiQe6YBgfKXv37aE/KPrYw1pTpWcYNCF+2WdnJ4nddDMkXRheDS/GcBpvY5C0PppGSGTeVqiD3KtfRWlPnBqU/mHp5KrSPnKaXTDl62wogm7gHOEQ7LdJ6ij2owRnP2FvRoITnjt/gOPBNI8BjGiTNlSbYC2kCYlcWi9Oe0TX1SydEPWPm7Wrh6mah8TgUayV0ZbdgPMH21GWH05aUpGCAW1Qdh3FgUzEIeTPBklOJ6a5skeT2L2oS2zKxYBioJ339qjQCUEgKbLBfL0ig7DRQBstn9svjtM7VoARC7tGbkLlpjYwLwWbtEzdIAyFz7y/w3/vowps1CGkmWkPhGhDh6kS4LJhv0pEIheODtCfb4UpaeA+CSeg0+rrGdX3f7UZZKdw0eOZ/kuovuAv5XW4ICzGfqYKGkJvNE+34gWd5QjcJZwe3UsoO2RfjLsN/tr9gh/LMLJFGrCd5Mp0hpogQmpySeo1Iw7aMQ8uH0FIk89gAu7vEPczR39VGkIhz/sV17KOSiPtLfziU8xUFXSQN9MxrQgkz3bjIsE51SzSQCBfLpyvzohrKvdbAeQEti+3CIVtzNvb1mRN4mlo4CLo19iJNB7ADZpYVkvqp8a0reZw5z9pgi6vc9lzJhyprndIWwA3+abVjf3JcWcga0h8lftzAwEzxqimQNJF7R/Dp7RnqGuvmphx/fQyDkzyUBxItQznFsCy/GZxuvhOJsmaxNk9lHeGBlz6PpKlXeUvcvGdek9qNEZ9UrJhoY=",
-        "created_at": 1769424371578,
-        "updated_at": 1769424563126,
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769777352419
       },
       "34ba3abe-406c-4bc7-9c13-67ce25b87a24": {
         "id": "34ba3abe-406c-4bc7-9c13-67ce25b87a24",
@@ -14290,17 +16230,13 @@
       },
       "b5d2ba64-0d23-4693-8011-2e83a3164e71": {
         "id": "b5d2ba64-0d23-4693-8011-2e83a3164e71",
-        "engine_entity_id": "e3918695-9f84-41f5-97c4-d529b8d50dde",
-        "operation_type": "defect",
         "status": "checklist",
         "note": "Лист дефектовки двигателя",
-        "performed_at": 1769424623516,
-        "performed_by": "fatyhova",
-        "meta_json": "enc:v1:Uq+JxyWSUMnqj9LX:3Gn8QGtLteXH8njVjN6RrQ==:D4Dsi0mOQtXfBiAekU1iNkm7YRQKVSTah7F4CVMrX2sc/TMc50+H4huENF9I5Bo2w7KRYPbJaXpqaW3SU5BJY1ramuTerxSd1IntLbUdV5PRc1NG1bKBDjbXfCFQACXfAk2qPmDpFQRWREjhTJhRiNJNJzmcCAgs9NAT7GyO4atMKWsXoXjmUoqlbxsBzJuMMitZQj0M8K54xJ3kCaIbR6hpNCi53ubvyv6Up7po0MfEn4Q4G6VSsgBqvZWavZNse5U/SzhvQD/AnjaR77M+5nw9s3Qnu59AjI5GSwNl4292i35nE1lDYJM/x9T1vLjOhDBQ3RnZTW9V/g4CPPwY9HJzMBb8MWKRnywcWg9O5LUOpwm0wR5w+Uhu5Vb0wTrk2o7jHhG9yJVnNSV4gbsqBSmqP6ZG97mUiHP5JPcIwtOS8wweArIHLhiZfXBaJTmsPsfXKb07SfNzaFtNu7v0UL9K9TPZYgnYWodXrEJ9CUPVgqWmDONvdV0lp8htYe8UtDBq0PWol5ZnDZRhBsxxkonK4KFtMMxbksyx05VyIyyG1RR7kNOOHL/OcQvznTtkjAO3CZ/oJEF7DnIWUoUm9GYuotNilMIQsg2NXtK56oNkz35tm7lfti/TA0FK+l3dJ2k9pyK7pV79v8Qvh3J1YRN4wTuhgYf3u/mcSoYSwOp2rPS4qYB5gEvHqIMxpAzNzp1gikUBqE+kI2vT+SG1/sQIV0SSJb0tiWbpmcMw00QJD7MmXLvUO8Pvb5K/0h4wGLEg3HvjDlPVdSHstAcrH2zlzxgxOix1tkJc7KyOqn9XEXb3ogvlySVEcPWpGbWWBkRHCW5Ucewtx586wzC6b7WaZVkn8/7/UMh2Exg0miVa74ES5aiCLMhr92jmNAO9ElJZJTyIEA7mEKpf7pVIgxlS/fasJ7HJC29Jf0Sxb6/yEJEfJfcJ26N/CFiPAfZTu40fp/UtjgqwKoTShoMJH9F1YxMN4HvCm1eq/fm3q2nnvG/WTks3+O0ww9noMT21SMI8cJW8J90BBlB0dEZqbj6XN8Yb40vLwUJS8shrj3So6KazaIrtn+lDboQ04zCmEJRadwOY",
-        "created_at": 1769424623516,
-        "updated_at": 1769424640159,
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769772117389
       },
       "91c37a89-947d-49cd-b19c-321bb8bfa686": {
         "id": "91c37a89-947d-49cd-b19c-321bb8bfa686",
@@ -14420,17 +16356,13 @@
       },
       "ae3f48ca-4d5a-43b8-adb6-fda3d9de7d9f": {
         "id": "ae3f48ca-4d5a-43b8-adb6-fda3d9de7d9f",
-        "engine_entity_id": "2d84eb6d-081f-4a43-8ac1-880dd1130654",
-        "operation_type": "defect",
         "status": "checklist",
         "note": "Лист дефектовки двигателя",
-        "performed_at": 1769174548409,
-        "performed_by": "valstan",
-        "meta_json": "enc:v1:/HqsJh/ZpM6+OlOg:yoTg/FxWPrOQZy4m8SQmug==:twP+flprypefGwkdQfUvdO4AcRP8RP6cqpt4/kS5833hyTPOf0sOiRH0suJdcVCQa2ZVo8ldosTricvKrnD1I4dLDVo2fuoPJJWmR1jIlaX/ZmjBN+64OBzDagXfBsLHwnQnswzm/Z60QieguozYj1bUssJlTEWvqewRY3CqkrLKVUlqREP3yP+McdlXEvOIWf7ls5sA74SZFvcK2dEwFkIlJKuBT6wdb6xUEq6JlcL3xvFyCQpaGLMiAqhxKV2kl2OrElyZ+15Dxjec/s5YB2HLPvEufcTtwO56cTWfEU8zaOSxezWSIwVl4ja7hQ+a+JP7wljNInsadpQsW3XeiAyX0DHoYRzPJrHtduHkZsGKg8AibgulUECGGgtuNIoOV9K4OU06epsnplPaqgOwuAkpqSSbdxgCtumC6vGZVaB90nLYtGn4ovgF0HjgmW2IzKonBkKzrbq0ri4rveZcazNk6e/JTTYNA35S9kxLia4oAQuVbsbqnqcoy9DFVW0QRYDYfnKNDsUQgwo4TxgaAXlwx5PBOafaOfxbwcV+iDla+A5kco0QI8f/E7AK7Is7MF6N20uTlp2d/xur1/Tmf/wCL0zdTiVOBPIKIPkxH44lT3rYrzzgf+kWn+giMppIVLIy2tQkzVS2iixSyt/K6ObJ/3heBtNpLIyrPyj2wTwh/d5/esKJMini79GrchP12E5SKiGR4jKiMN5uSzeXMkj4yDQoh7bcazOGm6pqTl1/ruwyGfARpIBwj9Ub63sM9EakeokMnqSnHfubLWXS9LF37Q7eyg9lfnVyqsfrhgFgDfN5V2bnwL5SUoirLbiYS9lho8mEoGPn239jAwd+uaYV+PC8ywouVOZA8TJnDK633YgYvdVFq3kBT5c8MxxCpCtapoO/FJ8D6I1qQopv6ecFvhIURJR10Xh3neNPIbKuFXisoVqIM8AEk41qRIrBgIZbgZq6L3cmm7tVikoA0nNjff9jQIj0hR4DLS+yFuJ21FPvcvJgCUj8tpmBrski75pOoZbDY5+XPPkpIQj7L/MPXLsKx2ApO8YdY+FPyQJAbXyylQvBB5UXoCjsO+KdmALc+PKa1frGTBb+x86t9bjOtSpgE3lQHrxY+NkMxGZQ/DQoo/SBCX3UScNNjOh5cc81D5oG68amAhhancylUdPa",
-        "created_at": 1769174548409,
-        "updated_at": 1769424623126,
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769806362968
       },
       "370a3c24-d444-4e4b-bc42-4e57f3f2733f": {
         "id": "370a3c24-d444-4e4b-bc42-4e57f3f2733f",
@@ -14526,7 +16458,157 @@
         "performed_by": null,
         "meta_json": null,
         "deleted_at": null,
-        "updated_at": 1769718187316
+        "updated_at": 1769807265546
+      },
+      "6cdea147-6dc1-4e57-bf76-f92d31728bcd": {
+        "id": "6cdea147-6dc1-4e57-bf76-f92d31728bcd",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769759303048
+      },
+      "dd7138aa-ad81-4069-b63f-4d26a26c04ef": {
+        "id": "dd7138aa-ad81-4069-b63f-4d26a26c04ef",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769777352419
+      },
+      "36d6b426-80f7-4b72-a85f-7d7640424e30": {
+        "id": "36d6b426-80f7-4b72-a85f-7d7640424e30",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772102410
+      },
+      "0c9432a9-9bad-43a2-a675-f499ff3de16b": {
+        "id": "0c9432a9-9bad-43a2-a675-f499ff3de16b",
+        "status": "checklist",
+        "note": "Контрольный лист ремонта",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772102410
+      },
+      "3a33b0bb-f417-4894-b953-12b7aa2f100f": {
+        "id": "3a33b0bb-f417-4894-b953-12b7aa2f100f",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772102410
+      },
+      "e8e344ca-922c-460f-bf12-2a935ce37291": {
+        "id": "e8e344ca-922c-460f-bf12-2a935ce37291",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772117389
+      },
+      "2e5627fb-9470-400c-bca1-a2929a3c7fe6": {
+        "id": "2e5627fb-9470-400c-bca1-a2929a3c7fe6",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772117389
+      },
+      "0b233ff6-b229-4fd0-a55f-a4e0f7d8709f": {
+        "id": "0b233ff6-b229-4fd0-a55f-a4e0f7d8709f",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769772117389
+      },
+      "ca33b279-d2ca-40d1-8cc7-cc76b23c6927": {
+        "id": "ca33b279-d2ca-40d1-8cc7-cc76b23c6927",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
+      },
+      "e81903d2-ef20-4a9b-9d20-5a99fd3e243e": {
+        "id": "e81903d2-ef20-4a9b-9d20-5a99fd3e243e",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
+      },
+      "ca907d56-d228-496e-b81c-664fdfdc3f99": {
+        "id": "ca907d56-d228-496e-b81c-664fdfdc3f99",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
+      },
+      "45ead3d9-0624-4987-8899-fb1d4c314202": {
+        "id": "45ead3d9-0624-4987-8899-fb1d4c314202",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
+      },
+      "0d0dc096-e0a2-4934-aac3-9246723315ab": {
+        "id": "0d0dc096-e0a2-4934-aac3-9246723315ab",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
+      },
+      "72f57b84-2754-4732-ba7e-818b41ec3fdb": {
+        "id": "72f57b84-2754-4732-ba7e-818b41ec3fdb",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
+      },
+      "5168302c-4612-4973-bdd6-feaa347359c6": {
+        "id": "5168302c-4612-4973-bdd6-feaa347359c6",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null,
+        "updated_at": 1769806362968
       }
     },
     "audit_log": {
@@ -22016,6 +24098,21 @@
         "updated_at": 1769458719771,
         "deleted_at": null,
         "sync_status": "synced"
+      },
+      "c04bc89a-2755-4f47-98ed-9ece6b8213dd": {
+        "id": "c04bc89a-2755-4f47-98ed-9ece6b8213dd",
+        "deleted_at": null,
+        "updated_at": 1769760955827
+      },
+      "236ebe40-c633-4436-ba13-38e4598643a8": {
+        "id": "236ebe40-c633-4436-ba13-38e4598643a8",
+        "deleted_at": null,
+        "updated_at": 1769760955827
+      },
+      "8cea3346-52e8-4652-a4f5-406cd00c4b90": {
+        "id": "8cea3346-52e8-4652-a4f5-406cd00c4b90",
+        "deleted_at": null,
+        "updated_at": 1769760955827
       }
     },
     "user_presence": {
@@ -22341,6 +24438,19 @@
         "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
         "created_by_username": "admin",
         "updated_at": 1769716997828
+      },
+      "7ff51913-9e35-405e-a084-b896e2aa53da": {
+        "id": "7ff51913-9e35-405e-a084-b896e2aa53da",
+        "version": "1.0.19",
+        "notes": "Sync: drop invalid chat_messages rows to avoid NOT NULL errors.",
+        "sha256": "0e75961ac68a93e5d4d5d0426310fd4310ed2f82ff46ea835849e7e0330c7a75",
+        "file_name": "MatricaRMZ-Setup-1.0.19.exe",
+        "size": 93913147,
+        "payload_json": null,
+        "created_at": 1769718933010,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin",
+        "updated_at": 1769718933010
       }
     },
     "notes": {

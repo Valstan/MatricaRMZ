@@ -3,7 +3,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { EngineDetailsPage } from './EngineDetailsPage.js';
-import { createEntity, getEntity, listAttributeDefs, listEntities, listEntityTypes, upsertAttributeDef, upsertEntityType } from '../api/masterdata.js';
+import {
+  createEntity,
+  getEntity,
+  listAttributeDefs,
+  listEntities,
+  listEntityTypes,
+  upsertAttributeDef,
+  upsertEntityType,
+  softDeleteEntity,
+} from '../api/masterdata.js';
 
 type Row = {
   id: string;
@@ -202,6 +211,7 @@ export function EnginesPage(props: {
               <th style={{ textAlign: 'left', padding: 8 }}>Номер</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Марка</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Синхр.</th>
+              {props.canEditMasterData && <th style={{ textAlign: 'left', padding: 8, width: 120 }}>Действия</th>}
             </tr>
           </thead>
           <tbody>
@@ -210,11 +220,38 @@ export function EnginesPage(props: {
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineNumber || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineBrand || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.syncStatus || '-'}</td>
+                {props.canEditMasterData && (
+                  <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }} onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        if (!confirm('Удалить двигатель?')) return;
+                        try {
+                          setStatus('Удаление…');
+                          const r = await softDeleteEntity(row.id);
+                          if (!r?.ok) {
+                            setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+                            return;
+                          }
+                          setStatus('Удалено');
+                          setTimeout(() => setStatus(''), 900);
+                          await loadEngines();
+                          if (selectedId === row.id) setSelectedId(null);
+                        } catch (err) {
+                          setStatus(`Ошибка: ${String(err)}`);
+                        }
+                      }}
+                      style={{ color: '#b91c1c' }}
+                    >
+                      Удалить
+                    </Button>
+                  </td>
+                )}
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={props.canEditMasterData ? 4 : 3} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>

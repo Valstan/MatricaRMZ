@@ -78,6 +78,7 @@ export function EngineDetailsPage(props: {
   canExportReports?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onClose: () => void;
 }) {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
@@ -152,6 +153,37 @@ export function EngineDetailsPage(props: {
       setTimeout(() => setSaveStatus(''), 700);
     } catch (e) {
       setSaveStatus(`Ошибка сохранения: ${String(e)}`);
+    }
+  }
+
+  async function saveAllAndClose() {
+    if (props.canEditEngines) {
+      const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
+      const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
+      await saveAttr('engine_number', engineNumber);
+      await saveAttr('engine_brand_id', engineBrandId || null);
+      await saveAttr('engine_brand', brandLabel || null);
+      await saveAttr('customer_id', customerId || null);
+      await saveAttr('contract_id', contractId || null);
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!props.canEditEngines) return;
+    if (!confirm('Удалить двигатель?')) return;
+    try {
+      setSaveStatus('Удаление…');
+      const r = await window.matrica.engines.delete(props.engineId);
+      if (!r.ok) {
+        setSaveStatus(`Ошибка удаления: ${r.error ?? 'unknown'}`);
+        return;
+      }
+      setSaveStatus('Удалено');
+      setTimeout(() => setSaveStatus(''), 900);
+      props.onClose();
+    } catch (e) {
+      setSaveStatus(`Ошибка удаления: ${String(e)}`);
     }
   }
 
@@ -398,6 +430,16 @@ export function EngineDetailsPage(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
+        {props.canEditEngines && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        {props.canEditEngines && (
+          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+            Удалить
+          </Button>
+        )}
         {props.canPrintEngineCard && (
           <Button
             variant="ghost"

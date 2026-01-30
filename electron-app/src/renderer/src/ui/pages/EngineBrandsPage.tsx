@@ -14,6 +14,7 @@ type Row = {
 export function EngineBrandsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
+  canDelete: boolean;
   canViewMasterData: boolean;
 }) {
   const [query, setQuery] = useState<string>('');
@@ -78,6 +79,9 @@ export function EngineBrandsPage(props: {
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Название</th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Обновлено</th>
+        {props.canDelete && (
+          <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
+        )}
       </tr>
     </thead>
   );
@@ -90,7 +94,10 @@ export function EngineBrandsPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td
+                  colSpan={props.canDelete ? 3 : 2}
+                  style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}
+                >
                   {rows.length === 0 ? 'Нет марок' : 'Не найдено'}
                 </td>
               </tr>
@@ -111,6 +118,33 @@ export function EngineBrandsPage(props: {
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
                   {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
                 </td>
+                {props.canDelete && (
+                  <td style={{ padding: '10px 12px' }}>
+                    <Button
+                      variant="ghost"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm('Удалить марку двигателя?')) return;
+                        try {
+                          setStatus('Удаление…');
+                          const r = await window.matrica.admin.entities.softDelete(row.id);
+                          if (!r.ok) {
+                            setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                            return;
+                          }
+                          setStatus('Удалено');
+                          setTimeout(() => setStatus(''), 900);
+                          await refresh();
+                        } catch (err) {
+                          setStatus(`Ошибка: ${String(err)}`);
+                        }
+                      }}
+                      style={{ color: '#b91c1c' }}
+                    >
+                      Удалить
+                    </Button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

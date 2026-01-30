@@ -5,7 +5,17 @@ import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
 import { AttachmentsPanel } from './components/AttachmentsPanel.js';
 import { RepairChecklistPanel } from './components/RepairChecklistPanel.js';
-import { createEntity, getEntity, listAttributeDefs, listEntities, listEntityTypes, setEntityAttr, upsertAttributeDef, upsertEntityType } from '../api/masterdata.js';
+import {
+  createEntity,
+  getEntity,
+  listAttributeDefs,
+  listEntities,
+  listEntityTypes,
+  setEntityAttr,
+  upsertAttributeDef,
+  upsertEntityType,
+  softDeleteEntity,
+} from '../api/masterdata.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -189,6 +199,36 @@ export function EngineDetailsPage(props: {
     }
   }
 
+  async function saveAllAndClose() {
+    if (props.canEditEngines) {
+      await saveAttr('engine_number', engineNumber);
+      await saveAttr('engine_brand_id', engineBrandId || null);
+      await saveAttr('engine_brand', engineBrand || null);
+      await saveAttr('customer_id', customerId || null);
+      await saveAttr('contract_id', contractId || null);
+      await saveAttr('attachments', attachments);
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!props.canEditEngines) return;
+    if (!confirm('Удалить двигатель?')) return;
+    try {
+      setStatus('Удаление…');
+      const r = await softDeleteEntity(props.engineId);
+      if (!r?.ok) {
+        setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Удалено');
+      setTimeout(() => setStatus(''), 900);
+      props.onClose();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
     const typeId = typeIdByCode.current[typeCode];
@@ -247,6 +287,16 @@ export function EngineDetailsPage(props: {
         </Button>
         <div style={{ flex: 1 }} />
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{status}</div>}
+        {props.canEditEngines && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        {props.canEditEngines && (
+          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+            Удалить
+          </Button>
+        )}
         <Button variant="ghost" onClick={loadEngine}>
           Обновить
         </Button>

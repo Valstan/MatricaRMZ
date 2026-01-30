@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type MultiSearchSelectOption = { id: string; label: string };
 
@@ -14,6 +15,10 @@ export function MultiSearchSelect(props: {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number } | null>(null);
 
   const selected = useMemo(() => {
     const set = new Set(safeValues);
@@ -31,12 +36,37 @@ export function MultiSearchSelect(props: {
     const onDoc = (e: MouseEvent) => {
       const el = rootRef.current;
       if (!el) return;
-      if (e.target && el.contains(e.target as any)) return;
+      const target = e.target as Node | null;
+      if (target && (el.contains(target) || popupRef.current?.contains(target))) return;
       setOpen(false);
       setQuery('');
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPopupRect({ left: rect.left, top: rect.bottom + 6, width: rect.width });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const input = searchInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
   }, [open]);
 
   function toggle(id: string) {
@@ -111,60 +141,67 @@ export function MultiSearchSelect(props: {
         )}
       </div>
 
-      {open && !disabled && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 'calc(100% + 6px)',
-            zIndex: 10,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 12,
-            boxShadow: 'var(--chat-menu-shadow)',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Поиск..."
+      {open && !disabled && popupRect
+        ? createPortal(
+            <div
+              ref={popupRef}
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: 10,
-                border: '1px solid var(--input-border)',
-                background: 'var(--input-bg)',
-                color: 'var(--text)',
+                position: 'fixed',
+                left: popupRect.left,
+                top: popupRect.top,
+                width: popupRect.width,
+                zIndex: 5000,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                boxShadow: 'var(--chat-menu-shadow)',
+                overflow: 'hidden',
               }}
-            />
-          </div>
-          <div style={{ maxHeight: 260, overflow: 'auto' }}>
-            {filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
-            {filtered.map((o) => {
-              const checked = safeValues.includes(o.id);
-              return (
-                <label
-                  key={o.id}
+            >
+              <div style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
+                <input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Поиск…"
                   style={{
-                    display: 'flex',
-                    gap: 10,
-                    alignItems: 'center',
+                    width: '100%',
                     padding: '8px 10px',
-                    borderBottom: '1px solid var(--border)',
-                    cursor: 'pointer',
+                    borderRadius: 10,
+                    border: '1px solid var(--input-border)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text)',
+                    outline: 'none',
                   }}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggle(o.id)} />
-                  <span style={{ color: 'var(--text)' }}>{o.label}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                />
+              </div>
+              <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
+                {filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
+                {filtered.map((o) => {
+                  const checked = safeValues.includes(o.id);
+                  return (
+                    <label
+                      key={o.id}
+                      style={{
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'center',
+                        padding: '8px 10px',
+                        borderBottom: '1px solid var(--border)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => toggle(o.id)} />
+                      <span style={{ color: 'var(--text)' }}>{o.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

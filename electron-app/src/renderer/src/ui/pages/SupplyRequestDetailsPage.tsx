@@ -198,6 +198,7 @@ export function SupplyRequestDetailsPage(props: {
   canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onClose: () => void;
 }) {
   const [payload, setPayload] = useState<SupplyRequestPayload | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('');
@@ -384,6 +385,30 @@ export function SupplyRequestDetailsPage(props: {
     }
   }
 
+  async function saveAllAndClose() {
+    if (payload) {
+      await saveNow(payload);
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!confirm('Удалить заявку?')) return;
+    try {
+      setSaveStatus('Удаление…');
+      const r = await window.matrica.supplyRequests.delete(props.id);
+      if (!r.ok) {
+        setSaveStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+        return;
+      }
+      setSaveStatus('Удалено');
+      setTimeout(() => setSaveStatus(''), 900);
+      props.onClose();
+    } catch (e) {
+      setSaveStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   function scheduleSave(next: SupplyRequestPayload) {
     setPayload(next);
     payloadRef.current = next;
@@ -539,6 +564,14 @@ export function SupplyRequestDetailsPage(props: {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        {props.canEdit && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+          Удалить
+        </Button>
         {props.canPrint && (
           <>
             <Button

@@ -19,6 +19,7 @@ export function CounterpartyDetailsPage(props: {
   canEdit: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onClose: () => void;
 }) {
   const [entity, setEntity] = useState<CounterpartyEntity | null>(null);
   const [defs, setDefs] = useState<AttributeDefRow[]>([]);
@@ -101,6 +102,36 @@ export function CounterpartyDetailsPage(props: {
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 900);
       void load();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function saveAllAndClose() {
+    if (props.canEdit) {
+      await saveAttr('name', name.trim());
+      await saveAttr('inn', inn.trim() || null);
+      await saveAttr('kpp', kpp.trim() || null);
+      await saveAttr('address', address.trim() || null);
+      await saveAttr('phone', phone.trim() || null);
+      await saveAttr('email', email.trim() || null);
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!props.canEdit) return;
+    if (!confirm('Удалить контрагента?')) return;
+    try {
+      setStatus('Удаление…');
+      const r = await window.matrica.admin.entities.softDelete(props.counterpartyId);
+      if (!r?.ok) {
+        setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Удалено');
+      setTimeout(() => setStatus(''), 900);
+      props.onClose();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -194,6 +225,16 @@ export function CounterpartyDetailsPage(props: {
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
+        {props.canEdit && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        {props.canEdit && (
+          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+            Удалить
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => void load()}>
           Обновить
         </Button>

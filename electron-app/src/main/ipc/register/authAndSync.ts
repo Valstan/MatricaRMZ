@@ -8,7 +8,6 @@ import {
   authProfileGet,
   authProfileUpdate,
   authRegister,
-  authSettingsGet,
   authStatus,
   authSync,
   presenceMe,
@@ -16,32 +15,19 @@ import {
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { isViewMode } from '../ipcContext.js';
-import { logMessageSetEnabled, logMessageSetMode } from '../../services/logService.js';
 
 export function registerAuthAndSyncIpc(ctx: IpcContext) {
   // Auth
   ipcMain.handle('auth:status', async () => authStatus(ctx.sysDb));
   ipcMain.handle('auth:sync', async () => {
     const res = await authSync(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() });
-    if (res.loggedIn) {
-      const settings = await authSettingsGet(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }).catch(() => null);
-      if (settings?.ok) {
-        await logMessageSetEnabled(ctx.sysDb, settings.settings.loggingEnabled, ctx.mgr.getApiBaseUrl());
-        await logMessageSetMode(ctx.sysDb, settings.settings.loggingMode);
-      }
-    }
+    // Note: logging is managed by client settings (admin panel). Avoid overriding here.
     return res;
   });
   ipcMain.handle('auth:login', async (_e, args: { username: string; password: string }) =>
     (async () => {
       const res = await authLogin(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), username: args.username, password: args.password });
-      if (res.ok) {
-        const settings = await authSettingsGet(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }).catch(() => null);
-        if (settings?.ok) {
-          await logMessageSetEnabled(ctx.sysDb, settings.settings.loggingEnabled, ctx.mgr.getApiBaseUrl());
-          await logMessageSetMode(ctx.sysDb, settings.settings.loggingMode);
-        }
-      }
+      // Note: logging is managed by client settings (admin panel). Avoid overriding here.
       return res;
     })(),
   );

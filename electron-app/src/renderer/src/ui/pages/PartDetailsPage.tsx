@@ -115,6 +115,7 @@ export function PartDetailsPage(props: {
   canDelete: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onClose: () => void;
 }) {
   const [part, setPart] = useState<Part | null>(null);
   const [status, setStatus] = useState<string>('');
@@ -533,6 +534,13 @@ export function PartDetailsPage(props: {
     await saveAttribute('supplier', supplierLabel || supplier);
   }
 
+  async function saveAllAndClose() {
+    if (props.canEdit) {
+      await saveCore();
+    }
+    props.onClose();
+  }
+
   async function handleDelete() {
     if (!props.canDelete) return;
     if (!confirm('Удалить деталь?')) return;
@@ -543,7 +551,7 @@ export function PartDetailsPage(props: {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
-      // No dedicated "back" in UI: user can switch sections via tabs.
+      props.onClose();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -727,6 +735,11 @@ export function PartDetailsPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
+        {props.canEdit && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
         <Button variant="ghost" onClick={printPartCard}>
           Распечатать
         </Button>

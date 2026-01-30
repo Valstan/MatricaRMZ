@@ -12,6 +12,7 @@ import {
   setEntityAttr,
   createEntity,
   upsertAttributeDef,
+  softDeleteEntity,
 } from '../api/masterdata.js';
 
 type AttributeDef = {
@@ -82,6 +83,7 @@ export function ContractDetailsPage(props: {
   canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onClose: () => void;
 }) {
   const [contract, setContract] = useState<ContractEntity | null>(null);
   const [defs, setDefs] = useState<AttributeDef[]>([]);
@@ -206,6 +208,31 @@ export function ContractDetailsPage(props: {
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 1200);
       void loadContract();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function saveAllAndClose() {
+    if (props.canEditMasterData) {
+      await saveCore();
+    }
+    props.onClose();
+  }
+
+  async function handleDelete() {
+    if (!props.canEditMasterData) return;
+    if (!confirm('Удалить контракт?')) return;
+    try {
+      setStatus('Удаление…');
+      const r = await softDeleteEntity(props.contractId);
+      if (!r?.ok) {
+        setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Удалено');
+      setTimeout(() => setStatus(''), 900);
+      props.onClose();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -367,6 +394,16 @@ export function ContractDetailsPage(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: 20, fontWeight: 800, flex: 1 }}>{headerTitle}</div>
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
+        {props.canEditMasterData && (
+          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+            Сохранить
+          </Button>
+        )}
+        {props.canEditMasterData && (
+          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+            Удалить
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => void loadContract()}>
           Обновить
         </Button>

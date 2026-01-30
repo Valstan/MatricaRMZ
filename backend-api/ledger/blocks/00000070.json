@@ -1,0 +1,65 @@
+{
+  "height": 70,
+  "prev_hash": "aa23c030da4ee5b8e3b8458435f3f1074b626cbd93ea39650875bd6245b94de9",
+  "created_at": 1769760955828,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "chat_reads",
+      "row": {
+        "id": "c04bc89a-2755-4f47-98ed-9ece6b8213dd",
+        "deleted_at": null
+      },
+      "row_id": "c04bc89a-2755-4f47-98ed-9ece6b8213dd",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1769760955827,
+      "seq": 2380,
+      "tx_id": "a3c458a144d0c0a2ea951da59d3796833326a2204f12e51c2a110c2432c3e839",
+      "signature": "JxbWI43smAcgV4ebSFdqnPK+XkAq6tYzFNkHcisjulmj3TT4YZzJbPSAAXnbNdii3Sv9JjI79SnMmnxe6KXZAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_reads",
+      "row": {
+        "id": "236ebe40-c633-4436-ba13-38e4598643a8",
+        "deleted_at": null
+      },
+      "row_id": "236ebe40-c633-4436-ba13-38e4598643a8",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1769760955827,
+      "seq": 2381,
+      "tx_id": "d22833f5be557768a13257f1d343bb4fcdf3e05fbd7153abbfc4cb8df7080a1e",
+      "signature": "nNTPqhnE6ZYkrtFj7F9Ilxrs7bHZ5JgJa0FyunMlZOOMmBjAeGF4CXfbwJoBrZwNmB2MkEnh1JTFrZ3ZOzOpBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_reads",
+      "row": {
+        "id": "8cea3346-52e8-4652-a4f5-406cd00c4b90",
+        "deleted_at": null
+      },
+      "row_id": "8cea3346-52e8-4652-a4f5-406cd00c4b90",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1769760955827,
+      "seq": 2382,
+      "tx_id": "617e91e0ab5b5aa761deae835706222d0d56335c59474125ae51f69eef73c19f",
+      "signature": "UdsnuxqgYVeAqOkrlZQsQaVfZf7iktLnucrFT0X4JSgdRj5SxPb5IOIQZJInu1gd7K68+Ttm48uMfdj+4xfeDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "8754bcb91906c86bc6e93baae099a60e335e81d114121867e8d156080f42f890"
+}
