@@ -211,7 +211,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
     }
 
-    async function filterStaleByUpdatedAt<T extends { id: string; updated_at: number; deleted_at?: number | null }>(
+    async function filterStaleByUpdatedAt<T extends { id: string; updated_at: number; deleted_at?: number | null | undefined }>(
       table: any,
       rows: T[],
     ): Promise<T[]> {
