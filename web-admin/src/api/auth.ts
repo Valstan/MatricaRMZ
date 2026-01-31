@@ -44,3 +44,11 @@ export async function profileUpdate(args: { fullName?: string | null; position?:
   });
 }
 
+export async function generateReleaseToken(ttlHours?: number) {
+  return apiJson('/auth/release-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ttlHours ? { ttlHours } : {}),
+  });
+}
+

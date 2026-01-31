@@ -5,6 +5,7 @@ import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import * as adminUsers from '../api/adminUsers.js';
+import * as authApi from '../api/auth.js';
 import * as ledger from '../api/ledger.js';
 
 export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: string; role: string; username: string } | null }) {
@@ -43,6 +44,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const [releaseSize, setReleaseSize] = useState<string>('');
   const [releaseStatus, setReleaseStatus] = useState<string>('');
   const [latestRelease, setLatestRelease] = useState<{ version: string; createdAt: number; createdBy: string } | null>(null);
+  const [releaseTokenTtlHours, setReleaseTokenTtlHours] = useState<string>('168');
+  const [releaseTokenValue, setReleaseTokenValue] = useState<string>('');
+  const [releaseTokenExpiresAt, setReleaseTokenExpiresAt] = useState<number | null>(null);
+  const [releaseTokenStatus, setReleaseTokenStatus] = useState<string>('');
 
   async function refreshUsers() {
     const r = await adminUsers.listUsers();
@@ -196,6 +201,79 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                   Опубликовать
                 </Button>
                 {releaseStatus && <div className="muted">{releaseStatus}</div>}
+              </div>
+            </div>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #f3f4f6' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <strong>Токен для релиза</strong>
+                <span style={{ flex: 1 }} />
+                {releaseTokenExpiresAt && (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Истекает: {new Date(releaseTokenExpiresAt).toLocaleString('ru-RU')}
+                  </div>
+                )}
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 200px', gap: 8, alignItems: 'center' }}>
+                <Input
+                  value={releaseTokenTtlHours}
+                  onChange={(e) => setReleaseTokenTtlHours(e.target.value)}
+                  placeholder="TTL, часы (например 168)"
+                />
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    const ttl = Number(releaseTokenTtlHours.trim());
+                    if (!Number.isFinite(ttl) || ttl <= 0) {
+                      setReleaseTokenStatus('Укажите TTL в часах (1..720).');
+                      return;
+                    }
+                    setReleaseTokenStatus('Генерация токена...');
+                    const r = await authApi.generateReleaseToken(ttl);
+                    if (r?.ok && r.accessToken) {
+                      setReleaseTokenValue(String(r.accessToken));
+                      setReleaseTokenExpiresAt(Number(r.expiresAt ?? 0) || null);
+                      setReleaseTokenStatus('Токен сгенерирован.');
+                    } else {
+                      setReleaseTokenStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+                    }
+                  }}
+                >
+                  Сгенерировать
+                </Button>
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                <textarea
+                  value={releaseTokenValue}
+                  readOnly
+                  rows={3}
+                  placeholder="Здесь появится токен для публикации релиза"
+                  style={{
+                    width: '100%',
+                    padding: 10,
+                    borderRadius: 10,
+                    border: '1px solid #d1d5db',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      if (!releaseTokenValue) return;
+                      try {
+                        await navigator.clipboard.writeText(releaseTokenValue);
+                        setReleaseTokenStatus('Токен скопирован.');
+                      } catch {
+                        setReleaseTokenStatus('Не удалось скопировать токен.');
+                      }
+                    }}
+                    disabled={!releaseTokenValue}
+                  >
+                    Скопировать
+                  </Button>
+                  {releaseTokenStatus && <div className="muted">{releaseTokenStatus}</div>}
+                </div>
               </div>
             </div>
           </div>

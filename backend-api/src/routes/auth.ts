@@ -4,7 +4,7 @@ import { and, eq, gt } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import { chatMessages, changeLog, refreshTokens } from '../database/schema.js';
-import { signAccessToken, type AuthUser } from '../auth/jwt.js';
+import { signAccessToken, signAccessTokenWithTtl, type AuthUser } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
@@ -189,6 +189,30 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
   const permissions = await getEffectivePermissionsForUser(user.id).catch(() => ({}));
   return res.json({ ok: true, user, permissions });
+});
+
+authRouter.post('/release-token', requireAuth, async (req, res) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const role = String(user?.role ?? '').toLowerCase();
+    const isAdmin = role === 'admin' || role === 'superadmin';
+    if (!isAdmin) return res.status(403).json({ ok: false, error: 'admin only' });
+
+    const parsed = z
+      .object({
+        ttlHours: z.number().int().min(1).max(24 * 30).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const ttlHours = parsed.data.ttlHours ?? 24 * 7;
+    const accessToken = await signAccessTokenWithTtl(user, ttlHours);
+    const expiresAt = Date.now() + ttlHours * 60 * 60 * 1000;
+    return res.json({ ok: true, accessToken, expiresAt, ttlHours });
+  } catch (e) {
+    logError('auth release-token failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 authRouter.get('/users/:id/permissions-view', requireAuth, async (req, res) => {

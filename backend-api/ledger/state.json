@@ -24471,6 +24471,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769852820556
+      },
+      "1600490b-d7b2-4ba1-bbb2-65a591a0b412": {
+        "id": "1600490b-d7b2-4ba1-bbb2-65a591a0b412",
+        "version": "1.0.24",
+        "notes": "fix sqlite migration journal for last_server_seq",
+        "sha256": "50c68517b8cbfadaf9b4a949b1d2ef285252ba30ad017713957d0f5d3658c151",
+        "file_name": "MatricaRMZ-Setup-1.0.24.exe",
+        "size": 93915113,
+        "payload_json": null,
+        "created_at": 1769874957891,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769874957891
       }
     },
     "notes": {

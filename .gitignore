@@ -11,7 +11,6 @@ build
 # Env files
 .env
 .env.*.local
-token_reliz.txt
 
 # Logs
 npm-debug.log*

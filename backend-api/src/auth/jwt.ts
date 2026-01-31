@@ -29,6 +29,16 @@ export async function signAccessToken(user: AuthUser): Promise<string> {
     .sign(getJwtSecret());
 }
 
+export async function signAccessTokenWithTtl(user: AuthUser, ttlHours: number): Promise<string> {
+  const safeHours = Math.max(1, Math.min(24 * 30, Math.floor(Number(ttlHours) || 0)));
+  const payload: JwtPayload = { sub: user.id, username: user.username, role: user.role };
+  return await new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(`${safeHours}h`)
+    .sign(getJwtSecret());
+}
+
 export async function verifyAccessToken(token: string): Promise<AuthUser> {
   const { payload } = await jwtVerify(token, getJwtSecret(), { algorithms: ['HS256'] });
   const sub = String(payload.sub ?? '');
