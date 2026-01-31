@@ -79,24 +79,24 @@ CREATE INDEX IF NOT EXISTS `note_shares_recipient_sort_idx` ON `note_shares` (`r
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `note_shares_sync_status_idx` ON `note_shares` (`sync_status`);
 --> statement-breakpoint
-ALTER TABLE entity_types ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE entity_types ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE entities ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE attribute_defs ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE attribute_defs ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE attribute_values ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE attribute_values ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE operations ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE operations ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE audit_log ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE chat_messages ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE chat_reads ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE chat_reads ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE notes ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE notes ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE note_shares ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE note_shares ADD COLUMN last_server_seq integer;
 --> statement-breakpoint
-ALTER TABLE user_presence ADD COLUMN IF NOT EXISTS last_server_seq integer;
+ALTER TABLE user_presence ADD COLUMN last_server_seq integer;

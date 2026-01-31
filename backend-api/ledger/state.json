@@ -24484,6 +24484,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769874957891
+      },
+      "eed6e7c6-18bf-4194-a2d9-64f3e8010d1e": {
+        "id": "eed6e7c6-18bf-4194-a2d9-64f3e8010d1e",
+        "version": "1.0.25",
+        "notes": "fix sqlite migration for last_server_seq on legacy dbs",
+        "sha256": "ed7627e6da3719cc2b422c95c5da703c1d54eebca124cfacafda98e958ae79d8",
+        "file_name": "MatricaRMZ-Setup-1.0.25.exe",
+        "size": 93915094,
+        "payload_json": null,
+        "created_at": 1769877908789,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769877908789
       }
     },
     "notes": {
