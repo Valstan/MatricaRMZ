@@ -24458,6 +24458,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769811728225
+      },
+      "0b5b7c76-b4fd-416b-973e-982599235c90": {
+        "id": "0b5b7c76-b4fd-416b-973e-982599235c90",
+        "version": "1.0.23",
+        "notes": "server_seq-based conflict resolution and sync reliability fixes; logging controls update; lint cleanup",
+        "sha256": "54eb7f4c9df0fd4c38e1293ef7cbed977972ca3fd62616466ad33d18da1a2bf2",
+        "file_name": "MatricaRMZ-Setup-1.0.23.exe",
+        "size": 93914910,
+        "payload_json": null,
+        "created_at": 1769852820556,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769852820556
       }
     },
     "notes": {
