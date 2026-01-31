@@ -6,6 +6,7 @@ export const baseRowFields = {
   id: z.string().uuid(),
   created_at: z.number().int(),
   updated_at: z.number().int(),
+  last_server_seq: z.number().int().nullable().optional(),
   deleted_at: z.number().int().nullable().optional(),
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
 } as const;

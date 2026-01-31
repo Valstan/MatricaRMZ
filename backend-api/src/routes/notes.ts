@@ -4,7 +4,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { changeLog, entities, noteShares, notes, userPresence } from '../database/schema.js';
+import { changeLog, noteShares, notes, userPresence } from '../database/schema.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
 

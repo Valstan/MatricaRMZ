@@ -1,0 +1,11 @@
+ALTER TABLE entity_types ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE attribute_defs ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE attribute_values ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE operations ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE chat_reads ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE note_shares ADD COLUMN IF NOT EXISTS last_server_seq bigint;
+ALTER TABLE user_presence ADD COLUMN IF NOT EXISTS last_server_seq bigint;

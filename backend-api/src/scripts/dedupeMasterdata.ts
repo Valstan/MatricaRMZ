@@ -117,7 +117,6 @@ async function dedupeMasterdata() {
 
     if (deleted > 0) {
       totalDeleted += deleted;
-      // eslint-disable-next-line no-console
       console.log(JSON.stringify({ entityType: String(t.code), deleted }));
     }
   }
@@ -127,7 +126,6 @@ async function dedupeMasterdata() {
 
 async function main() {
   const r = await dedupeMasterdata();
-  // eslint-disable-next-line no-console
   console.log(JSON.stringify(r));
 }
 

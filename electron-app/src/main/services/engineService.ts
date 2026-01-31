@@ -130,7 +130,7 @@ export async function setEngineAttribute(
   engineId: string,
   code: string,
   value: unknown,
-  actor?: string,
+  _actor?: string,
 ) {
   const ts = nowMs();
   const defs = await getEngineAttrDefs(db);

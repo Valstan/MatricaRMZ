@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { entities, permissionDelegations, permissions, userPermissions } from '../database/schema.js';
+import { permissionDelegations, permissions, userPermissions } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser, hasPermission } from '../auth/permissions.js';
@@ -14,7 +14,6 @@ import {
   emitEmployeesSyncSnapshotAll,
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
-  getEmployeeAuthByLogin,
   getEmployeeProfileById,
   getEmployeeTypeId,
   isLoginTaken,

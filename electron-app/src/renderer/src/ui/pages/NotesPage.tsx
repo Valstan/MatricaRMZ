@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import type { ChatDeepLinkPayload, ChatUserItem } from '@matricarmz/shared';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '@matricarmz/shared';

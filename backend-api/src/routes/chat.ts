@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';

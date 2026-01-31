@@ -4,6 +4,17 @@ import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { db } from '../../database/db.js';
 import { changeLog, notes, noteShares } from '../../database/schema.js';
 
+function withServerSeq(payloadJson: string, serverSeq: number): string {
+  try {
+    const parsed = JSON.parse(String(payloadJson ?? '')) as any;
+    if (!parsed || typeof parsed !== 'object') return payloadJson;
+    parsed.last_server_seq = serverSeq;
+    return JSON.stringify(parsed);
+  } catch {
+    return payloadJson;
+  }
+}
+
 export async function pullChangesSince(
   since: number,
   actor: { id: string; role: string },
@@ -131,7 +142,7 @@ export async function pullChangesSince(
       table: r.table as any,
       row_id: r.rowId,
       op: r.op as any,
-      payload_json: r.payloadJson,
+      payload_json: withServerSeq(r.payloadJson, r.serverSeq),
       server_seq: r.serverSeq,
     })),
   };

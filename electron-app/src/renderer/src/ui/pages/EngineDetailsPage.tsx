@@ -6,7 +6,6 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';

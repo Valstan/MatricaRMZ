@@ -22,6 +22,7 @@ export const entityTypes = pgTable(
     name: text('name').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -37,6 +38,7 @@ export const entities = pgTable('entities', {
     .references(() => entityTypes.id),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
 });
@@ -56,6 +58,7 @@ export const attributeDefs = pgTable(
     metaJson: text('meta_json'), // JSON-строка (параметры поля, единицы, подсказки)
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -77,6 +80,7 @@ export const attributeValues = pgTable(
     valueJson: text('value_json'), // JSON-строка значения
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -98,6 +102,7 @@ export const operations = pgTable('operations', {
   metaJson: text('meta_json'), // JSON-строка (табличные блоки, реквизиты актов, ссылки на файлы)
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
 });
@@ -111,6 +116,7 @@ export const auditLog = pgTable('audit_log', {
   payloadJson: text('payload_json'),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
 });
@@ -401,6 +407,7 @@ export const chatMessages = pgTable(
 
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -421,6 +428,7 @@ export const chatReads = pgTable(
 
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -446,6 +454,7 @@ export const notes = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -468,6 +477,7 @@ export const noteShares = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
@@ -491,6 +501,7 @@ export const userPresence = pgTable(
 
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },

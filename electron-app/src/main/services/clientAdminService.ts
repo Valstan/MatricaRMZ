@@ -3,7 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { hostname as getHostname } from 'node:os';
 
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
-import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from './settingsStore.js';
+import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean } from './settingsStore.js';
 
 export type RemoteClientSettings = {
   updatesEnabled: boolean;

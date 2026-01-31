@@ -1,6 +1,6 @@
 import { db } from '../database/db.js';
 import { changeLog, entityTypes } from '../database/schema.js';
-import { and, eq, like, or } from 'drizzle-orm';
+import { eq, like, or } from 'drizzle-orm';
 
 function nowMs() {
   return Date.now();
@@ -61,7 +61,6 @@ export async function cleanupBulkEntityTypes(): Promise<{ ok: true; affected: nu
 
 async function main() {
   const r = await cleanupBulkEntityTypes();
-  // eslint-disable-next-line no-console
   console.log(JSON.stringify(r));
   if (!r.ok) process.exit(1);
 }

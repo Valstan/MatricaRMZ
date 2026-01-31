@@ -1,0 +1,11 @@
+ALTER TABLE entity_types ADD COLUMN last_server_seq integer;
+ALTER TABLE entities ADD COLUMN last_server_seq integer;
+ALTER TABLE attribute_defs ADD COLUMN last_server_seq integer;
+ALTER TABLE attribute_values ADD COLUMN last_server_seq integer;
+ALTER TABLE operations ADD COLUMN last_server_seq integer;
+ALTER TABLE audit_log ADD COLUMN last_server_seq integer;
+ALTER TABLE chat_messages ADD COLUMN last_server_seq integer;
+ALTER TABLE chat_reads ADD COLUMN last_server_seq integer;
+ALTER TABLE notes ADD COLUMN last_server_seq integer;
+ALTER TABLE note_shares ADD COLUMN last_server_seq integer;
+ALTER TABLE user_presence ADD COLUMN last_server_seq integer;

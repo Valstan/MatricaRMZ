@@ -2,7 +2,6 @@ import { app, BrowserWindow, shell } from 'electron';
 import updater from 'electron-updater';
 import { spawn } from 'node:child_process';
 import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 import {
@@ -1431,7 +1430,6 @@ export async function runAutoUpdateFlow(
         });
         if (tdl.ok) {
           const cachedPath = await cacheInstaller(tdl.installerPath, torrentCheck.version);
-          lastDownloadedInstallerPath = cachedPath;
           await saveTorrentSeedInfo({ version: torrentManifest.version, installerPath: cachedPath, torrentPath: tdl.torrentPath });
           const queued = await queuePendingWithIntegrityRetry({
             version: torrentCheck.version ?? torrentManifest.version,
@@ -1500,7 +1498,6 @@ export async function runAutoUpdateFlow(
         return { action: 'error', error: download.error ?? 'download failed' };
       }
       const cachedPath = await cacheInstaller(download.filePath, check.version);
-      lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(null, cachedPath, check.version);
       const queued = await queuePendingWithIntegrityRetry({
         version: check.version ?? 'latest',
@@ -1541,7 +1538,6 @@ export async function runAutoUpdateFlow(
         return { action: 'error', error: gdl.error ?? 'download failed' };
       }
       const cachedPath = await cacheInstaller(gdl.filePath, gh.version);
-      lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(null, cachedPath, gh.version);
       const queued = await queuePendingWithIntegrityRetry({
         version: gh.version ?? 'latest',
@@ -1586,7 +1582,6 @@ export async function runAutoUpdateFlow(
         return { action: 'error', error: ydl.error ?? 'download failed' };
       }
       const cachedPath = await cacheInstaller(ydl.filePath, fallback.version);
-      lastDownloadedInstallerPath = cachedPath;
       await ensureTorrentSeedArtifacts(null, cachedPath, fallback.version);
       const queued = await queuePendingWithIntegrityRetry({
         version: fallback.version ?? 'latest',
@@ -1737,7 +1732,6 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
   }
 }
 
-let lastDownloadedInstallerPath: string | null = null;
 
 type YandexUpdateInfo = { ok: true; updateAvailable: boolean; version?: string; path?: string; source: 'yandex' } | { ok: false; error: string };
 type YandexConfig = { publicKey: string; basePath: string };
@@ -2200,14 +2194,6 @@ function isProcessAlive(pid: number) {
   } catch {
     return false;
   }
-}
-
-async function runInstaller(installerPath: string): Promise<number> {
-  return await new Promise<number>((resolve) => {
-    const child = spawn(installerPath, [], { windowsHide: false, stdio: 'ignore' });
-    child.on('close', (code) => resolve(code ?? 0));
-    child.on('error', () => resolve(1));
-  });
 }
 
 async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Promise<boolean> {

@@ -1431,27 +1431,18 @@
     "entities": {
       "bcf82083-771d-46a9-91bb-9990a0312e8b": {
         "id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
-        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
-        "created_at": 1769426197210,
-        "updated_at": 1769426239554,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769811956225
       },
       "ec90e6cb-fddc-465e-98c3-5b08376e02de": {
         "id": "ec90e6cb-fddc-465e-98c3-5b08376e02de",
-        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
-        "created_at": 1769426165656,
-        "updated_at": 1769426465270,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769811956225
       },
       "ae2262ad-f5b6-4edd-a065-9886b62593f2": {
         "id": "ae2262ad-f5b6-4edd-a065-9886b62593f2",
-        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
-        "created_at": 1769426183327,
-        "updated_at": 1769426465270,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769811956225
       },
       "c4c751f6-2317-4246-b187-94b4119c9930": {
         "id": "c4c751f6-2317-4246-b187-94b4119c9930",
@@ -1610,11 +1601,8 @@
       },
       "082470bc-65c8-41e7-a418-1fa674d40f24": {
         "id": "082470bc-65c8-41e7-a418-1fa674d40f24",
-        "type_id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
-        "created_at": 1766987984851,
-        "updated_at": 1767097436577,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769812224559
       },
       "f5c4b717-72f1-4090-9ac0-b5be142ce6d6": {
         "deleted_at": 1768696874817,
@@ -3703,11 +3691,8 @@
       },
       "19e5b6b8-12b7-4757-85a9-19bad0fc456f": {
         "id": "19e5b6b8-12b7-4757-85a9-19bad0fc456f",
-        "type_id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
-        "created_at": 1769174517907,
-        "updated_at": 1769182528989,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769812224559
       },
       "2d84eb6d-081f-4a43-8ac1-880dd1130654": {
         "id": "2d84eb6d-081f-4a43-8ac1-880dd1130654",
@@ -9750,13 +9735,9 @@
       },
       "451fd7cc-8ad3-4faf-a45b-2ef5026b59b2": {
         "id": "451fd7cc-8ad3-4faf-a45b-2ef5026b59b2",
-        "entity_id": "082470bc-65c8-41e7-a418-1fa674d40f24",
-        "attribute_def_id": "6ab01c3d-1a25-4c41-b24e-8036eb479276",
-        "value_json": "\"В-59У\"",
-        "created_at": 1766987988806,
-        "updated_at": 1767097436577,
+        "value_json": null,
         "deleted_at": null,
-        "sync_status": "synced"
+        "updated_at": 1769812224559
       },
       "2e0b453e-e819-4075-876c-353be3ea3bab": {
         "id": "2e0b453e-e819-4075-876c-353be3ea3bab",
@@ -16458,7 +16439,7 @@
         "performed_by": null,
         "meta_json": null,
         "deleted_at": null,
-        "updated_at": 1769807265546
+        "updated_at": 1769811956225
       },
       "6cdea147-6dc1-4e57-bf76-f92d31728bcd": {
         "id": "6cdea147-6dc1-4e57-bf76-f92d31728bcd",
@@ -24464,6 +24445,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769810859053
+      },
+      "8dd05986-eda1-49e2-b938-66efb7a26615": {
+        "id": "8dd05986-eda1-49e2-b938-66efb7a26615",
+        "version": "1.0.22",
+        "notes": "release 1.0.22 (BITS updater + installer retries)",
+        "sha256": "f5412b58fbb7e53c67531fc1c2eca1afe8874b967c931554d92d39262b87dca2",
+        "file_name": "MatricaRMZ-Setup-1.0.22.exe",
+        "size": 93914189,
+        "payload_json": null,
+        "created_at": 1769811728225,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769811728225
       }
     },
     "notes": {

@@ -11,10 +11,9 @@ import {
   entityRowSchema,
   entityTypeRowSchema,
   operationRowSchema,
-  userPresenceRowSchema,
   type SyncPushRequest,
 } from '@matricarmz/shared';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
@@ -121,13 +120,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
             syncStatus: 'synced',
           },
         });
-      await tx.insert(changeLog).values({
-        tableName: SyncTableName.UserPresence,
-        rowId: actor.id as any,
-        op: 'upsert',
-        payloadJson: JSON.stringify(presencePayload),
-        createdAt: appliedAt,
-      });
+      await insertChangeLogAndUpdateSeq(userPresence, SyncTableName.UserPresence, [presencePayload]);
       applied += 1;
     }
 
@@ -170,13 +163,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           deleted_at: null,
           sync_status: 'synced',
         };
-        await tx.insert(changeLog).values({
-          tableName: SyncTableName.EntityTypes,
-          rowId: SUPPLY_REQUESTS_CONTAINER_TYPE_ID as any,
-          op: 'upsert',
-          payloadJson: JSON.stringify(payload),
-          createdAt: appliedAt,
-        });
+        await insertChangeLogAndUpdateSeq(entityTypes, SyncTableName.EntityTypes, [payload]);
       }
 
       // 2) entity (idempotent)
@@ -201,38 +188,70 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           deleted_at: null,
           sync_status: 'synced',
         };
-        await tx.insert(changeLog).values({
-          tableName: SyncTableName.Entities,
-          rowId: SUPPLY_REQUESTS_CONTAINER_ENTITY_ID as any,
-          op: 'upsert',
-          payloadJson: JSON.stringify(payload),
-          createdAt: appliedAt,
-        });
+        await insertChangeLogAndUpdateSeq(entities, SyncTableName.Entities, [payload]);
       }
     }
 
-    async function filterStaleByUpdatedAt<T extends { id: string; updated_at: number; deleted_at?: number | null | undefined }>(
-      table: any,
-      rows: T[],
-    ): Promise<T[]> {
+    async function filterStaleBySeqOrUpdatedAt(table: any, rows: any[]): Promise<any[]> {
       if (rows.length === 0) return rows;
       const ids = rows.map((r) => r.id);
       const existing = await tx
-        .select({ id: table.id, updatedAt: table.updatedAt, deletedAt: table.deletedAt })
+        .select({ id: table.id, updatedAt: table.updatedAt, deletedAt: table.deletedAt, lastServerSeq: table.lastServerSeq })
         .from(table)
         .where(inArray(table.id, ids as any));
-      const map = new Map<string, { updatedAt: number; deletedAt: number | null }>();
+      const map = new Map<string, { updatedAt: number; deletedAt: number | null; lastServerSeq: number | null }>();
       for (const r of existing as any[]) {
-        if (r?.id) map.set(String(r.id), { updatedAt: Number(r.updatedAt), deletedAt: r.deletedAt ?? null });
+        if (r?.id) {
+          map.set(String(r.id), {
+            updatedAt: Number(r.updatedAt),
+            deletedAt: r.deletedAt ?? null,
+            lastServerSeq: r.lastServerSeq == null ? null : Number(r.lastServerSeq),
+          });
+        }
       }
       return rows.filter((r) => {
         const cur = map.get(String(r.id));
         if (!cur || !Number.isFinite(cur.updatedAt)) return true;
-        // Allow deletes to go through even if server updatedAt is newer,
-        // so local deletes aren't blocked by clock skew.
+        const incomingSeq = r.last_server_seq ?? null;
+        const currentSeq = cur.lastServerSeq;
+        if (incomingSeq != null && currentSeq != null) return incomingSeq >= currentSeq;
+        if (incomingSeq != null && currentSeq == null) return true;
+        if (incomingSeq == null && currentSeq != null) {
+          if (r.deleted_at && cur.deletedAt == null) return true;
+          return !(cur.updatedAt > r.updated_at);
+        }
         if (r.deleted_at && cur.deletedAt == null) return true;
         return !(cur.updatedAt > r.updated_at);
       });
+    }
+
+    async function applyLastServerSeq(table: any, pairs: Array<{ rowId: string; serverSeq: number }>) {
+      if (pairs.length === 0) return;
+      const ids = pairs.map((p) => p.rowId);
+      const cases = sql.join(
+        pairs.map((p) => sql`when ${table.id} = ${p.rowId} then ${p.serverSeq}`),
+        sql.raw(' '),
+      );
+      const caseExpr = sql`case ${cases} end`;
+      await tx.update(table).set({ lastServerSeq: caseExpr }).where(inArray(table.id, ids as any));
+    }
+
+    async function insertChangeLogAndUpdateSeq(table: any, tableName: SyncTableName, rows: any[]) {
+      if (rows.length === 0) return;
+      const inserted = await tx
+        .insert(changeLog)
+        .values(
+          rows.map((r) => ({
+            tableName,
+            rowId: r.id as any,
+            op: normalizeOpFromRow(r),
+            payloadJson: JSON.stringify(r),
+            createdAt: appliedAt,
+          })),
+        )
+        .returning({ rowId: changeLog.rowId, serverSeq: changeLog.serverSeq });
+      const pairs = inserted.map((r) => ({ rowId: String(r.rowId), serverSeq: Number(r.serverSeq) }));
+      await applyLastServerSeq(table, pairs);
     }
 
     // Group incoming rows by table (so we can do bulk ops even if the client sent multiple packs).
@@ -294,7 +313,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
       const deduped = Array.from(dedupMap.values());
 
-      const rows = await filterStaleByUpdatedAt(entityTypes, deduped);
+      const rows = await filterStaleBySeqOrUpdatedAt(entityTypes, deduped);
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()
@@ -329,15 +348,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               syncStatus: 'synced',
             },
           });
-        await tx.insert(changeLog).values(
-          allowed.map((r) => ({
-            tableName: SyncTableName.EntityTypes,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        );
+        await insertChangeLogAndUpdateSeq(entityTypes, SyncTableName.EntityTypes, allowed);
         applied += allowed.length;
 
         // Ownership for newly created rows
@@ -357,7 +368,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const mappedTypeId = entityTypeIdRemap.get(String(r.type_id));
         return mappedTypeId ? { ...r, type_id: mappedTypeId } : r;
       });
-      let rows = await filterStaleByUpdatedAt(entities, remapped);
+      let rows = await filterStaleBySeqOrUpdatedAt(entities, remapped);
       const rowTypeIds = Array.from(new Set(rows.map((r) => String(r.type_id))));
       if (rowTypeIds.length > 0) {
         const existingTypes = await tx
@@ -405,15 +416,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               syncStatus: 'synced',
             },
           });
-        await tx.insert(changeLog).values(
-          allowed.map((r) => ({
-            tableName: SyncTableName.Entities,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        );
+        await insertChangeLogAndUpdateSeq(entities, SyncTableName.Entities, allowed);
         applied += allowed.length;
 
         for (const r of allowed) {
@@ -475,7 +478,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
       const deduped = Array.from(dedupMap.values());
 
-      let rows = await filterStaleByUpdatedAt(attributeDefs, deduped);
+      let rows = await filterStaleBySeqOrUpdatedAt(attributeDefs, deduped);
       // Extra safety: remap by (entity_type_id, code) using the *current* rows to avoid
       // unique violations if earlier remap missed a server match.
       if (rows.length > 0) {
@@ -569,15 +572,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               syncStatus: 'synced',
             },
           });
-        await tx.insert(changeLog).values(
-          allowed.map((r) => ({
-            tableName: SyncTableName.AttributeDefs,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        );
+        await insertChangeLogAndUpdateSeq(attributeDefs, SyncTableName.AttributeDefs, allowed);
         applied += allowed.length;
 
         for (const r of allowed) {
@@ -596,7 +591,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const mappedDefId = attributeDefIdRemap.get(String(r.attribute_def_id));
         return mappedDefId ? { ...r, attribute_def_id: mappedDefId } : r;
       });
-      let rows = await filterStaleByUpdatedAt(attributeValues, remapped);
+      let rows = await filterStaleBySeqOrUpdatedAt(attributeValues, remapped);
       const defIdsToCheck = Array.from(new Set(rows.map((r) => String(r.attribute_def_id))));
       if (defIdsToCheck.length > 0) {
         const existingDefs = await tx
@@ -669,15 +664,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               syncStatus: 'synced',
             },
           });
-        await tx.insert(changeLog).values(
-          allowed.map((r) => ({
-            tableName: SyncTableName.AttributeValues,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        );
+        await insertChangeLogAndUpdateSeq(attributeValues, SyncTableName.AttributeValues, allowed);
         applied += allowed.length;
 
         // Ownership for newly created attribute_values is inherited from parent entity.
@@ -693,7 +680,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.Operations) ?? [];
       const parsed = raw.map((x) => operationRowSchema.parse(x));
-      let rows = await filterStaleByUpdatedAt(operations, parsed);
+      let rows = await filterStaleBySeqOrUpdatedAt(operations, parsed);
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()
@@ -761,15 +748,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               syncStatus: 'synced',
             },
           });
-        await tx.insert(changeLog).values(
-          allowed.map((r) => ({
-            tableName: SyncTableName.Operations,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        );
+        await insertChangeLogAndUpdateSeq(operations, SyncTableName.Operations, allowed);
         applied += allowed.length;
 
         for (const r of allowed) {
@@ -784,7 +763,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.AuditLog) ?? [];
       const parsed = raw.map((x) => auditLogRowSchema.parse(x));
-      const rows = await filterStaleByUpdatedAt(auditLog, parsed);
+      const rows = await filterStaleBySeqOrUpdatedAt(auditLog, parsed);
       if (rows.length > 0) {
         await tx
           .insert(auditLog)
@@ -815,15 +794,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
               syncStatus: 'synced',
             },
           });
-        await tx.insert(changeLog).values(
-          rows.map((r) => ({
-            tableName: SyncTableName.AuditLog,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        );
+        await insertChangeLogAndUpdateSeq(auditLog, SyncTableName.AuditLog, rows);
         applied += rows.length;
       }
     }
@@ -839,7 +810,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           sender_user_id: actor.id,
           sender_username: actor.username,
         }));
-        let rows = await filterStaleByUpdatedAt(chatMessages, parsed);
+        let rows = await filterStaleBySeqOrUpdatedAt(chatMessages, parsed);
         if (rows.length > 0) {
           const recipientIds = Array.from(
             new Set(rows.map((r) => (r.recipient_user_id ? String(r.recipient_user_id) : '')).filter((id) => id.length > 0)),
@@ -912,15 +883,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 syncStatus: 'synced',
               },
             });
-          await tx.insert(changeLog).values(
-            allowed.map((r) => ({
-              tableName: SyncTableName.ChatMessages,
-              rowId: r.id as any,
-              op: normalizeOpFromRow(r),
-              payloadJson: JSON.stringify(r),
-              createdAt: appliedAt,
-            })),
-          );
+          await insertChangeLogAndUpdateSeq(chatMessages, SyncTableName.ChatMessages, allowed);
           applied += allowed.length;
         }
       }
@@ -936,7 +899,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           ...r,
           user_id: actor.id,
         }));
-        const rows = await filterStaleByUpdatedAt(chatReads, parsed);
+        const rows = await filterStaleBySeqOrUpdatedAt(chatReads, parsed);
         const messageIds = Array.from(new Set(rows.map((r) => String(r.message_id))));
         const existingMessages =
           messageIds.length === 0
@@ -977,15 +940,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 syncStatus: 'synced',
               },
             });
-          await tx.insert(changeLog).values(
-            allowed.map((r) => ({
-              tableName: SyncTableName.ChatReads,
-              rowId: r.id as any,
-              op: normalizeOpFromRow(r),
-              payloadJson: JSON.stringify(r),
-              createdAt: appliedAt,
-            })),
-          );
+          await insertChangeLogAndUpdateSeq(chatReads, SyncTableName.ChatReads, allowed);
           applied += allowed.length;
         }
       }
@@ -1001,7 +956,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           ...r,
           owner_user_id: actor.id,
         }));
-        const rows = await filterStaleByUpdatedAt(notes, parsed);
+        const rows = await filterStaleBySeqOrUpdatedAt(notes, parsed);
         const ids = rows.map((r) => r.id);
         const existing =
           ids.length === 0
@@ -1058,15 +1013,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 syncStatus: 'synced',
               },
             });
-          await tx.insert(changeLog).values(
-            allowed.map((r) => ({
-              tableName: SyncTableName.Notes,
-              rowId: r.id as any,
-              op: normalizeOpFromRow(r),
-              payloadJson: JSON.stringify(r),
-              createdAt: appliedAt,
-            })),
-          );
+          await insertChangeLogAndUpdateSeq(notes, SyncTableName.Notes, allowed);
           applied += allowed.length;
         }
       }
@@ -1077,7 +1024,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       const raw = grouped.get(SyncTableName.NoteShares) ?? [];
       const parsedAll = raw.map((x) => noteShareRowSchema.parse(x));
       if (parsedAll.length > 0 && actor.id) {
-        const rows = await filterStaleByUpdatedAt(noteShares, parsedAll);
+        const rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll);
         const noteIds = Array.from(new Set(rows.map((r) => String(r.note_id))));
         const notesRows =
           noteIds.length === 0
@@ -1161,15 +1108,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
                 syncStatus: 'synced',
               },
             });
-          await tx.insert(changeLog).values(
-            allowed.map((r) => ({
-              tableName: SyncTableName.NoteShares,
-              rowId: r.id as any,
-              op: normalizeOpFromRow(r),
-              payloadJson: JSON.stringify(r),
-              createdAt: appliedAt,
-            })),
-          );
+          await insertChangeLogAndUpdateSeq(noteShares, SyncTableName.NoteShares, allowed);
           applied += allowed.length;
         }
       }

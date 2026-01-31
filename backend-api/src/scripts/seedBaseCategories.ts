@@ -86,12 +86,10 @@ async function main() {
     created.push(id);
   }
 
-  // eslint-disable-next-line no-console
   console.log(JSON.stringify({ ok: true, created }));
 }
 
 main().catch((e) => {
-  // eslint-disable-next-line no-console
   console.error(JSON.stringify({ ok: false, error: String(e) }));
   process.exit(1);
 });

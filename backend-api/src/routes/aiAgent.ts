@@ -7,7 +7,6 @@ import { PermissionCode } from '../auth/permissions.js';
 import { db, pool } from '../database/db.js';
 import { diagnosticsSnapshots } from '../database/schema.js';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
-import { getConsistencyReport } from '../services/diagnosticsConsistencyService.js';
 
 export const aiAgentRouter = Router();
 aiAgentRouter.use(requireAuth);
@@ -233,15 +232,6 @@ async function runHeuristicQuery(message: string, policy: AccessPolicy) {
   return { ok: false as const, error: 'no heuristic match' };
 }
 
-function formatRows(rows: any[]) {
-  if (!rows || rows.length === 0) return 'Нет данных.';
-  const keys = Object.keys(rows[0] ?? {});
-  const preview = rows.slice(0, PREVIEW_ROWS);
-  const lines = preview.map((r) => keys.map((k) => `${k}=${String(r[k])}`).join(' | '));
-  const more = rows.length > PREVIEW_ROWS ? `\n… и ещё ${rows.length - PREVIEW_ROWS} строк.` : '';
-  return `Строк: ${rows.length}\n` + lines.join('\n') + more;
-}
-
 function formatRowsForUser(rows: any[]) {
   if (!rows || rows.length === 0) return 'Нет данных.';
   const first = rows[0] as Record<string, unknown> | undefined;
@@ -302,20 +292,6 @@ async function runSqlQuery(sql: string, params: any[]) {
   const res = await pool.query(sql, params);
   const tookMs = nowMs() - start;
   return { rows: res.rows ?? [], tookMs };
-}
-
-async function summarizeConsistencyReport() {
-  const report = await getConsistencyReport();
-  const clients = report.clients ?? [];
-  const drift = clients.filter((c) => c.status === 'drift');
-  const warning = clients.filter((c) => c.status === 'warning');
-  const unknown = clients.filter((c) => c.status === 'unknown');
-  const lines: string[] = [];
-  lines.push(`Серверный снимок: ${new Date(report.server.generatedAt).toLocaleString('ru-RU')}`);
-  lines.push(`Клиенты: drift=${drift.length}, warning=${warning.length}, unknown=${unknown.length}`);
-  const list = drift.slice(0, 5).map((c) => `${c.clientId} (lastSeen=${c.lastSeenAt ?? 'n/a'})`);
-  if (list.length > 0) lines.push(`Drift: ${list.join(', ')}`);
-  return lines.join('\n');
 }
 
 async function logSnapshot(scope: string, payload: unknown, actorId?: string | null) {

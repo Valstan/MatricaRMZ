@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { chatMessages, changeLog, entities, refreshTokens } from '../database/schema.js';
+import { chatMessages, changeLog, refreshTokens } from '../database/schema.js';
 import { signAccessToken, type AuthUser } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';

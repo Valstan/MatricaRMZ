@@ -27,24 +27,20 @@ function formatLine(level: LogLevel, message: string, meta?: LogMeta): string {
 
 export function logInfo(message: string, meta?: LogMeta, opts?: { critical?: boolean }) {
   if (!shouldLog('info', opts?.critical === true)) return;
-  // eslint-disable-next-line no-console
   console.log(formatLine('info', message, meta));
 }
 
 export function logWarn(message: string, meta?: LogMeta, opts?: { critical?: boolean }) {
   if (!shouldLog('warn', opts?.critical === true)) return;
-  // eslint-disable-next-line no-console
   console.warn(formatLine('warn', message, meta));
 }
 
 export function logError(message: string, meta?: LogMeta) {
   if (!shouldLog('error', true)) return;
-  // eslint-disable-next-line no-console
   console.error(formatLine('error', message, meta));
 }
 
 export function logDebug(message: string, meta?: LogMeta) {
   if (!shouldLog('debug', false)) return;
-  // eslint-disable-next-line no-console
   console.log(formatLine('debug', message, meta));
 }

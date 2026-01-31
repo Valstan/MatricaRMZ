@@ -470,7 +470,7 @@ async function mergeCounterparties(): Promise<{ ok: true; merged: number; conver
       arr.push(id);
       byInn.set(inn, arr);
     }
-    for (const [inn, ids] of byInn.entries()) {
+    for (const [_inn, ids] of byInn.entries()) {
       if (ids.length < 2) continue;
       const target = pickTarget(ids);
       for (const id of ids) {
@@ -493,7 +493,7 @@ async function mergeCounterparties(): Promise<{ ok: true; merged: number; conver
       arr.push(id);
       byName.set(meta.name, arr);
     }
-    for (const [name, ids] of byName.entries()) {
+    for (const [_name, ids] of byName.entries()) {
       if (ids.length < 2) continue;
       const target = pickTarget(ids);
       for (const id of ids) {
@@ -511,7 +511,6 @@ async function mergeCounterparties(): Promise<{ ok: true; merged: number; conver
 
 async function main() {
   const r = await mergeCounterparties();
-  // eslint-disable-next-line no-console
   console.log(JSON.stringify(r));
   if (!r.ok) process.exit(1);
 }

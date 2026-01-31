@@ -739,6 +739,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         name: row.name,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -748,6 +749,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         type_id: row.typeId,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -763,6 +765,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         meta_json: row.metaJson ?? null,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -774,6 +777,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         value_json: row.valueJson ?? null,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -789,6 +793,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         meta_json: row.metaJson ?? null,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -802,6 +807,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         payload_json: row.payloadJson ?? null,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -816,6 +822,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         payload_json: row.payloadJson ?? null,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -827,6 +834,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         read_at: row.readAt,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -841,6 +849,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         sort_order: row.sortOrder ?? 0,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -853,6 +862,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         sort_order: row.sortOrder ?? 0,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -863,6 +873,7 @@ function toSyncRow(table: SyncTableName, row: any): any {
         last_activity_at: row.lastActivityAt,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
+        last_server_seq: row.lastServerSeq ?? null,
         deleted_at: row.deletedAt ?? null,
         sync_status: row.syncStatus,
       };
@@ -1045,6 +1056,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             name: payload.name,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1059,6 +1071,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             typeId: payload.type_id,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1081,6 +1094,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             metaJson: payload.meta_json ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1097,6 +1111,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             valueJson: payload.value_json ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1116,6 +1131,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             metaJson: payload.meta_json ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1133,6 +1149,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             payloadJson: payload.payload_json ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1151,6 +1168,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             payloadJson: payload.payload_json ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1166,6 +1184,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             readAt: payload.read_at,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1184,6 +1203,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             sortOrder: payload.sort_order ?? 0,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1200,6 +1220,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             sortOrder: payload.sort_order ?? 0,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
@@ -1214,12 +1235,21 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
             lastActivityAt: payload.last_activity_at,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',
           });
         }
         break;
     }
+  }
+
+  // De-duplicate within this pull batch by primary key (prefer newest server_seq).
+  function isNewerRow(prev: any, next: any) {
+    const prevSeq = Number(prev?.lastServerSeq ?? 0);
+    const nextSeq = Number(next?.lastServerSeq ?? 0);
+    if (prevSeq > 0 || nextSeq > 0) return nextSeq >= prevSeq;
+    return Number(prev?.updatedAt ?? 0) < Number(next?.updatedAt ?? 0);
   }
 
   // De-duplicate within this pull batch by primary key (keep the newest updatedAt),
@@ -1231,7 +1261,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       const id = String(r.id ?? '');
       if (!id) continue;
       const prev = m.get(id);
-      if (!prev || Number(prev.updatedAt ?? 0) < Number(r.updatedAt ?? 0)) m.set(id, r);
+      if (!prev || isNewerRow(prev, r)) m.set(id, r);
     }
     return Array.from(m.values());
   }
@@ -1365,7 +1395,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       for (const r of remapped) {
         const key = `${String(r.messageId)}::${String(r.userId)}`;
         const prev = byPair.get(key);
-        if (!prev || Number(prev.updatedAt ?? 0) < Number(r.updatedAt ?? 0)) {
+        if (!prev || isNewerRow(prev, r)) {
           byPair.set(key, r);
         }
       }
@@ -1398,7 +1428,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       for (const r of remapped) {
         const key = `${String(r.noteId)}::${String(r.recipientUserId)}`;
         const prev = byPair.get(key);
-        if (!prev || Number(prev.updatedAt ?? 0) < Number(r.updatedAt ?? 0)) byPair.set(key, r);
+        if (!prev || isNewerRow(prev, r)) byPair.set(key, r);
       }
       groups.note_shares = dedupById(Array.from(byPair.values()));
     }
@@ -1423,6 +1453,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           code: sql`excluded.code`,
           name: sql`excluded.name`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1449,6 +1480,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
         set: {
           typeId: sql`excluded.type_id`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1481,6 +1513,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           sortOrder: sql`excluded.sort_order`,
           metaJson: sql`excluded.meta_json`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1497,6 +1530,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           attributeDefId: sql`excluded.attribute_def_id`,
           valueJson: sql`excluded.value_json`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1517,6 +1551,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           performedBy: sql`excluded.performed_by`,
           metaJson: sql`excluded.meta_json`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1535,6 +1570,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           tableName: sql`excluded.table_name`,
           payloadJson: sql`excluded.payload_json`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1555,6 +1591,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           bodyText: sql`excluded.body_text`,
           payloadJson: sql`excluded.payload_json`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1572,6 +1609,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           userId: sql`excluded.user_id`,
           readAt: sql`excluded.read_at`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1592,6 +1630,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           dueAt: sql`excluded.due_at`,
           sortOrder: sql`excluded.sort_order`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1609,6 +1648,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           hidden: sql`excluded.hidden`,
           sortOrder: sql`excluded.sort_order`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },
@@ -1625,6 +1665,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
           userId: sql`excluded.user_id`,
           lastActivityAt: sql`excluded.last_activity_at`,
           updatedAt: sql`excluded.updated_at`,
+          lastServerSeq: sql`excluded.last_server_seq`,
           deletedAt: sql`excluded.deleted_at`,
           syncStatus: 'synced',
         },

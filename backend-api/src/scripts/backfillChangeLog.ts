@@ -24,10 +24,6 @@ function nowMs() {
   return Date.now();
 }
 
-function normalizeOp(row: { deletedAt?: number | null }) {
-  return row.deletedAt ? 'delete' : 'upsert';
-}
-
 function entityTypePayload(row: {
   id: string;
   code: string;

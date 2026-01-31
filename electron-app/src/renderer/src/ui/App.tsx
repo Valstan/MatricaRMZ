@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 
-import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, ServerHealthResult, SyncStatus, AiAgentContext } from '@matricarmz/shared';
+import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, SyncStatus, AiAgentContext } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
@@ -45,8 +45,6 @@ export function App() {
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const prevUserId = useRef<string | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
-  const [clientVersion, setClientVersion] = useState<string>('');
-  const [serverInfo, setServerInfo] = useState<ServerHealthResult | null>(null);
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
   const [notesAlertCount, setNotesAlertCount] = useState<number>(0);
   const [sendLinkDialog, setSendLinkDialog] = useState<{ open: boolean; title: string }>({ open: false, title: 'Ссылка на раздел' });
@@ -97,8 +95,6 @@ export function App() {
       })
       .catch(() => {})
       .finally(() => setAuthReady(true));
-    void window.matrica.app.version().then((r) => (r.ok ? setClientVersion(r.version) : setClientVersion(''))).catch(() => {});
-    void refreshServerHealth();
     void window.matrica.settings.uiGet().then((r: any) => {
       if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right' });
     });
@@ -160,30 +156,6 @@ export function App() {
     setSelectedServiceId(null);
     setSelectedCounterpartyId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
-
-  async function refreshServerHealth() {
-    const r = await window.matrica.server.health().catch(() => null);
-    if (r) setServerInfo(r);
-  }
-
-  // Update backend version occasionally (it can change after deploy).
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const r = await window.matrica.server.health();
-        if (!alive) return;
-        setServerInfo(r);
-      } catch {
-        // ignore
-      }
-    };
-    const id = setInterval(() => void poll(), 30_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -911,23 +883,6 @@ export function App() {
             : tab === 'admin'
               ? 'Матрица РМЗ — Админ'
           : 'Матрица РМЗ — Журнал';
-
-  function formatSyncStatusRu(s: SyncStatus | null): { text: string; isError: boolean } {
-    if (viewMode) return { text: 'Синхр: ОТКЛ (режим просмотра резервной копии)', isError: true };
-    if (!s) return { text: 'Синхр: … | последн.: — | следующий через —', isError: false };
-    const stateLabel = s.state === 'idle' ? 'OK' : s.state === 'syncing' ? 'СИНХР' : 'ОШИБКА';
-    const last = s.lastSyncAt ? new Date(s.lastSyncAt).toLocaleTimeString('ru-RU') : '—';
-    const next =
-      s.nextAutoSyncInMs == null
-        ? '—'
-        : s.nextAutoSyncInMs >= 60_000
-          ? `${Math.ceil(s.nextAutoSyncInMs / 60_000)} мин.`
-          : `${Math.ceil(s.nextAutoSyncInMs / 1000)} сек.`;
-    return {
-      text: `Синхр: ${stateLabel} | последн.: ${last} | следующий через ${next}`,
-      isError: s.state === 'error',
-    };
-  }
 
   const showUpdateBanner =
     updateStatus &&

@@ -2,7 +2,7 @@ import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { Server as TrackerServer } from 'bittorrent-tracker';
 import { readdir, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
