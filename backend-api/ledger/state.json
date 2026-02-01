@@ -1827,13 +1827,13 @@
         "id": "ec90e6cb-fddc-465e-98c3-5b08376e02de",
         "last_server_seq": null,
         "deleted_at": null,
-        "updated_at": 1769933451109
+        "updated_at": 1769965266732
       },
       "ae2262ad-f5b6-4edd-a065-9886b62593f2": {
         "id": "ae2262ad-f5b6-4edd-a065-9886b62593f2",
         "last_server_seq": null,
         "deleted_at": null,
-        "updated_at": 1769933451109
+        "updated_at": 1769965266732
       },
       "c4c751f6-2317-4246-b187-94b4119c9930": {
         "id": "c4c751f6-2317-4246-b187-94b4119c9930",
@@ -1885,12 +1885,9 @@
       },
       "f9d6ca8b-6f15-43f8-b017-3d5fac11850f": {
         "id": "f9d6ca8b-6f15-43f8-b017-3d5fac11850f",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769424792829,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "3f2c4c22-5a0e-4037-a085-dfe0e85d3d43": {
         "id": "3f2c4c22-5a0e-4037-a085-dfe0e85d3d43",
@@ -1944,12 +1941,9 @@
       },
       "9918125a-741e-45c4-aefc-304cefda035d": {
         "id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769935792394,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "276722cd-bfc8-4c68-b931-6125623d9b15": {
         "id": "276722cd-bfc8-4c68-b931-6125623d9b15",
@@ -3309,12 +3303,9 @@
       },
       "f0a21ef1-0b24-4a44-ac6f-8f475fb18ee7": {
         "id": "f0a21ef1-0b24-4a44-ac6f-8f475fb18ee7",
-        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
-        "created_at": 1768917941162,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769966047006
       },
       "95a9822e-02d9-420f-b986-d3846defc9f3": {
         "id": "95a9822e-02d9-420f-b986-d3846defc9f3",
@@ -3835,12 +3826,9 @@
       },
       "b6f3cacb-fb85-4487-a878-70feac77857b": {
         "id": "b6f3cacb-fb85-4487-a878-70feac77857b",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769935792394,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "ad52fcc0-8cd4-49ce-aeb1-0f7faf174d03": {
         "id": "ad52fcc0-8cd4-49ce-aeb1-0f7faf174d03",
@@ -4107,8 +4095,8 @@
         "id": "c97f214d-6ebd-4af3-b308-a7e69b903aff",
         "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
         "created_at": 1769169958435,
-        "updated_at": 1769937482140,
-        "deleted_at": null,
+        "updated_at": 1769965946506,
+        "deleted_at": 1769965946506,
         "sync_status": "synced",
         "last_server_seq": null
       },
@@ -4121,12 +4109,9 @@
       },
       "2d84eb6d-081f-4a43-8ac1-880dd1130654": {
         "id": "2d84eb6d-081f-4a43-8ac1-880dd1130654",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769935792394,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "483a0b7b-32f0-4986-9ff5-953f9caf0c34": {
         "deleted_at": 1769420846287,
@@ -4158,21 +4143,15 @@
       },
       "d2cc557c-9821-4e3f-8211-9b3751f12abe": {
         "id": "d2cc557c-9821-4e3f-8211-9b3751f12abe",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769935792394,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "e3918695-9f84-41f5-97c4-d529b8d50dde": {
         "id": "e3918695-9f84-41f5-97c4-d529b8d50dde",
-        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
-        "created_at": 1769935792394,
-        "updated_at": 1769937482140,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "96470080-e208-49af-a1fa-12c9b9fc6b12": {
         "id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
@@ -12075,36 +12054,24 @@
       },
       "bcbcc525-11be-45cd-a097-749692deb5d1": {
         "id": "bcbcc525-11be-45cd-a097-749692deb5d1",
-        "entity_id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "attribute_def_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
-        "value_json": "\"Новая марка2\"",
-        "created_at": 1769381741448,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "f9d2457c-3f6c-4a91-b73f-97a2036c03e9": {
         "id": "f9d2457c-3f6c-4a91-b73f-97a2036c03e9",
-        "entity_id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "attribute_def_id": "1f93df7b-17d9-4324-8549-de56b2e53650",
-        "value_json": "\"519a7b0d-d6f6-445a-aeb5-ca38c3ae248d\"",
-        "created_at": 1769381748907,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "db8ac2ae-b453-4a0b-a7aa-d635e7b92dea": {
         "id": "db8ac2ae-b453-4a0b-a7aa-d635e7b92dea",
-        "entity_id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "attribute_def_id": "b51f7427-8c4c-498a-bda6-9f240fc0a63b",
-        "value_json": "\"2815e23f-656d-4431-89b9-5fd0d54df15e\"",
-        "created_at": 1769381754010,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "006abde0-01fa-4972-8b15-c2145f0fc3a3": {
         "id": "006abde0-01fa-4972-8b15-c2145f0fc3a3",
@@ -13223,14 +13190,10 @@
       },
       "c9ab3559-cbff-4547-8580-563fb110ea26": {
         "id": "c9ab3559-cbff-4547-8580-563fb110ea26",
-        "entity_id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "attribute_def_id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
-        "value_json": "\"2444351345\"",
-        "created_at": 1769381741445,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "d06eb9dc-a276-41fc-a772-1e4d004c6d31": {
         "id": "d06eb9dc-a276-41fc-a772-1e4d004c6d31",
@@ -14505,14 +14468,10 @@
       },
       "f46d3fbe-d625-4f5c-8171-f97a14fb2897": {
         "id": "f46d3fbe-d625-4f5c-8171-f97a14fb2897",
-        "entity_id": "2d84eb6d-081f-4a43-8ac1-880dd1130654",
-        "attribute_def_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
-        "value_json": "\"Новая марка\"",
-        "created_at": 1769174545060,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "72172129-21ae-48fa-8dad-a0f774cd34b2": {
         "id": "72172129-21ae-48fa-8dad-a0f774cd34b2",
@@ -14538,14 +14497,10 @@
       },
       "885beeed-0a76-4222-a6ce-f13bfa06f818": {
         "id": "885beeed-0a76-4222-a6ce-f13bfa06f818",
-        "entity_id": "9918125a-741e-45c4-aefc-304cefda035d",
-        "attribute_def_id": "dc746168-b372-411a-a264-e6e66e2fa4b7",
-        "value_json": "\"23a599ea-55de-4e09-9998-176c5b75877d\"",
-        "created_at": 1769381751610,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "23738cb4-4258-41fb-9186-73e7ad75c8db": {
         "id": "23738cb4-4258-41fb-9186-73e7ad75c8db",
@@ -15250,14 +15205,10 @@
       },
       "b6ec2dd6-1039-46d3-95ed-8293b84f0d16": {
         "id": "b6ec2dd6-1039-46d3-95ed-8293b84f0d16",
-        "entity_id": "2d84eb6d-081f-4a43-8ac1-880dd1130654",
-        "attribute_def_id": "1f93df7b-17d9-4324-8549-de56b2e53650",
-        "value_json": "\"082470bc-65c8-41e7-a418-1fa674d40f24\"",
-        "created_at": 1769174559028,
-        "updated_at": 1769937482140,
+        "value_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "sync_status": "synced",
-        "last_server_seq": null
+        "updated_at": 1769950434857
       },
       "4bd915c0-42a5-4719-8a6a-51ad5537def4": {
         "id": "4bd915c0-42a5-4719-8a6a-51ad5537def4",
@@ -16313,8 +16264,9 @@
         "performed_at": null,
         "performed_by": null,
         "meta_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "updated_at": 1769806362968
+        "updated_at": 1769950434857
       },
       "b6868c5b-0667-437a-8b23-dc3a282fa4cd": {
         "id": "b6868c5b-0667-437a-8b23-dc3a282fa4cd",
@@ -19557,8 +19509,9 @@
         "performed_at": null,
         "performed_by": null,
         "meta_json": null,
+        "last_server_seq": null,
         "deleted_at": null,
-        "updated_at": 1769806362968
+        "updated_at": 1769950434857
       },
       "370a3c24-d444-4e4b-bc42-4e57f3f2733f": {
         "id": "370a3c24-d444-4e4b-bc42-4e57f3f2733f",
@@ -19816,6 +19769,50 @@
         "last_server_seq": null,
         "deleted_at": null,
         "updated_at": 1769935107724
+      },
+      "885c1da1-64c7-4b27-919f-934fa1790528": {
+        "id": "885c1da1-64c7-4b27-919f-934fa1790528",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "updated_at": 1769950434857
+      },
+      "f2c0f4a6-8c66-4660-995a-86cbbd26d5b4": {
+        "id": "f2c0f4a6-8c66-4660-995a-86cbbd26d5b4",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "updated_at": 1769950434857
+      },
+      "faafd219-0499-4149-bc0c-aac92c70e8c9": {
+        "id": "faafd219-0499-4149-bc0c-aac92c70e8c9",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "updated_at": 1769950434857
+      },
+      "e8f0d433-13dc-4db4-a00f-8c0253d1091a": {
+        "id": "e8f0d433-13dc-4db4-a00f-8c0253d1091a",
+        "status": "checklist",
+        "note": "Акт комплектности двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "updated_at": 1769950434857
       }
     },
     "audit_log": {
@@ -27736,6 +27733,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769882378615
+      },
+      "cdf4a44f-6ca5-49f7-a1bd-aac94cb9b839": {
+        "id": "cdf4a44f-6ca5-49f7-a1bd-aac94cb9b839",
+        "version": "1.0.27",
+        "notes": "",
+        "sha256": "31e0ef9a3c2ffa5cf7bf5ce8ee493983910aeca175ca05ce85a0461280c7583d",
+        "file_name": "MatricaRMZ-Setup-1.0.27.exe",
+        "size": 83886080,
+        "payload_json": null,
+        "created_at": 1769949317145,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1769949317145
       }
     },
     "notes": {

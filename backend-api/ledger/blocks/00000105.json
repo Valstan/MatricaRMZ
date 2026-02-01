@@ -1,0 +1,31 @@
+{
+  "height": 105,
+  "prev_hash": "56eb785109c7dce01720912b4b3135c8c47c2038e9d51f8eba2f7bd3f9a4ce73",
+  "created_at": 1769965946509,
+  "txs": [
+    {
+      "type": "delete",
+      "table": "entities",
+      "row": {
+        "id": "c97f214d-6ebd-4af3-b308-a7e69b903aff",
+        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "created_at": 1769169958435,
+        "updated_at": 1769965289699,
+        "deleted_at": 1769965289699,
+        "sync_status": "synced"
+      },
+      "row_id": "c97f214d-6ebd-4af3-b308-a7e69b903aff",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769965946506,
+      "seq": 3096,
+      "tx_id": "6b0c58eab8a3d2e73269c10c102ccd353ba24e32ff07e8126be195a226627379",
+      "signature": "gGXIx7m7N5KaCRfgI16mkYmP9wGmx+8qDbT4j+d1g8z7Om6Rzg//gtck09u9JLV4zwApXvttjb9X53UAPQupCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "402d81f110d9bde16aa0b5f8cc771379a42bc1c42edf7b31cb3e3274e72abd23"
+}

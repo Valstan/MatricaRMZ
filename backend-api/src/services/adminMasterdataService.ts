@@ -2,11 +2,13 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { SyncTableName } from '@matricarmz/shared';
+import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, changeLog, entities, entityTypes, rowOwners } from '../database/schema.js';
+import { signAndAppend } from '../ledger/ledgerService.js';
 
-type Actor = { id: string; username: string };
+type Actor = { id: string; username: string; role?: string };
 
 function nowMs() {
   return Date.now();
@@ -106,7 +108,7 @@ function attributeValuePayload(row: {
   };
 }
 
-async function insertChangeLog(tableName: SyncTableName, rowId: string, payload: unknown) {
+async function insertChangeLog(tableName: SyncTableName, rowId: string, payload: unknown, actor: Actor) {
   await db.insert(changeLog).values({
     tableName,
     rowId: rowId as any,
@@ -114,6 +116,17 @@ async function insertChangeLog(tableName: SyncTableName, rowId: string, payload:
     payloadJson: JSON.stringify(payload),
     createdAt: nowMs(),
   });
+
+  const op = normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null);
+  const tx: LedgerTxPayload = {
+    type: op === 'delete' ? 'delete' : 'upsert',
+    table: tableName as LedgerTableName,
+    row: payload as Record<string, unknown>,
+    row_id: rowId,
+    actor: { userId: actor.id, username: actor.username, role: actor.role ?? 'admin' },
+    ts: nowMs(),
+  };
+  signAndAppend([tx]);
 }
 
 async function ensureOwner(tableName: SyncTableName, rowId: string, actor: Actor) {
@@ -377,7 +390,7 @@ export async function upsertEntityType(actor: Actor, args: { id?: string; code: 
     });
 
   const row = { id, code, name, createdAt, updatedAt: ts, deletedAt: null, syncStatus: 'synced' };
-  await insertChangeLog(SyncTableName.EntityTypes, id, entityTypePayload(row));
+  await insertChangeLog(SyncTableName.EntityTypes, id, entityTypePayload(row), actor);
   if (!existing[0]) await ensureOwner(SyncTableName.EntityTypes, id, actor);
 
   return { ok: true as const, id };
@@ -454,7 +467,7 @@ export async function deleteEntityType(
         deletedAt: ts,
         syncStatus: 'synced',
       });
-      await insertChangeLog(SyncTableName.AttributeDefs, String(d.id), payload);
+      await insertChangeLog(SyncTableName.AttributeDefs, String(d.id), payload, actor);
     }
   }
 
@@ -468,7 +481,7 @@ export async function deleteEntityType(
     deletedAt: ts,
     syncStatus: 'synced',
   });
-  await insertChangeLog(SyncTableName.EntityTypes, entityTypeId, payload);
+  await insertChangeLog(SyncTableName.EntityTypes, entityTypeId, payload, actor);
 
   return { ok: true as const, deletedEntities };
 }
@@ -560,7 +573,7 @@ export async function upsertAttributeDef(
     deletedAt: null,
     syncStatus: 'synced',
   });
-  await insertChangeLog(SyncTableName.AttributeDefs, id, payload);
+  await insertChangeLog(SyncTableName.AttributeDefs, id, payload, actor);
   if (!existing[0]) await ensureOwner(SyncTableName.AttributeDefs, id, actor);
 
   return { ok: true as const, id };
@@ -619,7 +632,7 @@ export async function deleteAttributeDef(actor: Actor, attributeDefId: string, o
         deletedAt: ts,
         syncStatus: 'synced',
       });
-      await insertChangeLog(SyncTableName.AttributeValues, String(r.id), payload);
+      await insertChangeLog(SyncTableName.AttributeValues, String(r.id), payload, actor);
     }
 
     for (const entityId of affectedEntityIds) {
@@ -634,7 +647,7 @@ export async function deleteAttributeDef(actor: Actor, attributeDefId: string, o
         deletedAt: cur[0].deletedAt == null ? null : Number(cur[0].deletedAt),
         syncStatus: 'synced',
       });
-      await insertChangeLog(SyncTableName.Entities, entityId, payload);
+      await insertChangeLog(SyncTableName.Entities, entityId, payload, actor);
     }
   }
 
@@ -653,7 +666,7 @@ export async function deleteAttributeDef(actor: Actor, attributeDefId: string, o
     deletedAt: ts,
     syncStatus: 'synced',
   });
-  await insertChangeLog(SyncTableName.AttributeDefs, attributeDefId, payload);
+  await insertChangeLog(SyncTableName.AttributeDefs, attributeDefId, payload, actor);
 
   return { ok: true as const };
 }
@@ -712,7 +725,7 @@ export async function createEntity(actor: Actor, entityTypeId: string) {
     deletedAt: null,
     syncStatus: 'synced',
   });
-  await insertChangeLog(SyncTableName.Entities, id, payload);
+  await insertChangeLog(SyncTableName.Entities, id, payload, actor);
   await ensureOwner(SyncTableName.Entities, id, actor);
   return { ok: true as const, id };
 }
@@ -783,7 +796,7 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
       deletedAt: existing[0].deletedAt == null ? null : Number(existing[0].deletedAt),
       syncStatus: 'synced',
     });
-    await insertChangeLog(SyncTableName.AttributeValues, String(existing[0].id), payload);
+    await insertChangeLog(SyncTableName.AttributeValues, String(existing[0].id), payload, actor);
   } else {
     const id = randomUUID();
     await db.insert(attributeValues).values({
@@ -806,7 +819,7 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await insertChangeLog(SyncTableName.AttributeValues, id, payload);
+    await insertChangeLog(SyncTableName.AttributeValues, id, payload, actor);
 
     const owner = (await getOwnerForEntity(entityId)) ?? { ownerUserId: actor.id ?? null, ownerUsername: actor.username ?? null };
     if (owner.ownerUserId) {
@@ -833,7 +846,7 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
     deletedAt: e[0].deletedAt == null ? null : Number(e[0].deletedAt),
     syncStatus: 'synced',
   });
-  await insertChangeLog(SyncTableName.Entities, entityId, payload);
+  await insertChangeLog(SyncTableName.Entities, entityId, payload, actor);
 
   return { ok: true as const };
 }
@@ -851,7 +864,7 @@ export async function softDeleteEntity(actor: Actor, entityId: string) {
     deletedAt: ts,
     syncStatus: 'synced',
   });
-  await insertChangeLog(SyncTableName.Entities, entityId, payload);
+  await insertChangeLog(SyncTableName.Entities, entityId, payload, actor);
   return { ok: true as const };
 }
 
@@ -904,7 +917,7 @@ export async function detachIncomingLinksAndSoftDeleteEntity(actor: Actor, entit
         deletedAt: current[0].deletedAt == null ? null : Number(current[0].deletedAt),
         syncStatus: 'synced',
       });
-      await insertChangeLog(SyncTableName.AttributeValues, String(current[0].id), payload);
+      await insertChangeLog(SyncTableName.AttributeValues, String(current[0].id), payload, actor);
 
       const ent = await db.select().from(entities).where(eq(entities.id, r.fromEntityId as any)).limit(1);
       if (ent[0]) {
@@ -917,7 +930,7 @@ export async function detachIncomingLinksAndSoftDeleteEntity(actor: Actor, entit
           deletedAt: ent[0].deletedAt == null ? null : Number(ent[0].deletedAt),
           syncStatus: 'synced',
         });
-        await insertChangeLog(SyncTableName.Entities, String(ent[0].id), ePayload);
+        await insertChangeLog(SyncTableName.Entities, String(ent[0].id), ePayload, actor);
       }
     }
 

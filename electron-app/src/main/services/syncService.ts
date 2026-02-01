@@ -664,18 +664,36 @@ async function collectPending(db: BetterSQLite3Database) {
     return Math.max(0, Math.min(perTableLimit, remaining));
   };
 
-  await add(
-    SyncTableName.EntityTypes,
-    await db
-      .select()
-      .from(entityTypes)
-      .where(eq(entityTypes.syncStatus, pending))
-      .limit(limitFor(SyncTableName.EntityTypes)),
-  );
-  await add(
-    SyncTableName.Entities,
-    await db.select().from(entities).where(eq(entities.syncStatus, pending)).limit(limitFor(SyncTableName.Entities)),
-  );
+  const pendingEntityTypes = await db
+    .select()
+    .from(entityTypes)
+    .where(eq(entityTypes.syncStatus, pending))
+    .limit(limitFor(SyncTableName.EntityTypes));
+  await add(SyncTableName.EntityTypes, pendingEntityTypes);
+
+  const pendingEntities = await db
+    .select()
+    .from(entities)
+    .where(eq(entities.syncStatus, pending))
+    .limit(limitFor(SyncTableName.Entities));
+  await add(SyncTableName.Entities, pendingEntities);
+
+  // Ensure entity_types rows are pushed alongside pending entities so server can remap IDs by code.
+  // This prevents sync_dependency_missing on server when client type IDs differ.
+  const pendingTypeIds = new Set(pendingEntities.map((e) => String(e.typeId)));
+  const alreadyIncludedTypeIds = new Set(pendingEntityTypes.map((e) => String(e.id)));
+  const missingTypeIds = Array.from(pendingTypeIds).filter((id) => id && !alreadyIncludedTypeIds.has(id));
+  if (missingTypeIds.length > 0 && total < MAX_TOTAL_ROWS_PER_PUSH) {
+    const limit = limitFor(SyncTableName.EntityTypes);
+    if (limit > 0) {
+      const forcedEntityTypes = await db
+        .select()
+        .from(entityTypes)
+        .where(inArray(entityTypes.id, missingTypeIds))
+        .limit(limit);
+      await add(SyncTableName.EntityTypes, forcedEntityTypes);
+    }
+  }
   await add(
     SyncTableName.AttributeDefs,
     await db
