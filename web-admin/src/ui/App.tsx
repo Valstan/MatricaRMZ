@@ -7,6 +7,7 @@ import { presenceMe } from '../api/presence.js';
 import * as masterdata from '../api/masterdata.js';
 import { deriveCaps } from '../auth/permissions.js';
 import { MasterdataPage } from './AdminPage.js';
+import { AuditPage } from './AuditPage.js';
 import { AdminUsersPage } from './AdminUsersPage.js';
 import { ClientAdminPage } from './ClientAdminPage.js';
 import { DiagnosticsPage } from './DiagnosticsPage.js';
@@ -16,6 +17,7 @@ import { ContractsPage } from './ContractsPage.js';
 import { EnginesPage } from './EnginesPage.js';
 import { NotesPage } from './NotesPage.js';
 import { listNotes } from '../api/notes.js';
+import { listAudit } from '../api/audit.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
@@ -71,6 +73,8 @@ export function App() {
   const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
   const [masterdataTypes, setMasterdataTypes] = useState<MasterdataTypeRow[]>([]);
+  const [audit, setAudit] = useState<any[]>([]);
+  const [auditStatus, setAuditStatus] = useState<string>('');
   const [notesAlertCount, setNotesAlertCount] = useState<number>(0);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
     selectedUserId: null,
@@ -179,13 +183,16 @@ export function App() {
   const masterdataTabPrefix = 'masterdata:';
   const pinnedTypeIds = prefs.pinnedMasterdataTypeIds ?? [];
   const pinnedTabs = caps.canViewMasterData
-    ? pinnedTypeIds.map((typeId) => {
-        const t = masterdataTypes.find((row) => row.id === typeId);
-        return {
-          id: `${masterdataTabPrefix}${typeId}`,
-          label: t?.name ?? `Справочник ${typeId.slice(0, 6)}`,
-        };
-      })
+    ? pinnedTypeIds
+        .map((typeId) => {
+          const t = masterdataTypes.find((row) => row.id === typeId);
+          if (!t) return null;
+          return {
+            id: `${masterdataTabPrefix}${typeId}`,
+            label: t.name ?? `Справочник ${typeId.slice(0, 6)}`,
+          };
+        })
+        .filter(Boolean)
     : [];
   const visibleTabs = [
     ...(caps.canViewMasterData ? ([{ id: 'masterdata', label: 'Справочники' }] as const) : []),
@@ -197,6 +204,7 @@ export function App() {
     ...(caps.canManageClients ? ([{ id: 'diagnostics', label: 'Диагностика' }] as const) : []),
     ...(caps.canChatUse ? ([{ id: 'chat', label: 'Чат' }] as const) : []),
     ...(user ? ([{ id: 'notes', label: 'Заметки' }] as const) : []),
+    ...(caps.canViewAudit ? ([{ id: 'audit', label: 'Журнал' }] as const) : []),
   ];
   const visibleTabIds = visibleTabs.map((t) => t.id).join('|');
 
@@ -231,6 +239,26 @@ export function App() {
       alive = false;
     };
   }, [user?.id, caps.canViewMasterData]);
+
+  async function refreshAudit() {
+    if (!caps.canViewAudit) return;
+    try {
+      setAuditStatus('Загрузка…');
+      const r = await listAudit({ limit: 2000 });
+      if (!r?.ok) {
+        setAuditStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      setAudit(r.rows ?? []);
+      setAuditStatus('');
+    } catch (e) {
+      setAuditStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'audit') void refreshAudit();
+  }, [tab, user?.id, caps.canViewAudit]);
 
   function noteToChatText(note: { title: string; body: Array<any> }) {
     const lines: string[] = [];
@@ -388,6 +416,7 @@ export function App() {
           {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
           {tab === 'clients' && <ClientAdminPage />}
           {tab === 'diagnostics' && <DiagnosticsPage />}
+          {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} status={auditStatus} />}
           {tab === 'chat' && user && (
             <div style={{ flex: '1 1 auto', minHeight: 0 }}>
               <ChatPanel

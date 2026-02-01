@@ -1,0 +1,33 @@
+{
+  "height": 134,
+  "prev_hash": "2c635b1243716e3023286ec7433dbedc504544f249ea0c788f679e7713cb87cc",
+  "created_at": 1769973879767,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "attribute_values",
+      "row": {
+        "id": "4e14eee2-5728-42b3-ae14-b33872adbb50",
+        "entity_id": "f9389ea4-bc58-4308-9780-685c801f024b",
+        "attribute_def_id": "e30ce086-4dfe-4ef5-b646-21386e9438b7",
+        "value_json": "[{\"label\":\"Количество двигателей по первоначальному контракту\",\"count\":0}]",
+        "created_at": 1769973879758,
+        "updated_at": 1769973879758,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4e14eee2-5728-42b3-ae14-b33872adbb50",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "admin"
+      },
+      "ts": 1769973879766,
+      "seq": 3135,
+      "tx_id": "a06213658329e32c25805d7f26207d9d4233ad1871085771433a005db4c7f3fc",
+      "signature": "3kmmrvhR9h5oEzXQOWkkrQ0VaSrDTX0AYs1RrGt0cQr/Eot+FFVG2HWbOT7oxkfeREk1qePI15dhHgBmuXy2CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "71dbf1c091c6793085b151b2c9c06f82bd9d14c2242ec6625f03fcb06878eb2e"
+}

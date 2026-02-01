@@ -360,13 +360,14 @@ export async function upsertEntityType(actor: Actor, args: { id?: string; code: 
   const ts = nowMs();
   const code = args.code.trim();
   const name = args.name.trim();
-  const existingByCode = await db
-    .select({ id: entityTypes.id })
+  const existingByCodeAny = await db
+    .select({ id: entityTypes.id, deletedAt: entityTypes.deletedAt })
     .from(entityTypes)
-    .where(and(eq(entityTypes.code, code), isNull(entityTypes.deletedAt)))
+    .where(eq(entityTypes.code, code))
     .limit(1);
-  if (existingByCode[0] && String(existingByCode[0].id) !== String(args.id ?? '')) {
-    return { ok: false as const, error: 'code already exists' };
+  if (existingByCodeAny[0] && String(existingByCodeAny[0].id) !== String(args.id ?? '')) {
+    // Resurrect existing row instead of inserting a duplicate code.
+    args.id = String(existingByCodeAny[0].id);
   }
 
   const id = args.id ?? randomUUID();
@@ -514,13 +515,14 @@ export async function upsertAttributeDef(
   const name = args.name.trim();
   const dataType = args.dataType;
 
-  const existingByKey = await db
+  const existingByKeyAny = await db
     .select({ id: attributeDefs.id })
     .from(attributeDefs)
-    .where(and(eq(attributeDefs.entityTypeId, entityTypeId as any), eq(attributeDefs.code, code), isNull(attributeDefs.deletedAt)))
+    .where(and(eq(attributeDefs.entityTypeId, entityTypeId as any), eq(attributeDefs.code, code)))
     .limit(1);
-  if (existingByKey[0] && String(existingByKey[0].id) !== String(args.id ?? '')) {
-    return { ok: false as const, error: 'code already exists for this type' };
+  if (existingByKeyAny[0] && String(existingByKeyAny[0].id) !== String(args.id ?? '')) {
+    // Resurrect existing row instead of inserting a duplicate key.
+    args.id = String(existingByKeyAny[0].id);
   }
 
   const id = args.id ?? randomUUID();

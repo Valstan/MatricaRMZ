@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 
-import type { AuditItem, AuthStatus, EngineDetails, EngineListItem, SyncStatus, AiAgentContext } from '@matricarmz/shared';
+import type { AuthStatus, EngineDetails, EngineListItem, SyncStatus, AiAgentContext } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
@@ -15,7 +15,6 @@ import { CounterpartiesPage } from './pages/CounterpartiesPage.js';
 import { CounterpartyDetailsPage } from './pages/CounterpartyDetailsPage.js';
 import { ContractsPage } from './pages/ContractsPage.js';
 import { ContractDetailsPage } from './pages/ContractDetailsPage.js';
-import { AuditPage } from './pages/AuditPage.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
 import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
@@ -55,7 +54,6 @@ export function App() {
   const [engineLoading, setEngineLoading] = useState<boolean>(false);
   const [engineOpenError, setEngineOpenError] = useState<string>('');
   const [selectedEngineBrandId, setSelectedEngineBrandId] = useState<string | null>(null);
-  const [audit, setAudit] = useState<AuditItem[]>([]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
@@ -209,7 +207,6 @@ export function App() {
     setSelectedProductId(null);
     setSelectedServiceId(null);
     setSelectedCounterpartyId(null);
-    setAudit([]);
     setChatUnreadTotal(0);
     setChatContext({ selectedUserId: null, adminMode: false });
     setPresence(null);
@@ -340,7 +337,7 @@ export function App() {
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
-    ...(caps.canViewAudit ? (['audit'] as const) : []),
+    // Audit is web-admin only.
   ];
   const menuState = deriveMenuState(availableTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
@@ -616,7 +613,6 @@ export function App() {
       employee: 'Карточка сотрудника',
       reports: 'Отчёты',
       admin: 'Админ',
-      audit: 'Журнал',
       notes: 'Заметки',
       settings: 'Настройки',
       auth: 'Вход',
@@ -824,10 +820,7 @@ export function App() {
     }
   }
 
-  async function refreshAudit() {
-    const a = await window.matrica.audit.list();
-    setAudit(a);
-  }
+  // Audit page is hidden in client app.
 
   function triggerEmployeesRefresh() {
     setEmployeesRefreshKey((prev) => prev + 1);
@@ -1108,7 +1101,6 @@ export function App() {
                 }
                 if (!visibleTabs.includes(t) && !isUserTab) return;
                 setTab(t);
-                if (t === 'audit') void refreshAudit();
               }}
               availableTabs={availableTabs}
               layout={tabsLayout}
@@ -1451,7 +1443,6 @@ export function App() {
           />
         )}
 
-        {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} />}
 
         {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
           <div style={{ color: 'var(--muted)' }}>Выберите двигатель из списка.</div>

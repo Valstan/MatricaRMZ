@@ -8,6 +8,7 @@ import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { syncRouter } from './routes/sync.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
+import { adminAuditRouter } from './routes/adminAudit.js';
 import { adminMasterdataRouter } from './routes/adminMasterdata.js';
 import { chatRouter } from './routes/chat.js';
 import { presenceRouter } from './routes/presence.js';
@@ -47,6 +48,7 @@ export function createApp() {
   app.use('/presence', presenceRouter);
   app.use('/admin', adminUsersRouter);
   app.use('/admin', adminClientsRouter);
+  app.use('/admin/audit', adminAuditRouter);
   app.use('/admin/masterdata', adminMasterdataRouter);
   app.use('/changes', changesRouter);
   app.use('/files', filesRouter);

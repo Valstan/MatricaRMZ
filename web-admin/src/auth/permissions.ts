@@ -14,6 +14,7 @@ export function deriveCaps(perms: PermissionsMap | null | undefined) {
     canEditOperations: has(perms, 'operations.edit'),
     canViewReports: has(perms, 'reports.view'),
     canExportReports: has(perms, 'reports.export'),
+    canViewAudit: has(perms, 'updates.use'),
     canManageUsers: has(perms, 'admin.users.manage'),
     canManageClients: has(perms, 'clients.manage'),
     canChatUse: has(perms, 'chat.use'),
