@@ -1,11 +1,41 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
+import {
+  SyncTableName,
+  attributeDefRowSchema,
+  attributeValueRowSchema,
+  auditLogRowSchema,
+  chatMessageRowSchema,
+  chatReadRowSchema,
+  entityRowSchema,
+  entityTypeRowSchema,
+  noteRowSchema,
+  noteShareRowSchema,
+  operationRowSchema,
+  type SyncPushRequest,
+  userPresenceRowSchema,
+} from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
 import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
+import { applyPushBatch } from '../services/sync/applyPushBatch.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 
 export const ledgerRouter = Router();
+
+const syncRowSchemas: Record<string, (payload: unknown) => boolean> = {
+  [SyncTableName.EntityTypes]: (payload) => entityTypeRowSchema.safeParse(payload).success,
+  [SyncTableName.Entities]: (payload) => entityRowSchema.safeParse(payload).success,
+  [SyncTableName.AttributeDefs]: (payload) => attributeDefRowSchema.safeParse(payload).success,
+  [SyncTableName.AttributeValues]: (payload) => attributeValueRowSchema.safeParse(payload).success,
+  [SyncTableName.Operations]: (payload) => operationRowSchema.safeParse(payload).success,
+  [SyncTableName.AuditLog]: (payload) => auditLogRowSchema.safeParse(payload).success,
+  [SyncTableName.ChatMessages]: (payload) => chatMessageRowSchema.safeParse(payload).success,
+  [SyncTableName.ChatReads]: (payload) => chatReadRowSchema.safeParse(payload).success,
+  [SyncTableName.Notes]: (payload) => noteRowSchema.safeParse(payload).success,
+  [SyncTableName.NoteShares]: (payload) => noteShareRowSchema.safeParse(payload).success,
+  [SyncTableName.UserPresence]: (payload) => userPresenceRowSchema.safeParse(payload).success,
+};
 
 const txSchema = z.object({
   type: z.enum(['upsert', 'delete', 'grant', 'revoke', 'presence', 'chat'] satisfies LedgerTxType[] as any),
@@ -14,7 +44,7 @@ const txSchema = z.object({
   row_id: z.string().uuid().optional(),
 });
 
-ledgerRouter.post('/tx/submit', (req, res) => {
+ledgerRouter.post('/tx/submit', async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
   if (!user) return res.status(401).json({ ok: false, error: 'auth required' });
   const parsed = z
@@ -35,7 +65,33 @@ ledgerRouter.post('/tx/submit', (req, res) => {
     ts,
   }));
   const result = signAndAppend(payloads);
-  return res.json({ ok: true, applied: result.applied, last_seq: result.lastSeq, block_height: result.blockHeight });
+  const syncTables = new Set<string>(Object.values(SyncTableName));
+  const rowsByTable = new Map<string, unknown[]>();
+  for (const tx of parsed.data.txs) {
+    if (!tx.row) continue;
+    const table = String(tx.table);
+    if (!syncTables.has(table)) continue;
+    const arr = rowsByTable.get(table) ?? [];
+    arr.push(tx.row);
+    rowsByTable.set(table, arr);
+  }
+  let dbApplied = 0;
+  if (rowsByTable.size > 0) {
+    const upserts: SyncPushRequest['upserts'] = Array.from(rowsByTable.entries()).map(([table, rows]) => ({
+      table: table as any,
+      rows,
+    }));
+    try {
+      const r = await applyPushBatch(
+        { client_id: user.id, upserts },
+        { id: user.id, username: user.username, role: user.role },
+      );
+      dbApplied = r.applied;
+    } catch {
+      dbApplied = 0;
+    }
+  }
+  return res.json({ ok: true, applied: result.applied, db_applied: dbApplied, last_seq: result.lastSeq, block_height: result.blockHeight });
 });
 
 ledgerRouter.get('/state/query', (req, res) => {
@@ -161,10 +217,32 @@ ledgerRouter.get('/state/changes', async (req, res) => {
     await ensureLedgerBootstrap().catch(() => null);
   }
   const { hasMore, lastSeq, changes } = listChangesSince(parsed.data.since, parsed.data.limit ?? 5000);
+  const invalidCounts = new Map<string, number>();
+  const filtered = changes.filter((ch) => {
+    const validator = syncRowSchemas[String(ch.table)];
+    if (!validator) return true;
+    try {
+      const payload = JSON.parse(String(ch.payload_json ?? ''));
+      const ok = validator(payload);
+      if (!ok) {
+        invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
+      }
+      return ok;
+    } catch {
+      invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
+      return false;
+    }
+  });
+  if (invalidCounts.size > 0) {
+    const summary = Array.from(invalidCounts.entries())
+      .map(([table, count]) => `${table}=${count}`)
+      .join(', ');
+    console.warn(`[ledger/state/changes] filtered invalid rows: ${summary}`);
+  }
   return res.json({
     server_cursor: lastSeq,
     has_more: hasMore,
-    changes,
+    changes: filtered,
   });
 });
 

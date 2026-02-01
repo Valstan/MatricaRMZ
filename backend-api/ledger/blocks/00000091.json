@@ -1,0 +1,2410 @@
+{
+  "height": 91,
+  "prev_hash": "a24c1a407cc967d90d2d421e69aa8c59c27813ad5ce7c895df9ce48042db34bb",
+  "created_at": 1769882705484,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "a3601e51-58e6-4c59-b968-878c03eb3130",
+        "code": "engine",
+        "name": "Двигатель",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a3601e51-58e6-4c59-b968-878c03eb3130",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2640,
+      "tx_id": "cc9d56d0e8ab86864782ea3ca5cddcb74b323a025ef6fcba6920fa4bc6275d7d",
+      "signature": "gmm2nfwpmmBqaBR8q95pAbi0EFq2KNr2OpwyRC2zbcTucSu1gvBX5ILU6eZPaDarXAlMXi+IfIeXTny+r12PDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "83af755f-8f3a-4b42-b008-f11aeeb8223e",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "83af755f-8f3a-4b42-b008-f11aeeb8223e",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2641,
+      "tx_id": "d68edc05426210f09b45823c461d630eb47dcb852bc8f13e659cd2c9cfb5370d",
+      "signature": "w0RWEzWZ0vB7rEnxSTJUG4GPvdVqeUY1E52B8qVkK4bHYfPauXlTEefcX7bEBnAv5H8yXWKiQoinLpUo4hW8DA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "e97986c2-e72a-47cd-9bcc-e7bad3e14b7f",
+        "code": "customer",
+        "name": "Контрагенты",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "e97986c2-e72a-47cd-9bcc-e7bad3e14b7f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2642,
+      "tx_id": "d51113b3c2b9f5c5b9645325a2e1f4bd5b08d38479f7d73f3c6f1c679048028c",
+      "signature": "B+FOmvl3xop5MsdgVt5kStTQqZdDWuGF5l0Mye3AZhgj4ySCec2TminzngnkNc1lojFVUycPorem+Ecu2puoCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "7b661225-b878-481e-95bb-89d2f4e86174",
+        "code": "contract",
+        "name": "Контракт",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "7b661225-b878-481e-95bb-89d2f4e86174",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2643,
+      "tx_id": "6e6eadd55d86fa392c6d4b3eb91d0487a9c8ec26c130b89d4427796d08128f65",
+      "signature": "DZ1GLr1OsSoAfD7dCaLFMypO32cmUdQE0Dqxow36vlJGHUn8gIuYCb/ndz6vyieFXWg915FxQeHvKnGOdatuAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "e479db36-3a1d-4f09-8cea-e4d9fb1b7ba9",
+        "code": "work_order",
+        "name": "Наряд",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "e479db36-3a1d-4f09-8cea-e4d9fb1b7ba9",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2644,
+      "tx_id": "de3c98d4fbc707eb8103e00bf52c52415c8068c8414ca94dc7fda1206ad8f2ae",
+      "signature": "HAdKsQDywMIXX0vlvR9hwKjQdZ7yLt28+XaWetmPRorzDpTq5L/KugXlsgUZ0U5GmGweP4vrR6cLgWBTkFCEBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "6a676124-e653-47dd-91ac-9682391bfb5c",
+        "code": "workshop",
+        "name": "Цех",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "6a676124-e653-47dd-91ac-9682391bfb5c",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2645,
+      "tx_id": "470d0d71d05002e373c706bc217c3ea27b60833b3ad01c964e6e905c022b3a06",
+      "signature": "IoMSs0vn6YHMMDEwpib8nOZB9c0uy3PrRMTx4d0iW8Agz8e7GBFoYcMHQrF51AwGmmF4oyhtGcGIU6Szvr6VDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "57f462bd-5d6c-4a44-a973-91e0980380d1",
+        "code": "section",
+        "name": "Участок",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "57f462bd-5d6c-4a44-a973-91e0980380d1",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2646,
+      "tx_id": "e8dcf8c8326a2537ea136e50fc1cf8eae6855d47731c6b5de1ffc7a1e429800d",
+      "signature": "luD98IiYijwYMhGZG+ZUwva5mz9vbKfJiYLvPub6VCkvOAn8G1Z3TcKYSfzmcrDbokjQw5be53pCovBhEO81Cw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "fe1d6bf7-0ea8-480d-83bc-9b28ba8b4c06",
+        "code": "department",
+        "name": "Подразделение / служба",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "fe1d6bf7-0ea8-480d-83bc-9b28ba8b4c06",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2647,
+      "tx_id": "581b28344d23eab1ce436139e3c237946e532e91caa0ec65cae36d0c3a0e8833",
+      "signature": "IGnHSEMQNZzRJn90L0dRWHuu0KWIVkBoATPJYjDNN3M8LizabaIcOeOtDceA3tDSwOa6D6z4eBoRjpfbKE8nCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "6408d8e8-d881-47d3-a6cf-23e090338a46",
+        "code": "product",
+        "name": "Продукты",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "6408d8e8-d881-47d3-a6cf-23e090338a46",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2648,
+      "tx_id": "5e80b80fb87954b6136459139d90a81dab3be038be8268440491965a9883f43b",
+      "signature": "5zsAClE6vv5bwTtXr4D2+SDfPytovQf3oldcmHt5gGafGsFjDOdfwJzlocbylpbgbc+VSdKEVRJWhnHYx1gqCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "529f6e01-2b8b-4dc0-a044-9308be525375",
+        "code": "service",
+        "name": "Услуги",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "529f6e01-2b8b-4dc0-a044-9308be525375",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2649,
+      "tx_id": "f7e5db1c07ac79d2e12fcb385a875f649cf3be063b57e00d5e90231658a431cf",
+      "signature": "4KVeKMz2RXaq9Cn9UnzOdgdWSnTkep3Fv+oRSfg8KR2DtbXvn6YO0TA7G9BDpqghTYaJ4NGrW761Mb2iiZTQBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "3496230f-1b11-4458-8b62-f3ad717b09ac",
+        "code": "category",
+        "name": "Категории",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3496230f-1b11-4458-8b62-f3ad717b09ac",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2650,
+      "tx_id": "b584f08a3d6b987ff97bf0a548d3dd94a382f64a0167194134d6c15c6e0a0649",
+      "signature": "HfIzwgYsDgln2m3lK86s1ipAsuAlxl1GEIxcaGIn3IlIc1xMSD7LEMYwNQNTLlF/eb6Xs4gTou4193MWfas9DA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "6423a45a-66c6-4c85-850e-90cdf145a403",
+        "code": "employee",
+        "name": "Сотрудник",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "6423a45a-66c6-4c85-850e-90cdf145a403",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2651,
+      "tx_id": "074993e6999cc02d38916ce784802d433378e1b12a4a5594612b45a102d90ed9",
+      "signature": "6OBto2Q0tTVUiJNA9dRhX+JnyFQ2NINoIUjmgeQrP8bc8FOvc7ptoBQX5Da9TXYJjLbyeTEytI2PGj4Z6vvJDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "7f63dc99-08e1-4a32-9307-411503ee1b23",
+        "code": "unit",
+        "name": "Единицы измерения",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "7f63dc99-08e1-4a32-9307-411503ee1b23",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2652,
+      "tx_id": "65b84ccabf7df72ebab9ac481e7faea2d6d367a9e816305b2d87a71663f8f68e",
+      "signature": "aoUm/bxBlblaP8HzSbBjYHKo8t5ukLwhxn6mRhEdV6dGFNWXy3yp6I4kEZkeCZHczFvGj2eTF3eoseYwjsQeCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "11d8981c-0985-40c5-8701-321b4bf6916a",
+        "code": "store",
+        "name": "Магазины",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "11d8981c-0985-40c5-8701-321b4bf6916a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2653,
+      "tx_id": "9e15cf700a961071c7dc264e341c6a96548328361f63506f8f5879a5ae4aac8f",
+      "signature": "9IjlWOqRgBUiaJRcQU/NWr2RiRse7/wjKZ/d5siTQSZ6/OFMXUYoqAhCvC6Q2qjYyDgyXfAhk0ep7f10m3/UCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "8f64d581-f87b-48c3-9c2d-5b160384ae99",
+        "code": "engine_node",
+        "name": "Узлы двигателя",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "8f64d581-f87b-48c3-9c2d-5b160384ae99",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2654,
+      "tx_id": "d7c557da006eeeb7400f1a2f8ea588fa233c59e5a92941c79bfef47e49b2f332",
+      "signature": "pMLkTolpice+w7YQ50XjH+kganTF0++en5MlYWMN8XVdXiQ8QRdqz5HZ1nCAGGsU8XoPcYs2q2GmmL61Cn+eBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "3ef3e3db-6cc6-4c23-9433-5b8126eeabc8",
+        "code": "link_field_rule",
+        "name": "Подсказки link-полей",
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3ef3e3db-6cc6-4c23-9433-5b8126eeabc8",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2655,
+      "tx_id": "7b8e7f14799147aa8128053c26131882e02a808228f1b4261fe4a4981fb65441",
+      "signature": "FqpBWzMWe9qK9gqOln418dmHBSrdHRawpUv8s3wgkeIw+CmP3wlcgA0y8O4xZ0R+IByQbSn44bkHqDHL25dNBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a71c0a0f-0915-4074-9604-42cdbcc6ab28",
+        "code": "engine_number",
+        "name": "Номер двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a71c0a0f-0915-4074-9604-42cdbcc6ab28",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2656,
+      "tx_id": "7e683b426db9dd3342f9ca68b5fd15803192021694cc63f7300aa226a3e55ef0",
+      "signature": "iTUivuKjzY31O7lBvXgNvGR25hi4DB+On/2OhD/e8QRceMPDqTo6QAiUsf9kKRYFVAILBbB3KgXpB9ldqb/RCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a41ab225-6044-478a-984d-d879f2e9e412",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a41ab225-6044-478a-984d-d879f2e9e412",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2657,
+      "tx_id": "c99f60b9cc75dc74ec5f1346a958256ab5e40a5400d4b03d471998aaf7d957bb",
+      "signature": "W412ZyqbdFEpJx16iB1IP6LV5UvevVS6OJGg/SduF6jCuyHTiFeaFCNwmbl7BqcpF5MeRegwd3dusKzWAi+AAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "753d6ade-1e93-420d-95da-3ace5931623f",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя (справочник)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "753d6ade-1e93-420d-95da-3ace5931623f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2658,
+      "tx_id": "4717e0a52e93ed9a7607b0a250db2b4f43f3ce8b331cf0bd70e9dffbc7f15115",
+      "signature": "gbAevzyXvkmx7nXaGoqj+z0DC7Dud6IZp7S5bluGnr9zySSLN/rGZ6/LuE4L3bRsFQNFgg4/xEakoL7i6H/3CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "29a6d9a3-bd81-49bb-b641-e5a2787a1ca0",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "29a6d9a3-bd81-49bb-b641-e5a2787a1ca0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2659,
+      "tx_id": "a8f7e7adb6acf6f085add9868a731d1f3163ced11bf2e1d341ddba24086a2f53",
+      "signature": "I5MvSDUh+BMP4uRVXNleG5MktZkn49Xe0ZM7OAsoOxEBFdZb/y0ITu+yA3snAyZsjUCfEDtMLrCB/UZKt8i6Bw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "4f8aad9f-9257-4cd0-b0ca-f8a50209e32b",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "4f8aad9f-9257-4cd0-b0ca-f8a50209e32b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2660,
+      "tx_id": "3850d2f6ba97c31c092493aa97c4a6af6330fa7653a515337ffc75f54c2ec190",
+      "signature": "AxUHx1ZMAA61WaxImpPFpXryAym2VfO5sU2y50BQKsXAkMO//HI/jxVot9QerrrDCIbYc/EO3Dw/T//PEl1SCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "2eb4f1be-467c-4edd-8f5b-58a56c9cbf54",
+        "code": "contract_id",
+        "name": "Контракт",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "2eb4f1be-467c-4edd-8f5b-58a56c9cbf54",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2661,
+      "tx_id": "00c3a5340636cf89bcd044437aa373a7691f49783b434abf20ebb56becce6491",
+      "signature": "Aj/HbPPzkx8J/2mVQ16UN08p+m9OLSH3hRQWmfPXzFzFFL1p8A8RBiIYR5hE/1oqUkU2eilTACJZOy80eQrnDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "94dd0f78-3b2e-425a-96db-22ac50c136e4",
+        "code": "work_order_id",
+        "name": "Наряд",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "94dd0f78-3b2e-425a-96db-22ac50c136e4",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2662,
+      "tx_id": "44f0628a41f27f9859fefc374f370f20a44bd9f96e1854feec6d7af37b11c7f4",
+      "signature": "ljr1HhIN59N17j4VRteLzxQKDJ7o+6nJk0ReO9C1a/EqLSjLmU7u1X/ypFXtu+eHQuyodXgH7wJIAXc780TCBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "ab1e5fb5-2274-4692-9d52-088c993e3ccc",
+        "code": "workshop_id",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "ab1e5fb5-2274-4692-9d52-088c993e3ccc",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2663,
+      "tx_id": "749b7ee17652420de55211b282dec7794b3e8f4fdf23dead3d86e11bb3bef7c4",
+      "signature": "GiXU3iJtRM30eRn+CuFFyTCwJl9SpivSZhmHcZSjmQq1TjWTRBri3uKJEWrmay7zxEjevqx0s7qJSLLtmCCECQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1ac6c3bb-9473-4366-89ba-c1551297a982",
+        "code": "section_id",
+        "name": "Участок",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "1ac6c3bb-9473-4366-89ba-c1551297a982",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2664,
+      "tx_id": "41dd866ddb18257b2599177fce4b05e0b5d4cb2e45e1964f16b61d3b7622ae4f",
+      "signature": "N2MkdCiK6RpeQ9YUUsYcBtphkQC8ohbBfDGam1OUf6eUzRyAwzOJ387T7EZsgNmxkdOii2UoVVabr9URyES5Bg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b5df3c0e-932a-4acf-8358-e9b2ea0dd860",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "b5df3c0e-932a-4acf-8358-e9b2ea0dd860",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2665,
+      "tx_id": "2662e9bb74b8b32b84546e0b58b479c6369d988463a95115a21447d7ec1723a8",
+      "signature": "FB1R7pnbLFLOKHyDRi4xh21RqtxInj3rKGI7VWjQzX0umQ1eeVq8FwDGUee0Xuta8slesn+smEDR7Wyydu00DQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "5c35ca8f-23c2-4715-bb17-2b77b7a515c6",
+        "code": "parent_id",
+        "name": "Родительская категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "5c35ca8f-23c2-4715-bb17-2b77b7a515c6",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2666,
+      "tx_id": "e08e3afe0fea98841b29f9434dde845a0159d1c9272c7d627b41b6a21798a85e",
+      "signature": "qW6nRO2fUQdKc217NP4eInvkdyocdzzAKmxew3tr+fUcXMujd/MD9k+lenuVx+qbK3BY3LwAwb+EYoyzreaMCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "ae625d8a-92b0-42fb-b8a6-30afbe27ee78",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "ae625d8a-92b0-42fb-b8a6-30afbe27ee78",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2667,
+      "tx_id": "63fb55497c1f0c1cac4d9c00e46237d19d72d4265e0221a4538629fc0c14c36e",
+      "signature": "zNWWEyfxNCqZ/oIWIWm1z+mXfKQ+Xb37OqFuAGZ6ozV397waFv76XH02LnXC/LzmbOYEgOEjmYQROMlpmZWiAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d1f136fb-13df-4f05-b83f-0510fdc20325",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "d1f136fb-13df-4f05-b83f-0510fdc20325",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2668,
+      "tx_id": "644814745fb46e73621972a43a31de87402cbded1169fd5bb4f14d29e9f1f6c1",
+      "signature": "qc05x0rMnHAm77aa3++EiHNM0/fNU12qwHb3okbROhCJyZIzJfL8OJGpc7Pl43flH3H8CAS1bmNV2rIyzGJtBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "0c037049-fe61-4835-a62d-be7d70a46dba",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "0c037049-fe61-4835-a62d-be7d70a46dba",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2669,
+      "tx_id": "893257f9c30d2ed16b9ccc10abed105c8b4a938c8bcb1002ab096794e68ce4f0",
+      "signature": "h84YL8AHXzwVIBl6kKsPXXExL2kH2X6VgvkxabAnEykJ8Dgx1/OM8d4p7Wpn481P1n/v0Vhj4x+XXyzz4GgcBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e2eacc70-ed7b-418d-9583-f825e47e003b",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "e2eacc70-ed7b-418d-9583-f825e47e003b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2670,
+      "tx_id": "f1cc6acbfdd910500e45935b97ed81390e02284740287d6260c758e260d007b9",
+      "signature": "WIPZ2AHeZ6PxFBnCepi6Sb3cF5YmtO1k3IZD9J1wzxuBgXR7H9hF9Pqs3pB06zicq90E1VpyqxzWSlGunROWAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "5da89d7b-a811-408d-86d7-cb1bf855abb0",
+        "code": "inn",
+        "name": "ИНН",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "5da89d7b-a811-408d-86d7-cb1bf855abb0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2671,
+      "tx_id": "d2e52b7eac7de18625837d9d264aa000054c2b3a3f44e8e9a02ada9b5f06924d",
+      "signature": "JysIDmKjKu3xQW8X/qQo3ymRi1I313AeoG+GXUfrZVrD1IHrUnv1PUF2jIVWpy/y15zr5rvb2rtyF/H4QhwHBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "ab6d8a82-bd3d-445c-b479-26abb13124a7",
+        "code": "kpp",
+        "name": "КПП",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "ab6d8a82-bd3d-445c-b479-26abb13124a7",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2672,
+      "tx_id": "e63a75bd3e118806216fdfd73bc9d83bc1a0d336beb0c2baa29fca56b5d71232",
+      "signature": "/xrYv9j6+uRILA80xpySa+teZj/PxhLw5e3S99LkRyvBk+RqlPcTjajfxNkDVk4BPNXz7WIGpAhvwrJEWNbUAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "946e9109-2589-4d11-8a6c-020257d8879e",
+        "code": "address",
+        "name": "Адрес",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "946e9109-2589-4d11-8a6c-020257d8879e",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2673,
+      "tx_id": "565346d0bac599a5281f8945d92a0e7003e530a2f9f9f5b38bff5cd0d80ff6f5",
+      "signature": "JoVPAQDJnqnzXx7po3vPeK/S/GxqmH7TR68yBz7YIppCH5tLcM+ZIid29HKF2I5/cp02gG2/RMBiPv+4L/4OAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "96205017-1c58-40fe-9c41-e001bc602255",
+        "code": "phone",
+        "name": "Телефон",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "96205017-1c58-40fe-9c41-e001bc602255",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2674,
+      "tx_id": "c8ad43d65711162158f67add1cdc8eb34ef64c481ada3e44dbf5a72b1556feeb",
+      "signature": "rU8jr3k6ifDOP160eA7XFTyGOi43SAPi7rNoLkOlgpmXszdpILTHY8I/t2bngsdGu1KRdgD1aqC6MnQjTmMcAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e98e014e-e632-4803-b9a5-d8740d28fa72",
+        "code": "email",
+        "name": "Email",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "e98e014e-e632-4803-b9a5-d8740d28fa72",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2675,
+      "tx_id": "28b3e9d844a68741c8a68214474ac1a867f991eefd65fee1e12d58c22b4b60b2",
+      "signature": "3HXl1ozGlrJxrS7v1L4nlZga5iLt4RX+uLQN1YPapJVM2opaAw5u8IGaVGEOZWqR+FZ85GzoRWL0reCeu2wRBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f30b2f7f-cc2c-4431-9bb2-f6ffcdee62fd",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "f30b2f7f-cc2c-4431-9bb2-f6ffcdee62fd",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2676,
+      "tx_id": "1f964e64740d139e5ef26d6f86dfa33315e60d90d6ff0b4ed5e10832ee9ffb07",
+      "signature": "/1SQ17Ybpa25Mf1i3bqwsTLA5G+svG9VWpo/pZP4UgkoHqexysesXP6hlYm/Cy8wfHON3wjigRGv12oCzHdzDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "bf97eb50-2ba1-4560-b7ba-9d31772c64a9",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "bf97eb50-2ba1-4560-b7ba-9d31772c64a9",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2677,
+      "tx_id": "9b4eb6f2d3d32ab441a10827cf2fd71f428e6b14b329f2dc0132d8f9f8dea434",
+      "signature": "ERyBshdLE85hDNYH2xKmEeC6FgVDWwiwfMJij86tvi6r4nrUMvBSgfrHELu0kVKqWgM0kKqxhuHIwunlp7N+Cw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b965d305-6353-4ee0-9e5d-5a281b436bb5",
+        "code": "number",
+        "name": "Номер договора",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "b965d305-6353-4ee0-9e5d-5a281b436bb5",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2678,
+      "tx_id": "7f7457d28381c638f9e0f46d06988f916a0f9a5a5c6cc154d30bbbe5172e00d1",
+      "signature": "oxnGJcNj76b5+9HcQ73egfGfHuyQDbxC92HivTuAKo+yK+i/DZyY3LpyH0SbB06INhtih5wev9wkm+vZf/XlBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "2f91b1ed-af8f-465a-8bda-e8e9e0419d90",
+        "code": "date",
+        "name": "Дата договора",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "2f91b1ed-af8f-465a-8bda-e8e9e0419d90",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2679,
+      "tx_id": "7f26a4988f4011774a486ed68dc2d3604490608012e1c17ac7de32346a7614e7",
+      "signature": "19g/rlkBVU2dXSFgd4Afpw6g4dCXjO54b9eaae2PhSQG7tn7bCkD6YxSepcu25q6JIra4hGk9MOJo37CErEDAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "af1bedbb-36e8-44c9-a2c0-ed8971ebcf70",
+        "code": "internal_number",
+        "name": "Внутренний номер",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "af1bedbb-36e8-44c9-a2c0-ed8971ebcf70",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2680,
+      "tx_id": "f7a682bb1bf0ecb55ae8f6cf6ad682bcc34ef0e2609247881a1b1d16dc7ce3b6",
+      "signature": "Za19ZGpX+tn9Umm/dlVBG5ti+ma87Z6yoZeHr473f8kTYc7Ws+0E2JiH+FIF+tBCWtPnaN7WcePJ7mGM5AiEDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f8f082f3-352b-4a69-9312-923ab7f2cb9e",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "f8f082f3-352b-4a69-9312-923ab7f2cb9e",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2681,
+      "tx_id": "4ac9dccf24b2e8070383ad0e1be513c98f02bf3fd3f4690e877819b51fdee8ce",
+      "signature": "njvrdsuC68T2GlHolFubTaIBhSfu8CACOoparLEZtmwHYV72ST+faezddGVxEndhD/pFngFLOrdOBqHOLQIcDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1aa35d1f-65b3-4664-af51-2cd1c16f6e40",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "1aa35d1f-65b3-4664-af51-2cd1c16f6e40",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2682,
+      "tx_id": "c2b0fe8cc55c38c8fe6747bbe25a07c5967c1bfcbd9bb284df80ca7237351f15",
+      "signature": "LQSdB0AA+BfhS1BHf8P7tlGNFQ+YKezU0m6xSDo8K1qXD9S0UgCYGRUUyF9G2D2jGJwlDS4MRgzpmeo54jyACQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "be28f8ea-2877-47a5-af1b-cb47102204a4",
+        "code": "engine_count_items",
+        "name": "Количество двигателей (детализация)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "be28f8ea-2877-47a5-af1b-cb47102204a4",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2683,
+      "tx_id": "29bb929d36c2151e450d8986977363d5799f6cd8cbcaab004209d13bb19929db",
+      "signature": "Fjh7Z7ytlVgAQgvxJN+wCfn/FoLXVmqj4+SKZhdJwMWvPcdL4FWTF8CcfjMf9WkoPChVmrg4jHrkjIC0ilB/AA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e4bb5647-f24d-45a5-9488-ee0d2766c910",
+        "code": "engine_count_total",
+        "name": "Количество двигателей (итого)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "e4bb5647-f24d-45a5-9488-ee0d2766c910",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2684,
+      "tx_id": "69d3eccaaf3d70548962a4c7d23a40a88f6a6c9f084b78fe8a5e248721d9fc08",
+      "signature": "NCPBYe44SooV0xOInGRvPCqPmbm+S0zP9y1IxlNPww8c3ms5W56XMpsmk6S0D2p8u5jBoaRRRur8h7NfU1rDDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3ab1bc94-8f31-459e-a40d-1c631ee8658a",
+        "code": "contract_amount_rub",
+        "name": "Сумма контракта (₽)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3ab1bc94-8f31-459e-a40d-1c631ee8658a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2685,
+      "tx_id": "9dfd1d48ff333fa760953cb95bf32d1fe355762d13647fe068335ae7f7945d65",
+      "signature": "pCe9ygfLdxha95q785qibwnivReW6+zXew56CmAOLas7WPaf86QL9dB7rd3E2zumEcdhCqo7TcC49cPMZyq9Bg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a2af8570-25b3-49a8-8f92-ce979d32a5a9",
+        "code": "unit_price_rub",
+        "name": "Цена за единицу (₽)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a2af8570-25b3-49a8-8f92-ce979d32a5a9",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2686,
+      "tx_id": "81ba46c65b7ce8c66007e25f7ca98ec61616a48104e3a23778ddf4c635ad8db5",
+      "signature": "ER4FTiHw1BHroCp2rewcZsqgtvrgjMtjdJ4g2qyYnLxDXFhk3UjLsYArYLN5Au4bqTubatN311Z0SdSr0n5kDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "23fc6dad-45d0-4d5a-8387-58a584640f20",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "23fc6dad-45d0-4d5a-8387-58a584640f20",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2687,
+      "tx_id": "a2938c509e7d2e2b5b046c7bae6727e42297e7e6cd716896db2c259896d747f2",
+      "signature": "pfdksPV28BpwCVKhThS86bict0Y7y5VddbCMfdwXdY/V9E7NUcWNN/SPLF8OqgAGlVA5rPRz6LjDSDuEQVKtAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "0c8cadc5-061e-4ffc-b40b-eedf044e4767",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "0c8cadc5-061e-4ffc-b40b-eedf044e4767",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2688,
+      "tx_id": "5c2fafbdc213022745dd4486fe6680ac6cdd4b9542e3a4b845725185a5a6a4b9",
+      "signature": "H45gMrpuTA23epoo65Dxu3KWMUVT0LSPc625bULKZoC9wzLzsfXciFfvjUOxlX58WpGmUIH4kKMmiC7A6mjkAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a4b0e1fb-8bea-44fd-99be-c849eda54e1b",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a4b0e1fb-8bea-44fd-99be-c849eda54e1b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2689,
+      "tx_id": "a77bcf63e14ff4911c5e2cca87b876f845c6461fddd783d84f13500a34113b45",
+      "signature": "Z5ej2wXQbH1ozO465/5Ou8O1l6NJzuoIhf2X2sy09R3e2PRpB2tfdvvxM/szImpM+zxPHbx9a+gXV/vARs62BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7be504d1-bc4c-4030-a4ae-4b5d7762a9ba",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "7be504d1-bc4c-4030-a4ae-4b5d7762a9ba",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2690,
+      "tx_id": "456a14074a24dce05f36a18498a5446a19f8177e18c4fe6d934b80ac72c47eb4",
+      "signature": "mw9+socbHzWnLWWNoKB7Is8uUfx1IdFB9n3EZaDepvp3LLSw/5uEe9C+PKNnGQZYXEi7e8S0TLCWxeLtMRW3AQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "5cc70f75-b3a7-497d-af9e-6c609e4db350",
+        "code": "address",
+        "name": "Адрес",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "5cc70f75-b3a7-497d-af9e-6c609e4db350",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2691,
+      "tx_id": "6de705b00309a7c10273b5d5052546f4e9c35a06bc3566dc0d0ef981beac3702",
+      "signature": "QUMeQXJzc4ac3iJh5S/JUL6cvtDrPvJcBL8lmlABD3qChmWEBn2rPH4//0yuxuAWAZt50TBxAuMyQE7/H9TYDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f90752e4-ee6f-421f-a5b5-d55d74f5cd8a",
+        "code": "inn",
+        "name": "ИНН",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "f90752e4-ee6f-421f-a5b5-d55d74f5cd8a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2692,
+      "tx_id": "4f00aa796d0d5e91288537cbb046f910e7d9b0e0e2cd6595402b4e690daaa53b",
+      "signature": "MymUzYVjVM2U1HBruE0w6WtMduF1PQg6+8T07vk1hip56bqDXQEHqwLHpWm2Seqp08HVJpPxRgd/+0Soy/+wCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fecaf0cf-0154-40c2-8eec-76708a3ae931",
+        "code": "phone",
+        "name": "Телефон",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "fecaf0cf-0154-40c2-8eec-76708a3ae931",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2693,
+      "tx_id": "acd2de66dcd8a3d0da20c5aa7758a62026009a138e6936c7e6a91b70e511049e",
+      "signature": "+SGAaNeAkNHur1Sba4FAqopsX+XyStARFDj+m+ysBaOT0NwBo5KT9TQLZAh7vwQ47F1B/oszz0FJSORugVr+Bg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c5bd880b-7650-4617-b134-34eb04410117",
+        "code": "email",
+        "name": "Email",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "c5bd880b-7650-4617-b134-34eb04410117",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2694,
+      "tx_id": "13d05c276e0d79f779a58091fb0f50491105752999f206091fe247f0107374b8",
+      "signature": "xdah9OajUGQpwtnGYrXNTo/aTZq7zyyv5vpTRKEQLQGYBAxQmYZb+8Bw62fiEj5zz7vBZo/rKULUAyI5ygCjAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "36d4b37e-5466-4c77-ae9d-917da482fbc9",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "36d4b37e-5466-4c77-ae9d-917da482fbc9",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2695,
+      "tx_id": "169442374c351aa05df64f8b81ec14ef7895b9019c3f43d416a05ec0badbe91e",
+      "signature": "w4Z6aEf/Jnv5JdYB9s8hILb+MtfLRT8nSaSbvg8q6dF4uFbMcpjwpWT4eYoNxTHARv9VMDTM6iF6LZYZyZDqCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "05dc410c-c9fb-4e66-ad44-c3dfa4ef062c",
+        "code": "number",
+        "name": "Номер наряда",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "05dc410c-c9fb-4e66-ad44-c3dfa4ef062c",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2696,
+      "tx_id": "6ff31576dad436d8bdbd264d2712710f4cc1b10fcf91cd91ba5ebe4467717513",
+      "signature": "FtFIW1gGTB+SPrMeYE8RJxZ5TIYhqs0v88MxtaUGWYeUAt9m9wobB5nJCF4XfG3MBdhOLF8PK1Nh26MF0UxWBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "8e2340a1-81c1-449d-a371-790aa83f6a6b",
+        "code": "date",
+        "name": "Дата наряда",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "8e2340a1-81c1-449d-a371-790aa83f6a6b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2697,
+      "tx_id": "c1e94df686fb1859f308707cf5e91e199f40d6d33e461b113b3c65a36c68d9e0",
+      "signature": "NnlYzgT6v6QrGCV9OywlXAiMeLN5IE//TYgRaxw7kOeV+dmjqrm5QD8xb+T63h/SIpzswHflbd1CL4iGL4CxDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "03747e79-8fdd-4320-a1c9-d39bffaf0d8e",
+        "code": "contract_id",
+        "name": "Контракт",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "03747e79-8fdd-4320-a1c9-d39bffaf0d8e",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2698,
+      "tx_id": "c220360bb5c31b1281118f2a6542456037aab2c614155157a932186ce1f15d3a",
+      "signature": "Q9k495JDkfJ/YobJw44hQlTv7j2CxWQy6fJ4F2BFKC0NY8CThSmRltt6Vhx5VYeMEjuDHY9XYoJep/lrrN+GAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1ab07154-c3f9-43ce-90d8-c4f573d1260b",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "1ab07154-c3f9-43ce-90d8-c4f573d1260b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2699,
+      "tx_id": "ae091476d7ef2d79ed3c135359a030f944ae07ffdfb7c7ab95e61d02234423b5",
+      "signature": "EFpNWyYRFAqe5SWBF/sHy2/Ag04z01g9yn0sDVzA/ksEcln4QJK7/GwIreldZTvHU1vS4aEdMTUfTWTI8rYEDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f7bff06b-5041-4bf4-aef3-d4c4d9c3f2f2",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "f7bff06b-5041-4bf4-aef3-d4c4d9c3f2f2",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2700,
+      "tx_id": "3d6ed729503a3d80c756d8eaa9e878118311494f1d8052851f16faba426d540f",
+      "signature": "ox38SgAD25SkPSBHg1wI8+RUauwwbn6y6s8opYo4BKqb0Gq9SdBLRMfdYqwz3E82eOskdO50ezhG7e+VRM9kBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "0edfd2d1-086e-4713-9bfd-b189bb227f2c",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "0edfd2d1-086e-4713-9bfd-b189bb227f2c",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2701,
+      "tx_id": "05ae200a79d70639ff4b62ba1ff2149b9bf9f2d7f96f3cfd7b2e1ad721a741e2",
+      "signature": "H3x6+1HuYPjBtNu6K3ZxLBGMkrY7jYekMzJQIxlOOXPE0WLGJdKrlGtn8b5IvZPGU5bllrMzCzrRtyIDybpcCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "13c0fdad-d292-462b-abe2-f239c32b005f",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "13c0fdad-d292-462b-abe2-f239c32b005f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2702,
+      "tx_id": "4ed183efe4a46732c2b79c4e5e9aa8997c55d95c39b0bda323f2fee9ac7dfe1b",
+      "signature": "wTGNS5xhwC4nkeO0GMqI9GU28PPTeg5ZuN7frq/7Ev2XClTfz8Fx+T1y5zNBIKZyrmfxI533D6XRLfOatIAIAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "17b25916-2ba8-48cb-993a-e1abba7c151c",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "17b25916-2ba8-48cb-993a-e1abba7c151c",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2703,
+      "tx_id": "cdb37f0ecec4cf12d206f58461f102da17f290090b03a466a0a69022bac78bf9",
+      "signature": "34Rf/dQGSHk70zyT8ajcwS+VgyoqnGj2mTn06fAb18eAgr0XlCI0dKkJpKXWCbBzn4FDPmQJr/IsU3M4R6FaAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3229fef7-e06e-4415-9ee1-99f0a6f72236",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3229fef7-e06e-4415-9ee1-99f0a6f72236",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2704,
+      "tx_id": "b5179c22ca7572f58a064f03aa6fa6a839ec13ff619c41be3ef28b043af49154",
+      "signature": "9idkxH+4Rv3R73qb9roNCj/Zrk9/zc1pV1LwbsTcp+fmBepXcgRSkxv6cvLLhBwz29QvyD7Uob8zOMfhNorNCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a16a455f-e571-4475-9bf6-eccdfacfacce",
+        "code": "workshop_id",
+        "name": "Цех",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a16a455f-e571-4475-9bf6-eccdfacfacce",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2705,
+      "tx_id": "270c5be2a7e101b28122705bcf60726db8a3eebe9ef90a00381552eac7f31a98",
+      "signature": "eh/fqhDkPwP3ZgmYYTHRhevyoAFQnWqgoJspX5+WLdB6GGV+pgpAJYcCsE6h9hi1Is9s4FtI4VPLvrHNUYtVAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "14d899f5-8f5b-4eb1-9e00-6435a6e4ff54",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "14d899f5-8f5b-4eb1-9e00-6435a6e4ff54",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2706,
+      "tx_id": "34ce591335490f8af982bb25e91252d1ef22e54be6db5c6985c0ae8cddad93d1",
+      "signature": "kcKk005nHsT6QNpy7gqEdMe1or3MDmJdvrrCEzWLm0VWqFvXapDHd/wE+R6cD/0VVrPxWi69dShpVp+ErXsBDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "cf6b25d2-e9d6-4082-98c2-00536a99016f",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "cf6b25d2-e9d6-4082-98c2-00536a99016f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2707,
+      "tx_id": "8ae5700175c455edeecc8c794feff55cd158c4709c9b5565a926996a1ab0621e",
+      "signature": "fPsqU8XaPdVmSTKmtQCba+jdVUXkF1e/hG+pcGqCuoBGOQbVui25TrmpTRFGwgDC3KAmlWpDWWVckE4zJWNFAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a2d0d843-f5fd-4690-9d97-37bfab444ca4",
+        "code": "name",
+        "name": "Название",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a2d0d843-f5fd-4690-9d97-37bfab444ca4",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2708,
+      "tx_id": "4d54864b9f3d048e6ee69a37278f383ef6e3339fe743727ad2ea7b7b7c7066c4",
+      "signature": "tr/RrWT5bzXlVHgyUQubbsk+FfO035M6WpmpnloVMPQhMtfPoj01zYQkL/SxVyEmKzM6bNCVRxYer0U84JM7CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "198382b8-e509-46ba-aee9-900ed43caaf5",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "198382b8-e509-46ba-aee9-900ed43caaf5",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2709,
+      "tx_id": "646447420bf3d4385cdcfc51bc05fe1d4191c78f3fd6b4eeeebbdbf0a1277b65",
+      "signature": "gBrxNW3/5PdaA5kLsT5eYmCndp0l9rAh/xmOIF75fT7UU18MPNC72rYySZTp52qgJ5icny4e0Yb3Je727BYbCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d5e03919-6277-4294-adf8-b91fcae535d0",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "d5e03919-6277-4294-adf8-b91fcae535d0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2710,
+      "tx_id": "fc314570640b2fa5a0c904bb6bf15ae8c781de363fd778df3dd3ba56ac132cf1",
+      "signature": "nJcdNsIexVfKNDUpf7kSwTuccCFusb08glDBLm4///W40FMpI1mstU5rH7Ysk4m718TatSxrO3yZ2wCkl+uwBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "9f81d72f-0f29-44ac-ab93-7c0521ddc974",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "9f81d72f-0f29-44ac-ab93-7c0521ddc974",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2711,
+      "tx_id": "fcb7d5ee33343f7a3780d8ec09238edb89f3d0845b6757cd7fc74ee9de0e1282",
+      "signature": "KEMxCsWRZIq053lK3RPm3avfM76LkaPB0MQ26E95BZSH6p77ZA2EtItJMzmW67ASkBNurtGW7Mcm520kf7BrDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "41f093d8-f966-4726-8773-0310a6c114b1",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "41f093d8-f966-4726-8773-0310a6c114b1",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2712,
+      "tx_id": "26499941167ee1157b9d98bdbfb85a23414a5db610dbd876ad8f3c0629911b9e",
+      "signature": "B0vMJsiwTdPGkJgNDRBmEgqLlddAPg1mfwfKJiKmF7+c4tl2AUNNDAf802noZ7fTY3VcioVB2SwsBVUO4MfOCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d64553ea-e809-436b-b1b9-d1d75e3667d3",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "d64553ea-e809-436b-b1b9-d1d75e3667d3",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2713,
+      "tx_id": "da8792ebc90f626c419d662fc5a802011831ae83e10ce1463317547cf2e75fb1",
+      "signature": "tj6wgGyK+K+Vfl7tQo26ubs+cTVLmJ9JS5wCPbNaSxKi3lE50rCVAuUjEVODProhJGv8Ab1mAnYwDD4ecWxoAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7e629d41-353b-47b2-b4b9-2b5f881d0b9a",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "7e629d41-353b-47b2-b4b9-2b5f881d0b9a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2714,
+      "tx_id": "1cf8383c0a6e7e2e29161b121e9d8867a97fd2ca09f09da2934adade13d2b51a",
+      "signature": "EA7CrYLV7ktRYhsC7LRKaMLtouzb5NdSogM1qhf+qX2IABmwAJSmEuOoS3KYBucXfbU7+tL3pYdW821mvraGBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3bf4bc4d-5dbf-4cdb-919c-4824cda4ab80",
+        "code": "name",
+        "name": "Наименование",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3bf4bc4d-5dbf-4cdb-919c-4824cda4ab80",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2715,
+      "tx_id": "a5c31662d35d3a76e3a5b7750a0ecda8cc4693e444a8946e49f7783732851793",
+      "signature": "2AfUfSSyalhFm6d3QKv7dV14+15gk8SCzZa2uNvwNY5FFmYHXDZNocN8Ynst4KL4JF4abAO0pUZn5uTpvux0BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "8c9d6b2c-04d6-4112-be65-60ac951eb1f5",
+        "code": "unit",
+        "name": "Единица измерения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "8c9d6b2c-04d6-4112-be65-60ac951eb1f5",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2716,
+      "tx_id": "dc1a3fa47ff34a7bbcf8ba619c29fca5fbb10f7725b6b7fa956ca6680be6e382",
+      "signature": "w400D9yasT/1Q0ku0XeYwj97ulHTkDozKNz+DjE0TuPrGFDSdXtUbV6viOEGvdfTF+YNqRy4t+6MlS535HpgDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fcc5627a-178e-4f00-b8a4-9394146bbfd2",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "fcc5627a-178e-4f00-b8a4-9394146bbfd2",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2717,
+      "tx_id": "4e78022c97e3229317c03c39a9e4b375f707f680d30730ef434a11950cbecd61",
+      "signature": "/RC8ieDuso/rbLAmeojF6OtDDBg+M0veYvo6im5CtCVOr0p+8COa2Gt+0lBFbKEuOFPOgu5uKBPL52waBv76BA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d6785147-dac7-467b-a2cf-79a5f8e7ff51",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "d6785147-dac7-467b-a2cf-79a5f8e7ff51",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2718,
+      "tx_id": "49d7485d0ea4eac4ed5f310e10ce4fde38b18ecf2594dd3d2c93195b1986aab9",
+      "signature": "oMogdEGe/Qm6of/5oLDbPrjkKibnV4P5IeEDUyt39WJQv3G5b+jZoglsbSDvzZX02Jg0TlpO1mer4oL2sdK4Dw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "27297f30-bf9d-4735-86c1-78e346a00f02",
+        "code": "last_name",
+        "name": "Фамилия",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "27297f30-bf9d-4735-86c1-78e346a00f02",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2719,
+      "tx_id": "68816d07b33996224f1898ff0deeefdb6c157fd69404a03281f13dc85ba3c130",
+      "signature": "CT9O/q1LpG0bt6kIirMWy6R6fOP8rxhBwO+R9NruWn5NjZ6zEdd5n54sZJlmNbeesH/zXZogGL+yckXVlTJlCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "cadaf8c2-8748-4c48-9b5f-8f8031c6ffe2",
+        "code": "first_name",
+        "name": "Имя",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "cadaf8c2-8748-4c48-9b5f-8f8031c6ffe2",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2720,
+      "tx_id": "575d341c4b97699fab606f64cf10fcb32e776577a90f9426571ef1ab1a80b47d",
+      "signature": "snI6Eb6YLGF7JG2ME0QI/13WNgbyrfx7lC+2Tz3BsZad0YGp0RLIkhj+dJkAXFnLtR7lqYZ1LaT68KaauqWuBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "5813d474-e04d-4952-b3cd-afbba601a824",
+        "code": "middle_name",
+        "name": "Отчество",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "5813d474-e04d-4952-b3cd-afbba601a824",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2721,
+      "tx_id": "82f03e2b7fe9e2fc958bc126491c487e7f1b49ba2dd611dfcb42d3d41826b8c7",
+      "signature": "9wJoN5SD9aDAEa2xz6FtbI6uRVPYsr2dlJzmmareMG9lWToDJWK4SmYaz8BHYrmf80QuAufEOwRSP9L1+1BWDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "93968e2a-355f-4932-9b6e-ec6fa762b5c4",
+        "code": "full_name",
+        "name": "ФИО",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "93968e2a-355f-4932-9b6e-ec6fa762b5c4",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2722,
+      "tx_id": "49fea5732d20142914bf464e5b109e9ff62f0bb3c41e80af03a5058b3527655e",
+      "signature": "qObLCN9825Gym2HwiiV9B8I6iQCO2BoF1jTlaxfz2HXO2JDUhY8pRrEoQRf80eK1EQUTYbXNIkgxDPg9diKiCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3919d968-8373-46a9-afb3-c9946786fab4",
+        "code": "personnel_number",
+        "name": "Табельный номер",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3919d968-8373-46a9-afb3-c9946786fab4",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2723,
+      "tx_id": "f1b2a92346e5f75ab6492315fe7fe54749e50f3d58c93802a8300b320189c7ab",
+      "signature": "1WvSppkY18RNNr4Z3zVkF6HTihyI+6oY712tH9r494xW1Xik7gn5t4e3OBxY6igPnjchdbshs5cyzlHp3B3EAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "befd91bd-052d-46a5-9ab4-2bae390487a4",
+        "code": "birth_date",
+        "name": "Дата рождения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "befd91bd-052d-46a5-9ab4-2bae390487a4",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2724,
+      "tx_id": "61262af73493c34567f08d6fcc60a26d83ee704ce1ac0136ac9af1384efcbdeb",
+      "signature": "87HH+BuhZBwEsgANB15GzNNz4AvKn+1qeT6sK7Wv3bEnccUIRfNgUQ5DP86N7yPrOUd650P4ikXdohAHaukuCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "9d8ec880-e323-47bf-8a79-8bbab9d68136",
+        "code": "role",
+        "name": "Должность",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "9d8ec880-e323-47bf-8a79-8bbab9d68136",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2725,
+      "tx_id": "86d991af1c741480799dece136306b9d434e421a7e979c60a1c2ff23d568e642",
+      "signature": "HbxfZ9zBTQEz3+pmcHxtGV1dXcoLX2icVseR3Pgs+N6KUD6H/qVvXWU2xtY4uQOM1EimAKW1CAJVuo1bljv4DQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a6c6c81e-e278-4662-896e-65221be4d146",
+        "code": "employment_status",
+        "name": "Статус (работает/уволен)",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "a6c6c81e-e278-4662-896e-65221be4d146",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2726,
+      "tx_id": "e7913e4d76c39b14510a6278dd0aa3eb43b449fdc759ccb0747e67ec1dd0fd58",
+      "signature": "nRQgx5pgFgJkYQzPxniw7ykhmwLgyiOLC9IjwlW0Nr2doPNwIXXWJbJyGMFe2uyJLKXRmnFGd7L2p9pdyrPoCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c793883e-9301-496e-b28a-bfc62b9e3441",
+        "code": "hire_date",
+        "name": "Дата приема на работу",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "c793883e-9301-496e-b28a-bfc62b9e3441",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2727,
+      "tx_id": "efd7ef2a59dd3a7c27d4f20dff5761a54449bd87f0a127d1f6eaaad4463909a2",
+      "signature": "55ELJRX9hgGTfDAndxbPY97TKx+/mJbcIR/153Huw8gd9sqiZv7BMvokS9sJPaItXzEWP2RHwAMNsOPFfoctBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3a349d52-f1ed-44fb-b153-ffdb5f7c1356",
+        "code": "termination_date",
+        "name": "Дата увольнения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3a349d52-f1ed-44fb-b153-ffdb5f7c1356",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2728,
+      "tx_id": "d9d73f3d00f26a3272ec47a96f7cea70acce55597fe503d696d59ce7b1efb6b5",
+      "signature": "h53v3gaueCmdzwjle6lbrGTZq3Pqv7r+w7Ji1CU6P2HbHtd3yUXRePfqVt0oXJwpsPxd2eQlXPqKMkmAMfiVDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e4e127ae-ccae-4221-b5e1-64f51fa8ac12",
+        "code": "category_id",
+        "name": "Категория",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "e4e127ae-ccae-4221-b5e1-64f51fa8ac12",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2729,
+      "tx_id": "b0aaebf912c0a725e03d0983514919e2ab930c5cedf126c13384da03c16cdbe7",
+      "signature": "G75LKrPwFUzVuVhrpCe9/yjxLAtI3Z1Kn86kyEu95RikBmWxr7bqtI2rv9r9OXqX8/AWBBoXugjTuWcn75dtCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "845974ce-5cb6-47da-bce3-990fb3bdc3b1",
+        "code": "department_id",
+        "name": "Подразделение",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "845974ce-5cb6-47da-bce3-990fb3bdc3b1",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2730,
+      "tx_id": "a19f73da83198e874101527495f05e8ea2e60d3f2105fdf588f01a63ffe50748",
+      "signature": "2IBAVdYLez4W/1GEBi9RjghySUUMI6bv1Ydv+jF5zEZTxNsV0cQdvxNCY36x6EMvDAE7ToVt35HGd6k9OcG5Aw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7e61a94c-3b90-42d0-8ec0-70932ca757d9",
+        "code": "section_id",
+        "name": "Участок",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "7e61a94c-3b90-42d0-8ec0-70932ca757d9",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2731,
+      "tx_id": "6f8eadacb22647296a197250c2a1b0fdcf9400d6e89ee2830bedb7130a6e51c0",
+      "signature": "fsQ7xw8vKqDipdYFFM923SsMKf9ujaCAP4yA4Svr3bMU96yBYafRq6TDXU/WvuKbq/ivCD0X3pwbEkb9+dYiCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fdf6f62d-5bb5-490e-9307-1a82d5feff55",
+        "code": "transfers",
+        "name": "Переводы",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "fdf6f62d-5bb5-490e-9307-1a82d5feff55",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2732,
+      "tx_id": "f9ed7f25371a5f3ed9ee5ec5bd01b4de335786c2d6c060795b9143a158e9b1b5",
+      "signature": "3TKGZ7tVTU1nzBjvTfFCfKYq5UhZ8U1qFBp3QvbaglBnOpH2yI+TKnS2CE6Ko5eua07crj+SluTrkmAz4D+PBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f8f3acc6-b3ae-45b7-9722-cda62471027d",
+        "code": "attachments",
+        "name": "Вложения",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "f8f3acc6-b3ae-45b7-9722-cda62471027d",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2733,
+      "tx_id": "433db4b8321e6db2ce2523c2f138f51521f3d7c7d8eecd110f579cefaaa52041",
+      "signature": "KuSEcaD0AB1GZRhXfvZswXus/MZxr8lbVqgQOZHjIhTcHykiwXAl+Yw0N8AqudPh3T3Ew0ilCZ0xH/376CRHCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "ee621eaf-f570-4e5c-96ab-a72c05a470b0",
+        "code": "field_name",
+        "name": "Название поля",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "ee621eaf-f570-4e5c-96ab-a72c05a470b0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2734,
+      "tx_id": "a4b026add157a7cb564bd3b0849bdcceeff10f9ba206d37f1b96a2e3df3e9288",
+      "signature": "kT9Xil1gCz40rdgRUW45iMcVyFMI3rBBBrK+ExWvz5JXOULbAEm+benq9VAmyzuSdXpM/5BlrpgTl0qIfkK8DA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3217227a-7ea6-46b8-8f8d-afc0bbcc2d2d",
+        "code": "target_type_code",
+        "name": "Код справочника",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3217227a-7ea6-46b8-8f8d-afc0bbcc2d2d",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2735,
+      "tx_id": "b3dfe2e4fd33e640a4d262a0903f8ea04dbfa892b39f285cddb803fb3dfec4bc",
+      "signature": "gKAo4QLO4zOSsnA7dVyuT3iIoJACokBIq9JHTo3lfeTWa4Uvi+c3YhI7bQXCbMoZ6KMJI4Did/8t2SDr+L4wDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "82665954-e1fc-4ebd-9033-5cad45aa404a",
+        "code": "priority",
+        "name": "Приоритет",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "82665954-e1fc-4ebd-9033-5cad45aa404a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2736,
+      "tx_id": "dfc35a316f8ad82bbf970f01ede8ff023bece5c2d4ab8ada167fadbeb23d1205",
+      "signature": "mId4aan6jDdRbSPgyy2xAdWHvftOxxYlh0vQwztSxq5cQ+DgHgeZvglHrreIno+SpnBJOiPgKNOTfhMQM5viBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3a422275-4123-47d2-ab94-610a194c672b",
+        "code": "note",
+        "name": "Комментарий",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "last_server_seq": null,
+        "deleted_at": null
+      },
+      "row_id": "3a422275-4123-47d2-ab94-610a194c672b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769882705462,
+      "seq": 2737,
+      "tx_id": "93e33f004259d6c8030f820c5a2df7d56babf75875379c6bb67a567317067e4a",
+      "signature": "eGZMrlc9ZjeP8E7ffrtSWK5xhLE/1hLp+hjCgvfBXG/g7ScH4OTUZHbv/aCXRPEIJQH7iBNVoo8Cq8rJMqxvBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "31cc486b8805db1222f98e952d6001cf4ae5237233edb7c34cf5121cc65c9897"
+}

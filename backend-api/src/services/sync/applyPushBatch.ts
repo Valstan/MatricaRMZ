@@ -229,7 +229,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       if (pairs.length === 0) return;
       const ids = pairs.map((p) => p.rowId);
       const cases = sql.join(
-        pairs.map((p) => sql`when ${table.id} = ${p.rowId} then ${p.serverSeq}`),
+        pairs.map((p) => sql`when ${table.id} = ${p.rowId} then ${Number(p.serverSeq)}::bigint`),
         sql.raw(' '),
       );
       const caseExpr = sql`case ${cases} end`;

@@ -1,0 +1,466 @@
+{
+  "height": 98,
+  "prev_hash": "2283d2b95bffee6a73bc5678e052806af24e19c145d0a6dfe0b7d0e5d19b00a1",
+  "created_at": 1769937201226,
+  "txs": [
+    {
+      "type": "delete",
+      "table": "entities",
+      "row": {
+        "id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "created_at": 1769935792394,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2868,
+      "tx_id": "b5c68115b9ccfad85e5198d27ba53ee10bca537c9a5c53ce3c11700195df1d3f",
+      "signature": "wfxG/5KJkJfZnv5sYKTE708Gxa2wPfqRm6Og9KbktvXboCLdVMFPW9+suq/Snot1A4/Yr9DAIe0DibucC+neCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "34938a53-d83b-4ee2-84dc-601d7c83c822",
+        "entity_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "attribute_def_id": "40a8248b-4072-402d-b63b-97702ec88ac4",
+        "value_json": "\"\"",
+        "created_at": 1769426202792,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "34938a53-d83b-4ee2-84dc-601d7c83c822",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2869,
+      "tx_id": "4b237f997664b00c8f5f7f2ddfbff7ce63cd339a135ddc1fec3dcaeb2f5591dc",
+      "signature": "0CHdrkHMnjTBrWI8PQfsxGmtmtqacx6AcrhZXWkNULoG1G7e8LmcsMvTHNjC7U0VtyaOlsIwIMi8sbyY0Q2EAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "2f998716-f2a9-42b8-aca3-c90c16f53bba",
+        "entity_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "attribute_def_id": "35dfee1b-8faa-454e-862f-308ba2531770",
+        "value_json": "\"\"",
+        "created_at": 1769426205245,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "2f998716-f2a9-42b8-aca3-c90c16f53bba",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2870,
+      "tx_id": "e12bf6ca984e93b569dea53462149ca2d6be719a8b9050eb14aed5e3990ba29c",
+      "signature": "/1PMp31s0QT21FEeDtH3giFenvSSlkg+RyQvOkJC+asasTmPwWKIA3kLRsjWa4YgIFGCEqbj2zhKxGHeiaWIDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "ef44accc-395c-4875-aab5-3a4839116c67",
+        "entity_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "attribute_def_id": "8d6a75c6-89f1-40f6-9e1f-e3ab13a9a28b",
+        "value_json": "null",
+        "created_at": 1769426228578,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "ef44accc-395c-4875-aab5-3a4839116c67",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2871,
+      "tx_id": "e1b1bf5b3f5874e6f02731b47c2f4d85a44c91d38c417094496e987c8c9a0598",
+      "signature": "O/JZXy507yU/mROcap5+DG5/GQSRddA7yfoUeYW5GGqvZ9X6KQz7IQaScKSVnf3ZTCppGzeMiORPno+O3c9MAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "3d22512e-852f-423c-8435-ecdd3cbfa735",
+        "entity_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "attribute_def_id": "e30ce086-4dfe-4ef5-b646-21386e9438b7",
+        "value_json": "[{\"label\":\"Количество двигателей по первоначальному контракту\",\"count\":0}]",
+        "created_at": 1769426230395,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "3d22512e-852f-423c-8435-ecdd3cbfa735",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2872,
+      "tx_id": "60386e0daa1cdddc5b00d162b1fc0207d8dc5953345c72087fdfdfca15289ea7",
+      "signature": "KJJORi/IDknH/BuijhNe7rNHW6IbpFBl/jQNJ7lkUsjPIkxtnstaXbQQ4dQZ+m4jYPTH69buR+oJz0JGdaFcCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "2b05e153-5949-40d0-969d-8ddaa0663db3",
+        "entity_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "attribute_def_id": "35665dff-2db4-44ec-8d6a-bc13af4b36fc",
+        "value_json": "0",
+        "created_at": 1769426230421,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "2b05e153-5949-40d0-969d-8ddaa0663db3",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2873,
+      "tx_id": "af48991aa819538f2581c7c20bf6697ca18893afc1f5bf9007d0c0bd99e871a1",
+      "signature": "IYa+Qo0RxrFQ8v5D2pmia7deptrnmmd8uCRbOt3ZHP3kkn/OMhmwZe3P8Y7A2cA7ZKHqtS0zDr1uZf+DSx5fCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entities",
+      "row": {
+        "id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
+        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "created_at": 1769935792394,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2874,
+      "tx_id": "fa416f6c9e8b4a18e3c581a59882c358ee0ce5c98fef179bc0958cbbd8ac9520",
+      "signature": "zborKUH2FQf1CUb8KqKQ4H2K+KtBl/lJVvWLUEFy8qj7R8iDiuk7KO8TV9pkOv8BsJhiMqJ5eFp21D3wNNUOAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "82462967-af54-4650-bca0-67490c6187ce",
+        "entity_id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
+        "attribute_def_id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
+        "value_json": "\"\"",
+        "created_at": 1769426276894,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "82462967-af54-4650-bca0-67490c6187ce",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2875,
+      "tx_id": "c7512eb6789085715de4e546f25c6ea966faafa93905513569fb251d0c1a960e",
+      "signature": "exS9uSBH1ag4gooovkvZotuR9NA5/d/tEX2a7Y+eL+dzprJzYpD2Tn5bPiN+TXBVcZIvsmTLABLEWXJCFs7bDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "b70aa184-0770-42ad-83f0-e303e47cabe6",
+        "entity_id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
+        "attribute_def_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
+        "value_json": "\"\"",
+        "created_at": 1769426276896,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "b70aa184-0770-42ad-83f0-e303e47cabe6",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2876,
+      "tx_id": "8ab4625fe821fd18302a8c4e95115dcbead59008ca616f4d0e949649ed2c6c41",
+      "signature": "7XFzpGpdzmzq6I1K6lMeeyCmA5soJqpncNFKuyBN4li769V6DYUHFg0bMI0jU8YEsD5fMAevIlKTi7+u6It+BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entities",
+      "row": {
+        "id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
+        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "created_at": 1769935792394,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2877,
+      "tx_id": "673b7ff0733fb0d76fa440a3322df12346374418d322dd68f66b442b16797f18",
+      "signature": "zsTZ8huPU+wXm/RNGs1iMBIY+frcU0vuBcmn8quC06epZwZ0ToyqCqLXLXSGncG2Sa1zkA0m8SBqiEG8bQoKAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "c19f3749-5813-4f80-91c6-05cf26fb1758",
+        "entity_id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
+        "attribute_def_id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
+        "value_json": "\"\"",
+        "created_at": 1768828501948,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "c19f3749-5813-4f80-91c6-05cf26fb1758",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2878,
+      "tx_id": "dc634ef338e2a7bf30da079b0ac8bb76c5003a3cbaadeaa251ef7e69149b9363",
+      "signature": "tMNzoaofGyiVmbbawIkBKTAcU1+peGgdU0kPKtLd2b5kmhUfK0oS0PemsnYWrD/E/dE/juKsHH0SgkEXHYrFBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "29d91fdc-7793-402d-bf3b-c75fcabd84ec",
+        "entity_id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
+        "attribute_def_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
+        "value_json": "\"\"",
+        "created_at": 1768828501950,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "29d91fdc-7793-402d-bf3b-c75fcabd84ec",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2879,
+      "tx_id": "77e27e408444e70b5d11e2d28fcba2de065f1930a7e5ee7b81aebd8c097415b5",
+      "signature": "A2kl8XxEGb2lPpw10SyhDYxr6kcoZPchWRBidW92fK4NIj0Lfa0U6r6U/7XkOvsPJiJ07zh5RqZppFOFvRxMDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entities",
+      "row": {
+        "id": "0a4bf1c3-7c8e-42ac-9213-390cf178fe50",
+        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "created_at": 1769935792394,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "0a4bf1c3-7c8e-42ac-9213-390cf178fe50",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2880,
+      "tx_id": "85c4fbda1331161cefa94b23b2a25dfe98adbc331110a501045d7889e8de77e9",
+      "signature": "7//684/xle7U6PMh4P9Cr/RYLgxaEWtC7sCmO0/PBNsCVko4ZaOFV10QlSfv7YbRARIADvI+ema4E+hL2T2fCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "f00efeb4-b293-474c-a759-1994095e5dba",
+        "entity_id": "0a4bf1c3-7c8e-42ac-9213-390cf178fe50",
+        "attribute_def_id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
+        "value_json": "\"\"",
+        "created_at": 1768895487246,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "f00efeb4-b293-474c-a759-1994095e5dba",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2881,
+      "tx_id": "45de56620f38437a2a30a58c3cd8e42790a077238871f4b6f0fc31a45d2b5e27",
+      "signature": "4dOxa9Ag6p9PcZN/xGTF184NgyW12tAr8ekubKFfDahB/3vqs9N1ccxF1LfBmso+fJWeGGoag1HjQhxQb5MaBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "a31421a2-e441-4292-a5ae-dbef185cbd1b",
+        "entity_id": "0a4bf1c3-7c8e-42ac-9213-390cf178fe50",
+        "attribute_def_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
+        "value_json": "\"\"",
+        "created_at": 1768895487248,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "a31421a2-e441-4292-a5ae-dbef185cbd1b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2882,
+      "tx_id": "58f673eb4febe5c4da4ada6dd9d08a8f092d2dd02dd1b3beaea553de76e2b394",
+      "signature": "T+iGX4/q8mPXioqgT4evOxcDr3sDHB+L2aY1wrzx3ZT0hR8MiXvBm0ri/3z+cSctDDIkhzKT5ma1wGQdLEjSAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entities",
+      "row": {
+        "id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
+        "type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "created_at": 1769935792394,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2883,
+      "tx_id": "1387c137b0a1e3ae9a5846997902e9ba7321dad207604701418239facfd7e1c7",
+      "signature": "qxemwyBRL1IuBqPNcV1+cvl3wItaRuxFmGXhh39uZkJ6p5UwfEWwJEx/Dn/HNZB0Yfq0M/XdKrOcLoZDIC1dDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "62438f6e-32ab-4043-806f-37f05a7d7b07",
+        "entity_id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
+        "attribute_def_id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
+        "value_json": "\"\"",
+        "created_at": 1769426306127,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "62438f6e-32ab-4043-806f-37f05a7d7b07",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2884,
+      "tx_id": "064145856470cf22c3408606fbc7ba3610085cbb39773502047b6141e24e3fcb",
+      "signature": "AHBDLOR+FWX1VJl8545FGqXle3jdgiJR5QFChAc1WrjFrjkSBHXmFQblnYt2eYsGsSpgtR5uFQdgm5IibemHDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_values",
+      "row": {
+        "id": "53fb57ee-7d1f-467c-9fc5-0c248100576f",
+        "entity_id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
+        "attribute_def_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
+        "value_json": "\"\"",
+        "created_at": 1769426306129,
+        "updated_at": 1769937201218,
+        "deleted_at": 1769937201218,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "53fb57ee-7d1f-467c-9fc5-0c248100576f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937201218,
+      "seq": 2885,
+      "tx_id": "3ffa343f3de67fba6ef79e5dd5eee2db9a44332c44928bf88754d8d5b8ef5b2e",
+      "signature": "sd3XyPqcI1u+tmcHkrJmCEiZUBv8qlrz54h77MDVpGkxAjGd2iKl+dYRxymqx95sSyrDz0dbidvXJnu428gKAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "7593d88dd72adc97908dbfc4300bea007b3ba6d1a32e6b25c785ef0ec91a4790"
+}
