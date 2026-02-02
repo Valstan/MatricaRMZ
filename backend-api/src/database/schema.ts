@@ -355,6 +355,11 @@ export const clientSettings = pgTable('client_settings', {
   loggingEnabled: boolean('logging_enabled').notNull().default(false),
   loggingMode: text('logging_mode').notNull().default('prod'),
 
+  syncRequestId: text('sync_request_id'),
+  syncRequestType: text('sync_request_type'),
+  syncRequestAt: bigint('sync_request_at', { mode: 'number' }),
+  syncRequestPayload: text('sync_request_payload'),
+
   lastSeenAt: bigint('last_seen_at', { mode: 'number' }),
   lastVersion: text('last_version'),
   lastIp: text('last_ip'),
@@ -381,6 +386,20 @@ export const diagnosticsSnapshots = pgTable(
   (t) => ({
     scopeCreatedIdx: index('diagnostics_snapshots_scope_created_idx').on(t.scope, t.createdAt),
     clientScopeCreatedIdx: index('diagnostics_snapshots_client_scope_created_idx').on(t.clientId, t.scope, t.createdAt),
+  }),
+);
+
+export const diagnosticsEntityDiffs = pgTable(
+  'diagnostics_entity_diffs',
+  {
+    id: uuid('id').primaryKey(),
+    clientId: text('client_id').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    payloadJson: text('payload_json').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    clientEntityCreatedIdx: index('diagnostics_entity_diffs_client_entity_created_idx').on(t.clientId, t.entityId, t.createdAt),
   }),
 );
 

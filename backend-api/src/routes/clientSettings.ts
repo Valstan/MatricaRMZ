@@ -40,6 +40,10 @@ clientSettingsRouter.get('/settings', async (req, res) => {
         torrentEnabled: row.torrentEnabled,
         loggingEnabled: row.loggingEnabled,
         loggingMode: row.loggingMode,
+        syncRequestId: row.syncRequestId ?? null,
+        syncRequestType: row.syncRequestType ?? null,
+        syncRequestAt: row.syncRequestAt ?? null,
+        syncRequestPayload: row.syncRequestPayload ?? null,
       },
     });
   } catch (e) {

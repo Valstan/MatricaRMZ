@@ -102,7 +102,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
   );
 
   if (!collected.length) {
-    return { dbApplied: dbResult.applied, ledgerApplied: 0, lastSeq: 0, blockHeight: 0 };
+    return { dbApplied: dbResult.applied, ledgerApplied: 0, lastSeq: 0, blockHeight: 0, appliedRows: [] };
   }
 
   const payloads: LedgerTxPayload[] = collected.map((ch) => {
@@ -124,5 +124,6 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
     ledgerApplied: ledgerResult.applied,
     lastSeq: ledgerResult.lastSeq,
     blockHeight: ledgerResult.blockHeight,
+    appliedRows: collected.map((row) => ({ table: row.table, rowId: row.rowId, op: row.op })),
   };
 }

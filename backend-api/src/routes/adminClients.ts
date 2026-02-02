@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
-import { listClientSettings, updateClientSettings } from '../services/clientSettingsService.js';
+import { listClientSettings, setClientSyncRequest, updateClientSettings } from '../services/clientSettingsService.js';
+import { randomUUID } from 'node:crypto';
 
 export const adminClientsRouter = Router();
 
@@ -77,6 +78,34 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
         lastArch: row.lastArch ?? null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+      },
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminClientsRouter.post('/clients/:clientId/sync-request', async (req, res) => {
+  const schema = z.object({
+    type: z.enum(['sync_now', 'force_full_pull', 'entity_diff', 'delete_local_entity']),
+    payload: z.record(z.unknown()).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const clientId = String(req.params.clientId || '').trim();
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
+
+  try {
+    const payload = parsed.data.payload ? JSON.stringify(parsed.data.payload) : null;
+    const row = await setClientSyncRequest(clientId, { id: randomUUID(), type: parsed.data.type, at: Date.now(), payload });
+    return res.json({
+      ok: true,
+      row: {
+        clientId: row.clientId,
+        syncRequestId: row.syncRequestId ?? null,
+        syncRequestType: row.syncRequestType ?? null,
+        syncRequestAt: row.syncRequestAt ?? null,
+        syncRequestPayload: row.syncRequestPayload ?? null,
       },
     });
   } catch (e) {

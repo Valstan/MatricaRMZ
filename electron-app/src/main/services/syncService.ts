@@ -414,7 +414,14 @@ function formatError(e: unknown): string {
   return `${name ? name + ': ' : ''}${message}${code}${cause}${stack}`;
 }
 
-type SnapshotSection = { count: number; maxUpdatedAt: number | null; checksum: string | null };
+type SnapshotSection = {
+  count: number;
+  maxUpdatedAt: number | null;
+  checksum: string | null;
+  pendingCount?: number;
+  errorCount?: number;
+  pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
+};
 
 function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: number | null) {
   const raw = `${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`;
@@ -434,14 +441,27 @@ async function snapshotTable(
     .from(table)
     .where(isNull(table.deletedAt))
     .limit(1);
+  const statusRow = await db
+    .select({
+      pendingCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'pending' then 1 else 0 end), 0)`,
+      errorCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'error' then 1 else 0 end), 0)`,
+    })
+    .from(table)
+    .where(isNull(table.deletedAt))
+    .limit(1);
   const r = row[0];
   const count = Number(r?.count ?? 0);
   const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
   const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
+  const s = statusRow[0];
+  const pendingCount = Number(s?.pendingCount ?? 0);
+  const errorCount = Number(s?.errorCount ?? 0);
   return {
     count,
     maxUpdatedAt,
     checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
+    pendingCount,
+    errorCount,
   };
 }
 
@@ -455,15 +475,90 @@ async function snapshotEntityType(db: BetterSQLite3Database, typeId: string): Pr
     .from(entities)
     .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
     .limit(1);
+  const statusRow = await db
+    .select({
+      pendingCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'pending' then 1 else 0 end), 0)`,
+      errorCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'error' then 1 else 0 end), 0)`,
+    })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
+    .limit(1);
   const r = row[0];
   const count = Number(r?.count ?? 0);
   const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
   const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
+  const s = statusRow[0];
+  const pendingCount = Number(s?.pendingCount ?? 0);
+  const errorCount = Number(s?.errorCount ?? 0);
   return {
     count,
     maxUpdatedAt,
     checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
+    pendingCount,
+    errorCount,
   };
+}
+
+function safeJsonParseValue(raw: string | null | undefined): unknown {
+  if (raw == null) return null;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return raw;
+  }
+}
+
+async function findLabelDefId(db: BetterSQLite3Database, typeId: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)))
+    .limit(200);
+  const byCode = new Map<string, string>();
+  for (const r of rows as any[]) byCode.set(String(r.code), String(r.id));
+  for (const key of ['name', 'number', 'engine_number', 'full_name']) {
+    const id = byCode.get(key);
+    if (id) return id;
+  }
+  return null;
+}
+
+async function loadLabelMap(db: BetterSQLite3Database, entityIds: string[], labelDefId: string | null) {
+  if (!labelDefId || entityIds.length === 0) return new Map<string, string>();
+  const rows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(inArray(attributeValues.entityId, entityIds as any), eq(attributeValues.attributeDefId, labelDefId as any), isNull(attributeValues.deletedAt)))
+    .limit(50_000);
+  const map = new Map<string, string>();
+  for (const r of rows as any[]) {
+    const id = String(r.entityId ?? '');
+    if (!id || map.has(id)) continue;
+    const parsed = safeJsonParseValue(r.valueJson == null ? null : String(r.valueJson));
+    if (parsed == null || parsed === '') continue;
+    map.set(id, String(parsed));
+  }
+  return map;
+}
+
+async function listPendingEntities(db: BetterSQLite3Database, typeId: string, limit = 5) {
+  const rows = await db
+    .select({ id: entities.id, updatedAt: entities.updatedAt, syncStatus: entities.syncStatus })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt), inArray(entities.syncStatus, ['pending', 'error'] as any)))
+    .orderBy(sql`${entities.updatedAt} desc`)
+    .limit(limit);
+  if (!rows.length) return [];
+  const ids = rows.map((r) => String(r.id));
+  const labelDefId = await findLabelDefId(db, typeId);
+  const labelMap = await loadLabelMap(db, ids, labelDefId);
+  return rows.map((r: any) => {
+    const id = String(r.id);
+    const label = labelMap.get(id) ?? id.slice(0, 8);
+    const status = r.syncStatus === 'error' ? 'error' : 'pending';
+    const updatedAt = r.updatedAt == null ? null : Number(r.updatedAt);
+    return { id, label, status, updatedAt };
+  });
 }
 
 async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
@@ -489,7 +584,13 @@ async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
   const entityTypesSnapshot: Record<string, SnapshotSection> = {};
   for (const code of ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee']) {
     const typeId = typeByCode[code];
-    entityTypesSnapshot[code] = typeId ? await snapshotEntityType(db, typeId) : { count: 0, maxUpdatedAt: null, checksum: null };
+    if (!typeId) {
+      entityTypesSnapshot[code] = { count: 0, maxUpdatedAt: null, checksum: null };
+      continue;
+    }
+    const snapshot = await snapshotEntityType(db, typeId);
+    const pendingItems = await listPendingEntities(db, typeId, 5);
+    entityTypesSnapshot[code] = pendingItems.length > 0 ? { ...snapshot, pendingItems } : snapshot;
   }
   return { tables, entityTypes: entityTypesSnapshot };
 }
@@ -1893,7 +1994,12 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
     try {
       const session = await getSession(db).catch(() => null);
       if (!session?.accessToken) {
-        void logMessage(db, currentApiBaseUrl, 'warn', 'sync blocked: auth required', { component: 'sync', action: 'run', critical: true });
+        void logMessage(db, currentApiBaseUrl, 'warn', 'sync blocked: auth required', {
+          component: 'sync',
+          action: 'run',
+          critical: true,
+          clientId,
+        });
         return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
       }
 
@@ -2065,13 +2171,33 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
             }
             throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
           }
-          const json = (await r.json()) as { ok: boolean; applied?: number };
+          const json = (await r.json()) as {
+            ok: boolean;
+            applied?: number;
+            applied_rows?: Array<{ table?: SyncTableName; rowId?: string; row_id?: string }>;
+          };
           pushed = json.applied ?? 0;
 
-          // После успешного push помечаем отправленные строки как synced.
-          for (const pack of pushedPacks) {
-            const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
-            await markAllSynced(db, pack.table, ids);
+          const appliedRows = Array.isArray(json.applied_rows) ? json.applied_rows : null;
+          if (appliedRows) {
+            const byTable = new Map<SyncTableName, string[]>();
+            for (const row of appliedRows) {
+              const table = row?.table;
+              const id = row?.rowId ?? row?.row_id ?? '';
+              if (!table || !id) continue;
+              const arr = byTable.get(table) ?? [];
+              arr.push(String(id));
+              byTable.set(table, arr);
+            }
+            for (const [table, ids] of byTable.entries()) {
+              await markAllSynced(db, table, ids);
+            }
+          } else {
+            // После успешного push помечаем отправленные строки как synced.
+            for (const pack of pushedPacks) {
+              const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
+              await markAllSynced(db, pack.table, ids);
+            }
           }
           break;
         }
@@ -2140,13 +2266,23 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         }
       }
       logSync(`error ${err}`);
-      void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, { component: 'sync', action: 'run', critical: true });
+      void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
+        component: 'sync',
+        action: 'run',
+        critical: true,
+        clientId,
+      });
       return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
     }
   }
   const err = 'sync failed: apiBaseUrl auto-fix exhausted';
   logSync(`error ${err}`);
-  void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, { component: 'sync', action: 'run', critical: true });
+  void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
+    component: 'sync',
+    action: 'run',
+    critical: true,
+    clientId,
+  });
   return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
 }
 

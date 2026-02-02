@@ -69,6 +69,7 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
       db_applied: result.dbApplied,
       last_seq: result.lastSeq,
       block_height: result.blockHeight,
+      applied_rows: result.appliedRows ?? [],
     });
   } catch (e) {
     return res.status(400).json({ ok: false, error: String(e) });

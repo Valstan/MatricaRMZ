@@ -5,8 +5,27 @@ export type ConsistencySnapshot = {
   scope: 'server' | 'client';
   clientId?: string | null;
   serverSeq?: number | null;
-  tables: Record<string, { count: number; maxUpdatedAt: number | null; checksum: string | null }>;
-  entityTypes: Record<string, { count: number; maxUpdatedAt: number | null; checksum: string | null }>;
+  tables: Record<
+    string,
+    {
+      count: number;
+      maxUpdatedAt: number | null;
+      checksum: string | null;
+      pendingCount?: number;
+      errorCount?: number;
+    }
+  >;
+  entityTypes: Record<
+    string,
+    {
+      count: number;
+      maxUpdatedAt: number | null;
+      checksum: string | null;
+      pendingCount?: number;
+      errorCount?: number;
+      pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
+    }
+  >;
 };
 
 export type ConsistencyClientReport = {
@@ -21,8 +40,21 @@ export type ConsistencyClientReport = {
     kind: 'table' | 'entityType';
     name: string;
     status: 'ok' | 'warning' | 'drift' | 'unknown';
-    server: { count: number; maxUpdatedAt: number | null; checksum: string | null } | null;
-    client: { count: number; maxUpdatedAt: number | null; checksum: string | null } | null;
+    server: {
+      count: number;
+      maxUpdatedAt: number | null;
+      checksum: string | null;
+      pendingCount?: number;
+      errorCount?: number;
+    } | null;
+    client: {
+      count: number;
+      maxUpdatedAt: number | null;
+      checksum: string | null;
+      pendingCount?: number;
+      errorCount?: number;
+      pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
+    } | null;
   }>;
 };
 
@@ -32,4 +64,27 @@ export async function getConsistencyReport() {
 
 export async function runConsistencyCheck() {
   return await apiJson('/diagnostics/consistency/run', { method: 'POST' });
+}
+
+export async function requestClientSync(
+  clientId: string,
+  type: 'sync_now' | 'force_full_pull' | 'entity_diff' | 'delete_local_entity',
+  payload?: Record<string, unknown>,
+) {
+  return await apiJson(`/admin/clients/${encodeURIComponent(clientId)}/sync-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, ...(payload ? { payload } : {}) }),
+  });
+}
+
+export async function getEntityDiff(clientId: string, entityId: string) {
+  return await apiJson(
+    `/diagnostics/entity-diff?clientId=${encodeURIComponent(clientId)}&entityId=${encodeURIComponent(entityId)}`,
+    { method: 'GET' },
+  );
+}
+
+export async function getClientLastError(clientId: string) {
+  return await apiJson(`/diagnostics/clients/${encodeURIComponent(clientId)}/last-error`, { method: 'GET' });
 }

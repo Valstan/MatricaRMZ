@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
+import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
 import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 
@@ -49,6 +50,58 @@ diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.S
       entityTypes: parsed.data.entityTypes ?? {},
     });
     return res.json({ ok: true, snapshot });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.post('/entity-diff/report', requirePermission(PermissionCode.SyncUse), async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(1).max(200),
+    entityId: z.string().uuid(),
+    entity: z.object({
+      id: z.string().uuid(),
+      createdAt: z.number().int().optional().nullable(),
+      updatedAt: z.number().int().optional().nullable(),
+      attributes: z.record(z.unknown()).optional(),
+    }),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const diff = await storeEntityDiff({
+      clientId: parsed.data.clientId,
+      entityId: parsed.data.entityId,
+      clientEntity: parsed.data.entity,
+    });
+    return res.json({ ok: true, diff });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/entity-diff', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(1).max(200),
+    entityId: z.string().uuid(),
+  });
+  const parsed = schema.safeParse({ clientId: req.query.clientId, entityId: req.query.entityId });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const diff = await getLatestEntityDiff(parsed.data.clientId, parsed.data.entityId);
+    return res.json({ ok: true, diff });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/clients/:clientId/last-error', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const clientId = String(req.params.clientId || '').trim();
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
+  try {
+    const { findLastClientSyncError } = await import('../services/diagnosticsLogsService.js');
+    const result = findLastClientSyncError(clientId);
+    return res.json({ ok: true, result });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

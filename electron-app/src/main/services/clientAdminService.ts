@@ -1,9 +1,14 @@
 import { net } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { eq } from 'drizzle-orm';
 import { hostname as getHostname } from 'node:os';
 
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
-import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean } from './settingsStore.js';
+import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from './settingsStore.js';
+import { resetSyncState, runSync } from './syncService.js';
+import { httpAuthed } from './httpClient.js';
+import { getEntityDetails } from './entityService.js';
+import { attributeValues, entities, operations } from '../database/schema.js';
 
 export type RemoteClientSettings = {
   updatesEnabled: boolean;
@@ -19,6 +24,10 @@ type RemoteSettingsResponse = {
     torrentEnabled?: boolean;
     loggingEnabled?: boolean;
     loggingMode?: 'dev' | 'prod';
+    syncRequestId?: string | null;
+    syncRequestType?: 'sync_now' | 'force_full_pull' | null;
+    syncRequestAt?: number | null;
+    syncRequestPayload?: string | null;
   };
   error?: string;
 };
@@ -81,6 +90,66 @@ export async function applyRemoteClientSettings(args: {
 
     await logMessageSetEnabled(db, loggingEnabled, apiBaseUrl);
     await logMessageSetMode(db, loggingMode);
+
+    const syncReqId = json.settings.syncRequestId ?? null;
+    const syncReqType = json.settings.syncRequestType ?? null;
+    const syncReqPayload = json.settings.syncRequestPayload ?? null;
+    if (syncReqId && syncReqType) {
+      const lastApplied = (await settingsGetString(db, SettingsKey.SyncRequestLastId).catch(() => null)) ?? '';
+      if (lastApplied !== syncReqId) {
+        await settingsSetString(db, SettingsKey.SyncRequestLastId, syncReqId);
+        let payload: any = null;
+        if (syncReqPayload) {
+          try {
+            payload = JSON.parse(String(syncReqPayload));
+          } catch {
+            payload = null;
+          }
+        }
+        if (syncReqType === 'force_full_pull') {
+          args.log?.(`sync request: force_full_pull id=${syncReqId}`);
+          await resetSyncState(db);
+        } else if (syncReqType === 'sync_now') {
+          args.log?.(`sync request: sync_now id=${syncReqId}`);
+        } else if (syncReqType === 'entity_diff') {
+          const entityId = payload?.entityId ? String(payload.entityId) : '';
+          if (entityId) {
+            args.log?.(`sync request: entity_diff id=${syncReqId} entityId=${entityId}`);
+            try {
+              const entity = await getEntityDetails(db, entityId);
+              await httpAuthed(
+                db,
+                apiBaseUrl,
+                '/diagnostics/entity-diff/report',
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ clientId, entityId, entity }),
+                },
+                { timeoutMs: 20_000 },
+              );
+            } catch (e) {
+              args.log?.(`entity_diff failed: ${String(e)}`);
+            }
+          }
+        } else if (syncReqType === 'delete_local_entity') {
+          const entityId = payload?.entityId ? String(payload.entityId) : '';
+          if (entityId) {
+            args.log?.(`sync request: delete_local_entity id=${syncReqId} entityId=${entityId}`);
+            try {
+              await db.delete(attributeValues).where(eq(attributeValues.entityId, entityId as any));
+              await db.delete(operations).where(eq(operations.engineEntityId, entityId as any));
+              await db.delete(entities).where(eq(entities.id, entityId as any));
+            } catch (e) {
+              args.log?.(`delete_local_entity failed: ${String(e)}`);
+            }
+          }
+        }
+        await runSync(db, args.clientId, args.apiBaseUrl).catch((e) => {
+          args.log?.(`sync request failed: ${String(e)}`);
+        });
+      }
+    }
 
     return { updatesEnabled, torrentEnabled, loggingEnabled, loggingMode };
   } catch (e) {

@@ -145,6 +145,19 @@ export function EnginesPage(props: {
     void loadEngines();
   }, [props.canViewEngines]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('diagnostics.openEntity');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { typeCode?: string; entityId?: string };
+      if (parsed?.typeCode !== 'engine' || !parsed.entityId) return;
+      setSelectedId(String(parsed.entityId));
+      localStorage.removeItem('diagnostics.openEntity');
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const filtered = useMemo(() => {
     const q = normalize(query);
     if (!q) return rows;

@@ -85,6 +85,62 @@ export function App() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [registerForm, setRegisterForm] = useState({ login: '', password: '', fullName: '', position: '' });
 
+  useEffect(() => {
+    function openFromParams(params: URLSearchParams) {
+      const typeCode = String(params.get('openType') ?? '').trim();
+      const entityId = String(params.get('openId') ?? '').trim();
+      if (!typeCode || !entityId) return;
+      const payload = { typeCode, entityId, at: Date.now() };
+      localStorage.setItem('diagnostics.openEntity', JSON.stringify(payload));
+      if (typeCode === 'contract') {
+        setTab('contracts');
+        return;
+      }
+      if (typeCode === 'engine') {
+        setTab('engines');
+        return;
+      }
+      void (async () => {
+        const res = await masterdata.listEntityTypes();
+        if (!res?.ok) {
+          setTab('masterdata');
+          return;
+        }
+        const types = res.rows ?? [];
+        const match = types.find((t: any) => String(t.code) === typeCode);
+        if (!match?.id) {
+          setTab('masterdata');
+          return;
+        }
+        localStorage.setItem('diagnostics.openEntity', JSON.stringify({ ...payload, typeId: String(match.id) }));
+        setTab(`masterdata:${String(match.id)}`);
+      })();
+    }
+
+    function handleOpenEntity(e: Event) {
+      const ce = e as CustomEvent<{ typeCode?: string; entityId?: string }>;
+      const typeCode = String(ce?.detail?.typeCode ?? '').trim();
+      const entityId = String(ce?.detail?.entityId ?? '').trim();
+      if (!typeCode || !entityId) return;
+      openFromParams(new URLSearchParams({ openType: typeCode, openId: entityId }));
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    openFromParams(params);
+
+    const onPop = () => {
+      const next = new URLSearchParams(window.location.search);
+      openFromParams(next);
+    };
+
+    window.addEventListener('diagnostics:open-entity', handleOpenEntity as EventListener);
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('diagnostics:open-entity', handleOpenEntity as EventListener);
+      window.removeEventListener('popstate', onPop);
+    };
+  }, []);
+
   async function refreshMe() {
     const r = await me();
     if (!r?.ok) {

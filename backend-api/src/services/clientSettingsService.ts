@@ -6,6 +6,7 @@ import { clientSettings } from '../database/schema.js';
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
 type ClientSettingsPatch = Partial<Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode'>>;
+type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
 
 function nowMs() {
   return Date.now();
@@ -17,6 +18,10 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     torrentEnabled: true,
     loggingEnabled: false,
     loggingMode: 'prod',
+    syncRequestId: null,
+    syncRequestType: null,
+    syncRequestAt: null,
+    syncRequestPayload: null,
     lastSeenAt: null,
     lastVersion: null,
     lastIp: null,
@@ -83,6 +88,23 @@ export async function updateClientSettings(clientId: string, patch: ClientSettin
       ...(patch.torrentEnabled !== undefined ? { torrentEnabled: patch.torrentEnabled } : {}),
       ...(patch.loggingEnabled !== undefined ? { loggingEnabled: patch.loggingEnabled } : {}),
       ...(patch.loggingMode !== undefined ? { loggingMode: patch.loggingMode } : {}),
+      updatedAt: ts,
+    })
+    .where(eq(clientSettings.clientId, clientId));
+  const rows = await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1);
+  return rows[0] ?? (await getOrCreateClientSettings(clientId));
+}
+
+export async function setClientSyncRequest(clientId: string, req: ClientSyncRequest): Promise<ClientSettingsRow> {
+  await getOrCreateClientSettings(clientId);
+  const ts = nowMs();
+  await db
+    .update(clientSettings)
+    .set({
+      syncRequestId: req.id,
+      syncRequestType: req.type,
+      syncRequestAt: req.at,
+      syncRequestPayload: req.payload ?? null,
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));

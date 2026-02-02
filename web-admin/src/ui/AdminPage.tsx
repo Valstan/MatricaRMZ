@@ -76,6 +76,8 @@ export function MasterdataPage(props: {
     | { open: false }
   >({ open: false });
 
+  const openEntityRef = useRef<string | null>(null);
+
   const [defDeleteDialog, setDefDeleteDialog] = useState<
     | {
         open: true;
@@ -493,6 +495,28 @@ export function MasterdataPage(props: {
     await refreshEntities(typeId, { selectId: entityId });
     setSelectedEntityId(entityId);
   }
+
+  useEffect(() => {
+    if (types.length === 0) return;
+    try {
+      const raw = localStorage.getItem('diagnostics.openEntity');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { typeId?: string; typeCode?: string; entityId?: string };
+      if (!parsed?.entityId) return;
+      const typeId =
+        parsed.typeId ||
+        types.find((t) => String(t.code) === String(parsed.typeCode ?? ''))?.id ||
+        '';
+      if (!typeId) return;
+      if (openEntityRef.current === parsed.entityId) return;
+      openEntityRef.current = parsed.entityId;
+      void jumpToEntity(typeId, parsed.entityId).then(() => {
+        localStorage.removeItem('diagnostics.openEntity');
+      });
+    } catch {
+      // ignore
+    }
+  }, [types]);
 
   async function refreshLinkOptions(defsForType: AttrDefRow[]) {
     const map: Record<string, { id: string; label: string }[]> = {};

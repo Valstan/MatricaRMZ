@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID, createHash } from 'node:crypto';
 
 import { db } from '../database/db.js';
@@ -19,6 +19,15 @@ type SnapshotSection = {
   count: number;
   maxUpdatedAt: number | null;
   checksum: string | null;
+  pendingCount?: number;
+  errorCount?: number;
+};
+
+type PendingEntityItem = {
+  id: string;
+  label: string;
+  status: 'pending' | 'error';
+  updatedAt: number | null;
 };
 
 export type ConsistencySnapshot = {
@@ -50,6 +59,7 @@ export type ConsistencyClientReport = {
 };
 
 const ENTITY_TYPE_CODES = ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee'];
+const LABEL_KEYS = ['name', 'number', 'engine_number', 'full_name'];
 
 function nowMs() {
   return Date.now();
@@ -67,15 +77,28 @@ async function tableSnapshot(
     .from(table)
     .where(isNull(table.deletedAt))
     .limit(1);
+  const statusRow = await db
+    .select({
+      pendingCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'pending' then 1 else 0 end), 0)`,
+      errorCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'error' then 1 else 0 end), 0)`,
+    })
+    .from(table)
+    .where(isNull(table.deletedAt))
+    .limit(1);
   const r = row[0];
   const count = Number(r?.count ?? 0);
   const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
   const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
+  const s = statusRow[0];
+  const pendingCount = Number(s?.pendingCount ?? 0);
+  const errorCount = Number(s?.errorCount ?? 0);
   const checksum = createHash('md5').update(`${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`).digest('hex');
   return {
     count,
     maxUpdatedAt,
     checksum,
+    pendingCount,
+    errorCount,
   };
 }
 
@@ -89,16 +112,91 @@ async function entityTypeSnapshot(typeId: string): Promise<SnapshotSection> {
     .from(entities)
     .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
     .limit(1);
+  const statusRow = await db
+    .select({
+      pendingCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'pending' then 1 else 0 end), 0)`,
+      errorCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'error' then 1 else 0 end), 0)`,
+    })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
+    .limit(1);
   const r = row[0];
   const count = Number(r?.count ?? 0);
   const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
   const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
+  const s = statusRow[0];
+  const pendingCount = Number(s?.pendingCount ?? 0);
+  const errorCount = Number(s?.errorCount ?? 0);
   const checksum = createHash('md5').update(`${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`).digest('hex');
   return {
     count,
     maxUpdatedAt,
     checksum,
+    pendingCount,
+    errorCount,
   };
+}
+
+function safeJsonParse(raw: string | null | undefined): unknown {
+  if (raw == null) return null;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return raw;
+  }
+}
+
+async function findLabelDefId(typeId: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)))
+    .limit(200);
+  const byCode = new Map<string, string>();
+  for (const r of rows as any[]) byCode.set(String(r.code), String(r.id));
+  for (const key of LABEL_KEYS) {
+    const id = byCode.get(key);
+    if (id) return id;
+  }
+  return null;
+}
+
+async function loadLabelMap(entityIds: string[], labelDefId: string | null) {
+  if (!labelDefId || entityIds.length === 0) return new Map<string, string>();
+  const rows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(inArray(attributeValues.entityId, entityIds as any), eq(attributeValues.attributeDefId, labelDefId as any), isNull(attributeValues.deletedAt)))
+    .limit(50_000);
+  const map = new Map<string, string>();
+  for (const r of rows as any[]) {
+    const id = String(r.entityId ?? '');
+    if (!id || map.has(id)) continue;
+    const parsed = safeJsonParse(r.valueJson == null ? null : String(r.valueJson));
+    if (parsed == null || parsed === '') continue;
+    map.set(id, String(parsed));
+  }
+  return map;
+}
+
+async function listPendingEntities(typeId: string, limit = 5): Promise<PendingEntityItem[]> {
+  const rows = await db
+    .select({ id: entities.id, updatedAt: entities.updatedAt, syncStatus: entities.syncStatus })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt), inArray(entities.syncStatus, ['pending', 'error'] as any)))
+    .orderBy(desc(entities.updatedAt))
+    .limit(limit);
+  if (!rows.length) return [];
+  const ids = rows.map((r) => String(r.id));
+  const labelDefId = await findLabelDefId(typeId);
+  const labelMap = await loadLabelMap(ids, labelDefId);
+  return rows.map((r: any) => {
+    const id = String(r.id);
+    const label = labelMap.get(id) ?? id.slice(0, 8);
+    const status = r.syncStatus === 'error' ? 'error' : 'pending';
+    const updatedAt = r.updatedAt == null ? null : Number(r.updatedAt);
+    return { id, label, status, updatedAt };
+  });
 }
 
 export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
@@ -124,14 +222,16 @@ export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
     if (!ENTITY_TYPE_CODES.includes(code)) continue;
     byCode[code] = String(t.id);
   }
-  const entityTypesSnapshot: Record<string, SnapshotSection> = {};
+  const entityTypesSnapshot: Record<string, SnapshotSection & { pendingItems?: PendingEntityItem[] }> = {};
   for (const code of ENTITY_TYPE_CODES) {
     const typeId = byCode[code];
     if (!typeId) {
       entityTypesSnapshot[code] = { count: 0, maxUpdatedAt: null, checksum: null };
       continue;
     }
-    entityTypesSnapshot[code] = await entityTypeSnapshot(typeId);
+    const snapshot = await entityTypeSnapshot(typeId);
+    const pendingItems = await listPendingEntities(typeId, 5);
+    entityTypesSnapshot[code] = pendingItems.length > 0 ? { ...snapshot, pendingItems } : snapshot;
   }
 
   return {
