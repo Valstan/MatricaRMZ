@@ -28,8 +28,13 @@ yarn-error.log*
 # Release artifacts (не коммитим артефакты сборки)
 electron-app/release
 electron-app/dist
+web-admin/dist
 
 # Backend uploads (runtime storage)
 backend-api/uploads
+
+# Backend runtime data (ledger, logs)
+backend-api/ledger
+backend-api/logs
 
 
