@@ -1,8 +1,9 @@
 import WebTorrent from 'webtorrent';
 import createTorrent from 'create-torrent';
 import { Server as TrackerServer } from 'bittorrent-tracker';
-import { readdir, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
@@ -32,6 +33,7 @@ let currentTorrent: WebTorrentTorrent | null = null;
 let currentState: TorrentState | null = null;
 let lastScanAt: number | null = null;
 let lastError: string | null = null;
+let cachedFileHash: { path: string; mtimeMs: number; size: number; sha256: string } | null = null;
 const peerBook = new Map<string, Map<string, LanPeer>>();
 const lanHttpPeerBook = new Map<string, Map<string, LanPeer>>();
 
@@ -377,6 +379,27 @@ export function startUpdateTorrentService() {
 
 export function getLatestTorrentState(): TorrentState | null {
   return currentState;
+}
+
+export async function getLatestUpdateFileMeta() {
+  const st = getLatestTorrentState();
+  if (!st?.filePath) return null;
+  const statRes = await stat(st.filePath).catch(() => null);
+  if (!statRes || !statRes.isFile()) return null;
+  const mtimeMs = Number(statRes.mtimeMs ?? 0);
+  const size = Number(statRes.size ?? 0);
+  if (
+    cachedFileHash &&
+    cachedFileHash.path === st.filePath &&
+    cachedFileHash.mtimeMs === mtimeMs &&
+    cachedFileHash.size === size
+  ) {
+    return { version: st.version, fileName: st.fileName, size, sha256: cachedFileHash.sha256 };
+  }
+  const buf = await readFile(st.filePath);
+  const sha256 = createHash('sha256').update(buf).digest('hex');
+  cachedFileHash = { path: st.filePath, mtimeMs, size, sha256 };
+  return { version: st.version, fileName: st.fileName, size, sha256 };
 }
 
 export function getUpdateTorrentStatus() {

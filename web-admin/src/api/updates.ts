@@ -7,3 +7,7 @@ export function getLatestUpdateInfo() {
 export function getUpdateStatus() {
   return apiJson('/updates/status', { method: 'GET' });
 }
+
+export function getLatestUpdateMeta() {
+  return apiJson('/updates/latest-meta', { method: 'GET' });
+}

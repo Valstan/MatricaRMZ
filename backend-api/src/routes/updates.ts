@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import {
   getLatestTorrentState,
+  getLatestUpdateFileMeta,
   getUpdateTorrentStatus,
   listLanHttpPeers,
   listUpdatePeers,
@@ -37,6 +38,23 @@ updatesRouter.get('/latest', (req, res) => {
 
 updatesRouter.get('/status', (_req, res) => {
   return res.json({ ok: true, status: getUpdateTorrentStatus() });
+});
+
+updatesRouter.get('/latest-meta', async (_req, res) => {
+  try {
+    const meta = await getLatestUpdateFileMeta();
+    if (!meta) {
+      const status = getUpdateTorrentStatus();
+      return res.json({
+        ok: false,
+        error: status.lastError ?? (status.enabled ? 'no update file' : 'updates disabled'),
+        status,
+      });
+    }
+    return res.json({ ok: true, ...meta });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 updatesRouter.get('/latest.torrent', (req, res) => {

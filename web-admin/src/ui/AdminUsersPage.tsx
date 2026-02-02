@@ -7,6 +7,7 @@ import { Input } from './components/Input.js';
 import * as adminUsers from '../api/adminUsers.js';
 import * as authApi from '../api/auth.js';
 import * as ledger from '../api/ledger.js';
+import * as updatesApi from '../api/updates.js';
 
 export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: string; role: string; username: string } | null }) {
   const canManageUsers = props.canManageUsers;
@@ -48,6 +49,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const [releaseTokenValue, setReleaseTokenValue] = useState<string>('');
   const [releaseTokenExpiresAt, setReleaseTokenExpiresAt] = useState<number | null>(null);
   const [releaseTokenStatus, setReleaseTokenStatus] = useState<string>('');
+  const [releaseAutoStatus, setReleaseAutoStatus] = useState<string>('');
 
   async function refreshUsers() {
     const r = await adminUsers.listUsers();
@@ -120,6 +122,45 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     })();
   }, []);
 
+  async function fillReleaseFromUpdates() {
+    setReleaseAutoStatus('Загружаем данные обновления...');
+    const meta = await updatesApi.getLatestUpdateMeta();
+    if (!meta?.ok) {
+      setReleaseAutoStatus(`Не удалось получить обновление: ${meta?.error ?? 'unknown'}`);
+      return null;
+    }
+    const version = String(meta.version ?? '').trim();
+    const fileName = String(meta.fileName ?? '').trim();
+    const size = Number(meta.size ?? 0);
+    const sha256 = String(meta.sha256 ?? '').trim();
+    if (version) setReleaseVersion(version);
+    if (fileName) setReleaseFileName(fileName);
+    if (Number.isFinite(size) && size > 0) setReleaseSize(String(size));
+    if (sha256) setReleaseSha(sha256);
+    if (!releaseNotes.trim() && version) setReleaseNotes(`Автопубликация ${version}`);
+    setReleaseAutoStatus('Данные обновления подставлены.');
+    return { version, fileName, size, sha256 };
+  }
+
+  async function ensureReleaseToken() {
+    if (releaseTokenValue.trim()) return true;
+    const ttl = Number(releaseTokenTtlHours.trim());
+    if (!Number.isFinite(ttl) || ttl <= 0) {
+      setReleaseTokenStatus('Укажите TTL в часах (1..720).');
+      return false;
+    }
+    setReleaseTokenStatus('Генерация токена...');
+    const r = await authApi.generateReleaseToken(ttl);
+    if (r?.ok && r.accessToken) {
+      setReleaseTokenValue(String(r.accessToken));
+      setReleaseTokenExpiresAt(Number(r.expiresAt ?? 0) || null);
+      setReleaseTokenStatus('Токен сгенерирован.');
+      return true;
+    }
+    setReleaseTokenStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+    return false;
+  }
+
   return (
     <div>
       <h2 style={{ margin: '8px 0' }}>Админ</h2>
@@ -154,9 +195,28 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               />
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    await fillReleaseFromUpdates();
+                  }}
+                >
+                  Заполнить из обновления
+                </Button>
+                {releaseAutoStatus && <div className="muted">{releaseAutoStatus}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Button
                   onClick={async () => {
                     if (!releaseVersion.trim()) {
-                      setReleaseStatus('Укажите версию.');
+                      const meta = await fillReleaseFromUpdates();
+                      if (!meta?.version) {
+                        setReleaseStatus('Укажите версию.');
+                        return;
+                      }
+                    }
+                    const tokenOk = await ensureReleaseToken();
+                    if (!tokenOk) {
+                      setReleaseStatus('Не удалось сгенерировать токен.');
                       return;
                     }
                     let metadata: Record<string, unknown> | undefined;
