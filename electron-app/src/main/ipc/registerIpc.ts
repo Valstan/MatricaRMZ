@@ -7,7 +7,6 @@ import { getSession } from '../services/authService.js';
 import { SyncManager } from '../services/syncManager.js';
 import { logMessageGetEnabled, startLogSender } from '../services/logService.js';
 import { startClientSettingsPolling } from '../services/clientAdminService.js';
-import { startTorrentSeeding, stopTorrentSeeding } from '../services/torrentUpdateService.js';
 
 import type { IpcContext } from './ipcContext.js';
 import { registerAdminIpc } from './register/admin.js';
@@ -94,15 +93,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     clientId: opts.clientId,
     version: app.getVersion(),
     log: logToFile,
-    onApplied: (settings) => {
-      const updatesEnabled = settings.updatesEnabled !== false;
-      const torrentEnabled = updatesEnabled && settings.torrentEnabled !== false;
-      if (torrentEnabled) {
-        void startTorrentSeeding();
-      } else {
-        void stopTorrentSeeding();
-      }
-    },
   });
 
   // Register IPC domains

@@ -146,7 +146,6 @@ contextBridge.exposeInMainWorld('matrica', {
   update: {
     check: async () => ipcRenderer.invoke('update:check'),
     status: async () => ipcRenderer.invoke('update:status'),
-    torrentStatus: async () => ipcRenderer.invoke('update:torrentStatus'),
     reset: async () => ipcRenderer.invoke('update:reset'),
   },
   checklists: {

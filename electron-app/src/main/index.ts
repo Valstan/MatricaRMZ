@@ -6,19 +6,16 @@ import { mkdirSync } from 'node:fs';
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
 // Загружаем их динамически после app.whenReady().
-import { initNetworkService, onNetworkChange } from './services/networkService.js';
+import { initNetworkService } from './services/networkService.js';
 import {
   applyPendingUpdateIfAny,
-  ensureTorrentSeedForCurrentVersion,
   initAutoUpdate,
-  initLanUpdateSharing,
   recoverStuckUpdateState,
   runAutoUpdateFlow,
   runUpdateHelperFlow,
   startBackgroundUpdatePolling,
 } from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings } from './services/clientAdminService.js';
-import { notifyNetworkChanged, restartTorrentClients, startTorrentSeeding, stopTorrentSeeding } from './services/torrentUpdateService.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -153,10 +150,6 @@ app.whenReady().then(() => {
   // Network bootstrap: proxy/PAC + ipv4first + online monitor.
   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
   void initNetworkService({ probeUrl: `${apiBaseUrl.replace(/\/+$/, '')}/health` });
-  onNetworkChange(() => {
-    notifyNetworkChanged();
-    void restartTorrentClients();
-  });
 
   initAutoUpdate();
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
@@ -241,10 +234,8 @@ app.whenReady().then(() => {
       const cached = remote ?? (await getCachedClientSettings(db));
 
       const updatesEnabled = cached.updatesEnabled !== false;
-      const torrentEnabled = updatesEnabled && cached.torrentEnabled !== false;
 
       if (updatesEnabled) {
-        initLanUpdateSharing(apiBaseUrl);
         await recoverStuckUpdateState();
         const pendingApplied = await applyPendingUpdateIfAny(null);
         if (pendingApplied) return;
@@ -253,14 +244,7 @@ app.whenReady().then(() => {
           app.quit();
           return;
         }
-        if (torrentEnabled) startBackgroundUpdatePolling();
-      }
-
-      if (torrentEnabled) {
-        await ensureTorrentSeedForCurrentVersion(apiBaseUrl);
-        await startTorrentSeeding();
-      } else {
-        await stopTorrentSeeding();
+        startBackgroundUpdatePolling();
       }
 
       // Создаём окно только после завершения update-flow.

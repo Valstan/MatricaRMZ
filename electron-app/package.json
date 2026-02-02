@@ -21,11 +21,9 @@
     "@matricarmz/shared": "workspace:*",
     "better-sqlite3": "^11.7.2",
     "drizzle-orm": "^0.40.1",
-    "electron-updater": "^6.7.3",
     "jszip": "^3.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "webtorrent": "^2.8.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

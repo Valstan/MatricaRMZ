@@ -121,52 +121,16 @@ export type SyncStatus = {
 };
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'torrent' | 'github' | 'yandex'; downloadUrl?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateRuntimeState = {
   state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
-  source?: 'torrent' | 'github' | 'yandex';
+  source?: 'github' | 'yandex';
   version?: string;
   progress?: number;
   message?: string;
   updatedAt: number;
-};
-
-export type TorrentPeerInfo = {
-  address: string;
-  port?: number;
-  downloadSpeed?: number;
-  uploadSpeed?: number;
-  peerId?: string;
-  client?: string;
-  local?: boolean;
-  amChoking?: boolean;
-  peerChoking?: boolean;
-  amInterested?: boolean;
-  peerInterested?: boolean;
-};
-
-export type TorrentClientStats = {
-  progressPct: number;
-  downloadSpeed: number;
-  uploadSpeed: number;
-  numPeers: number;
-  numSeeds?: number;
-  timeRemainingMs?: number;
-  ratio?: number;
-  downloaded?: number;
-  uploaded?: number;
-  peers: TorrentPeerInfo[];
-};
-
-export type TorrentRuntimeStatus = {
-  ok: true;
-  mode: 'idle' | 'downloading' | 'seeding';
-  stats: TorrentClientStats | null;
-  localPeers: number;
-  updatedAt: number;
-  infoHash?: string;
 };
 
 export type UpdateResult = { ok: boolean; error?: string };
@@ -668,7 +632,6 @@ export type MatricaApi = {
   update: {
     check: () => Promise<UpdateCheckResult>;
     status: () => Promise<{ ok: true; status: UpdateRuntimeState } | { ok: false; error: string }>;
-    torrentStatus: () => Promise<{ ok: true; status: TorrentRuntimeStatus } | { ok: false; error: string }>;
   };
   checklists: {
     templatesList: (args?: { stage?: string }) => Promise<
