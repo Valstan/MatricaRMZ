@@ -69,10 +69,16 @@ diagnosticsRouter.post('/entity-diff/report', requirePermission(PermissionCode.S
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   try {
+    const clientEntity = {
+      id: parsed.data.entity.id,
+      createdAt: parsed.data.entity.createdAt ?? null,
+      updatedAt: parsed.data.entity.updatedAt ?? null,
+      attributes: parsed.data.entity.attributes ?? {},
+    };
     const diff = await storeEntityDiff({
       clientId: parsed.data.clientId,
       entityId: parsed.data.entityId,
-      clientEntity: parsed.data.entity,
+      clientEntity,
     });
     return res.json({ ok: true, diff });
   } catch (e) {
