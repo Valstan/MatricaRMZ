@@ -189,6 +189,12 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       const headers = new Headers();
       if (existingSize > 0) headers.set('Range', `bytes=${existingSize}-`);
       const res = await net.fetch(url, { method: 'GET', headers, signal: ac.signal as any });
+      if (res.status === 416 && existingSize > 0) {
+        const stNow = await stat(outPath).catch(() => null);
+        const sizeNow = stNow?.isFile() ? stNow.size : 0;
+        opts.onProgress?.(100, sizeNow, sizeNow || null);
+        return { ok: true as const, filePath: outPath };
+      }
       if (!res.ok || !res.body) throw new Error(`download HTTP ${res.status}`);
 
       const isPartial = res.status === 206;
