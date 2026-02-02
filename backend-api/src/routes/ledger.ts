@@ -13,13 +13,14 @@ import {
   noteRowSchema,
   noteShareRowSchema,
   operationRowSchema,
-  type SyncPushRequest,
   userPresenceRowSchema,
 } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
-import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
-import { applyPushBatch } from '../services/sync/applyPushBatch.js';
+import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState } from '../ledger/ledgerService.js';
+import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
+import { db } from '../database/db.js';
+import { syncState } from '../database/schema.js';
 
 export const ledgerRouter = Router();
 
@@ -54,44 +55,18 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-  const ts = Date.now();
-  const actor = { userId: user.id, username: user.username, role: user.role };
-  const payloads = parsed.data.txs.map((tx) => ({
-    type: tx.type,
-    table: tx.table,
-    ...(tx.row != null ? { row: tx.row } : {}),
-    ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
-    actor,
-    ts,
-  }));
-  const result = signAndAppend(payloads);
-  const syncTables = new Set<string>(Object.values(SyncTableName));
-  const rowsByTable = new Map<string, unknown[]>();
-  for (const tx of parsed.data.txs) {
-    if (!tx.row) continue;
-    const table = String(tx.table);
-    if (!syncTables.has(table)) continue;
-    const arr = rowsByTable.get(table) ?? [];
-    arr.push(tx.row);
-    rowsByTable.set(table, arr);
+  try {
+    const result = await applyLedgerTxs(parsed.data.txs, { id: user.id, username: user.username, role: user.role });
+    return res.json({
+      ok: true,
+      applied: result.ledgerApplied,
+      db_applied: result.dbApplied,
+      last_seq: result.lastSeq,
+      block_height: result.blockHeight,
+    });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: String(e) });
   }
-  let dbApplied = 0;
-  if (rowsByTable.size > 0) {
-    const upserts: SyncPushRequest['upserts'] = Array.from(rowsByTable.entries()).map(([table, rows]) => ({
-      table: table as any,
-      rows,
-    }));
-    try {
-      const r = await applyPushBatch(
-        { client_id: user.id, upserts },
-        { id: user.id, username: user.username, role: user.role },
-      );
-      dbApplied = r.applied;
-    } catch {
-      dbApplied = 0;
-    }
-  }
-  return res.json({ ok: true, applied: result.applied, db_applied: dbApplied, last_seq: result.lastSeq, block_height: result.blockHeight });
 });
 
 ledgerRouter.get('/state/query', (req, res) => {
@@ -210,6 +185,7 @@ ledgerRouter.get('/state/changes', async (req, res) => {
     .object({
       since: z.coerce.number().int().nonnegative().default(0),
       limit: z.coerce.number().int().min(1).max(20000).optional(),
+      client_id: z.string().min(1).max(200).optional(),
     })
     .safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -238,6 +214,26 @@ ledgerRouter.get('/state/changes', async (req, res) => {
       .map(([table, count]) => `${table}=${count}`)
       .join(', ');
     console.warn(`[ledger/state/changes] filtered invalid rows: ${summary}`);
+  }
+  const actor = (req as AuthenticatedRequest).user;
+  const clientId = parsed.data.client_id ?? actor?.id ?? null;
+  if (clientId) {
+    const now = Date.now();
+    await db
+      .insert(syncState)
+      .values({
+        clientId: String(clientId),
+        lastPulledServerSeq: lastSeq,
+        lastPulledAt: now,
+        lastPushedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: syncState.clientId,
+        set: {
+          lastPulledServerSeq: lastSeq,
+          lastPulledAt: now,
+        },
+      });
   }
   return res.json({
     server_cursor: lastSeq,

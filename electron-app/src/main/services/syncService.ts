@@ -523,6 +523,11 @@ function isDependencyMissingError(body: string): boolean {
   return text.includes('sync_dependency_missing');
 }
 
+function isConflictError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_conflict');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -1818,7 +1823,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
       const pullOnce = async (sinceValue: number) => {
-        const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}`;
+        const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}&client_id=${encodeURIComponent(
+          clientId,
+        )}`;
         const pull = await fetchAuthed(
           db,
           currentApiBaseUrl,
@@ -1861,6 +1868,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       if (upserts.length > 0) {
         let attemptedChatReadsFix = false;
         let attemptedDependencyRecovery = false;
+        let attemptedConflictRecovery = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -1890,6 +1898,20 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
               logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
               attemptedChatReadsFix = true;
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedConflictRecovery && isConflictError(body)) {
+              attemptedConflictRecovery = true;
+              logSync(`push conflict detected: forcing full pull and retry`);
+              await resetSyncState(db);
+              await pullAll(0);
+              await markAllEntityTypesPending(db);
+              await markAllAttributeDefsPending(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;

@@ -4,9 +4,11 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { changeLog, noteShares, notes, userPresence } from '../database/schema.js';
+import { noteShares, notes, userPresence } from '../database/schema.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
+import { SyncTableName } from '@matricarmz/shared';
 
 export const notesRouter = Router();
 notesRouter.use(requireAuth);
@@ -231,13 +233,18 @@ notesRouter.post('/upsert', async (req, res) => {
 
     const row = await db.select().from(notes).where(eq(notes.id, id as any)).limit(1);
     if (row[0]) {
-      await db.insert(changeLog).values({
-        tableName: 'notes',
-        rowId: id as any,
-        op: 'upsert',
-        payloadJson: JSON.stringify(notePayload(row[0])),
-        createdAt: ts,
-      });
+      await recordSyncChanges(
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        [
+          {
+            tableName: SyncTableName.Notes,
+            rowId: id,
+            op: 'upsert',
+            payload: notePayload(row[0]),
+            ts,
+          },
+        ],
+      );
     }
 
     return res.json({ ok: true, id });
@@ -263,13 +270,18 @@ notesRouter.post('/delete', async (req, res) => {
     if (String((row[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'not owner' });
 
     await db.update(notes).set({ deletedAt: ts, updatedAt: ts }).where(eq(notes.id, noteId as any));
-    await db.insert(changeLog).values({
-      tableName: 'notes',
-      rowId: noteId as any,
-      op: 'delete',
-      payloadJson: JSON.stringify({ ...notePayload(row[0]), deleted_at: ts, updated_at: ts }),
-      createdAt: ts,
-    });
+    await recordSyncChanges(
+      { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+      [
+        {
+          tableName: SyncTableName.Notes,
+          rowId: noteId,
+          op: 'delete',
+          payload: { ...notePayload(row[0]), deleted_at: ts, updated_at: ts },
+          ts,
+        },
+      ],
+    );
 
     const shares = await db
       .select()
@@ -278,13 +290,14 @@ notesRouter.post('/delete', async (req, res) => {
       .limit(50_000);
     if (shares.length > 0) {
       await db.update(noteShares).set({ deletedAt: ts, updatedAt: ts }).where(eq(noteShares.noteId, noteId as any));
-      await db.insert(changeLog).values(
+      await recordSyncChanges(
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
         shares.map((s: any) => ({
-          tableName: 'note_shares',
-          rowId: s.id as any,
-          op: 'delete',
-          payloadJson: JSON.stringify({ ...noteSharePayload(s), deleted_at: ts, updated_at: ts }),
-          createdAt: ts,
+          tableName: SyncTableName.NoteShares,
+          rowId: String(s.id),
+          op: 'delete' as const,
+          payload: { ...noteSharePayload(s), deleted_at: ts, updated_at: ts },
+          ts,
         })),
       );
     }
@@ -342,13 +355,18 @@ notesRouter.post('/share', async (req, res) => {
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, parsed.data.recipientUserId as any)))
       .limit(1);
     if (shareRow[0]) {
-      await db.insert(changeLog).values({
-        tableName: 'note_shares',
-        rowId: id as any,
-        op: 'upsert',
-        payloadJson: JSON.stringify(noteSharePayload(shareRow[0])),
-        createdAt: ts,
-      });
+      await recordSyncChanges(
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        [
+          {
+            tableName: SyncTableName.NoteShares,
+            rowId: id,
+            op: 'upsert',
+            payload: noteSharePayload(shareRow[0]),
+            ts,
+          },
+        ],
+      );
     }
 
     return res.json({ ok: true });
@@ -384,13 +402,18 @@ notesRouter.post('/unshare', async (req, res) => {
       .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, parsed.data.recipientUserId as any)));
 
-    await db.insert(changeLog).values({
-      tableName: 'note_shares',
-      rowId: (shareRow[0] as any).id as any,
-      op: 'delete',
-      payloadJson: JSON.stringify({ ...noteSharePayload(shareRow[0]), deleted_at: ts, updated_at: ts }),
-      createdAt: ts,
-    });
+    await recordSyncChanges(
+      { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+      [
+        {
+          tableName: SyncTableName.NoteShares,
+          rowId: String((shareRow[0] as any).id),
+          op: 'delete',
+          payload: { ...noteSharePayload(shareRow[0]), deleted_at: ts, updated_at: ts },
+          ts,
+        },
+      ],
+    );
 
     return res.json({ ok: true });
   } catch (e) {
@@ -427,13 +450,18 @@ notesRouter.post('/hide', async (req, res) => {
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, actorId as any)))
       .limit(1);
     if (updated[0]) {
-      await db.insert(changeLog).values({
-        tableName: 'note_shares',
-        rowId: (updated[0] as any).id as any,
-        op: 'upsert',
-        payloadJson: JSON.stringify(noteSharePayload(updated[0])),
-        createdAt: ts,
-      });
+      await recordSyncChanges(
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        [
+          {
+            tableName: SyncTableName.NoteShares,
+            rowId: String((updated[0] as any).id),
+            op: 'upsert',
+            payload: noteSharePayload(updated[0]),
+            ts,
+          },
+        ],
+      );
     }
 
     return res.json({ ok: true });
@@ -460,13 +488,18 @@ notesRouter.post('/reorder', async (req, res) => {
       await db.update(notes).set({ sortOrder: parsed.data.sortOrder, updatedAt: ts }).where(eq(notes.id, parsed.data.noteId as any));
       const updated = await db.select().from(notes).where(eq(notes.id, parsed.data.noteId as any)).limit(1);
       if (updated[0]) {
-        await db.insert(changeLog).values({
-          tableName: 'notes',
-          rowId: parsed.data.noteId as any,
-          op: 'upsert',
-          payloadJson: JSON.stringify(notePayload(updated[0])),
-          createdAt: ts,
-        });
+        await recordSyncChanges(
+          { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+          [
+            {
+              tableName: SyncTableName.Notes,
+              rowId: parsed.data.noteId,
+              op: 'upsert',
+              payload: notePayload(updated[0]),
+              ts,
+            },
+          ],
+        );
       }
       return res.json({ ok: true });
     }
@@ -488,13 +521,18 @@ notesRouter.post('/reorder', async (req, res) => {
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, actorId as any)))
       .limit(1);
     if (updated[0]) {
-      await db.insert(changeLog).values({
-        tableName: 'note_shares',
-        rowId: (updated[0] as any).id as any,
-        op: 'upsert',
-        payloadJson: JSON.stringify(noteSharePayload(updated[0])),
-        createdAt: ts,
-      });
+      await recordSyncChanges(
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        [
+          {
+            tableName: SyncTableName.NoteShares,
+            rowId: String((updated[0] as any).id),
+            op: 'upsert',
+            payload: noteSharePayload(updated[0]),
+            ts,
+          },
+        ],
+      );
     }
 
     return res.json({ ok: true });

@@ -5,7 +5,6 @@ import { db } from '../database/db.js';
 import {
   attributeDefs,
   attributeValues,
-  changeLog,
   clientSettings,
   diagnosticsSnapshots,
   entities,
@@ -14,6 +13,7 @@ import {
   syncState,
 } from '../database/schema.js';
 import { logError, logInfo } from '../utils/logger.js';
+import { getLedgerLastSeq } from '../ledger/ledgerService.js';
 
 type SnapshotSection = {
   count: number;
@@ -103,11 +103,7 @@ async function entityTypeSnapshot(typeId: string): Promise<SnapshotSection> {
 
 export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
   const generatedAt = nowMs();
-  const lastSeq = await db
-    .select({ maxSeq: sql<number | null>`max(${changeLog.serverSeq})` })
-    .from(changeLog)
-    .limit(1);
-  const serverSeq = lastSeq[0]?.maxSeq == null ? null : Number(lastSeq[0].maxSeq);
+  const serverSeq = getLedgerLastSeq();
 
   const tables: Record<string, SnapshotSection> = {};
   tables.entity_types = await tableSnapshot(entityTypes);

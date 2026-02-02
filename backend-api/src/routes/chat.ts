@@ -6,9 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { db } from '../database/db.js';
-import { changeLog, chatMessages, chatReads, fileAssets, userPresence } from '../database/schema.js';
+import { chatMessages, chatReads, fileAssets, userPresence } from '../database/schema.js';
 import { SyncTableName } from '@matricarmz/shared';
 import { getSuperadminUserId, listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 export const chatRouter = Router();
 chatRouter.use(requireAuth);
@@ -72,7 +73,7 @@ function chatReadPayload(row: {
   };
 }
 
-async function touchPresence(userId: string) {
+async function touchPresence(userId: string, actor?: { username?: string; role?: string }) {
   const ts = nowMs();
   await db
     .insert(userPresence)
@@ -95,21 +96,26 @@ async function touchPresence(userId: string) {
         syncStatus: 'synced',
       },
     });
-  await db.insert(changeLog).values({
-    tableName: SyncTableName.UserPresence,
-    rowId: userId as any,
-    op: 'upsert',
-    payloadJson: JSON.stringify({
-      id: userId,
-      user_id: userId,
-      last_activity_at: ts,
-      created_at: ts,
-      updated_at: ts,
-      deleted_at: null,
-      sync_status: 'synced',
-    }),
-    createdAt: ts,
-  });
+  await recordSyncChanges(
+    { id: userId, username: actor?.username ?? userId, role: actor?.role },
+    [
+      {
+        tableName: SyncTableName.UserPresence,
+        rowId: userId,
+        op: 'upsert',
+        payload: {
+          id: userId,
+          user_id: userId,
+          last_activity_at: ts,
+          created_at: ts,
+          updated_at: ts,
+          deleted_at: null,
+          sync_status: 'synced',
+        },
+        ts,
+      },
+    ],
+  );
 }
 
 function requireAdminActor(req: AuthenticatedRequest, res: any): { ok: true; actor: AuthenticatedRequest['user'] } | { ok: false } {
@@ -250,7 +256,7 @@ chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (re
     }
 
     rows.reverse();
-    await touchPresence(me.id);
+    await touchPresence(me.id, { username: me.username, role: me.role });
 
     const messages = rows.map((r: any) => ({
       id: String(r.id),
@@ -303,7 +309,7 @@ chatRouter.get(
         .limit(parsed.data.limit);
 
       rows.reverse();
-      await touchPresence(gate.actor.id);
+      await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
 
       const messages = rows.map((r: any) => ({
         id: String(r.id),
@@ -375,14 +381,19 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await db.insert(changeLog).values({
-      tableName: SyncTableName.ChatMessages,
-      rowId: id as any,
-      op: 'upsert',
-      payloadJson: JSON.stringify(payload),
-      createdAt: ts,
-    });
-    await touchPresence(actor.id);
+    await recordSyncChanges(
+      { id: actor.id, username: actor.username, role: actor.role },
+      [
+        {
+          tableName: SyncTableName.ChatMessages,
+          rowId: id,
+          op: 'upsert',
+          payload,
+          ts,
+        },
+      ],
+    );
+    await touchPresence(actor.id, { username: actor.username, role: actor.role });
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -463,14 +474,19 @@ chatRouter.post('/send-link', requirePermission(PermissionCode.ChatUse), async (
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await db.insert(changeLog).values({
-      tableName: SyncTableName.ChatMessages,
-      rowId: id as any,
-      op: 'upsert',
-      payloadJson: JSON.stringify(payload),
-      createdAt: ts,
-    });
-    await touchPresence(gate.actor.id);
+    await recordSyncChanges(
+      { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role },
+      [
+        {
+          tableName: SyncTableName.ChatMessages,
+          rowId: id,
+          op: 'upsert',
+          payload,
+          ts,
+        },
+      ],
+    );
+    await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -538,14 +554,19 @@ chatRouter.post('/send-file', requirePermission(PermissionCode.ChatUse), async (
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await db.insert(changeLog).values({
-      tableName: SyncTableName.ChatMessages,
-      rowId: id as any,
-      op: 'upsert',
-      payloadJson: JSON.stringify(payload),
-      createdAt: ts,
-    });
-    await touchPresence(gate.actor.id);
+    await recordSyncChanges(
+      { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role },
+      [
+        {
+          tableName: SyncTableName.ChatMessages,
+          rowId: id,
+          op: 'upsert',
+          payload,
+          ts,
+        },
+      ],
+    );
+    await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -604,17 +625,18 @@ chatRouter.post('/mark-read', requirePermission(PermissionCode.ChatUse), async (
 
     if (toInsert.length > 0) {
       await db.insert(chatReads).values(toInsert as any);
-      await db.insert(changeLog).values(
+      await recordSyncChanges(
+        { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role },
         toInsert.map((r) => ({
           tableName: SyncTableName.ChatReads,
-          rowId: r.id as any,
-          op: 'upsert',
-          payloadJson: JSON.stringify(chatReadPayload(r)),
-          createdAt: ts,
+          rowId: String(r.id),
+          op: 'upsert' as const,
+          payload: chatReadPayload(r),
+          ts,
         })),
       );
     }
-    await touchPresence(gate.actor.id);
+    await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
 
     return res.json({ ok: true, marked: toInsert.length });
   } catch (e) {
@@ -669,7 +691,7 @@ chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req,
       else byUser[senderUserId] = (byUser[senderUserId] ?? 0) + 1;
     }
     const total = global + Object.values(byUser).reduce((a, b) => a + b, 0);
-    await touchPresence(actor.id);
+    await touchPresence(actor.id, { username: actor.username, role: actor.role });
     return res.json({ ok: true, total, global, byUser });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });

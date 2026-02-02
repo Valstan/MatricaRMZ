@@ -185,4 +185,24 @@ Electron в вкладке “Синхронизация” показывает
 (разделы **Логи** и **Troubleshooting checklist**). Это единый источник,
 чтобы не дублировать информацию в нескольких местах.
 
+---
+
+## 8) Восстановление консистентности (ledger → БД)
+
+### Когда нужно
+- Диагностика показывает расхождения (`/diagnostics/consistency`).
+- Есть подозрение, что ledger содержит каноничные изменения, а БД отстала.
+
+### Вариант A: админ‑эндпоинт (рекомендуется)
+- `POST /diagnostics/ledger/replay` (требуется permission `clients.manage`).
+- Применяет ledger‑состояние к БД через server‑side pipeline.
+
+### Вариант B: локальный скрипт
+```bash
+cd /home/valstan/MatricaRMZ/backend-api
+pnpm exec tsx src/scripts/ledgerReplayToDb.ts
+```
+
+Важно: делайте это в период минимальной нагрузки и только после бэкапа.
+
 

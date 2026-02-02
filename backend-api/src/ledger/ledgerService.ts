@@ -315,6 +315,11 @@ export function listBlocksSince(height: number, limit: number) {
   return ledger.listBlocksSince(height, safeLimit);
 }
 
+export function getLedgerLastSeq(): number {
+  const ledger = getLedgerStore();
+  return ledger.loadIndex().lastSeq ?? 0;
+}
+
 export async function ensureLedgerBootstrap(): Promise<{ ran: boolean; reason: string }> {
   const ledgerDir = resolveLedgerDir();
   const markerPath = join(ledgerDir, BOOTSTRAP_FILE);

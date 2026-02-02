@@ -5,6 +5,7 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../au
 import { PermissionCode } from '../auth/permissions.js';
 import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
 import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
+import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 
 export const diagnosticsRouter = Router();
 
@@ -57,6 +58,17 @@ diagnosticsRouter.get('/sync-schema', requirePermission(PermissionCode.SyncUse),
   try {
     const schema = await getSyncSchemaSnapshot();
     return res.json({ ok: true, schema });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.post('/ledger/replay', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(403).json({ ok: false, error: 'auth required' });
+    const result = await replayLedgerToDb({ id: actor.id, username: actor.username, role: actor.role });
+    return res.json({ ok: true, applied: result.applied });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

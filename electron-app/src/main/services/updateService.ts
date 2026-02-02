@@ -47,6 +47,7 @@ const UPDATE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 const UPDATE_DOWNLOAD_NO_PROGRESS_MS = 45_000;
 const UPDATE_BITS_TIMEOUT_MS = 12 * 60_000;
 const LAN_PEER_PING_MS = 30_000;
+const LEDGER_STRICT_ENV = 'MATRICA_UPDATE_STRICT_LEDGER';
 
 function getUpdateApiBaseUrl() {
   const envUrl = process.env.MATRICA_UPDATE_API_URL?.trim() || process.env.MATRICA_API_URL?.trim();
@@ -210,6 +211,10 @@ function isIntegrityError(error?: string) {
   return msg.includes('sha256 mismatch') || msg.includes('size mismatch') || msg.includes('ledger');
 }
 
+function isLedgerStrict(): boolean {
+  return String(process.env[LEDGER_STRICT_ENV] ?? '') === '1';
+}
+
 async function queuePendingWithIntegrityRetry(args: {
   version: string;
   installerPath: string;
@@ -307,19 +312,29 @@ async function queuePendingUpdate(args: {
   const validation = await validateInstallerPath(args.installerPath, args.expectedName);
   if (!validation.ok) return validation;
   const ledger = await fetchLedgerLatestRelease();
+  const strictLedger = isLedgerStrict();
   if (ledger.ok && ledger.release) {
     if (ledger.release.version && ledger.release.version !== args.version) {
-      return { ok: false, error: `ledger version mismatch: ${ledger.release.version} != ${args.version}` };
+      const msg = `ledger version mismatch: ${ledger.release.version} != ${args.version}`;
+      await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+      if (strictLedger) return { ok: false, error: msg };
     }
     if (ledger.release.file_name && ledger.release.file_name !== validation.actualName) {
-      return { ok: false, error: `ledger file mismatch: ${ledger.release.file_name} != ${validation.actualName}` };
+      const msg = `ledger file mismatch: ${ledger.release.file_name} != ${validation.actualName}`;
+      await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+      if (strictLedger) return { ok: false, error: msg };
     }
     if (ledger.release.size && ledger.release.size !== validation.size) {
-      return { ok: false, error: `ledger size mismatch: ${ledger.release.size} != ${validation.size}` };
+      const msg = `ledger size mismatch: ${ledger.release.size} != ${validation.size}`;
+      await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+      if (strictLedger) return { ok: false, error: msg };
     }
     if (ledger.release.sha256) {
       const shaCheck = await verifySha256(args.installerPath, ledger.release.sha256);
-      if (!shaCheck.ok) return shaCheck;
+      if (!shaCheck.ok) {
+        await writeUpdaterLog(strictLedger ? shaCheck.error : `ledger mismatch ignored: ${shaCheck.error}`);
+        if (strictLedger) return shaCheck;
+      }
     }
   }
   lanInstallerPath = args.installerPath;
@@ -344,36 +359,49 @@ async function installNow(args: { installerPath: string; version?: string }) {
     return;
   }
   const ledger = await fetchLedgerLatestRelease();
+  const strictLedger = isLedgerStrict();
   if (ledger.ok && ledger.release) {
     if (ledger.release.version && args.version && ledger.release.version !== args.version) {
-      await writeUpdaterLog(`installer version mismatch: ledger=${ledger.release.version} local=${args.version}`);
-      await stageUpdate('Версия релиза не совпадает с ledger. Повторим позже.', 100, args.version);
-      await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
-      closeUpdateWindowSoon(4000);
-      return;
+      const msg = `installer version mismatch: ledger=${ledger.release.version} local=${args.version}`;
+      await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+      if (strictLedger) {
+        await stageUpdate('Версия релиза не совпадает с ledger. Повторим позже.', 100, args.version);
+        await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+        closeUpdateWindowSoon(4000);
+        return;
+      }
     }
     if (ledger.release.file_name && ledger.release.file_name !== validation.actualName) {
-      await writeUpdaterLog(`installer file mismatch: ledger=${ledger.release.file_name} local=${validation.actualName}`);
-      await stageUpdate('Имя установщика не совпадает с ledger. Повторим позже.', 100, args.version);
-      await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
-      closeUpdateWindowSoon(4000);
-      return;
+      const msg = `installer file mismatch: ledger=${ledger.release.file_name} local=${validation.actualName}`;
+      await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+      if (strictLedger) {
+        await stageUpdate('Имя установщика не совпадает с ledger. Повторим позже.', 100, args.version);
+        await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+        closeUpdateWindowSoon(4000);
+        return;
+      }
     }
     if (ledger.release.size && ledger.release.size !== validation.size) {
-      await writeUpdaterLog(`installer size mismatch: ledger=${ledger.release.size} local=${validation.size}`);
-      await stageUpdate('Размер установщика не совпадает с ledger. Повторим позже.', 100, args.version);
-      await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
-      closeUpdateWindowSoon(4000);
-      return;
+      const msg = `installer size mismatch: ledger=${ledger.release.size} local=${validation.size}`;
+      await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+      if (strictLedger) {
+        await stageUpdate('Размер установщика не совпадает с ledger. Повторим позже.', 100, args.version);
+        await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+        closeUpdateWindowSoon(4000);
+        return;
+      }
     }
     if (ledger.release.sha256) {
       const shaCheck = await verifySha256(args.installerPath, ledger.release.sha256);
       if (!shaCheck.ok) {
-        await writeUpdaterLog(`installer sha256 check failed: ${shaCheck.error}`);
-        await stageUpdate('Проверка целостности не пройдена. Повторим позже.', 100, args.version);
-        await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
-        closeUpdateWindowSoon(4000);
-        return;
+        const msg = `installer sha256 check failed: ${shaCheck.error}`;
+        await writeUpdaterLog(strictLedger ? msg : `ledger mismatch ignored: ${msg}`);
+        if (strictLedger) {
+          await stageUpdate('Проверка целостности не пройдена. Повторим позже.', 100, args.version);
+          await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+          closeUpdateWindowSoon(4000);
+          return;
+        }
       }
     }
   }
@@ -2153,6 +2181,7 @@ async function spawnUpdateHelper(args: {
   if (args.version) spawnArgs.push('--version', args.version);
   if (args.parentPid) spawnArgs.push('--parent-pid', String(args.parentPid));
   try {
+    void writeUpdaterLog(`update-helper args: ${spawnArgs.map((a) => JSON.stringify(a)).join(' ')}`);
     const child = spawn(args.helperExePath, spawnArgs, {
       detached: true,
       stdio: 'ignore',
@@ -2207,7 +2236,7 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
 
   const trySpawn = async (label: string, cmd: string, args: string[]) => {
     try {
-      await writeUpdaterLog(`installer launch strategy=${label}`);
+      await writeUpdaterLog(`installer launch strategy=${label} cmd=${cmd} args=${args.map((a) => JSON.stringify(a)).join(' ')}`);
       const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
       child.unref();
       return await new Promise<boolean>((resolve) => {
@@ -2232,6 +2261,7 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
   const tryPowerShell = async () => {
     const escaped = installerPath.replace(/"/g, '`"');
     const cmd = `Start-Process -FilePath "${escaped}" -Verb RunAs`;
+    await writeUpdaterLog(`installer launch cmd=powershell Start-Process "${escaped}"`);
     return await trySpawn('powershell-start', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]);
   };
 
@@ -2240,7 +2270,7 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
     await sleep(attempt.delayMs);
     try {
-      await writeUpdaterLog(`installer launch strategy=shell-open`);
+      await writeUpdaterLog(`installer launch strategy=shell-open path=${installerPath}`);
       const result = await shell.openPath(installerPath);
       if (!result) {
         await writeUpdaterLog(`installer launched via shell-open (${attempt.label})`);
@@ -2253,6 +2283,7 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
       if (!msg.toLowerCase().includes('ebusy')) return false;
     }
     if (process.platform === 'win32') {
+      await writeUpdaterLog(`installer launch cmd=cmd.exe /c start "" "${installerPath}"`);
       if (await trySpawn('cmd-start', 'cmd.exe', ['/c', 'start', '', installerPath])) {
         await writeUpdaterLog(`installer launched via cmd-start (${attempt.label})`);
         return true;

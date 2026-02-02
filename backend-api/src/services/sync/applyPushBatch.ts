@@ -50,6 +50,17 @@ function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'u
 
 type SyncActor = { id: string; username: string; role: string };
 
+type AppliedSyncChange = {
+  table: SyncTableName;
+  rowId: string;
+  op: 'upsert' | 'delete';
+  payloadJson: string;
+};
+
+type ApplyPushOptions = {
+  collectChanges?: AppliedSyncChange[];
+};
+
 function safeActor(a: SyncActor): SyncActor {
   return {
     id: String(a?.id ?? ''),
@@ -64,11 +75,16 @@ function isBulkEntityTypeRow(r: { code?: unknown; name?: unknown }): boolean {
   return code.startsWith('t_bulk_') || name.startsWith('Type Bulk ');
 }
 
-export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor): Promise<{ applied: number }> {
+export async function applyPushBatch(
+  req: SyncPushRequest,
+  actorRaw: SyncActor,
+  opts: ApplyPushOptions = {},
+): Promise<{ applied: number; changes?: AppliedSyncChange[] }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
   const actorRole = String(actor.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
+  const collected = opts.collectChanges ?? null;
 
   return await db.transaction(async (tx) => {
     // Обновляем/создаем sync_state строку (последнее время push).
@@ -192,7 +208,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
     }
 
-    async function filterStaleBySeqOrUpdatedAt(table: any, rows: any[]): Promise<any[]> {
+    async function filterStaleBySeqOrUpdatedAt(table: any, rows: any[], tableName: SyncTableName): Promise<any[]> {
       if (rows.length === 0) return rows;
       const ids = rows.map((r) => r.id);
       const existing = await tx
@@ -209,12 +225,19 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           });
         }
       }
-      return rows.filter((r) => {
+      let conflicts = 0;
+      const filtered = rows.filter((r) => {
         const cur = map.get(String(r.id));
         if (!cur || !Number.isFinite(cur.updatedAt)) return true;
         const incomingSeq = r.last_server_seq ?? null;
         const currentSeq = cur.lastServerSeq;
-        if (incomingSeq != null && currentSeq != null) return incomingSeq >= currentSeq;
+        if (incomingSeq != null && currentSeq != null) {
+          if (incomingSeq < currentSeq) {
+            conflicts += 1;
+            return false;
+          }
+          return incomingSeq >= currentSeq;
+        }
         if (incomingSeq != null && currentSeq == null) return true;
         if (incomingSeq == null && currentSeq != null) {
           if (r.deleted_at && cur.deletedAt == null) return true;
@@ -223,6 +246,10 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         if (r.deleted_at && cur.deletedAt == null) return true;
         return !(cur.updatedAt > r.updated_at);
       });
+      if (conflicts > 0) {
+        throw new Error(`sync_conflict: ${tableName} (${conflicts})`);
+      }
+      return filtered;
     }
 
     async function applyLastServerSeq(table: any, pairs: Array<{ rowId: string; serverSeq: number }>) {
@@ -252,6 +279,16 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         .returning({ rowId: changeLog.rowId, serverSeq: changeLog.serverSeq });
       const pairs = inserted.map((r) => ({ rowId: String(r.rowId), serverSeq: Number(r.serverSeq) }));
       await applyLastServerSeq(table, pairs);
+      if (collected) {
+        for (const r of rows) {
+          collected.push({
+            table: tableName,
+            rowId: String(r.id),
+            op: normalizeOpFromRow(r),
+            payloadJson: JSON.stringify(r),
+          });
+        }
+      }
     }
 
     // Group incoming rows by table (so we can do bulk ops even if the client sent multiple packs).
@@ -313,7 +350,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
       const deduped = Array.from(dedupMap.values());
 
-      const rows = await filterStaleBySeqOrUpdatedAt(entityTypes, deduped);
+      const rows = await filterStaleBySeqOrUpdatedAt(entityTypes, deduped, SyncTableName.EntityTypes);
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()
@@ -368,7 +405,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const mappedTypeId = entityTypeIdRemap.get(String(r.type_id));
         return mappedTypeId ? { ...r, type_id: mappedTypeId } : r;
       });
-      let rows = await filterStaleBySeqOrUpdatedAt(entities, remapped);
+      let rows = await filterStaleBySeqOrUpdatedAt(entities, remapped, SyncTableName.Entities);
       const rowTypeIds = Array.from(new Set(rows.map((r) => String(r.type_id))));
       if (rowTypeIds.length > 0) {
         const existingTypes = await tx
@@ -478,7 +515,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
       const deduped = Array.from(dedupMap.values());
 
-      let rows = await filterStaleBySeqOrUpdatedAt(attributeDefs, deduped);
+      let rows = await filterStaleBySeqOrUpdatedAt(attributeDefs, deduped, SyncTableName.AttributeDefs);
       // Extra safety: remap by (entity_type_id, code) using the *current* rows to avoid
       // unique violations if earlier remap missed a server match.
       if (rows.length > 0) {
@@ -591,7 +628,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
         const mappedDefId = attributeDefIdRemap.get(String(r.attribute_def_id));
         return mappedDefId ? { ...r, attribute_def_id: mappedDefId } : r;
       });
-      let rows = await filterStaleBySeqOrUpdatedAt(attributeValues, remapped);
+      let rows = await filterStaleBySeqOrUpdatedAt(attributeValues, remapped, SyncTableName.AttributeValues);
       const defIdsToCheck = Array.from(new Set(rows.map((r) => String(r.attribute_def_id))));
       if (defIdsToCheck.length > 0) {
         const existingDefs = await tx
@@ -680,7 +717,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.Operations) ?? [];
       const parsed = raw.map((x) => operationRowSchema.parse(x));
-      let rows = await filterStaleBySeqOrUpdatedAt(operations, parsed);
+      let rows = await filterStaleBySeqOrUpdatedAt(operations, parsed, SyncTableName.Operations);
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()
@@ -763,7 +800,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
     {
       const raw = grouped.get(SyncTableName.AuditLog) ?? [];
       const parsed = raw.map((x) => auditLogRowSchema.parse(x));
-      const rows = await filterStaleBySeqOrUpdatedAt(auditLog, parsed);
+      const rows = await filterStaleBySeqOrUpdatedAt(auditLog, parsed, SyncTableName.AuditLog);
       if (rows.length > 0) {
         await tx
           .insert(auditLog)
@@ -810,7 +847,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           sender_user_id: actor.id,
           sender_username: actor.username,
         }));
-        let rows = await filterStaleBySeqOrUpdatedAt(chatMessages, parsed);
+        let rows = await filterStaleBySeqOrUpdatedAt(chatMessages, parsed, SyncTableName.ChatMessages);
         if (rows.length > 0) {
           const recipientIds = Array.from(
             new Set(rows.map((r) => (r.recipient_user_id ? String(r.recipient_user_id) : '')).filter((id) => id.length > 0)),
@@ -899,7 +936,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           ...r,
           user_id: actor.id,
         }));
-        const rows = await filterStaleBySeqOrUpdatedAt(chatReads, parsed);
+        const rows = await filterStaleBySeqOrUpdatedAt(chatReads, parsed, SyncTableName.ChatReads);
         const messageIds = Array.from(new Set(rows.map((r) => String(r.message_id))));
         const existingMessages =
           messageIds.length === 0
@@ -956,7 +993,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
           ...r,
           owner_user_id: actor.id,
         }));
-        const rows = await filterStaleBySeqOrUpdatedAt(notes, parsed);
+        const rows = await filterStaleBySeqOrUpdatedAt(notes, parsed, SyncTableName.Notes);
         const ids = rows.map((r) => r.id);
         const existing =
           ids.length === 0
@@ -1024,7 +1061,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       const raw = grouped.get(SyncTableName.NoteShares) ?? [];
       const parsedAll = raw.map((x) => noteShareRowSchema.parse(x));
       if (parsedAll.length > 0 && actor.id) {
-        const rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll);
+        const rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll, SyncTableName.NoteShares);
         const noteIds = Array.from(new Set(rows.map((r) => String(r.note_id))));
         const notesRows =
           noteIds.length === 0
@@ -1114,7 +1151,7 @@ export async function applyPushBatch(req: SyncPushRequest, actorRaw: SyncActor):
       }
     }
 
-    return { applied };
+    return { applied, ...(collected ? { changes: collected } : {}) };
   });
 }
 
