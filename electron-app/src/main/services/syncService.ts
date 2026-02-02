@@ -3,6 +3,7 @@ import {
   EntityTypeCode,
   SyncTableName,
   attributeDefRowSchema,
+  entityRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
@@ -539,6 +540,11 @@ function isInvalidAttributeDefError(body: string): boolean {
   return text.includes('sync_invalid_row') && text.includes('attribute_defs');
 }
 
+function isInvalidEntityError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('entities');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -556,6 +562,14 @@ async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: strin
 
 async function markPendingAttributeDefsError(db: BetterSQLite3Database) {
   await db.update(attributeDefs).set({ syncStatus: 'error' }).where(eq(attributeDefs.syncStatus, 'pending'));
+}
+
+async function markPendingEntitiesError(db: BetterSQLite3Database, ids?: string[]) {
+  if (ids && ids.length > 0) {
+    await db.update(entities).set({ syncStatus: 'error' }).where(inArray(entities.id, ids));
+    return;
+  }
+  await db.update(entities).set({ syncStatus: 'error' }).where(eq(entities.syncStatus, 'pending'));
 }
 
 async function fetchWithRetryLogged(
@@ -696,7 +710,24 @@ async function collectPending(db: BetterSQLite3Database) {
     .from(entities)
     .where(eq(entities.syncStatus, pending))
     .limit(limitFor(SyncTableName.Entities));
-  await add(SyncTableName.Entities, pendingEntities);
+  {
+    const valid: typeof pendingEntities = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingEntities) {
+      const syncRow = toSyncRow(SyncTableName.Entities, row);
+      const parsed = entityRowSchema.safeParse(syncRow);
+      if (parsed.success) {
+        valid.push(row);
+      } else {
+        invalidIds.push(String(row.id));
+      }
+    }
+    if (invalidIds.length > 0) {
+      await markPendingEntitiesError(db, invalidIds);
+      logSync(`push drop invalid entities count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.Entities, valid);
+  }
 
   // Ensure entity_types rows are pushed alongside pending entities so server can remap IDs by code.
   // This prevents sync_dependency_missing on server when client type IDs differ.
@@ -1900,6 +1931,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         let attemptedDependencyRecovery = false;
         let attemptedConflictRecovery = false;
         let attemptedInvalidAttrDefs = false;
+        let attemptedInvalidEntities = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -1940,6 +1972,17 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               attemptedInvalidAttrDefs = true;
               logSync(`push invalid attribute_defs: marking pending as error and retrying`);
               await markPendingAttributeDefsError(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidEntities && isInvalidEntityError(body)) {
+              attemptedInvalidEntities = true;
+              logSync(`push invalid entities: marking pending as error and retrying`);
+              await markPendingEntitiesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
