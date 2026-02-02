@@ -1,5 +1,11 @@
 import { LedgerStore } from '@matricarmz/ledger';
-import { EntityTypeCode, SyncTableName, type SyncPullResponse, type SyncPushRequest } from '@matricarmz/shared';
+import {
+  EntityTypeCode,
+  SyncTableName,
+  attributeDefRowSchema,
+  type SyncPullResponse,
+  type SyncPushRequest,
+} from '@matricarmz/shared';
 import { app } from 'electron';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -699,14 +705,29 @@ async function collectPending(db: BetterSQLite3Database) {
       await add(SyncTableName.EntityTypes, forcedEntityTypes);
     }
   }
-  await add(
-    SyncTableName.AttributeDefs,
-    await db
+  {
+    const pendingDefs = await db
       .select()
       .from(attributeDefs)
       .where(eq(attributeDefs.syncStatus, pending))
-      .limit(limitFor(SyncTableName.AttributeDefs)),
-  );
+      .limit(limitFor(SyncTableName.AttributeDefs));
+    const valid: typeof pendingDefs = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingDefs) {
+      const syncRow = toSyncRow(SyncTableName.AttributeDefs, row);
+      const parsed = attributeDefRowSchema.safeParse(syncRow);
+      if (parsed.success) {
+        valid.push(row);
+      } else {
+        invalidIds.push(String(row.id));
+      }
+    }
+    if (invalidIds.length > 0) {
+      await db.update(attributeDefs).set({ syncStatus: 'error' }).where(inArray(attributeDefs.id, invalidIds));
+      logSync(`push drop invalid attribute_defs count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.AttributeDefs, valid);
+  }
   await add(
     SyncTableName.AttributeValues,
     await db
