@@ -234,7 +234,7 @@ notesRouter.post('/upsert', async (req, res) => {
     const row = await db.select().from(notes).where(eq(notes.id, id as any)).limit(1);
     if (row[0]) {
       await recordSyncChanges(
-        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
         [
           {
             tableName: SyncTableName.Notes,
@@ -271,7 +271,7 @@ notesRouter.post('/delete', async (req, res) => {
 
     await db.update(notes).set({ deletedAt: ts, updatedAt: ts }).where(eq(notes.id, noteId as any));
     await recordSyncChanges(
-      { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+      { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
       [
         {
           tableName: SyncTableName.Notes,
@@ -291,7 +291,7 @@ notesRouter.post('/delete', async (req, res) => {
     if (shares.length > 0) {
       await db.update(noteShares).set({ deletedAt: ts, updatedAt: ts }).where(eq(noteShares.noteId, noteId as any));
       await recordSyncChanges(
-        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
         shares.map((s: any) => ({
           tableName: SyncTableName.NoteShares,
           rowId: String(s.id),
@@ -356,7 +356,7 @@ notesRouter.post('/share', async (req, res) => {
       .limit(1);
     if (shareRow[0]) {
       await recordSyncChanges(
-        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
         [
           {
             tableName: SyncTableName.NoteShares,
@@ -403,7 +403,7 @@ notesRouter.post('/unshare', async (req, res) => {
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, parsed.data.recipientUserId as any)));
 
     await recordSyncChanges(
-      { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+      { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
       [
         {
           tableName: SyncTableName.NoteShares,
@@ -451,7 +451,7 @@ notesRouter.post('/hide', async (req, res) => {
       .limit(1);
     if (updated[0]) {
       await recordSyncChanges(
-        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
         [
           {
             tableName: SyncTableName.NoteShares,
@@ -522,7 +522,7 @@ notesRouter.post('/reorder', async (req, res) => {
       .limit(1);
     if (updated[0]) {
       await recordSyncChanges(
-        { id: actorId, username: actor?.username ?? actorId, role: actor?.role },
+        { id: actorId, username: actor?.username ?? actorId, role: actor?.role ?? 'user' },
         [
           {
             tableName: SyncTableName.NoteShares,

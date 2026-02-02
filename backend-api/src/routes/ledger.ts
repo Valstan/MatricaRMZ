@@ -16,7 +16,7 @@ import {
   userPresenceRowSchema,
 } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
-import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState } from '../ledger/ledgerService.js';
+import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
@@ -56,7 +56,13 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
   try {
-    const result = await applyLedgerTxs(parsed.data.txs, { id: user.id, username: user.username, role: user.role });
+    const txs = parsed.data.txs.map((tx) => ({
+      type: tx.type,
+      table: tx.table,
+      ...(tx.row != null ? { row: tx.row } : {}),
+      ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
+    }));
+    const result = await applyLedgerTxs(txs, { id: user.id, username: user.username, role: user.role });
     return res.json({
       ok: true,
       applied: result.ledgerApplied,

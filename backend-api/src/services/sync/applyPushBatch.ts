@@ -48,7 +48,7 @@ function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'u
   return row.deleted_at ? 'delete' : 'upsert';
 }
 
-type SyncActor = { id: string; username: string; role: string };
+type SyncActor = { id: string; username: string; role?: string };
 
 type AppliedSyncChange = {
   table: SyncTableName;

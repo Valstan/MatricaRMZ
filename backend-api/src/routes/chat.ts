@@ -97,7 +97,7 @@ async function touchPresence(userId: string, actor?: { username?: string; role?:
       },
     });
   await recordSyncChanges(
-    { id: userId, username: actor?.username ?? userId, role: actor?.role },
+    { id: userId, username: actor?.username ?? userId, role: actor?.role ?? 'user' },
     [
       {
         tableName: SyncTableName.UserPresence,
@@ -382,7 +382,7 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
       syncStatus: 'synced',
     });
     await recordSyncChanges(
-      { id: actor.id, username: actor.username, role: actor.role },
+      { id: actor.id, username: actor.username, role: actor.role ?? 'user' },
       [
         {
           tableName: SyncTableName.ChatMessages,
@@ -475,7 +475,7 @@ chatRouter.post('/send-link', requirePermission(PermissionCode.ChatUse), async (
       syncStatus: 'synced',
     });
     await recordSyncChanges(
-      { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role },
+      { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role ?? 'user' },
       [
         {
           tableName: SyncTableName.ChatMessages,
@@ -555,7 +555,7 @@ chatRouter.post('/send-file', requirePermission(PermissionCode.ChatUse), async (
       syncStatus: 'synced',
     });
     await recordSyncChanges(
-      { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role },
+      { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role ?? 'user' },
       [
         {
           tableName: SyncTableName.ChatMessages,
@@ -626,7 +626,7 @@ chatRouter.post('/mark-read', requirePermission(PermissionCode.ChatUse), async (
     if (toInsert.length > 0) {
       await db.insert(chatReads).values(toInsert as any);
       await recordSyncChanges(
-        { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role },
+        { id: gate.actor.id, username: gate.actor.username, role: gate.actor.role ?? 'user' },
         toInsert.map((r) => ({
           tableName: SyncTableName.ChatReads,
           rowId: String(r.id),

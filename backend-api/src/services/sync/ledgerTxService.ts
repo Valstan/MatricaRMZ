@@ -24,7 +24,7 @@ type LedgerTxInput = {
   row_id?: string;
 };
 
-type SyncActor = { id: string; username: string; role: string };
+type SyncActor = { id: string; username: string; role?: string };
 
 const syncRowSchemas: Record<string, (payload: unknown) => boolean> = {
   [SyncTableName.EntityTypes]: (payload) => entityTypeRowSchema.safeParse(payload).success,
