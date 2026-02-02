@@ -534,6 +534,11 @@ function isConflictError(body: string): boolean {
   return text.includes('sync_conflict');
 }
 
+function isInvalidAttributeDefError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('attribute_defs');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -547,6 +552,10 @@ async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: strin
   }
   const res = await db.delete(chatReads).where(and(eq(chatReads.syncStatus, pending), inArray(chatReads.messageId, ids)));
   return Number((res as any)?.changes ?? 0);
+}
+
+async function markPendingAttributeDefsError(db: BetterSQLite3Database) {
+  await db.update(attributeDefs).set({ syncStatus: 'error' }).where(eq(attributeDefs.syncStatus, 'pending'));
 }
 
 async function fetchWithRetryLogged(
@@ -1890,6 +1899,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         let attemptedChatReadsFix = false;
         let attemptedDependencyRecovery = false;
         let attemptedConflictRecovery = false;
+        let attemptedInvalidAttrDefs = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -1919,6 +1929,17 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
               logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
               attemptedChatReadsFix = true;
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidAttrDefs && isInvalidAttributeDefError(body)) {
+              attemptedInvalidAttrDefs = true;
+              logSync(`push invalid attribute_defs: marking pending as error and retrying`);
+              await markPendingAttributeDefsError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
