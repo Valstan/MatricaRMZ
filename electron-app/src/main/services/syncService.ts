@@ -3,6 +3,7 @@ import {
   EntityTypeCode,
   SyncTableName,
   attributeDefRowSchema,
+  chatMessageRowSchema,
   entityRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
@@ -545,6 +546,11 @@ function isInvalidEntityError(body: string): boolean {
   return text.includes('sync_invalid_row') && text.includes('entities');
 }
 
+function isInvalidChatMessageError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('chat_messages');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -570,6 +576,14 @@ async function markPendingEntitiesError(db: BetterSQLite3Database, ids?: string[
     return;
   }
   await db.update(entities).set({ syncStatus: 'error' }).where(eq(entities.syncStatus, 'pending'));
+}
+
+async function markPendingChatMessagesError(db: BetterSQLite3Database, ids?: string[]) {
+  if (ids && ids.length > 0) {
+    await db.update(chatMessages).set({ syncStatus: 'error' }).where(inArray(chatMessages.id, ids));
+    return;
+  }
+  await db.update(chatMessages).set({ syncStatus: 'error' }).where(eq(chatMessages.syncStatus, 'pending'));
 }
 
 async function fetchWithRetryLogged(
@@ -788,10 +802,29 @@ async function collectPending(db: BetterSQLite3Database) {
     SyncTableName.AuditLog,
     await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)).limit(limitFor(SyncTableName.AuditLog)),
   );
-  await add(
-    SyncTableName.ChatMessages,
-    await db.select().from(chatMessages).where(eq(chatMessages.syncStatus, pending)).limit(limitFor(SyncTableName.ChatMessages)),
-  );
+  {
+    const pendingMessages = await db
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.syncStatus, pending))
+      .limit(limitFor(SyncTableName.ChatMessages));
+    const valid: typeof pendingMessages = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingMessages) {
+      const syncRow = toSyncRow(SyncTableName.ChatMessages, row);
+      const parsed = chatMessageRowSchema.safeParse(syncRow);
+      if (parsed.success) {
+        valid.push(row);
+      } else {
+        invalidIds.push(String(row.id));
+      }
+    }
+    if (invalidIds.length > 0) {
+      await markPendingChatMessagesError(db, invalidIds);
+      logSync(`push drop invalid chat_messages count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.ChatMessages, valid);
+  }
   await add(
     SyncTableName.ChatReads,
     await db.select().from(chatReads).where(eq(chatReads.syncStatus, pending)).limit(limitFor(SyncTableName.ChatReads)),
@@ -1932,6 +1965,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         let attemptedConflictRecovery = false;
         let attemptedInvalidAttrDefs = false;
         let attemptedInvalidEntities = false;
+        let attemptedInvalidChatMessages = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -1983,6 +2017,17 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               attemptedInvalidEntities = true;
               logSync(`push invalid entities: marking pending as error and retrying`);
               await markPendingEntitiesError(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidChatMessages && isInvalidChatMessageError(body)) {
+              attemptedInvalidChatMessages = true;
+              logSync(`push invalid chat_messages: marking pending as error and retrying`);
+              await markPendingChatMessagesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
