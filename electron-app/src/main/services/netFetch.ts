@@ -40,8 +40,14 @@ function escapePowerShellString(value: string) {
   return value.replace(/"/g, '`"');
 }
 
-async function downloadWithBits(url: string, outPath: string, timeoutMs?: number): Promise<{ ok: boolean; error?: string }> {
+async function downloadWithBits(
+  url: string,
+  outPath: string,
+  timeoutMs?: number,
+  onProgress?: (pct: number, transferred: number, total: number | null) => void,
+): Promise<{ ok: boolean; error?: string }> {
   if (process.platform !== 'win32') return { ok: false, error: 'bits unsupported' };
+  onProgress?.(1, 0, null);
   const escapedUrl = escapePowerShellString(url);
   const escapedPath = escapePowerShellString(outPath);
   const cmd = [
@@ -218,8 +224,13 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
     }
   }
   if (opts.useBitsOnWindows && process.platform === 'win32') {
-    const bits = await downloadWithBits(url, outPath, opts.bitsTimeoutMs ?? opts.timeoutMs);
-    if (bits.ok) return { ok: true as const, filePath: outPath };
+    const bits = await downloadWithBits(url, outPath, opts.bitsTimeoutMs ?? opts.timeoutMs, opts.onProgress);
+    if (bits.ok) {
+      const st = await stat(outPath).catch(() => null);
+      const size = st?.isFile() ? st.size : 0;
+      opts.onProgress?.(100, size, size || null);
+      return { ok: true as const, filePath: outPath };
+    }
     return { ok: false as const, error: String(bits.error ?? lastErr ?? 'download failed') };
   }
   return { ok: false as const, error: String(lastErr ?? 'download failed') };

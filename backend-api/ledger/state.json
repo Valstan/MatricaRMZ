@@ -32047,9 +32047,9 @@
       "b1aac85c-d77f-43c4-915e-faea527530ef": {
         "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "last_activity_at": 1769716999382,
-        "created_at": 1768786447304,
-        "updated_at": 1769716999382,
+        "last_activity_at": 1770023757288,
+        "created_at": 1770023757288,
+        "updated_at": 1770023757288,
         "deleted_at": null,
         "sync_status": "synced"
       },
@@ -32496,6 +32496,19 @@
         "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "created_by_username": "valstan",
         "updated_at": 1769979745908
+      },
+      "b3f748d2-2ea1-416d-b804-84c2f3f882dd": {
+        "id": "b3f748d2-2ea1-416d-b804-84c2f3f882dd",
+        "version": "1.0.33",
+        "notes": null,
+        "sha256": "0e0eef3d1789b52904c0652406aa1977fc3327f73631de93ec01336cd7648d9b",
+        "file_name": "MatricaRMZ-Setup-1.0.33.exe",
+        "size": 93914085,
+        "payload_json": null,
+        "created_at": 1770021748458,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan",
+        "updated_at": 1770021748458
       }
     },
     "notes": {
