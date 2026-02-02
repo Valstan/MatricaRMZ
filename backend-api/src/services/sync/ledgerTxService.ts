@@ -113,7 +113,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
       table: ch.table as LedgerTableName,
       row: payload,
       row_id: ch.rowId,
-      actor: { userId: actor.id, username: actor.username, role: actor.role },
+      actor: { userId: actor.id, username: actor.username, role: actor.role ?? 'user' },
       ts: Number.isFinite(tsValue) ? tsValue : ts,
     };
   });
