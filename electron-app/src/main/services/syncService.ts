@@ -652,6 +652,11 @@ function isInvalidChatMessageError(body: string): boolean {
   return text.includes('sync_invalid_row') && text.includes('chat_messages');
 }
 
+function isInvalidAttributeValueError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('attribute_values');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -685,6 +690,14 @@ async function markPendingChatMessagesError(db: BetterSQLite3Database, ids?: str
     return;
   }
   await db.update(chatMessages).set({ syncStatus: 'error' }).where(eq(chatMessages.syncStatus, 'pending'));
+}
+
+async function markPendingAttributeValuesError(db: BetterSQLite3Database, ids?: string[]) {
+  if (ids && ids.length > 0) {
+    await db.update(attributeValues).set({ syncStatus: 'error' }).where(inArray(attributeValues.id, ids));
+    return;
+  }
+  await db.update(attributeValues).set({ syncStatus: 'error' }).where(eq(attributeValues.syncStatus, 'pending'));
 }
 
 async function fetchWithRetryLogged(
@@ -2072,6 +2085,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         let attemptedInvalidAttrDefs = false;
         let attemptedInvalidEntities = false;
         let attemptedInvalidChatMessages = false;
+        let attemptedInvalidAttributeValues = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -2134,6 +2148,17 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               attemptedInvalidChatMessages = true;
               logSync(`push invalid chat_messages: marking pending as error and retrying`);
               await markPendingChatMessagesError(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidAttributeValues && isInvalidAttributeValueError(body)) {
+              attemptedInvalidAttributeValues = true;
+              logSync(`push invalid attribute_values: marking pending as error and retrying`);
+              await markPendingAttributeValuesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
