@@ -1235,7 +1235,7 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
     if (!version) return { ok: false, error: 'cannot extract version from installer name' };
     const current = app.getVersion();
     const updateAvailable = compareSemver(version, current) > 0;
-    const href = await getYandexDownloadHref(publicKey, joinPosix(basePath, exe.name));
+    const exeHref = await getYandexDownloadHref(publicKey, joinPosix(basePath, exe.name));
     return {
       ok: true,
       updateAvailable,
@@ -1243,7 +1243,7 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
       path: exe.name,
       source: 'yandex',
       expectedSize: exe.size ?? null,
-      downloadUrl: href ?? undefined,
+      downloadUrl: exeHref ?? undefined,
     };
   } catch (e) {
     return { ok: false, error: String(e) };
