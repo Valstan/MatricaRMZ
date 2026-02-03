@@ -32,10 +32,18 @@ export type ConsistencyClientReport = {
   clientId: string;
   status: 'ok' | 'warning' | 'drift' | 'unknown';
   lastSeenAt: number | null;
+  lastHostname: string | null;
+  lastPlatform: string | null;
+  lastArch: string | null;
+  lastVersion: string | null;
+  lastIp: string | null;
   lastPulledServerSeq: number | null;
   lastPulledAt: number | null;
   lastPushedAt: number | null;
   snapshotAt: number | null;
+  syncRequestId: string | null;
+  syncRequestType: string | null;
+  syncRequestAt: number | null;
   diffs: Array<{
     kind: 'table' | 'entityType';
     name: string;

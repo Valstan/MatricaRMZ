@@ -13,6 +13,7 @@ import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 
 type Report = { server: ConsistencySnapshot; clients: ConsistencyClientReport[] };
+type ClientView = ConsistencyClientReport & { deviceKey: string; deviceName: string; aliases?: ConsistencyClientReport[] };
 
 function formatTs(ts: number | null | undefined) {
   if (!ts) return '—';
@@ -95,6 +96,33 @@ function isStale(ts: number | null | undefined, minutes = 30) {
   return Date.now() - Number(ts) > minutes * 60_000;
 }
 
+function lastActiveAt(c: ConsistencyClientReport) {
+  const candidates = [c.lastSeenAt, c.lastPulledAt, c.lastPushedAt, c.snapshotAt].filter((v) => v != null);
+  if (!candidates.length) return null;
+  return Math.max(...(candidates as number[]));
+}
+
+function inferDeviceName(c: ConsistencyClientReport) {
+  const host = (c.lastHostname ?? '').trim();
+  if (host) return host;
+  const raw = String(c.clientId ?? '').trim();
+  const idx = raw.indexOf('-');
+  return idx > 0 ? raw.slice(0, idx) : raw;
+}
+
+function deviceKeyFor(c: ConsistencyClientReport) {
+  const name = inferDeviceName(c);
+  const platform = (c.lastPlatform ?? '').trim();
+  const arch = (c.lastArch ?? '').trim();
+  return `${name}|${platform}|${arch}`.toLowerCase();
+}
+
+function formatSyncRequest(c: ConsistencyClientReport) {
+  if (!c.syncRequestType || !c.syncRequestAt) return '—';
+  const title = c.syncRequestType === 'sync_now' ? 'повторить синхронизацию' : c.syncRequestType === 'force_full_pull' ? 'перекачать с сервера' : c.syncRequestType;
+  return `${title} · ${formatTs(c.syncRequestAt)}`;
+}
+
 function downloadJsonReport(report: Report) {
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -113,10 +141,12 @@ export function DiagnosticsPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [showOnlyIssues, setShowOnlyIssues] = useState(false);
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(true);
+  const [hideDuplicates, setHideDuplicates] = useState(true);
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
   const [clientQuery, setClientQuery] = useState('');
   const [entityDiffs, setEntityDiffs] = useState<Record<string, { loading: boolean; error?: string; data?: any }>>({});
   const [lastErrors, setLastErrors] = useState<Record<string, { loading: boolean; error?: string; data?: any }>>({});
+  const [actionNotices, setActionNotices] = useState<Record<string, string>>({});
   const diffTimersRef = useRef<Record<string, number>>({});
 
   async function refresh() {
@@ -154,6 +184,10 @@ export function DiagnosticsPage() {
       setLoading(false);
       return;
     }
+    setActionNotices((prev) => ({
+      ...prev,
+      [clientId]: type === 'sync_now' ? 'Запрос отправлен. Клиент выполнит при следующем опросе настроек.' : 'Запрос перекачки отправлен. Клиент выполнит при следующем опросе.',
+    }));
     await refresh();
   }
 
@@ -257,7 +291,7 @@ export function DiagnosticsPage() {
     };
   }, []);
 
-  const clients = useMemo(() => {
+  const clientView = useMemo(() => {
     const list = report?.clients ?? [];
     const baseFiltered = showOnlyIssues
       ? list.filter((c) => {
@@ -266,24 +300,57 @@ export function DiagnosticsPage() {
         })
       : list;
     const q = clientQuery.trim().toLowerCase();
-    const filtered = q ? baseFiltered.filter((c) => String(c.clientId).toLowerCase().includes(q)) : baseFiltered;
-    return filtered.slice().sort((a, b) => {
+    const filtered = q
+      ? baseFiltered.filter((c) => {
+          const name = inferDeviceName(c).toLowerCase();
+          return String(c.clientId).toLowerCase().includes(q) || name.includes(q);
+        })
+      : baseFiltered;
+    const baseSorted = filtered.slice().sort((a, b) => {
       const ac = clientCounts(a);
       const bc = clientCounts(b);
       const aScore = (a.status === 'drift' ? 3 : a.status === 'warning' ? 2 : 0) + (ac.error > 0 ? 2 : 0) + (ac.pending > 0 ? 1 : 0);
       const bScore = (b.status === 'drift' ? 3 : b.status === 'warning' ? 2 : 0) + (bc.error > 0 ? 2 : 0) + (bc.pending > 0 ? 1 : 0);
       if (aScore !== bScore) return bScore - aScore;
+      const aName = inferDeviceName(a);
+      const bName = inferDeviceName(b);
+      if (aName !== bName) return aName.localeCompare(bName);
       return String(a.clientId).localeCompare(String(b.clientId));
     });
-  }, [report?.clients, showOnlyIssues, clientQuery]);
+    if (!hideDuplicates) {
+      return { list: baseSorted.map((c) => ({ ...c, deviceKey: deviceKeyFor(c), deviceName: inferDeviceName(c) })), hidden: 0 };
+    }
+    const groups = new Map<string, ConsistencyClientReport[]>();
+    for (const c of baseSorted) {
+      const key = deviceKeyFor(c);
+      const arr = groups.get(key) ?? [];
+      arr.push(c);
+      groups.set(key, arr);
+    }
+    const merged: ClientView[] = [];
+    let hidden = 0;
+    for (const [key, group] of groups.entries()) {
+      const sorted = group.slice().sort((a, b) => (lastActiveAt(b) ?? 0) - (lastActiveAt(a) ?? 0));
+      const primary = sorted[0];
+      const aliases = sorted.slice(1);
+      hidden += aliases.length;
+      merged.push({
+        ...primary,
+        deviceKey: key,
+        deviceName: inferDeviceName(primary),
+        aliases: aliases.length ? aliases : undefined,
+      });
+    }
+    return { list: merged, hidden };
+  }, [report?.clients, showOnlyIssues, clientQuery, hideDuplicates]);
 
   const clientSummary = useMemo(() => {
-    const list = report?.clients ?? [];
+    const list = clientView.list ?? [];
     const totals = list.reduce(
       (acc, c) => {
         const counts = clientCounts(c);
         if (c.status !== 'ok' || counts.pending > 0 || counts.error > 0) acc.problem += 1;
-        if (isStale(c.lastSeenAt, 30)) acc.stale += 1;
+        if (isStale(lastActiveAt(c), 30)) acc.stale += 1;
         acc.pending += counts.pending;
         acc.error += counts.error;
         return acc;
@@ -291,7 +358,7 @@ export function DiagnosticsPage() {
       { total: list.length, problem: 0, stale: 0, pending: 0, error: 0 },
     );
     return totals;
-  }, [report?.clients]);
+  }, [clientView.list]);
 
   return (
     <div>
@@ -308,6 +375,10 @@ export function DiagnosticsPage() {
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
           <input type="checkbox" checked={showOnlyDiffs} onChange={(e) => setShowOnlyDiffs(e.target.checked)} />
           только различия
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+          <input type="checkbox" checked={hideDuplicates} onChange={(e) => setHideDuplicates(e.target.checked)} />
+          скрывать дубликаты
         </label>
         <Button variant="ghost" onClick={() => report && downloadJsonReport(report)} disabled={!report}>
           Экспорт JSON
@@ -346,21 +417,25 @@ export function DiagnosticsPage() {
         <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
           Всего: {clientSummary.total} · Проблемные: {clientSummary.problem} · Нет связи: {clientSummary.stale} · Ожидает/Ошибок: {clientSummary.pending} /{' '}
           {clientSummary.error}
+          {clientView.hidden > 0 ? ` · Скрыто дублей: ${clientView.hidden}` : ''}
         </div>
-        {!clients.length && <div className="muted">Нет данных.</div>}
-        {clients.length ? (
+        {!clientView.list.length && <div className="muted">Нет данных.</div>}
+        {clientView.list.length ? (
           <div style={{ display: 'grid', gap: 8 }}>
-            {clients.map((c) => {
+            {clientView.list.map((c) => {
               const counts = clientCounts(c);
-              const stale = isStale(c.lastSeenAt, 30);
+              const lastActive = lastActiveAt(c);
+              const stale = isStale(lastActive, 30);
               const isExpanded = expandedClients[c.clientId] ?? true;
               return (
               <div key={c.clientId} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <strong>{c.clientId}</strong>
+                  <strong>{c.deviceName}</strong>
+                  <span className="muted" style={{ fontSize: 12 }}>{c.clientId}</span>
                   <span style={{ color: statusColor(c.status), fontWeight: 700 }}>{statusLabel(c.status)}</span>
                   <span style={{ color: '#64748b', fontSize: 12 }}>({c.status})</span>
                   {stale && <span style={{ color: '#b91c1c', fontSize: 12 }}>нет связи</span>}
+                  {c.aliases?.length ? <span style={{ color: '#64748b', fontSize: 12 }}>дубликаты: {c.aliases.length}</span> : null}
                   <span style={{ flex: 1 }} />
                   <Button
                     variant="ghost"
@@ -383,12 +458,28 @@ export function DiagnosticsPage() {
                   </div>
                 )}
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  lastSeen: {formatTs(c.lastSeenAt)} | lastPullSeq: {c.lastPulledServerSeq ?? '—'} | lastPull: {formatTs(c.lastPulledAt)} |
-                  snapshot: {formatTs(c.snapshotAt)}
+                  последняя активность: {formatTs(lastActive)} | lastSeen: {formatTs(c.lastSeenAt)} | lastPullSeq: {c.lastPulledServerSeq ?? '—'} | lastPull:{' '}
+                  {formatTs(c.lastPulledAt)} | lastPush: {formatTs(c.lastPushedAt)} | snapshot: {formatTs(c.snapshotAt)}
                 </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  хост: {c.lastHostname ?? '—'} · платформа: {c.lastPlatform ?? '—'} · версия: {c.lastVersion ?? '—'}
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  последний запрос: {formatSyncRequest(c)}
+                </div>
+                {actionNotices[c.clientId] ? <div style={{ fontSize: 12, color: '#0369a1', marginTop: 4 }}>{actionNotices[c.clientId]}</div> : null}
                 <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
                   Ожидает/Ошибки: {counts.pending} / {counts.error} · Различий: {counts.totalDiffs}
                 </div>
+                {isExpanded && c.aliases?.length ? (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Другие записи этого компьютера:{' '}
+                    {c.aliases
+                      .slice(0, 6)
+                      .map((a) => `${a.clientId} (${formatTs(lastActiveAt(a))})`)
+                      .join(', ')}
+                  </div>
+                ) : null}
                 <div style={{ marginTop: 4, fontSize: 12, color: '#475569' }}>
                   {(() => {
                     const sections = (c.diffs ?? [])

@@ -51,10 +51,18 @@ export type ConsistencyClientReport = {
   clientId: string;
   status: 'ok' | 'warning' | 'drift' | 'unknown';
   lastSeenAt: number | null;
+  lastHostname: string | null;
+  lastPlatform: string | null;
+  lastArch: string | null;
+  lastVersion: string | null;
+  lastIp: string | null;
   lastPulledServerSeq: number | null;
   lastPulledAt: number | null;
   lastPushedAt: number | null;
   snapshotAt: number | null;
+  syncRequestId: string | null;
+  syncRequestType: string | null;
+  syncRequestAt: number | null;
   diffs: ConsistencyDiff[];
 };
 
@@ -359,10 +367,18 @@ export async function getConsistencyReport() {
       clientId,
       status: diff.status,
       lastSeenAt: settings?.lastSeenAt == null ? null : Number(settings.lastSeenAt),
+      lastHostname: settings?.lastHostname ?? null,
+      lastPlatform: settings?.lastPlatform ?? null,
+      lastArch: settings?.lastArch ?? null,
+      lastVersion: settings?.lastVersion ?? null,
+      lastIp: settings?.lastIp ?? null,
       lastPulledServerSeq: sync?.lastPulledServerSeq == null ? null : Number(sync.lastPulledServerSeq),
       lastPulledAt: sync?.lastPulledAt == null ? null : Number(sync.lastPulledAt),
       lastPushedAt: sync?.lastPushedAt == null ? null : Number(sync.lastPushedAt),
       snapshotAt: clientSnapshot?.generatedAt ?? null,
+      syncRequestId: settings?.syncRequestId ?? null,
+      syncRequestType: settings?.syncRequestType ?? null,
+      syncRequestAt: settings?.syncRequestAt == null ? null : Number(settings.syncRequestAt),
       diffs: diff.diffs,
     };
   });

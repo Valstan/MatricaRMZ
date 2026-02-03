@@ -33,6 +33,7 @@ import {
   adminSetUserPermissions,
   adminUpdateUser,
 } from '../../services/adminUsersService.js';
+import { adminResyncAllMasterdata, adminResyncEntityType } from '../../services/adminMasterdataRemoteService.js';
 
 export function registerAdminIpc(ctx: IpcContext) {
   // Master-data: EntityTypes/AttributeDefs/Entities
@@ -62,6 +63,24 @@ export function registerAdminIpc(ctx: IpcContext) {
       return deleteEntityType(ctx.dataDb(), args.entityTypeId, { deleteEntities: !!args.deleteEntities, deleteDefs: !!args.deleteDefs });
     },
   );
+  ipcMain.handle('admin:entityTypes:resyncFromServer', async (_e, entityTypeId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as any;
+    const resync = await adminResyncEntityType(ctx.sysDb, ctx.mgr.getApiBaseUrl(), entityTypeId);
+    if (!resync.ok) return resync;
+    const sync = await ctx.mgr.runOnce().catch((e) => ({ ok: false as const, error: String(e) }));
+    return { ok: true as const, resync, sync };
+  });
+  ipcMain.handle('admin:entityTypes:resyncAllFromServer', async () => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as any;
+    const resync = await adminResyncAllMasterdata(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    if (!resync.ok) return resync;
+    const sync = await ctx.mgr.runOnce().catch((e) => ({ ok: false as const, error: String(e) }));
+    return { ok: true as const, resync, sync };
+  });
 
   ipcMain.handle('admin:attributeDefs:listByEntityType', async (_e, entityTypeId: string) => {
     const gate = await requirePermOrResult(ctx, 'masterdata.view');

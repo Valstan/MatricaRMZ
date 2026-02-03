@@ -104,6 +104,12 @@ export async function adminListUserDelegations(
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+export async function adminResyncEmployees(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const r = await httpAuthed(db, apiBaseUrl, '/admin/users/sync-snapshot', { method: 'POST' });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 export async function adminCreateDelegation(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

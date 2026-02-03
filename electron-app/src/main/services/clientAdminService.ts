@@ -166,10 +166,11 @@ export function startClientSettingsPolling(args: {
   log?: (msg: string) => void;
   onApplied?: (settings: RemoteClientSettings) => void;
 }) {
-  const intervalMs = 5 * 60_000;
-  setInterval(() => {
+  const intervalMs = 60_000;
+  const tick = () =>
     void applyRemoteClientSettings(args)
       .then((settings) => args.onApplied?.(settings))
       .catch(() => {});
-  }, intervalMs);
+  tick();
+  setInterval(tick, intervalMs);
 }

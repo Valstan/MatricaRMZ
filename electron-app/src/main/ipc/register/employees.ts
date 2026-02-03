@@ -5,7 +5,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
 import { deleteEmployeeRemote, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeesToServer } from '../../services/employeeService.js';
-import { viewUserPermissions } from '../../services/adminUsersService.js';
+import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
 async function getEntityTypeIdByCode(ctx: IpcContext, code: string): Promise<string | null> {
@@ -67,6 +67,16 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     if (!result.ok) return result;
     await ctx.mgr.runOnce().catch(() => {});
     return result;
+  });
+
+  ipcMain.handle('employees:resyncFromServer', async () => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'employees.view');
+    if (!gate.ok) return gate;
+    const resync = await adminResyncEmployees(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    if (!resync.ok) return resync;
+    const sync = await ctx.mgr.runOnce().catch((e) => ({ ok: false as const, error: String(e) }));
+    return { ok: true as const, resync, sync };
   });
 
   ipcMain.handle('employees:departments:list', async () => {

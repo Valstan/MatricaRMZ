@@ -211,6 +211,30 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             Создать сотрудника
           </Button>
         )}
+        <Button
+          variant="ghost"
+          onClick={async () => {
+            try {
+              setStatus('Подгружаем сотрудников с сервера…');
+              const r = await window.matrica.employees.resyncFromServer();
+              if (!r?.ok) {
+                setStatus(`Ошибка подгрузки: ${r?.error ?? 'unknown'}`);
+                return;
+              }
+              if (r.sync && r.sync.ok === false) {
+                setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
+                return;
+              }
+              setStatus('Готово. Обновляем список…');
+              await refresh();
+              setStatus('');
+            } catch (e) {
+              setStatus(`Ошибка: ${String(e)}`);
+            }
+          }}
+        >
+          Подгрузить с сервера
+        </Button>
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по ФИО…" />
         </div>

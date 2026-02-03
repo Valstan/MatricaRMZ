@@ -84,6 +84,8 @@ contextBridge.exposeInMainWorld('matrica', {
       deleteInfo: async (entityTypeId: string) => ipcRenderer.invoke('admin:entityTypes:deleteInfo', entityTypeId),
       delete: async (args: { entityTypeId: string; deleteEntities: boolean; deleteDefs: boolean }) =>
         ipcRenderer.invoke('admin:entityTypes:delete', args),
+      resyncFromServer: async (entityTypeId: string) => ipcRenderer.invoke('admin:entityTypes:resyncFromServer', entityTypeId),
+      resyncAllFromServer: async () => ipcRenderer.invoke('admin:entityTypes:resyncAllFromServer'),
     },
     attributeDefs: {
       listByEntityType: async (entityTypeId: string) => ipcRenderer.invoke('admin:attributeDefs:listByEntityType', entityTypeId),
@@ -139,6 +141,7 @@ contextBridge.exposeInMainWorld('matrica', {
       ipcRenderer.invoke('employees:setAttr', employeeId, code, value),
     delete: async (employeeId: string) => ipcRenderer.invoke('employees:delete', employeeId),
     merge: async () => ipcRenderer.invoke('employees:merge'),
+    resyncFromServer: async () => ipcRenderer.invoke('employees:resyncFromServer'),
     departmentsList: async () => ipcRenderer.invoke('employees:departments:list'),
     defs: async () => ipcRenderer.invoke('employees:defs'),
     permissionsGet: async (userId: string) => ipcRenderer.invoke('employees:permissionsGet', userId),

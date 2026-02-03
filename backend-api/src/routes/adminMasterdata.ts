@@ -21,6 +21,7 @@ import {
   upsertEntityType,
 } from '../services/adminMasterdataService.js';
 import { mergeEmployeesByFullName } from '../services/employeeMergeService.js';
+import { emitAllMasterdataSyncSnapshot, emitEntityTypeSyncSnapshot } from '../services/masterdataSyncService.js';
 
 export const adminMasterdataRouter = Router();
 
@@ -62,6 +63,22 @@ adminMasterdataRouter.post('/entity-types', async (req, res) => {
   const data = parsed.data;
   const args = { code: data.code, name: data.name, ...(data.id ? { id: data.id } : {}) };
   const r = await upsertEntityType({ id: actor.id, username: actor.username }, args);
+  return res.json(r);
+});
+
+adminMasterdataRouter.post('/entity-types/:id/sync-snapshot', async (req, res) => {
+  const actor = await requireAdmin(req, res);
+  if (!actor) return;
+  const id = String(req.params.id || '');
+  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  const r = await emitEntityTypeSyncSnapshot(id);
+  return res.json(r);
+});
+
+adminMasterdataRouter.post('/sync-snapshot/all', async (req, res) => {
+  const actor = await requireAdmin(req, res);
+  if (!actor) return;
+  const r = await emitAllMasterdataSyncSnapshot();
   return res.json(r);
 });
 

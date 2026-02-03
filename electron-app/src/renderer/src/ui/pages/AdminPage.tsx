@@ -44,6 +44,7 @@ export function MasterdataPage(props: {
   const [partsOptions, setPartsOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
   const [partsStatus, setPartsStatus] = useState<string>('');
+  const autoResyncedTypes = useRef<Set<string>>(new Set());
 
   const [deleteDialog, setDeleteDialog] = useState<
     | {
@@ -184,6 +185,62 @@ export function MasterdataPage(props: {
     if (rows.length > 0) {
       void loadLinkRules(rows as any);
       void loadLookupOptions(rows as any);
+    }
+  }
+
+  async function resyncSelectedType(
+    typeId: string | null | undefined,
+    opts?: { skipTypesRefresh?: boolean; silent?: boolean },
+  ) {
+    const targetTypeId = String(typeId ?? '').trim();
+    if (!targetTypeId) return;
+    try {
+      if (!opts?.silent) setStatus('Подгружаем справочник с сервера…');
+      const r = await window.matrica.admin.entityTypes.resyncFromServer(targetTypeId);
+      if (!r?.ok) {
+        setStatus(`Ошибка подгрузки: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      if (r.sync && r.sync.ok === false) {
+        setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
+        return;
+      }
+      if (!opts?.skipTypesRefresh) {
+        await refreshTypes();
+      }
+      await refreshDefs(targetTypeId);
+      await refreshEntities(targetTypeId);
+      if (!opts?.silent) {
+        setStatus('Справочник обновлён.');
+        setTimeout(() => setStatus(''), 1200);
+      }
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function resyncAllMasterdata() {
+    try {
+      setStatus('Подгружаем все справочники и карточки…');
+      const r = await window.matrica.admin.entityTypes.resyncAllFromServer();
+      if (!r?.ok) {
+        setStatus(`Ошибка подгрузки: ${r?.error ?? 'unknown'}`);
+        return;
+      }
+      if (r.sync && r.sync.ok === false) {
+        setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
+        return;
+      }
+      autoResyncedTypes.current.clear();
+      await refreshTypes();
+      if (selectedTypeId) {
+        await refreshDefs(selectedTypeId);
+        await refreshEntities(selectedTypeId);
+      }
+      setStatus('Справочники обновлены.');
+      setTimeout(() => setStatus(''), 1200);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
     }
   }
 
@@ -564,6 +621,10 @@ export function MasterdataPage(props: {
     void (async () => {
       await refreshDefs(selectedTypeId);
       await refreshEntities(selectedTypeId);
+      if (!autoResyncedTypes.current.has(selectedTypeId)) {
+        autoResyncedTypes.current.add(selectedTypeId);
+        await resyncSelectedType(selectedTypeId, { skipTypesRefresh: true, silent: true });
+      }
     })();
   }, [selectedTypeId]);
 
@@ -609,6 +670,12 @@ export function MasterdataPage(props: {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <strong>Справочники</strong>
               <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={() => void resyncAllMasterdata()}>
+                Подгрузить все
+              </Button>
+              <Button variant="ghost" disabled={!selectedTypeId} onClick={() => void resyncSelectedType(selectedTypeId)}>
+                Подгрузить с сервера
+              </Button>
               <Button variant="ghost" onClick={() => void refreshTypes()}>
                 Обновить
               </Button>
