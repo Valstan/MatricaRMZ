@@ -73,6 +73,7 @@ export function NotesPage(props: {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [drafts, setDrafts] = useState<Record<string, NoteDraft>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [sharePickerOpen, setSharePickerOpen] = useState<Record<string, boolean>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [now, setNow] = useState(() => nowMs());
@@ -155,6 +156,10 @@ export function NotesPage(props: {
 
   function toggleExpand(id: string) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function toggleSharePicker(id: string) {
+    setSharePickerOpen((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   function updateDraft(id: string, next: Partial<NoteDraft>) {
@@ -409,6 +414,11 @@ export function NotesPage(props: {
                   Сохранить
                 </Button>
               )}
+              {!note.shared && props.canEdit && (
+                <Button variant="ghost" disabled={availableUsers.length === 0} onClick={() => toggleSharePicker(note.id)}>
+                  Поделиться с другими...
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -427,9 +437,14 @@ export function NotesPage(props: {
                 </Button>
               )}
               {note.shared && share && (
-                <Button variant="ghost" onClick={() => void toggleHidden(note.id, !share.hidden)}>
-                  {share.hidden ? 'Показать заметку' : 'Скрыть заметку'}
-                </Button>
+                <>
+                  <Button variant="ghost" onClick={() => void toggleHidden(note.id, !share.hidden)}>
+                    {share.hidden ? 'Показать заметку' : 'Скрыть заметку'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => void unshareNote(note.id, props.meUserId)}>
+                    Удалить из моих
+                  </Button>
+                </>
               )}
             </div>
 
@@ -450,7 +465,7 @@ export function NotesPage(props: {
                     );
                   })}
                 </div>
-                {availableUsers.length > 0 && (
+                {sharePickerOpen[note.id] && availableUsers.length > 0 && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <select
                       defaultValue=""
@@ -459,6 +474,7 @@ export function NotesPage(props: {
                         if (!id) return;
                         void shareNote(note.id, id);
                         e.currentTarget.value = '';
+                        setSharePickerOpen((prev) => ({ ...prev, [note.id]: false }));
                       }}
                       style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${theme.colors.border}` }}
                     >
@@ -469,6 +485,9 @@ export function NotesPage(props: {
                         </option>
                       ))}
                     </select>
+                    <Button variant="ghost" onClick={() => toggleSharePicker(note.id)}>
+                      Отмена
+                    </Button>
                   </div>
                 )}
               </div>

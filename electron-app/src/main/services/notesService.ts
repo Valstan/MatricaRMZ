@@ -247,7 +247,8 @@ export async function notesUnshare(db: BetterSQLite3Database, args: { noteId: st
 
     const noteRow = await db.select().from(notes).where(eq(notes.id, noteId)).limit(1);
     if (!noteRow[0]) return { ok: true };
-    if (String((noteRow[0] as any).ownerUserId ?? '') !== me.id) return { ok: false, error: 'not owner' };
+    const ownerId = String((noteRow[0] as any).ownerUserId ?? '');
+    if (ownerId !== me.id && me.id !== recipientUserId) return { ok: false, error: 'not allowed' };
 
     const ts = nowMs();
     await db
