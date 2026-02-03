@@ -1,30 +1,32 @@
 {
   "height": 61,
-  "prev_hash": "3ee1974ca1fc0221acd4e3f2bb22a50b89be1b0b5adcbc9c8324b2caf83e852f",
-  "created_at": 1769718104389,
+  "prev_hash": "9d02146af3d62cde40ef312417fb3a7abf6ee697741023f58d337551027cc751",
+  "created_at": 1770118759801,
   "txs": [
     {
       "type": "upsert",
-      "table": "chat_messages",
+      "table": "user_presence",
       "row": {
-        "id": "475db651-0b09-45d4-94c0-6dab5bafc9fc",
-        "recipient_user_id": null,
-        "body_text": null,
-        "payload_json": null,
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770118759799,
+        "created_at": 1770118759799,
+        "updated_at": 1770118759799,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "475db651-0b09-45d4-94c0-6dab5bafc9fc",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769718104389,
-      "seq": 2361,
-      "tx_id": "76449a419b4d3cb4d190393bad788ac155f24ae7ce4a5aa5658d9ec4a46a7271",
-      "signature": "4sVAwWchmGFg0Zl93G51HdeH8zF800AbkFIqeHPmX+rZ+faBcaEPr0P6dlDrpMt/5j0j3vMCBGtO1lXcq8bHDg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770118759799,
+      "seq": 2403,
+      "tx_id": "e90a81f60f0b52ef83e6f62c84aaa346820697b77fef4c6396ef2b24aec9174a",
+      "signature": "6pDTVWHI15AxKqCdFcmacdzy7dA6DfzOIMTr5sLiDNWmzBXl40ZAAOJyMs61dg2qYM8RJHfHgi85CmDZ3tXxDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "3864df0148241a3a68dff13a93a08c02955e5617a9e2e01e441ea43e0e7951a9"
+  "hash": "3d9adf6f686d03e37a285e24b9cce0d75adc1da4805adebd6f89b2f656ca5386"
 }

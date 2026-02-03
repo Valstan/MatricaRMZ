@@ -1,32 +1,32 @@
 {
   "height": 31,
-  "prev_hash": "c28c750d14efa3f901fe767cf76eea07903ff2b96b5e6f589b35ef15d6ce2d74",
-  "created_at": 1769677600031,
+  "prev_hash": "8991f38cc6c3d87a66cc71687b0b47bcecbd0dbf089e9c6352b6df0b5b56e395",
+  "created_at": 1770117859710,
   "txs": [
     {
       "type": "upsert",
-      "table": "operations",
+      "table": "user_presence",
       "row": {
-        "id": "346c33a0-16e4-4936-b58b-9cf915ffcc2b",
-        "status": "checklist",
-        "note": "Лист дефектовки двигателя",
-        "performed_at": null,
-        "performed_by": null,
-        "meta_json": null,
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770117859706,
+        "created_at": 1770117859706,
+        "updated_at": 1770117859706,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "346c33a0-16e4-4936-b58b-9cf915ffcc2b",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
       },
-      "ts": 1769677600029,
-      "seq": 87,
-      "tx_id": "f9f4bd38174ab0c430212de54be450f45df976ac915e94476beba9c4aeb08f93",
-      "signature": "DcyCKOvwbMGG63/LlfFaML73DZ2ABTjfotHKxI8NVFbnwidgD2E0vj1sNUteBuOL3F+KtBvN1ixjlvF8NwSmAQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770117859706,
+      "seq": 2373,
+      "tx_id": "23ed784481fb982d9f5a93c3fcfdd306f49ebece337d62f632fd8b63b6bbab3c",
+      "signature": "osDmqZD1syzu2CLa40NttFEdIEy1/GNxr5c65cThOp/5i9QUEZgTmJbDK9XcM6Z+WAGClpdgutbb1olhtNFwAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "1ffefb67e38e3d634f4033a35e793beda4c1ea53b3f09c97bf318a0d1ff3f2c7"
+  "hash": "61843d88e40ecf541ea4444e39ee6695c1a8127d221acbae83e5a8fee9fb646f"
 }

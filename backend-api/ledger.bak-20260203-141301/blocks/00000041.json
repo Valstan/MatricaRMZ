@@ -1,0 +1,35 @@
+{
+  "height": 41,
+  "prev_hash": "9014dd2ce66ffe964ab03acf541f4df592095155d4a10c2876eee187381e50dd",
+  "created_at": 1769687657426,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "release_registry",
+      "row": {
+        "id": "8e1dfc54-8baf-43a6-8458-587e0be4f935",
+        "version": "1.0.14",
+        "notes": "Supply reports: defect/supply stats with contract totals; updater recovery/reset and cache integrity messaging",
+        "sha256": "4217fbc2248b0333b2ae779e53face815f785d1fba52141049e3843380a62323",
+        "file_name": "MatricaRMZ-Setup-1.0.14.exe",
+        "size": 93911020,
+        "payload_json": null,
+        "created_at": 1769687657422,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin"
+      },
+      "row_id": "8e1dfc54-8baf-43a6-8458-587e0be4f935",
+      "actor": {
+        "userId": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "username": "admin",
+        "role": "admin"
+      },
+      "ts": 1769687657422,
+      "seq": 104,
+      "tx_id": "da12d7cebc36f6a9a824a1a5ebddb1b6a0b650e81dc4d303f3daee340cb05898",
+      "signature": "Z7gyDAXFJQcWAtzApviOv7GowPPkE+89Z6ReBbhZy+hPyQS23/TpmWaVMiM3ClOmFprVOzmdn7saiRLLorAQDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "7a5ba28991c4aa77fb8573656d151819de63cbb8a2da341804783336d8cbc937"
+}

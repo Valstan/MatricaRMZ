@@ -5,6 +5,7 @@ import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { listClientSettings, setClientSyncRequest, updateClientSettings } from '../services/clientSettingsService.js';
 import { randomUUID } from 'node:crypto';
+import { emitAllMasterdataSyncSnapshot } from '../services/masterdataSyncService.js';
 
 export const adminClientsRouter = Router();
 
@@ -96,6 +97,9 @@ adminClientsRouter.post('/clients/:clientId/sync-request', async (req, res) => {
   if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
 
   try {
+    if (parsed.data.type === 'force_full_pull') {
+      await emitAllMasterdataSyncSnapshot().catch(() => null);
+    }
     const payload = parsed.data.payload ? JSON.stringify(parsed.data.payload) : null;
     const row = await setClientSyncRequest(clientId, { id: randomUUID(), type: parsed.data.type, at: Date.now(), payload });
     return res.json({

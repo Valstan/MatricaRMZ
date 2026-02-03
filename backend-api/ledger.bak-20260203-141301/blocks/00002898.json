@@ -1,0 +1,432 @@
+{
+  "height": 2898,
+  "prev_hash": "4298636a5e77bf6beece0f2e3c66de02377a7b2cb9c76b2dc9b0272f249af080",
+  "created_at": 1770040032075,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "last_activity_at": 1770040032052,
+        "created_at": 1770040032052,
+        "updated_at": 1770040032052,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032052,
+      "seq": 8256,
+      "tx_id": "2b59c5c978c753df376d52b8d4138b0ba32403047dca0b9d491f6a7da2adbc9b",
+      "signature": "qp2Bl91fAkWJCtAqxBnISYtYqeyVuI8V06lf5jecaU26VvD80Im8kvbiV/Sj8NyY4qiwvXydGGcvo47JF0zCAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "engine",
+        "name": "Двигатель"
+      },
+      "row_id": "95c14455-2626-4296-8468-7daa9c95b149",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8257,
+      "tx_id": "330b830d29502222bf792ac0fb7bd62d393c19745b3898c9971671347bd06520",
+      "signature": "p43tuxnPQbrisIPbz+Iyc0FX0QR8w02G1Haj0Ii9M/EqcN98Z+CZ3Dqvd41YsHqqRhDdeDFzraR6JHcDxqVMAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "engine_brand",
+        "name": "Марка двигателя"
+      },
+      "row_id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8258,
+      "tx_id": "f3505c275f307c857e0077eba9a37db91c2bf0e2d596feab6267b24de844389d",
+      "signature": "Ty695nhnzEdFDhmPnQsAftRawYK4lfRImm6l6CDHC7BSl5qxC1Oc1LR6DeQPEKsaYxtcgK50JhudMMpxF1yLDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "customer",
+        "name": "Контрагенты"
+      },
+      "row_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8259,
+      "tx_id": "213c8c54720f17ab0ddad11680954bf53fe843934fdb8b8adfdb9ba3249368a8",
+      "signature": "us3NJNX4K8G0Iu/izbCkewFFG0buTIniFPqfNmpz1im9r7Vip+QLvKWA103SwPHWgDKVfQ99DOW0sut4JoVdDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "contract",
+        "name": "Контракт"
+      },
+      "row_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8260,
+      "tx_id": "bd6118032f00c7b6bdd7fcea035621070fe575355609b2c86a4614fe77f96a83",
+      "signature": "gzVCWdww7wqS/Hr58ypXQ5RP+UQ6j+yvJnXxLE/hdDog2bwc/Au8sIQIQCMrUS6Rc4EjpFCbssXKcZROMmdgBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "work_order",
+        "name": "Наряд"
+      },
+      "row_id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8261,
+      "tx_id": "8481e6bf6871dcd1b958eb25a730bcf5dc7d57057a76153fbb76ad9bac348613",
+      "signature": "tESYAYoW/OK8anFDhT0fXQIMYA/mWpRA47T3GuNzB5v0lH65F86orCWhY+QTK/e/N7JcejBbrerwQLvWNQquCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "a491ca5d-2589-45d8-90f5-4da7c50efbc4",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "workshop",
+        "name": "Цех"
+      },
+      "row_id": "a491ca5d-2589-45d8-90f5-4da7c50efbc4",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8262,
+      "tx_id": "9778c6a119cf47dea827bed444418964e89a8f1f9af7df31f724f94caf496912",
+      "signature": "tT3eeHaCoBRfxb8Or+Sa8S+m5LBd3X3kEawFOFQ3gN0KDoEBtxRgiLZz+yKq7Efc0c0ZLxRn+AtW4+4Zn0HCDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "2f2ac640-189e-412e-be91-839f43f6f604",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "section",
+        "name": "Участок"
+      },
+      "row_id": "2f2ac640-189e-412e-be91-839f43f6f604",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8263,
+      "tx_id": "f9a1e157bdcfb058754759adb11e817c59d332784f106dddaead9f77ecea8123",
+      "signature": "dFv4mWBNODnZRyqM+b2rkRgQolcJE5rK6H6sm2MKxuAWGE8sC38+yEJCflNc+Z/BOs/pr4XDAeW/j+BSGZ8dCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "28ee161d-6e46-46d1-893e-743e56d7644d",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "department",
+        "name": "Подразделение / служба"
+      },
+      "row_id": "28ee161d-6e46-46d1-893e-743e56d7644d",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8264,
+      "tx_id": "b18cf12bcc05c5358f8c9a0af8578d94abf3ed3f5b53675ea577dbee737e3878",
+      "signature": "1hhBAWftdAIoQ1ZPBzmr42ZqcZL3JNSm9MOcleldYnymP0LoRjefH18tLEo7BdmLtiS5UAF1N9b660iOeeSWCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "product",
+        "name": "Продукты"
+      },
+      "row_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8265,
+      "tx_id": "a31c86d0a9a0c6c406256a688e7bf332f5b2b3f96be7178b81e4bcb1c59056e2",
+      "signature": "fUd4SZfnHuJKEw96XVu1sTZUDEnCEugdfclUx8IoFkZFW26NGr5xQzwrqxtQzDf6c3U++GsZv/E8sqmV8coODQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "service",
+        "name": "Услуги"
+      },
+      "row_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8266,
+      "tx_id": "bb140e05ab7b75ff53d44380e9096910cd1fbdcbd9cb3c5692a6db1da4fcb086",
+      "signature": "UeYYxISGgLnK2iIkqKNUE08Ze+71ebe1jy9j32ly7Dhdupck2IUQGN8OLZg26+/WsCdDEBeoCnUUnedYA4//Dw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "3d33bdc0-d7c6-4f65-8243-e7e8a298dddf",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "category",
+        "name": "Категории"
+      },
+      "row_id": "3d33bdc0-d7c6-4f65-8243-e7e8a298dddf",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8267,
+      "tx_id": "dbcd46c8d11b121c2d117ffce972aec00b50a10a443347dec093c256f8521b8a",
+      "signature": "QStwiLKEu4Qhcyo8NuZM+8c8+3mC3qkMBd1GhwsS0MzKJJeFf7LgJ4FB+ChOIin85wOR0/mKggNXiT0dE5kaAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "employee",
+        "name": "Сотрудник"
+      },
+      "row_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8268,
+      "tx_id": "32c09bcb148e924f8411ef7cf572550284b3e90f9ae8503eb291bc6be82ea536",
+      "signature": "Cy+nc5Z7nYweOtbHqCjzz4ydDbK8HFME4Bgo8obxgaaLWf4txrkLblDHbFkT9+MZ8teCevPOHVQ58Jih6qfKDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "0578058e-4877-46a3-80f8-76c0a849d7ea",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "unit",
+        "name": "Единицы измерения"
+      },
+      "row_id": "0578058e-4877-46a3-80f8-76c0a849d7ea",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8269,
+      "tx_id": "bb33e68e05cb4b09d68c71c9a55828b450f852927cf487a6eb93e24d8bdd6df0",
+      "signature": "0oi2rnA0ITQg859Gb4l9/6NvJBokhABNWhcc80nq8k0HWFfatT1s2Mn4KfBd6Ofs8HeKiJPkT2IIg+iUMf6dCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "2f165169-cb64-478e-8bef-899a6a909233",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "store",
+        "name": "Магазины"
+      },
+      "row_id": "2f165169-cb64-478e-8bef-899a6a909233",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8270,
+      "tx_id": "84ed77b8c9a46cc2d2f798098a39e31dd5c808d0290366e603e6c09e82663d4c",
+      "signature": "q3DLTJGiIdrH3Dy/r3VmOFbe7415SPewQMLg25fz1iBKukDdgsNpXNIdLquQxt0J9IFQNlei1sj9Eo7SXlsaCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "df764295-359d-4d2c-99e5-64b21deaf4a6",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "engine_node",
+        "name": "Узлы двигателя"
+      },
+      "row_id": "df764295-359d-4d2c-99e5-64b21deaf4a6",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8271,
+      "tx_id": "45a77071b4635e88cfd4a4ddea17fe47189142d366abec1eb1771bef4d91a254",
+      "signature": "L7XAZgNXEpynbkeXglqPDhjYNXJej8tRF+57JxGc+UDwRB/rKCJdwebMSSlw/0h0d2AFJaWwkc+Tavyx8zhfAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "e86a8d4d-5872-4cbb-b01b-f60a80bb79dc",
+        "created_at": 1770040032051,
+        "updated_at": 1770040032051,
+        "last_server_seq": null,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "code": "link_field_rule",
+        "name": "Подсказки link-полей"
+      },
+      "row_id": "e86a8d4d-5872-4cbb-b01b-f60a80bb79dc",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1770040032051,
+      "seq": 8272,
+      "tx_id": "496f857f5dd1fb1e5f8a75a6b6f3974ed3db7b4a6912b43cd79a0c5a6ab8f457",
+      "signature": "LWUEd6Y9untcSHorYpVn98i+fLmFtctNIBVZwSTchjwL5YTIu6OAO49UZQwKmgLIWDHyWGE197+GDy7VSifcCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "d1aa5f85a92a7b1910e8184cbb91c1665eb1d0828ee382b58664c520ebf071b9"
+}

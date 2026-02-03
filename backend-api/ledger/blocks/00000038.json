@@ -1,139 +1,32 @@
 {
   "height": 38,
-  "prev_hash": "f46846875f4de7dc096d6a3c9a2ac0d5406336955618d9eb037f1454ae8606d9",
-  "created_at": 1769681188147,
+  "prev_hash": "cf6815b790a679f423b10c0bd3e6e8b6f11dfb624dd3b01c4669d4a807039f43",
+  "created_at": 1770118099788,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "user_presence",
       "row": {
-        "id": "60366b41-baa6-4194-aa26-715f16ef173f",
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770118099636,
+        "created_at": 1770118099636,
+        "updated_at": 1770118099636,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "60366b41-baa6-4194-aa26-715f16ef173f",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
       },
-      "ts": 1769681188143,
-      "seq": 96,
-      "tx_id": "340ca5c0f9b1bc56c6891736df54d436bcb03c0a161a961f12b29343285f479a",
-      "signature": "iHXBIdk0JZeVeERf3PhIwSFVqFq1x2xspEKIaut2bJBe9W/qlEm0ypkuqaH1tzk7REvf7qvtAQcJcw3g0jNLCQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "3ff8d23d-130e-4728-bc2d-d0a46488ec87",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "3ff8d23d-130e-4728-bc2d-d0a46488ec87",
-      "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
-      },
-      "ts": 1769681188143,
-      "seq": 97,
-      "tx_id": "67d2fde7c8d6e49e85188e80dce10a5175174826a83580492e419c5bab213230",
-      "signature": "NczxSVkdpugDowDWOPWZ3gmNWDzl5ak0VxuwPpJW4CZWqcH1f6qKWg3KOIE4kb6D2k/ncr+L2Ys48zEkkmUCCQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "868da1e2-191e-47fd-9b8f-bf7834a15d50",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "868da1e2-191e-47fd-9b8f-bf7834a15d50",
-      "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
-      },
-      "ts": 1769681188143,
-      "seq": 98,
-      "tx_id": "81f74993d34dacf8141f3bc940a840fdbaa9f2f338be500ef07dde156fd3ef7f",
-      "signature": "nC73AtfcXD/sWnzYqJXDv8PVXaJ3vfa5iduuhaP8XNft34oE+4gupYMT0lJz5nyXQs351ISOamJbdZ/SYHRHDQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "operations",
-      "row": {
-        "id": "098925a0-0916-42ca-9ca9-edd02b593e45",
-        "status": "checklist",
-        "note": "Лист дефектовки двигателя",
-        "performed_at": null,
-        "performed_by": null,
-        "meta_json": null,
-        "deleted_at": null
-      },
-      "row_id": "098925a0-0916-42ca-9ca9-edd02b593e45",
-      "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
-      },
-      "ts": 1769681188143,
-      "seq": 99,
-      "tx_id": "0661195bbe65135979d49bd14884e3d95d1ec79d40ca6f3341f1b1ea7ac41b11",
-      "signature": "/YPWfHlhs4HrrwQ3JH/9Uto8LWKQayeqOdEIn2Cz7aiddd4ot61bq02POPl/vU7gn3VADGd3f8ChlGvd1soGCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "operations",
-      "row": {
-        "id": "e7de2e86-c035-42ec-b478-3881b976966e",
-        "status": "checklist",
-        "note": "Акт комплектности двигателя",
-        "performed_at": null,
-        "performed_by": null,
-        "meta_json": null,
-        "deleted_at": null
-      },
-      "row_id": "e7de2e86-c035-42ec-b478-3881b976966e",
-      "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
-      },
-      "ts": 1769681188143,
-      "seq": 100,
-      "tx_id": "ff5483dbc6ba4043404ad97546f1a7e3462411254dae85dda082dd3db367e43c",
-      "signature": "wPL5fhpLNlFKHKBLKPNu+kWvJ5yAYq4zUxZs86PZY14XVqQR1cSNb2W7IUaKjZs9Lgz4jsK6aTTCDaUzihvABA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "operations",
-      "row": {
-        "id": "9c75b6b9-91c5-4144-aa94-994c4d6a08a4",
-        "status": "checklist",
-        "note": "Акт комплектности двигателя",
-        "performed_at": null,
-        "performed_by": null,
-        "meta_json": null,
-        "deleted_at": null
-      },
-      "row_id": "9c75b6b9-91c5-4144-aa94-994c4d6a08a4",
-      "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
-      },
-      "ts": 1769681188143,
-      "seq": 101,
-      "tx_id": "a757a134993a4cdce15ae5f85b4f41abcea940548e53dfd02ed21e3d50d70b61",
-      "signature": "xBGFrhIeTC7hJeeWYNCY1e9H9Ut7RAYmKQYIttcuaElzT7TZbfdo7qmbrKFwbl/fU+7fCWCYMqq4TlC+SixDCw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770118099636,
+      "seq": 2380,
+      "tx_id": "6b0c4ca5cde163e688aa44f10b9d510f28bf791cc9387678a40fe27885a8f461",
+      "signature": "e4t1o3namM27kQtS37FWOme+YzBUf6i0BBDp+6c6deFEEyVJE7i9RxxUL86tMb/5IPGsIlkxm5+z11xQct4uCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "21ab54fd7f1e585158f4fd1f82923ebe19fc7a6375be042c658f64506a754f8f"
+  "hash": "d53863d289295bb0d2185fd74f137d093f03631efca2ef56af434586eb49d619"
 }

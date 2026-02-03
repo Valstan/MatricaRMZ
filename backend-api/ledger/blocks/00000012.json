@@ -1,71 +1,32 @@
 {
   "height": 12,
-  "prev_hash": "b56f1883a8fb7c6293877d5d23fb7520895231e79fde9250ff6356a952644d86",
-  "created_at": 1769507760760,
+  "prev_hash": "3dd4b52835cc1b2e213a7385bcecab580abc771be77863cde444775ec4c3f4fc",
+  "created_at": 1770117319801,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "user_presence",
       "row": {
-        "id": "f9d6ca8b-6f15-43f8-b017-3d5fac11850f",
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770117319797,
+        "created_at": 1770117319797,
+        "updated_at": 1770117319797,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "f9d6ca8b-6f15-43f8-b017-3d5fac11850f",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769507760759,
-      "seq": 22,
-      "tx_id": "17641965d2310d34349fd8ab484de9868b23748b3190c3ce91744e22cc865fcf",
-      "signature": "vB4KHy4oIwHxHzvwKOXClZfOXV2XY4wVJXpY/+0XzugnQT+baDuXwNdbWDcxz7/P9i4EH8PD1+Pa+WmtiaqyBg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "f8228ad9-26f4-4d0b-a935-3592d24adad7",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "f8228ad9-26f4-4d0b-a935-3592d24adad7",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769507760759,
-      "seq": 23,
-      "tx_id": "c96fe7ae2f6cab19ae83a1675a1d7c4d7da40282bec5af1b83a786e644d0a023",
-      "signature": "A0dZEYaLxHHrdxJiG3+m1MWRh7g+kSI9t6Et+Umy+ATqi2KKNBVb445mcZxDjQ4xPfQq3+qRcq8ReehY6ZOtAQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "operations",
-      "row": {
-        "id": "f3bbafae-11e8-43e6-aa48-00039bc9f79a",
-        "status": "checklist",
-        "note": "Лист дефектовки двигателя",
-        "performed_at": null,
-        "performed_by": null,
-        "meta_json": null,
-        "deleted_at": null
-      },
-      "row_id": "f3bbafae-11e8-43e6-aa48-00039bc9f79a",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769507760759,
-      "seq": 24,
-      "tx_id": "e886a71369243678acc450421a70bb95e6dc7fec7dd2cf04679a87199206129f",
-      "signature": "cHbyCpleaoOG2bS3/moWOfjYV4bOuCSbCSQiE5ap2tDXTKgjcQqvBdot4TR+JCKYpA6pNpGYj+RqiLGVEhcaDw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770117319797,
+      "seq": 2354,
+      "tx_id": "1cfd0177ed68a05a32fa6f4b375d6345340f457c5866095a734f37f00506b190",
+      "signature": "iKJCSYCxqzTHEsOTXs6pgwSesOehrViy7F0NQi82V52YL4ikgNnRAtw8afJFvlcvIAobpLI7yAAQIKIxdl3/BA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "b01a74b3c79864c1ddc407c287ad814c0d371627e0b5f49401f88b2b414bf3bf"
+  "hash": "1f857a2e163fd74722e027e959bfdb5ebfe728c4a02066740d2efa14ca6c3162"
 }

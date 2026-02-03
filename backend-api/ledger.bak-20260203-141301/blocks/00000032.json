@@ -1,0 +1,32 @@
+{
+  "height": 32,
+  "prev_hash": "1ffefb67e38e3d634f4033a35e793beda4c1ea53b3f09c97bf318a0d1ff3f2c7",
+  "created_at": 1769677615040,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "operations",
+      "row": {
+        "id": "346c33a0-16e4-4936-b58b-9cf915ffcc2b",
+        "status": "checklist",
+        "note": "Лист дефектовки двигателя",
+        "performed_at": null,
+        "performed_by": null,
+        "meta_json": null,
+        "deleted_at": null
+      },
+      "row_id": "346c33a0-16e4-4936-b58b-9cf915ffcc2b",
+      "actor": {
+        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "username": "nastya_tech",
+        "role": "admin"
+      },
+      "ts": 1769677615040,
+      "seq": 88,
+      "tx_id": "19b4033648ead74ec1fc2757d9c89405218b572d2a30304439171b71eb9d4e18",
+      "signature": "nMspgGDu1juY0bwukDjwl7cELIGhMW0dd/6D/UiPNt5Evyhk3aGMigGcQJynOJbw+rbsqTiM2T2+PEy5qWIiBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "963d182b50b65b344f6a8253b8fdeddf4aa79269b71ec4194a5d9ff81c68adc2"
+}

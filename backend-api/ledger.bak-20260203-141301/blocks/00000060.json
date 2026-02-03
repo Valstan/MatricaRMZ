@@ -1,0 +1,32 @@
+{
+  "height": 60,
+  "prev_hash": "35bfd4b56271e113edc9a4a8205ac50eb78388ae9684150a9a5c4baa090ad663",
+  "created_at": 1769717992814,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "notes",
+      "row": {
+        "id": "b4c8c31e-5984-444f-b28f-f9f8943981a0",
+        "title": "Заметка из чата",
+        "body_json": null,
+        "importance": "normal",
+        "due_at": null,
+        "sort_order": 0,
+        "deleted_at": null
+      },
+      "row_id": "b4c8c31e-5984-444f-b28f-f9f8943981a0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769717992813,
+      "seq": 2360,
+      "tx_id": "22d68edeeb567c4d229fb95a33666de39c0e7736d8c99d3d739332fb7b033532",
+      "signature": "6OkQb1A/U29wOVJW0bPH0BXk6K+OaoO4CNjxk6dNogIOS+OExXZqC7kpgqCNLe3dvjw0WmqNk4aDI3Ej7j2fAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "3ee1974ca1fc0221acd4e3f2bb22a50b89be1b0b5adcbc9c8324b2caf83e852f"
+}

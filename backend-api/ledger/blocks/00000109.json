@@ -1,31 +1,32 @@
 {
   "height": 109,
-  "prev_hash": "0fc82f41daafa472f66d5bb91f0a6a0205970a90fe44ef4b98c72c295061396a",
-  "created_at": 1769973839231,
+  "prev_hash": "0d24bb6223fbddc4b20f7e19e6bdeae36cd99fb56fe01c73a375f9db922afe60",
+  "created_at": 1770120199697,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "user_presence",
       "row": {
-        "id": "f9389ea4-bc58-4308-9780-685c801f024b",
-        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
-        "created_at": 1769973839227,
-        "updated_at": 1769973839227,
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120199694,
+        "created_at": 1770120199694,
+        "updated_at": 1770120199694,
         "deleted_at": null,
         "sync_status": "synced"
       },
-      "row_id": "f9389ea4-bc58-4308-9780-685c801f024b",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
-        "role": "admin"
+        "role": "superadmin"
       },
-      "ts": 1769973839230,
-      "seq": 3110,
-      "tx_id": "c164894a8f08484c0fb481c24b660998b3bb47653c941ba16412a1bcdea4eec4",
-      "signature": "2wMI3UBXPDFMaqnpmbcJu7ZFhcMofPehYspvkfQozW55zFQBh41681Wvq2b9OyigCDhRLg33OBOVK7T1P6bNBg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120199694,
+      "seq": 2451,
+      "tx_id": "3313737e138b48513f4f51437aa433b8090e17108d3d974f1957819127f06345",
+      "signature": "k2JRmkizW5fgIPIKJTeboayvI4Mtaye9lkBk3g6IzsJfuJSnPeRchL9Zf9E5nza+g9QAMgr4xsRfwQrgoF6tAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "b6952ea666598fa6ab8131aff836caa989179ce7d15fb5df61844e83a48b1b8a"
+  "hash": "e344cde73d8bc57028751530d5ec098ae31215fd75f4eb9563f2b4ecc76565f9"
 }

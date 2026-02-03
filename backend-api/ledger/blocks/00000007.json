@@ -1,27 +1,3816 @@
 {
   "height": 7,
-  "prev_hash": "b1070c3e9e3e991b88577ebea726a14303fc0e73bc12eb6ad84fef5fa234c9b5",
-  "created_at": 1769507501722,
+  "prev_hash": "30cb167b6a6f6995b6d4a2f844bc173638c031136e329636b309bd2db55ee770",
+  "created_at": 1770117187252,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "chat_messages",
       "row": {
-        "id": "0c08ab37-d472-49b5-9d39-6988d0976e2b",
-        "deleted_at": null
+        "id": "78be715a-9935-4937-bd46-82f66e5abc31",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 01.02.2026, 00:00:08 — 01.02.2026, 12:00:08\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769936409014,
+        "updated_at": 1769936409014,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "0c08ab37-d472-49b5-9d39-6988d0976e2b",
+      "row_id": "78be715a-9935-4937-bd46-82f66e5abc31",
       "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
+        "userId": "system",
+        "username": "system",
+        "role": "system"
       },
-      "ts": 1769507501722,
-      "seq": 17,
-      "tx_id": "c0d9e6bc0c8c271c80b03f23f71504690d48dcd19918d94724f2dd89cc1db3db",
-      "signature": "PsQOFOlrHslfi9TO/TJIPySGMi2GpvKeC64wVITpjAmgWOETuTKFwkLEypaa4dzw7hieiF1aotbNflvI50NRCQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1769936409014,
+      "seq": 2108,
+      "tx_id": "7d240c550b99482936a124ffbbf4fdd1af70b1469a41622bf05c58431374db63",
+      "signature": "LtBkDs1Jelcsxqeh9e5R/BS0Xu9uaXsAwSmk7HAT3TklQA1Hwds/cCsXYgW0OHCWvt1IcRIewG5O2TskilUTDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "a029eca9-d868-4009-8cc7-c9dd3a97ae83",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "пример",
+        "payload_json": null,
+        "created_at": 1768785841211,
+        "updated_at": 1768816256123,
+        "deleted_at": 1768816173396,
+        "sync_status": "synced"
+      },
+      "row_id": "a029eca9-d868-4009-8cc7-c9dd3a97ae83",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816256123,
+      "seq": 2109,
+      "tx_id": "a45e9d6921195517471b866430ce4f9aa713ac2e541458997ce6f2cd78e2b5d6",
+      "signature": "6WPQpff8oiDVmDgjqLSdP5AM4xq1Xb91CkxkwuflU5Fgh1qghYD2V+qPmehaWHAUBJeC0BzQelP0EHzgz9TkDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "4ec6433f-4614-48b8-8642-19dc581b0569",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:0ZOyn9y7EiJmfbeS:e50381IhaPaeYP4/qXVaEg==:xm7jI363Hpw7Y698J3F6bnIxrwXOlxFqlLxcDxFwRgQzr2CwjVW9XKCiI/wYd/UwGTygpaAg3GBwK7VHFok/N/RlG4ZcXjG3HdLpOcufbIx2SYg=",
+        "created_at": 1768786084185,
+        "updated_at": 1768816256123,
+        "deleted_at": 1768816171915,
+        "sync_status": "synced"
+      },
+      "row_id": "4ec6433f-4614-48b8-8642-19dc581b0569",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816256123,
+      "seq": 2110,
+      "tx_id": "c1d73016df9162485d2277f272d307f7af0f9f0d4a77a3c725e0719c1cc97da3",
+      "signature": "re0W+FFQ5/+b1zL1sb548s0IuTzJ8OXHAdizXgmz3bJVY7nFCkYRKNRbMCdYeAazZzjOIHG4WDXlrJD2zAyzDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "34ede360-3fa3-40a6-b6c4-7493abfbf78b",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "цкецуке",
+        "payload_json": null,
+        "created_at": 1768786088403,
+        "updated_at": 1768816256123,
+        "deleted_at": 1768816170065,
+        "sync_status": "synced"
+      },
+      "row_id": "34ede360-3fa3-40a6-b6c4-7493abfbf78b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816256123,
+      "seq": 2111,
+      "tx_id": "44eb9f0a1c1f51483e5b57b71ecc60708fc1384c15fb4acd0b4f3f347172feb1",
+      "signature": "3HZWGziabk22czGphODaQ1pR9OALCKv0W5R70rf2cF2AJz7ByxodGj1rPCl0L2R3+nYeOUN/oVYzNtjCDUGFBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "a771f708-20dd-4afd-8aaf-209608c72eb6",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "segsergseg",
+        "payload_json": null,
+        "created_at": 1768786108845,
+        "updated_at": 1768816256123,
+        "deleted_at": 1768816168543,
+        "sync_status": "synced"
+      },
+      "row_id": "a771f708-20dd-4afd-8aaf-209608c72eb6",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816256123,
+      "seq": 2112,
+      "tx_id": "07449b27704d7575780bfe2a924d1f1c381bc72a940da69cd71327c0c5d57bf9",
+      "signature": "1dF/+gPlFz8U5Sz2trqZCczwMqEbXiZ0p7DCI/CpGK12OqxwA001XKi/8jhgKPzD+FclE+r6RhBtzGtouwv1CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "546f6b07-1ab5-4977-9f8c-722d9e0d690e",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "srgsgrserg",
+        "payload_json": null,
+        "created_at": 1768786112355,
+        "updated_at": 1768816256123,
+        "deleted_at": 1768816167026,
+        "sync_status": "synced"
+      },
+      "row_id": "546f6b07-1ab5-4977-9f8c-722d9e0d690e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816256123,
+      "seq": 2113,
+      "tx_id": "5de2d86b11786fd1da5f68d594ffdc553f496ad92980672779f82c481b28ab0b",
+      "signature": "igw0iVcilht5IDifoeJbNIGtonspTbG2k0KVrBrigFetdJzzQhKct8Q5j9QX2tjDDAOFyiiHGJqhuVKxdnVhBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "99b3239b-8cbf-450e-b850-7cc41c800f18",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "gggg",
+        "payload_json": null,
+        "created_at": 1768786126861,
+        "updated_at": 1768816256123,
+        "deleted_at": 1768816165065,
+        "sync_status": "synced"
+      },
+      "row_id": "99b3239b-8cbf-450e-b850-7cc41c800f18",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816256123,
+      "seq": 2114,
+      "tx_id": "df2e0ce4dc8ca81ea695e2ac38b7b4eff8c4bfbfeb056771573d436cf64dc7d1",
+      "signature": "9MsKoUCZzO6iFWEcHpp2zsGAqUa4wry+ZysNgB7EQAs3szErp2awTqoiOk9uzwNaO99LLk3+cG3OcTOCSJ7TAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "93dc8e8a-5858-4a20-8883-157dfb7b6ae5",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "еще сообщение",
+        "payload_json": null,
+        "created_at": 1768740558270,
+        "updated_at": 1768816271137,
+        "deleted_at": 1768816187652,
+        "sync_status": "synced"
+      },
+      "row_id": "93dc8e8a-5858-4a20-8883-157dfb7b6ae5",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816271137,
+      "seq": 2115,
+      "tx_id": "9acb98f8b9131d54f18fb6f2b87ed4b67712d888f0e86bda9556658c69ef06a6",
+      "signature": "PBHJeSs09jxzQjxp+1mzkiVFQMKWlROPSA0MV9C0nD9OPhxptPBcmjqvOSOlKTEP3pYmacQacuo11uVIwMBqDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "8cd00aee-97bb-4e8c-96f4-77c49df2298a",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:RTjvkdWzhQbpxicE:lPShkpMU6vHbZgelVJc7QQ==:P18SvTy0XsgQyIDyPFKdag5yFz6mIAFFBQZJEoXW3DyoEMVuJuMJTOgbxdmTqQndmYx2FNECl0Ey6+7QbpMzf11f7ODLsTNmaOOCZZGGnFf0BA==",
+        "created_at": 1768750146993,
+        "updated_at": 1768816271137,
+        "deleted_at": 1768816185695,
+        "sync_status": "synced"
+      },
+      "row_id": "8cd00aee-97bb-4e8c-96f4-77c49df2298a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816271137,
+      "seq": 2116,
+      "tx_id": "5448554779ca46e1678ac718abd49e980bd0039d92f8a31ba5b690d6752eb9e3",
+      "signature": "VAmmxWDNST52/w1a2YesxEY2kZnIQffmCrWGaf9OrwWcNYaJYDEdARyfqxu9XWmxWynRw1qoH7S4pSc0UCYCAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "3786c995-6d08-44f7-8d99-5aba3bfe0132",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:c6jaeVM1U7RoJV3z:mE/aUakes+afChBmHr7Hkg==:8gqHkHxKZ+5AB6eGZ2IHmEIndNHZ829UBX/zZUtrQ2fBGhLcbNnqQ+OtTucN7XkwgBccNHW5R3LPe/XGoEP3Vmlx5zfY3xGwd4uNuA7AEkRTTp4=",
+        "created_at": 1768751972553,
+        "updated_at": 1768816271137,
+        "deleted_at": 1768816181770,
+        "sync_status": "synced"
+      },
+      "row_id": "3786c995-6d08-44f7-8d99-5aba3bfe0132",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816271137,
+      "seq": 2117,
+      "tx_id": "4ee4f79c0f54e5e42d2c2d85c9f573e37529c7c064cf703dce3b08bbc686d4fc",
+      "signature": "g2bx6WupRyRheAy4JkdeiGJxeM4bPOMV5KDQ7ifiXgzlUHj/9zaI7CAM+98G6Ho7ZkW4+rpVwxAaTFrUaFYVCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "7f50596d-283d-431e-93a8-0ea5262a7f3f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "отправлено с вебадмина",
+        "payload_json": null,
+        "created_at": 1768761826683,
+        "updated_at": 1768816271137,
+        "deleted_at": 1768816183434,
+        "sync_status": "synced"
+      },
+      "row_id": "7f50596d-283d-431e-93a8-0ea5262a7f3f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816271137,
+      "seq": 2118,
+      "tx_id": "31ed426b324e391d69d8dfc1022ddcae825ebb36c87b11fe05b06691f9ccd22c",
+      "signature": "EtWwIFQDSsxF4xRhQrSD5OEEa/IEHZ6KWLEAwX8VMzewWprzOGCBS3jk88SHdky9/eqxWStiso+gBAe793fGCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "decf44c3-98b1-4652-8283-df2424329523",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:P31/J56A7qAdaRQC:bBpq/2IviLV7xZLib2Cmxw==:0UgP1Uo25HDmcjgs79x9IT///BfhKi4c1w/UcdGD5mhpwk9NQ9TtkMPCqaEJG1EyiHTMPpcNSRzifxJOR82H2JPZbe7ieRZwBa1zCxZHAb2GJJrPzqwis3GSX4bw4wrNKuO7LWxlXIjx8UB70FGd5SpaDQ==",
+        "created_at": 1768782181927,
+        "updated_at": 1768816271137,
+        "deleted_at": 1768816179875,
+        "sync_status": "synced"
+      },
+      "row_id": "decf44c3-98b1-4652-8283-df2424329523",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816271137,
+      "seq": 2119,
+      "tx_id": "997f8ee36aeb66a3557f71a82abd0882a4211466273208189343ade27d222bf6",
+      "signature": "LcKiGOMMMoKSlxwn7a1HsdD7JOC51rpxIURbFcgShakGHw9YwN7x0X1i7fP5KOnz68lh8CaYGRFDQQCZJ2JrAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "2b059325-e2df-4d5b-9627-b4ee2823f1a0",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "ура я первая",
+        "payload_json": null,
+        "created_at": 1768819465243,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064114742,
+        "sync_status": "synced"
+      },
+      "row_id": "2b059325-e2df-4d5b-9627-b4ee2823f1a0",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2120,
+      "tx_id": "da5d6f40c7f541131ddf1c2224ecd7368a6728d3899ca132a9ee70d9fb48e66a",
+      "signature": "TOcG24lDaujC/YioTLOsZ36vKoXjbG34Lv/ya0uZrj3G76P6793V+Hs4qg0PtaOqJCRLv4a1yLHgC6AlX93xDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "3cb8d56d-1ac6-4c85-a263-5b3ce7eaa573",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "Спокойно, без паники",
+        "payload_json": null,
+        "created_at": 1768819495966,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064113185,
+        "sync_status": "synced"
+      },
+      "row_id": "3cb8d56d-1ac6-4c85-a263-5b3ce7eaa573",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2121,
+      "tx_id": "7291303b182c76e92a12c682519b0fb04ae51e5dd6359984ea932be8a4a153c3",
+      "signature": "K29SmgjaOkfFd83DWb2uvmmMIMYMgTvx+1mR4bDd83ve1COLUWJ7nQAfm1j6QGB6XQbH0MpIxUwzAXl05jiNCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "c99c03cf-f2b3-4079-a8aa-f3490577f70f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:MtpXkYLU6yDR3/f+:9gTp3x8QDpO9nmib94ZpPA==:6WYe9G1HaNZAX1t3lucrnV+YQbc5xsm7G6TxFjApD4LKJ+w+5MgHf6iAS8NooSyNmLT+GrQHZhXE9eMJKD+ZySZ/bafA1bZ9h+kmZ9z8CSsIJg==",
+        "created_at": 1768819573131,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064106241,
+        "sync_status": "synced"
+      },
+      "row_id": "c99c03cf-f2b3-4079-a8aa-f3490577f70f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2122,
+      "tx_id": "61649a15c45bd40414262d418c272945361e9537032449aa51202751e6acb988",
+      "signature": "gQ7B6JyQUzxQkmoE1U/Ebg0s/tbFrLBGMsdraA+4jm6YJgOkHskDGjjL7ZIF06ZJFewhKznf/YisgEHzzX/bCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "9329bf87-3ef7-43db-b9c2-05c77a44aebf",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:6pEVMuzM3vTeZEeV:jbSHhDtogOUe7gA8GrZrqg==:iQlsPTXMlX3iD4U3rZRzaL0bJL88ejB4BlejQfL2dIofOmK2eLfWU4pcJjU1y8CvWlxcU+eP0ahf8yhdq5esjdvMRii8rGudFm/kh5Kp8WSdYw==",
+        "created_at": 1768819581818,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064104667,
+        "sync_status": "synced"
+      },
+      "row_id": "9329bf87-3ef7-43db-b9c2-05c77a44aebf",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2123,
+      "tx_id": "09aa588252e3cf9382157d102655b63a6e6d5fb1178233d50852ac90858f5887",
+      "signature": "t2d496vPfJlBL+MO+YZYhO3H2PsBuKqAsyaqsv9m3COp8kwmVLuXqwH3XdyglVRc+yNWh59qOOzGQRX/GR8zCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "b344091c-50a8-4736-bde5-69f0a0c11f37",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:vTn5zJkIK9HLFS27:geU4TTPr/0DUvJoSYLYtGQ==:giV+y63sbm5fp5b0J1B3yiZJ+n3CbBs8jyLHwfGeMCF81fWAdkVPV509M9iJZAYKc7C3BwCtDWSmB5OSHc1mNxgdh8F48MSlsbE7izTF1e/lDA==",
+        "created_at": 1768819605602,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064108437,
+        "sync_status": "synced"
+      },
+      "row_id": "b344091c-50a8-4736-bde5-69f0a0c11f37",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2124,
+      "tx_id": "54a63f820c81a82b49a6566d68f443661c07237e7a5b16492bfc1f1ed48372ed",
+      "signature": "Yl66hmgQLAiyA9uyHwjza/9/JohcIbKyInLsq6hSNMRK0sYRU8xoQbJR5yabjabO/VyfzG7f2cZExe6wJEzbCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "6ac06a32-72fb-4b68-97cf-153faf42d2cc",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:txtNeQNlBdMWT4iW:Ptfd4fBXT7cULmGnrnp2dQ==:vcxIhClLTUA3a+ngEZ0uf9iRj0zHLDLBUL+bKO0sgbbQCzCw9gOtr05fz2mMrySf8L8otXDxDG90ZZFn4LX684B4M9Y4pGC/6rMn3DD6IchqUw==",
+        "created_at": 1768819609386,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064103116,
+        "sync_status": "synced"
+      },
+      "row_id": "6ac06a32-72fb-4b68-97cf-153faf42d2cc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2125,
+      "tx_id": "b94e37b84c59c737bb1fe5a7939d7f22f89a243a2fec6ec8b7bd11a7ab67c2ba",
+      "signature": "InDJ2kpa6YTEAHGBT/d98buUZd0MLYZdyvJ3Do/rcP4TUMV02WkefESB52KqQ6m+PTN8qEBvNURuWpakjIpYCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "8fd09403-89bb-454f-a319-eb0ecc9203ae",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "...",
+        "payload_json": null,
+        "created_at": 1768822017010,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064111485,
+        "sync_status": "synced"
+      },
+      "row_id": "8fd09403-89bb-454f-a319-eb0ecc9203ae",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2126,
+      "tx_id": "894afad701bde8dfa64400cf78c312a7b6e690c5eb2e0524d9c932e0547249b0",
+      "signature": "n9kAMPq88vbNLAUo8HKoZiJV10pHmH4wP30QJrSAdtQQAtNyujbRDe1QIZNuqGZnVuu6+8u1MSiTYydA3HEDAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "caf50250-1b60-4865-a263-a3fe5516a603",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "@Валентин угу, надо и имя и сообщение прикреплять же",
+        "payload_json": null,
+        "created_at": 1768776683575,
+        "updated_at": 1769404814109,
+        "deleted_at": 1769404703595,
+        "sync_status": "synced"
+      },
+      "row_id": "caf50250-1b60-4865-a263-a3fe5516a603",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404814109,
+      "seq": 2127,
+      "tx_id": "92a62c8fc17a6ff0beb41d2b6a07ca2eae41e259f639babe1078ce7188353956",
+      "signature": "X40lKlseRH55ScOvROhsMkYiAS2OHpphSFfUdACt/nF9zcnoR8J4nv7FLdp8SyjK3LbP3Fc9rhvvYoPg8BzVBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "69b18d09-a685-49e6-b879-09d4c6e4e137",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "привет",
+        "payload_json": null,
+        "created_at": 1768785785659,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994103791,
+        "sync_status": "synced"
+      },
+      "row_id": "69b18d09-a685-49e6-b879-09d4c6e4e137",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2128,
+      "tx_id": "5e51e1659edf6c68c3b946a17f06ed10ff8a004f997ad583cec5ef47dc0e8d4c",
+      "signature": "dSBqKMA+ehaD5GoTmQf8gCs8nebup6YlIOW+4En3+zjpJPL9AiLzfMa5IVhyTf+D+baTw1LkF6EOdxOI8knvAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "a661fa0a-9b55-45f8-9f64-d41d5b0d44e2",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:br0FzNg70xvQ9Aun:2DF2jcD+TwUBw+2BGTfjzA==:1yguDIemnlWKxRk334awK/qMqacLSSQwG+Z+tZAu5Cf1VaxYvhbnk31nIw6yMvQna7Iq7s95NRniva0iZ9XASmHIS1KeVbvjJRdE8yoJqJcUdrw=",
+        "created_at": 1768944220820,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994111960,
+        "sync_status": "synced"
+      },
+      "row_id": "a661fa0a-9b55-45f8-9f64-d41d5b0d44e2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2129,
+      "tx_id": "2e36679d3bda4689dd2767d06143929d3b60834b4e6611229729fd23de1e444d",
+      "signature": "L+KT09IHi0OAbUJbuM/ozCqlwHDsCi4OZn0yu7vFsdI8tyro2BTEkJKeAnZToD4uWki5XTGCkkN9uHMPncdkBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "8c78a320-7a16-413d-ae51-0f8b604fb44e",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:o0wTprJ6j3QcgYVH:spac6Guw9ttshQpYVdgzpw==:rC65TcuVLcuDqFnv8999tRalI2L4Vsj/2H/cz5kPwc1FA/Ys1OB61oqYQvq6cM349f9njdx46Ic5Ac/LOOIe0Xopc5GwK240Xq+b+egsa+xgnuw=",
+        "created_at": 1768951373681,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994114138,
+        "sync_status": "synced"
+      },
+      "row_id": "8c78a320-7a16-413d-ae51-0f8b604fb44e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2130,
+      "tx_id": "753b45e619b10f5ae05049ea8939f3d427e5029dc6d195e11361f6fd4b7d15f8",
+      "signature": "Hoch0tzonc8VdXmW7rwuWNlu7ztY/agrqnTnB5AA4eyfBhTBdRtyXaHHas+x+I19vk7sfrDJrfEwMF2Jqz1LCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "93f99fd5-182f-4087-b674-5ef070a865f8",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:rbtMy5E63awATzfw:5ctgsVoW6Ms6IhhK2CR1rw==:3u6nK+QkwzsSlGjM/o8jRgkODeV9cAJIL2GqHsxq59svhwVmQ41D9gzv98ukrWLHyXU1QiGWuFKCnlWjI3IzXP8GqXAjTNvJ44kMpEjMWs6S8Jh6",
+        "created_at": 1768951389609,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994116310,
+        "sync_status": "synced"
+      },
+      "row_id": "93f99fd5-182f-4087-b674-5ef070a865f8",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2131,
+      "tx_id": "ab7ff8f647583f6f12f5b823f43c76fc16e2327090332f254d3d57ec4a8281be",
+      "signature": "Gm61zn7NbKv7DIUDAAxDIA8o9eZN9W6e1Iql4IfHGWLu/uRf24jXcuoRZp/YWrjuF29Tog6RtEYZVQp1WA69BA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "89fa4c84-2331-44c9-a694-c12c564fba74",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:ATHv8r5h5sgd/kMs:0I1Z98gZe0AdcK6ZqqGExg==:rrSNTelomsQjWjgQi0Rbp8+JoBSkSnQJpBmChGoS+g3J+APSFkLu2wVDfW8P7c1JVDSpakD6uTuA3KyUva1QC6E6xJqaPVV170RNBhHjBzB202pf",
+        "created_at": 1768951392744,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994118085,
+        "sync_status": "synced"
+      },
+      "row_id": "89fa4c84-2331-44c9-a694-c12c564fba74",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2132,
+      "tx_id": "d17c7bd830dc199aa032959244b51806877429746208ecf644e06039326b597c",
+      "signature": "YFzppNsLYtRUx9qp3Y2rgNpsTY/+nHRUQazzkioT1bnOuswrxyrF9WUfrW9j6COqdZPriXarOX1A03jvZUTLBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "818a2eee-3aba-47a8-b48a-43dedc82de69",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:5LnEp/lk5uUKnS5d:6ZSC4Z2SCC9ooPYxO/Lg3Q==:dntG1eq3YH+DDme3SB0Aw1CX/Q6IfLYlsSekTDd9QH5+Ez65aDbZoYODZZKFudHwHKYeA/ApPmAcmkY7PU7M8uA5ikQVOeu6AIfThFKFEkd249on",
+        "created_at": 1768951394584,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994120142,
+        "sync_status": "synced"
+      },
+      "row_id": "818a2eee-3aba-47a8-b48a-43dedc82de69",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2133,
+      "tx_id": "cd3e096bcf444b08de4b4d069ba7997d43f78ce210cbce5f074e5b41a0d38e22",
+      "signature": "/Feen8o6Y8n5znOVYxYgecE8ZxlP7xDUWKQIzZvbFI0BD803YQ9DCsKnHHQlI6I3eLDLZkX2FObZIj7zPzu8Bw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "ae07e491-dfbf-4399-bcf1-a5f0ed76fff0",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:pQ/ugpD2m+BWk2wX:bbYSnyWArojoPrPgvXapUw==:UI1PF6/fPYrG6OJYI4755hJ0eyGTHQHCIJszQtGaF/NZ7st14fWjB4AYMpKlGfxjRFQc8p4XjUIZqT9jVkXBg1wBggSUOT954oVVpZnLdcayc2rY",
+        "created_at": 1768951394817,
+        "updated_at": 1768997340910,
+        "deleted_at": 1768994122297,
+        "sync_status": "synced"
+      },
+      "row_id": "ae07e491-dfbf-4399-bcf1-a5f0ed76fff0",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768997340910,
+      "seq": 2134,
+      "tx_id": "c6628e0f419a43c2358cb414eb709a9331b9f56378952e9e4b25de0977740985",
+      "signature": "pwGmn0f1pd5kqqUPkRLkRVKodKCAPjw/E9z+bOXovqLXzUlV1RDButHquwKWJzgiUsbhPTjNkRcXt+f3fxtIBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "7d6ccb30-6b9e-4b1b-888d-4812a5e5a680",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "Привет",
+        "payload_json": null,
+        "created_at": 1768680052735,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064118058,
+        "sync_status": "synced"
+      },
+      "row_id": "7d6ccb30-6b9e-4b1b-888d-4812a5e5a680",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2135,
+      "tx_id": "bfb0d162343714fade6a6fd0853ad9e46efa735f89caefa82a0920a355854efe",
+      "signature": "OtXPYQkYSsxm9G4wH/uo8QO9z5+SzLWuFhrjM65ZFMgPrd/R/KTggL2hlpgS27dquf+dDV6DkOrl2JOF1l/4BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "3f4f3de3-92c8-4024-aa9d-3c21db972b7d",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "пример",
+        "payload_json": null,
+        "created_at": 1768785790330,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064116246,
+        "sync_status": "synced"
+      },
+      "row_id": "3f4f3de3-92c8-4024-aa9d-3c21db972b7d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2136,
+      "tx_id": "7b40bfb64fa22d795ab1af10e14aaa065cb12b580cea8873a870893d82910f29",
+      "signature": "THgpQnVMp9XGt/T7OOXvB4pH/Y8o3JPBc7k0Mayg8bJJcc79TELRWz6zMe3Br+lrpJUqZ/qbcUlcLuqjwjTEDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "b68b4e35-2743-429a-94ae-26e7a5e6e9f7",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "привет",
+        "payload_json": null,
+        "created_at": 1768823165207,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064109854,
+        "sync_status": "synced"
+      },
+      "row_id": "b68b4e35-2743-429a-94ae-26e7a5e6e9f7",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2137,
+      "tx_id": "b01bfeb9b1f4413bbf726115b2fd3ed17a3887e7f5cb561a88e857bedf45b33d",
+      "signature": "BjWJb9yRU2t803hbZZ5stU2LcsXEW8YsWBLVlTuXEqDocH9L9JhaK9+rYlVNmoxRH0hNDfUgkJAguFmWjr2fDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "0d65545e-ee5a-4465-9423-1c41fd84053e",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "33333333",
+        "payload_json": null,
+        "created_at": 1768828532938,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064101055,
+        "sync_status": "synced"
+      },
+      "row_id": "0d65545e-ee5a-4465-9423-1c41fd84053e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2138,
+      "tx_id": "68887208ce569728510cfdd5e14ea8b53d985d04731b1692ded6430a0a824615",
+      "signature": "6rLzfa7qanlynEW94iocxj8KnmXmQ+fn4U8pzgJZfPRsqJaDYioroTwsue2GGz/hrQb/Tfd6+9Wp9a2IX+18Cw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "a4cf75bc-7a22-4499-a91b-4aa2fe18733d",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "шгпгпгш",
+        "payload_json": null,
+        "created_at": 1768828691062,
+        "updated_at": 1769065770959,
+        "deleted_at": 1769064098722,
+        "sync_status": "synced"
+      },
+      "row_id": "a4cf75bc-7a22-4499-a91b-4aa2fe18733d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769065770959,
+      "seq": 2139,
+      "tx_id": "c483462aa4201a9140510fad7c67579713ce971398ff2ef589244a9770bcf494",
+      "signature": "ekXZKJI9ov0nI4+kfy1DXPNbxzmPDHimIG4E9Ygim3pYxh0jMHwTVg8CCVKAf237KBIosZMHHqnPJywFioWgCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "58948f52-1270-4bf7-bf35-a54d4846e076",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:r+jHV+bOYcIznivr:javvqe7oBWIp0tJKLxy4Bg==:M4tdxgypdl8tfHZ3yT8oP+exFNR8yDYghpJ801D25P75/d4d6YdbQqqGbgfzV5OFnRKqjtZDWGbYnfyoGK4C0a3G3m+Q0mfQaZjkdjeTuIBtgMje4f7N7oktdS6VbpCtcwC5CRTjJ/NUZITjiT34vynHhhlSufM7NutyVHhR73Bd4eVq8PqyZ96NycdIhW8w69sNGVmifVBtbR2+Jz/EmZPP66ai89LcDo/Q31m9YkMa5x7tnDsXEet8J898ryuvKw==",
+        "created_at": 1769064726607,
+        "updated_at": 1769074477740,
+        "deleted_at": 1769074385349,
+        "sync_status": "synced"
+      },
+      "row_id": "58948f52-1270-4bf7-bf35-a54d4846e076",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769074477740,
+      "seq": 2140,
+      "tx_id": "226950545eba1eae0a91964d08c9143745dba9b87c7f0091d85e06ddf3591a0f",
+      "signature": "ylD/mv4Iyh+kYw/nxnK65bGsECxQ58kxl6/6FkE65oImOQcyIAvzEOMHat8FPyJOvUfe++7tS0yW3q5N1kh1Cg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "5a0f031f-67bf-45d6-b8af-730e4722940c",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 01.02.2026, 05:00:25 — 01.02.2026, 17:00:25\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769954425908,
+        "updated_at": 1769954425908,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "5a0f031f-67bf-45d6-b8af-730e4722940c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769954425908,
+      "seq": 2141,
+      "tx_id": "2aed74ee83cb6c7f6c548db1adc1583636e9ee7d3ea919fb68fa39470b297857",
+      "signature": "njuA8DuJIMv37sNbF79j846aRsgdXF9CvGKLYCaq+3Mk9yj9BH+nANYuBHajgEAt/SoiULJm2IVE+l4md0ujCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "b1298d0b-6c53-4f38-80e6-812ecbb2ea5b",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "5555555\t55\t06.01.2026\t23.01.2026, 15:12:17 2222222\t22\t07.01.2026\t22.01.2026, 18:35:29 13412341234\t233\t06.01.2026\t22.01.2026, 09:38:06 23\t—\t17.12.2025\t25.12.2025, 16:42:30",
+        "payload_json": null,
+        "created_at": 1769176009323,
+        "updated_at": 1769404814109,
+        "deleted_at": 1769404699222,
+        "sync_status": "synced"
+      },
+      "row_id": "b1298d0b-6c53-4f38-80e6-812ecbb2ea5b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404814109,
+      "seq": 2142,
+      "tx_id": "4cd9d6b5dc370e5cd78f1dff2b4c66d4634ba4d526369a4a56773714486dddc3",
+      "signature": "/Kro9XFQ77Rgpjw2fgaCzWUIZg5TY6lA5CWEcqxjKejqCnSNf4e8exe8rFKO/PgndpV5qt9UXAfVf7yujes5Dg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "7f94d7f3-e8a2-4567-acd5-aed2621bc0c3",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "вот",
+        "payload_json": null,
+        "created_at": 1769086863996,
+        "updated_at": 1769405594082,
+        "deleted_at": 1769405482043,
+        "sync_status": "synced"
+      },
+      "row_id": "7f94d7f3-e8a2-4567-acd5-aed2621bc0c3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405594082,
+      "seq": 2143,
+      "tx_id": "01ed4f149e5db40a4c50b1c14eb12c7e058e8ad586739637f57045ae14c60c28",
+      "signature": "qONCp9UsC88UE42eZZs9aKzmYSg7wJfwlRV3xbKbXp70gMNaVGVFXvCfaS4urQChlj65X6VBMIQie+VQP16hCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "9d8809ef-b229-48d9-817d-fa011ec19ee1",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 02.02.2026, 00:00:37 — 02.02.2026, 12:00:37\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1770022837440,
+        "updated_at": 1770022837440,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "9d8809ef-b229-48d9-817d-fa011ec19ee1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1770022837440,
+      "seq": 2144,
+      "tx_id": "3f2e829608ed9d44e0b74142b2ac29fbb3db3604bb24f976296c917e4134e56c",
+      "signature": "eOuABtvCFG/1qHrhxYLKRP+fNNoABEJzSnoekkOrpi/FGiQJM4EV7Lr3XULQIrIZjQa5TlrghasKBlcN2u23DA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "ccd2d6e7-2141-4746-808a-ea5764e18101",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\"",
+        "payload_json": null,
+        "created_at": 1769212780277,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404772207,
+        "sync_status": "synced"
+      },
+      "row_id": "ccd2d6e7-2141-4746-808a-ea5764e18101",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2145,
+      "tx_id": "22cd8a12352fa4252c2f3a656496c806053fb8e62fe0ee3bf02f7cff4d314f88",
+      "signature": "s3eXSyXAVrCQ4fShsqvgTZdtgKXkLF9rvb6b/HIcI+EkDxbgs50LKw1Undi9VDA6bUuw5NWMQ5dDPuz4Pz8DAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "8dd75873-1489-4b1c-8073-d75c41a4b65a",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\"",
+        "payload_json": null,
+        "created_at": 1769212772997,
+        "updated_at": 1769404888990,
+        "deleted_at": 1769404779313,
+        "sync_status": "synced"
+      },
+      "row_id": "8dd75873-1489-4b1c-8073-d75c41a4b65a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404888990,
+      "seq": 2146,
+      "tx_id": "8901a3786368b4f652fa15992670c59558d14ece01c611363f7e840b444733f5",
+      "signature": "yFk5OBFb4NbX+NSyYG7h7KT4OMUrCBIJyjN9gR3L1sX76DgiXVd7kWhP/vEB1Bp1GVZXDHwiClXFYcAWDraeAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "cfc7b064-ebbe-4853-8dd6-44c03b408295",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\" | durationMs=1245",
+        "payload_json": null,
+        "created_at": 1769212774232,
+        "updated_at": 1769404888990,
+        "deleted_at": 1769404777839,
+        "sync_status": "synced"
+      },
+      "row_id": "cfc7b064-ebbe-4853-8dd6-44c03b408295",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404888990,
+      "seq": 2147,
+      "tx_id": "bfbe982a92e3ee3edcaa41315b9ca44a0013c9b2a4d59b661ef28c3622189af4",
+      "signature": "4oF2sU323X7rE7j6ueuI6uQYrwQ2TmDjPa1yMMsJmsuRO/p7gHiQQ6aLAUebUmXoxr/w3k9qACaJQTjX7rEJCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "1bc119e7-9a9d-4e0f-9689-3d341a0dab08",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212776949,
+        "updated_at": 1769404888990,
+        "deleted_at": 1769404776015,
+        "sync_status": "synced"
+      },
+      "row_id": "1bc119e7-9a9d-4e0f-9689-3d341a0dab08",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404888990,
+      "seq": 2148,
+      "tx_id": "d495f7e03b3063247ef4e94d54f57f38293c2ef51288a69fb5f86036e0ca6ff9",
+      "signature": "E9w7QnCTo70BU/fVKNv/pFvQh+ApKPnHTdae1vf8yOj6hxlUTeLmuXhtVvLgcFmbBgjl4bFsT+JvOjZGPhutCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "a9c86396-b070-4a74-9170-ec5321476734",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\" | durationMs=2384",
+        "payload_json": null,
+        "created_at": 1769212779362,
+        "updated_at": 1769404888990,
+        "deleted_at": 1769404774601,
+        "sync_status": "synced"
+      },
+      "row_id": "a9c86396-b070-4a74-9170-ec5321476734",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404888990,
+      "seq": 2149,
+      "tx_id": "acad19a1569bd0715824b45947394aaa4f3f21a56b1d5a272a37fd4019855589",
+      "signature": "Nste5j+RexzCRKZ3IhQFKioFejjaq9ooy1BHflYd6gMMvb2LwSnWMdKmvCoFi0LbPU/EgiDmEGeH8W5iiUmqAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "c9812c25-adb4-4166-af62-7c8cbe37e6d9",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | durationMs=1608",
+        "payload_json": null,
+        "created_at": 1769212758195,
+        "updated_at": 1769405563974,
+        "deleted_at": 1769405463250,
+        "sync_status": "synced"
+      },
+      "row_id": "c9812c25-adb4-4166-af62-7c8cbe37e6d9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405563974,
+      "seq": 2150,
+      "tx_id": "a42110b867a1753203422d1093dfcaa1a38da9275c3af43928639c7769dd2110",
+      "signature": "5vN5wIjannQVOK3CbVNiCDAgVSaEtGDtEaVsqaXJIEMuj4vNXPM56W7IINTVdB04zLHEpw977TmaFCJrwVkRCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "335fb8e9-b45c-47ce-bae7-a1cc7822dc7c",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212768543,
+        "updated_at": 1769405563974,
+        "deleted_at": 1769405461133,
+        "sync_status": "synced"
+      },
+      "row_id": "335fb8e9-b45c-47ce-bae7-a1cc7822dc7c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405563974,
+      "seq": 2151,
+      "tx_id": "4632c89414a9d82a46cb287aa9ebe90a0a48abc1968c7fc1afcc1c9fe96a0e49",
+      "signature": "dyixP+GTNQH+hb8wY93mWhO1EUEiHJggaSxyGkLkB3DjSr81/PRTa6auIpxjfoznYjGHI9fl1+AROQCJFzTTBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "544a4bae-82a7-4b31-b722-18aed4f56f99",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212792059,
+        "updated_at": 1769405563974,
+        "deleted_at": 1769405458858,
+        "sync_status": "synced"
+      },
+      "row_id": "544a4bae-82a7-4b31-b722-18aed4f56f99",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405563974,
+      "seq": 2152,
+      "tx_id": "41103ca77e083544b193e2b4a31a8ab061a0f30061ef8eb86583bf6f4d7d289b",
+      "signature": "tqWoeXFOaAefR3Kyf/d3W8jlCkn0gRo7XNi0kyTsWaadk7vjH4+AfMkeCqVnzkA/vAmL2HEHXuAuHvj38x1wBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "ff377c0e-eea1-4b41-9244-e1f6b399450b",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] query\nuser=\"valstan\"\ntab=contracts\nSQL: select count(*)::int as count from entities e join entity_types t on t.id = e.type_id where t.code = 'engine' and e.deleted_at is null\nСтрок: 1\ncount=2\nВремя: 2 ms",
+        "payload_json": null,
+        "created_at": 1769209520576,
+        "updated_at": 1769405578975,
+        "deleted_at": 1769405475259,
+        "sync_status": "synced"
+      },
+      "row_id": "ff377c0e-eea1-4b41-9244-e1f6b399450b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405578975,
+      "seq": 2153,
+      "tx_id": "22db163808f10095c65bc1d854ee98e2c8511baad98efcc79f9e6935ca8f8d7a",
+      "signature": "DSzQpb5wLTTuT7q6qZw2JUpk5zeU+zBE3n5471s9Mwu0gZ1Blv/bg+PYmGIlz5Rovqm7+rewpD/xLEn82+snDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "d9b22ab2-ef25-4bf2-bb3a-78259366a12d",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212750962,
+        "updated_at": 1769405578975,
+        "deleted_at": 1769405469171,
+        "sync_status": "synced"
+      },
+      "row_id": "d9b22ab2-ef25-4bf2-bb3a-78259366a12d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405578975,
+      "seq": 2154,
+      "tx_id": "25b975cf207be18d8ba94e20f26ac2e55cc8db48acd68f5f7f25812efed36889",
+      "signature": "uzANQTF4/9RkdDH/SSvhOlVbCko8K2EAmyf5Ob8qUVmLhAeawO/oR1WcUgc8tlR6za9u7ll4DTUzoKRJ5ZM8BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "53a06db9-2085-4984-8fec-628e47468384",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | durationMs=3374",
+        "payload_json": null,
+        "created_at": 1769212754295,
+        "updated_at": 1769405578975,
+        "deleted_at": 1769405467025,
+        "sync_status": "synced"
+      },
+      "row_id": "53a06db9-2085-4984-8fec-628e47468384",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405578975,
+      "seq": 2155,
+      "tx_id": "2476e174964db2f77a083a5d32644fc5cf7204836537720c7edc89d10bcde8e9",
+      "signature": "e0Q7yiqItnWWES36bH1AojRMFaCJp5Xw3aCQSNm5bks8SzTKE+nrt8xJJ2bMnZGB2sfXwyUX2Cp8rC+HFoE1AA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "d942b756-16ef-4c4a-bc03-d28226ffef08",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212756607,
+        "updated_at": 1769405578975,
+        "deleted_at": 1769405464916,
+        "sync_status": "synced"
+      },
+      "row_id": "d942b756-16ef-4c4a-bc03-d28226ffef08",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405578975,
+      "seq": 2156,
+      "tx_id": "8629def3c139c1950cfb03a18a385afc6ad433257d5e5314f940fa01646725f4",
+      "signature": "qbG5H1QiqDUzJX4Q7wyYqn1eI+ipOFpFso+5ZYiLXDywsyAuNtJPYAfscvDJTcRk7EzXkhhK5S6vzq4m4D4wBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "40c503fe-5908-4b70-83db-ed47b6ef6c99",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212758293,
+        "updated_at": 1769405578975,
+        "deleted_at": 1769405471516,
+        "sync_status": "synced"
+      },
+      "row_id": "40c503fe-5908-4b70-83db-ed47b6ef6c99",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405578975,
+      "seq": 2157,
+      "tx_id": "8bfb99c2f6400570746329c370c139bd43d12591f85ef8500e80b1de95951f17",
+      "signature": "y6bAzRSwiknOyBAZLaCq0Ap8X8c0LEewHb8HH1A8ilfzfoVhrIufHh6QQ0csNojCMIbDqJkN4xC9KHC6QAzjAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "304bd1df-63ac-4753-889e-688e1f454ca1",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\" | durationMs=1631",
+        "payload_json": null,
+        "created_at": 1769212770137,
+        "updated_at": 1769405578975,
+        "deleted_at": 1769405477866,
+        "sync_status": "synced"
+      },
+      "row_id": "304bd1df-63ac-4753-889e-688e1f454ca1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405578975,
+      "seq": 2158,
+      "tx_id": "6278f32880f21056abbd342992db375a79da55cdd067ea33b9b6cdc0180fba67",
+      "signature": "oeUcEqnRW77d7mDKuLTH9UOcenouBGo5smLBLqKw+hQ4LuAhisZhmPsF7n4kvMLfboDNMqTOp+xvTMMTLs5/Cg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "ecdf8fcf-36ba-40ea-8776-bb1ccfe7cb5c",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212790700,
+        "updated_at": 1769405594082,
+        "deleted_at": 1769405479551,
+        "sync_status": "synced"
+      },
+      "row_id": "ecdf8fcf-36ba-40ea-8776-bb1ccfe7cb5c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769405594082,
+      "seq": 2159,
+      "tx_id": "e40176c63adebd8770fe6ec91bbd64dc1a6a6fc7aa668bf5eb15d63671038104",
+      "signature": "woMOgENoMPyKyOme/1StTocIqku82mXAol9Kw9YfFIbly2WRdiXQFI3k6SgpgPsAZYvuIwCkByoCY6SthU63Cg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "e7ef2124-c6c2-4f7b-8d1e-3551defdb72e",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "Не удалось синхронизироваться: Error: push HTTP 500: {\"ok\":false,\"error\":\"error: duplicate key value violates unique constraint \\\"chat_reads_message_user_uq\\\"\"} Error: push HTTP 500: {\"ok\":false,\"error\":\"error: duplicate key value violates unique constraint \\\"chat_reads_message_user_uq\\\"\"} at runSync (file:///C:/Users/admin/AppData/Local/Programs/MatricaRMZ/resources/app.asar/dist/main/registerIpc-ChgXYaGT.js:737:15) at process.processTicksAndRejections (node:internal/process/task_queues:95:5) at async SyncManager.runOnce (file:///C:/Users/admin/AppData/Local/Programs/MatricaRMZ/resources/app.asar/dist/main/registerIpc-ChgXYaGT.js:864:17) at async WebContents.<anonymous> (node:electron/js2c/browser_init:2:87023).",
+        "payload_json": null,
+        "created_at": 1769176803308,
+        "updated_at": 1769404798985,
+        "deleted_at": 1769404693629,
+        "sync_status": "synced"
+      },
+      "row_id": "e7ef2124-c6c2-4f7b-8d1e-3551defdb72e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404798985,
+      "seq": 2160,
+      "tx_id": "f86e639a813507e505a2be86aafc69a0b3f0d81335d819b3906faa8ddc8050f9",
+      "signature": "brRifFGvv3NDhqoD/x3mmWcUH5DcA3kTLgYWdntvHHseEKhYkeOqyhDEU6NDSWpDSSsGdgRCCkcwSYGyS9sKBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "a64c65f8-2b98-4648-bad0-c61fafe96392",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:XkJbIwO7iBd4nj+f:byColFcHZb+q6d+Cre+DPg==:IiUZMMSrZIJEx+9uh/+edMs5eFWaBdINfPqNkhiYqaFP9AYZYJHTOiqi/q8f8Cq+xpXdxvhvWvNpVdigPcFVwoB1vWRFAwlaxTFmjmbU286+pB0=",
+        "created_at": 1768680092641,
+        "updated_at": 1769404814109,
+        "deleted_at": 1769404706239,
+        "sync_status": "synced"
+      },
+      "row_id": "a64c65f8-2b98-4648-bad0-c61fafe96392",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404814109,
+      "seq": 2161,
+      "tx_id": "b04f43f74b4a29b8753a8f834a99987ee88ea126c30f3cd34fd51868c4f7bc03",
+      "signature": "pya6D+kHZJ5WkUQ+AlW6tz3l//lztawI3uSBjmKM599JQmNQMN8mZGFnghliqvMP/1f75POtfXaq4TQrvpI+Cw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "83dfa89f-5fd2-4bd4-9922-8b29d1804676",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] assist\nuser=\"valstan\"\ntab=masterdata\nQ: привет\nA: Что вы хотите сделать или узнать в разделе masterdata?",
+        "payload_json": null,
+        "created_at": 1769215147173,
+        "updated_at": 1769404828971,
+        "deleted_at": 1769404720451,
+        "sync_status": "synced"
+      },
+      "row_id": "83dfa89f-5fd2-4bd4-9922-8b29d1804676",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404828971,
+      "seq": 2162,
+      "tx_id": "c6e90a5b35fdfbfa493a7983da81ddbe2da9179e2d2cefb45eb02db83c23934e",
+      "signature": "uVTQSiwvo8G3iSUm0ViF1ZWxWnUdcddWGdFqOu/1xeT/oIz+ZZUDOcqnnHB+d+x1gA4VmKk3moQ9KEu/yn2bDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "4233f80c-5a67-4a69-bd25-9fa01c92b64a",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] query\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | durationMs=3395\nSQL: \n      select\n        e.id,\n        (num.value_json::jsonb #>> '{}') as engine_number,\n        coalesce(\n          (brand_txt.value_json::jsonb #>> '{}'),\n          (brand_name.value_json::jsonb #>> '{}')\n        ) as engine_brand\n      from entities e\n      join entity_types t on t.id = e.type_id\n      left join attribute_defs d_num on d_num.entity_type_id = e.type_id and d_num.code = 'engine_number' and d_num.deleted_at is null\n      left join attribute_values num on num.entity_id = e.id and num.attribute_def_id = d_num.id and num.deleted_at is null\n      left join attribute_defs d_brand_txt on d_brand_txt.entity_type_id = e.type_id and d_brand_txt.code = 'engine_brand' and d_brand_txt.deleted_at is null\n      left join attribute_values brand_txt on brand_txt.entity_id = e.id and brand_txt.attribute_def_id = d_brand_txt.id and brand_txt.deleted_at is null\n      left join attribute_defs d_brand_id on d_brand_id.entity_type_id = e.type_id and d_brand_id.code = 'engine_brand_id' and d_brand_id.deleted_at is null\n      left join attribute_values brand_id on brand_id.entity_id = e.id and brand_id.attribute_def_id = d_brand_id.id and brand_id.deleted_at is null\n      left join entities eb on eb.id = (brand_id.value_json::jsonb #>> '{}')::uuid\n      left join attribute_defs d_brand_name on d_brand_name.entity_type_id = eb.type_id and d_brand_name.code = 'name' and d_brand_name.deleted_at is null\n      left join attribute_values brand_name on brand_name.entity_id = eb.id and brand_name.attribute_def_id = d_brand_name.id and brand_name.deleted_at is null\n      where t.code = 'engine' and e.deleted_at is null\n      order by e.updated_at desc\n      limit 200\n    \nСтрок: 2\nid=2d84eb6d-081f-4a43-8ac1-880dd1130654 | engine_number=55555555555 | engine_brand=Новая марка\nid=a2405143-f844-4453-942a-d3cb0929a47a | engine_number=1111 | engine_brand=В-59У\nВремя: 24 ms",
+        "payload_json": null,
+        "created_at": 1769212854860,
+        "updated_at": 1769404844081,
+        "deleted_at": 1769404741132,
+        "sync_status": "synced"
+      },
+      "row_id": "4233f80c-5a67-4a69-bd25-9fa01c92b64a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404844081,
+      "seq": 2163,
+      "tx_id": "9341e95d227af76489bae585369b1d39d4e3109831c92a1ff44fb5cf27fbb5ef",
+      "signature": "7a6V1nSA9iO8XPSNIIHfJZ7Bahir26DWPD1hc/ZpkQWCQhMo4/gSj3T8So6cfULXS4WJaQh7tBcFgoO42ouBDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "86d4ec8c-677d-4ae0-aec7-5af85ec273d1",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] query\nuser=\"valstan\"\ntab=engines\nSQL: \n      select\n        e.id,\n        (num.value_json::jsonb #>> '{}') as engine_number,\n        coalesce(\n          (brand_txt.value_json::jsonb #>> '{}'),\n          (brand_name.value_json::jsonb #>> '{}')\n        ) as engine_brand\n      from entities e\n      join entity_types t on t.id = e.type_id\n      left join attribute_defs d_num on d_num.entity_type_id = e.type_id and d_num.code = 'engine_number' and d_num.deleted_at is null\n      left join attribute_values num on num.entity_id = e.id and num.attribute_def_id = d_num.id and num.deleted_at is null\n      left join attribute_defs d_brand_txt on d_brand_txt.entity_type_id = e.type_id and d_brand_txt.code = 'engine_brand' and d_brand_txt.deleted_at is null\n      left join attribute_values brand_txt on brand_txt.entity_id = e.id and brand_txt.attribute_def_id = d_brand_txt.id and brand_txt.deleted_at is null\n      left join attribute_defs d_brand_id on d_brand_id.entity_type_id = e.type_id and d_brand_id.code = 'engine_brand_id' and d_brand_id.deleted_at is null\n      left join attribute_values brand_id on brand_id.entity_id = e.id and brand_id.attribute_def_id = d_brand_id.id and brand_id.deleted_at is null\n      left join entities eb on eb.id = (brand_id.value_json::jsonb #>> '{}')::uuid\n      left join attribute_defs d_brand_name on d_brand_name.entity_type_id = eb.type_id and d_brand_name.code = 'name' and d_brand_name.deleted_at is null\n      left join attribute_values brand_name on brand_name.entity_id = eb.id and brand_name.attribute_def_id = d_brand_name.id and brand_name.deleted_at is null\n      where t.code = 'engine' and e.deleted_at is null\n      order by e.updated_at desc\n      limit 200\n    \nСтрок: 2\nid=2d84eb6d-081f-4a43-8ac1-880dd1130654 | engine_number=55555555555 | engine_brand=Новая марка\nid=a2405143-f844-4453-942a-d3cb0929a47a | engine_number=1111 | engine_brand=В-59У\nВремя: 13 ms",
+        "payload_json": null,
+        "created_at": 1769213927575,
+        "updated_at": 1769404844081,
+        "deleted_at": 1769404728847,
+        "sync_status": "synced"
+      },
+      "row_id": "86d4ec8c-677d-4ae0-aec7-5af85ec273d1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404844081,
+      "seq": 2164,
+      "tx_id": "f1f8280ee9ffd63a676b6eb569dd7ab96f81e1f7d1a85730dd47c51311c2620c",
+      "signature": "LxrKrOzbG+Z1mQ747AxjJOSGR3UizHNGZD/vx1Ma65GQKaQN6Z2lA2XdOrYmIk/xFd2DbMZP9lEfzank5iYsAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "d7944237-7cf0-496a-9bc0-28dad67efda2",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\" | durationMs=7731",
+        "payload_json": null,
+        "created_at": 1769212799796,
+        "updated_at": 1769404859108,
+        "deleted_at": 1769404758221,
+        "sync_status": "synced"
+      },
+      "row_id": "d7944237-7cf0-496a-9bc0-28dad67efda2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404859108,
+      "seq": 2165,
+      "tx_id": "4b9042aa337aef7ab4c103a4fd7e8f7bd70a99c94f24b91f36cd9f4542368a56",
+      "signature": "yFi1TOmboJ6xWcM2SN/Ofeg4mn2Zf6ia8vIdIXwEnMk0mYIMsl3Svxmc+WpC2vh9vAfAA1NFN9oX0I+Dd0UQAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "65b3394c-d15c-4603-b45f-37ac1e16bd6a",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212802149,
+        "updated_at": 1769404859108,
+        "deleted_at": 1769404756197,
+        "sync_status": "synced"
+      },
+      "row_id": "65b3394c-d15c-4603-b45f-37ac1e16bd6a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404859108,
+      "seq": 2166,
+      "tx_id": "c3e13d5d64b1c919453124cc8ddfd829d9e9d9ed708075995a259f6ee0ccabad",
+      "signature": "yrkeKECLUhCDyTisfsHcdwjad/Ytr355vsh6A9+eeJRW91KvY0gxjOKk7tESKx0U95mmrgGXGOxVPJn4jOijAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "af0ed594-69b2-4fd9-97e3-bbf2101b3a2d",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | durationMs=3395",
+        "payload_json": null,
+        "created_at": 1769212805413,
+        "updated_at": 1769404859108,
+        "deleted_at": 1769404753125,
+        "sync_status": "synced"
+      },
+      "row_id": "af0ed594-69b2-4fd9-97e3-bbf2101b3a2d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404859108,
+      "seq": 2167,
+      "tx_id": "3a335b0fee5d257fa0968770304ecd598d13cdcd8bd5d0c00cc9157ecb9e3eb4",
+      "signature": "ZD6NyQtf5KR0UMFaGeImGmM8X4P6E2KLQFJWJNqx6RE3C6iq2vlwc6gY7piIY5R1LsvcZbpKOqZ3LsGfvjQNCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "331c5136-b510-4b4c-9fa0-807b68e0d6cf",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"5\" | durationMs=511",
+        "payload_json": null,
+        "created_at": 1769212780796,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404769856,
+        "sync_status": "synced"
+      },
+      "row_id": "331c5136-b510-4b4c-9fa0-807b68e0d6cf",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2168,
+      "tx_id": "9a1e44c95f239b5947dbce766c5194b358e03e011f71c3582fec2cf37889b15a",
+      "signature": "qvpu4/ZUtDvibmcEukcYE8UYy4CUma/pU4XHL66q1Hca0yH+lHnbXA9uAhnb74yzZBqFLM3Ss5vtoiWa2Zw0AQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "cfd94882-b44c-4b5a-8bfd-59c2f8489c63",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212782819,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404767204,
+        "sync_status": "synced"
+      },
+      "row_id": "cfd94882-b44c-4b5a-8bfd-59c2f8489c63",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2169,
+      "tx_id": "893d388b7df96d38f325a978a70a0d73594b362c927a79d7e7e38c9df2cafd91",
+      "signature": "270N1rgZa11RAxRg1TDHEC3CIU1vPXL0InCzxT6/QG95Ykqr50kdo1di4lp+W5QI0xmnH7KMMNkT7T1F/aCKAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "ee0dcb44-615e-4220-bbf3-d83b8ac8c511",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | durationMs=1213",
+        "payload_json": null,
+        "created_at": 1769212784016,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404765165,
+        "sync_status": "synced"
+      },
+      "row_id": "ee0dcb44-615e-4220-bbf3-d83b8ac8c511",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2170,
+      "tx_id": "5cc184766cd7e76c355357f5f0f4c64d4d90f19e813e33dd534a87b8be2d46eb",
+      "signature": "fsfCEonOr4nErw+7lr9a28ls4JIhIvVVnRK+T7dgSjOJqyeIt9+jziUrxcQwetzPD2h8gzrt/bo2DJjfhqG8CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "848e35e1-189f-480a-b35b-68a98b2de52e",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6",
+        "payload_json": null,
+        "created_at": 1769212784129,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404763600,
+        "sync_status": "synced"
+      },
+      "row_id": "848e35e1-189f-480a-b35b-68a98b2de52e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2171,
+      "tx_id": "9cdae684f3059575c5719fdd91c28d76fdb89fcf85f2a7878ffc767a2ab11643",
+      "signature": "p4TibHsJje5cJpNsCKbn+jFRRh1qTSsNvtoSmqDli2uURvw+zjwyTTxrfgQRY90YzxibjVw3KsRGyOLvxvLXBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "2da7817a-0469-400b-9bf7-ef24dc47cd06",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "text",
+        "body_text": "напишу",
+        "payload_json": null,
+        "created_at": 1770026184079,
+        "updated_at": 1770026184079,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "2da7817a-0469-400b-9bf7-ef24dc47cd06",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1770026184079,
+      "seq": 2172,
+      "tx_id": "54f4266cfda93b9104d3df37932973e7429f23c251e9aba345a53bcad65b26ba",
+      "signature": "HTjULK8nqDQmkrzs4GF5IhcQ9puTjFx6xyMi6ljOCVql+3bcOUKrDwRQX7ceFxv0OpLJJhQT9GjtOOMHl1DBCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "5c259de7-2a7e-4bb9-accc-d9b46b314a8c",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "22025958-2afc-4ca3-839b-4878abd06819",
+        "message_type": "text",
+        "body_text": "привет нейронка, работаешь?",
+        "payload_json": null,
+        "created_at": 1769370755085,
+        "updated_at": 1769381036943,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "5c259de7-2a7e-4bb9-accc-d9b46b314a8c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769381036943,
+      "seq": 2173,
+      "tx_id": "5889fc9256cb2001012d614ec7b1defa380633fa4d0dc2ba14c1a167bffe4224",
+      "signature": "wsJxhWO3AFRR/eJRgF/LYO/EVNYTUGG4px5fdQCQ25zOL17otuqD2IzM6YlUjKRq6vtS7zBWcv4BGgslUSAjDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "d1183acc-76cf-4726-998f-4489fa1724cb",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "22025958-2afc-4ca3-839b-4878abd06819",
+        "message_type": "text",
+        "body_text": "Привет, ты работаешь сегодня?",
+        "payload_json": null,
+        "created_at": 1769388345886,
+        "updated_at": 1769388352015,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "d1183acc-76cf-4726-998f-4489fa1724cb",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388352015,
+      "seq": 2174,
+      "tx_id": "161c69c21258a4a6ef00aab31c7180928363eb4d730534c0b1549cbc77c3911c",
+      "signature": "+x7zmd1CTM+jq1qRh/KfexDPlx/fNKbzM8gKdYqx3x9evnOoLw6o9c40Wrius5kGyH9TXMwdVMF9MPwTqtbGBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "605e980a-99b5-46b9-874a-df2e190e7d55",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | value=\"55\" | durationMs=1829",
+        "payload_json": null,
+        "created_at": 1769212785908,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404762121,
+        "sync_status": "synced"
+      },
+      "row_id": "605e980a-99b5-46b9-874a-df2e190e7d55",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2175,
+      "tx_id": "68581463240b1c23934b9d579dea580ddfe4fa51cc277175fb6c4cfc903462fc",
+      "signature": "s31dDEiBm7mRhrBFZkZYkKD16XUUHeu2iYrvjHv5K4Vx5DZSRDPGbTMmiV/O9xMYqr6tejXyEqqKd99OiJj0BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "cada8450-e9bd-46a2-a059-e33e980808fc",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "valstan",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] event\nuser=\"valstan\"\ntab=request | entityType=supply_request | entityId=af1fc238-ecba-42f0-8918-0dff7bb4a2a6 | durationMs=1255",
+        "payload_json": null,
+        "created_at": 1769212791933,
+        "updated_at": 1769404874360,
+        "deleted_at": 1769404760418,
+        "sync_status": "synced"
+      },
+      "row_id": "cada8450-e9bd-46a2-a059-e33e980808fc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769404874360,
+      "seq": 2176,
+      "tx_id": "961b888da44c1a4db68ebfbe5a1868fe33ce3d4703904320d027174ec9d18283",
+      "signature": "+RoRj9p3ol3PIEnUxPwsYZVJyILEbnAQhRNLExT64HmRtpKG39r8G+MMbjVI5kfq+Dyz+q4y+5/CVoDey3daBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "0f7ff9f5-0736-46ba-8649-b3605c1f7854",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 02.02.2026, 05:00:13 — 02.02.2026, 17:00:13\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1770040813574,
+        "updated_at": 1770040813574,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "0f7ff9f5-0736-46ba-8649-b3605c1f7854",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1770040813574,
+      "seq": 2177,
+      "tx_id": "deb1f72fa7cb1026acebb8483e17d0f8b0b6d8f02b5213bcd8272587f722d543",
+      "signature": "6Cw9joJ0wU/CscGQFuonW5QaMybqQGmuy7ah+NlTCeAjNVZY6StmzDEyM6UW0DGmetb83nokmWDBcuGauZIMCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "e5a59d6c-3709-4fd7-bc25-9564ade4dbbc",
+        "sender_user_id": "bde486b7-537b-436e-b2a5-1a7100b2462e",
+        "sender_username": "fatyhova",
+        "recipient_user_id": "bde486b7-537b-436e-b2a5-1a7100b2462e",
+        "message_type": "text",
+        "body_text": "сходить за молоком",
+        "payload_json": null,
+        "created_at": 1769423927666,
+        "updated_at": 1769423946058,
+        "deleted_at": 1769423935150,
+        "sync_status": "synced"
+      },
+      "row_id": "e5a59d6c-3709-4fd7-bc25-9564ade4dbbc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769423946058,
+      "seq": 2178,
+      "tx_id": "d3836625e6eb501a33fc3a0d845c2cba2215ef277db795551a173d6f00728022",
+      "signature": "eagiMaR0AUahhQywAarXEj44IOTfrlrbzeP/uv14OM5ChYIgqJ/hfKADlVsaSJop/dTUY2DEioyTZjl1oyHCDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "c6ea945b-94e6-459d-bbd5-295e379fbfc5",
+        "sender_user_id": "3942aac1-b2c7-438f-bb12-1f8830bf4e50",
+        "sender_username": "ur491",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Не удалось синхронизироваться: Error: push HTTP 500: {\"ok\":false,\"error\":\"error: insert or update on table \\\"entities\\\" violates foreign key constraint \\\"entities_type_id_entity_types_id_fk\\\"\"} Error: push HTTP 500: {\"ok\":false,\"error\":\"error: insert or update on table \\\"entities\\\" violates foreign key constraint \\\"entities_type_id_entity_types_id_fk\\\"\"} at runSync (file:///C:/Users/User/AppData/Local/Programs/MatricaRMZ/resources/app.asar/dist/main/registerIpc-DuEPB7fP.js:1164:15) at process.processTicksAndRejections (node:internal/process/task_queues:95:5) at async SyncManager.runOnce (file:///C:/Users/User/AppData/Local/Programs/MatricaRMZ/resources/app.asar/dist/main/registerIpc-DuEPB7fP.js:1266:17) at async WebContents.<anonymous> (node:electron/js2c/browser_init:2:87023).",
+        "payload_json": null,
+        "created_at": 1768823272233,
+        "updated_at": 1769425798281,
+        "deleted_at": 1768824638772,
+        "sync_status": "synced"
+      },
+      "row_id": "c6ea945b-94e6-459d-bbd5-295e379fbfc5",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769425798281,
+      "seq": 2179,
+      "tx_id": "3e32f793246a872fda791cd67c3c3518315df035405703daf59087e5a55abac0",
+      "signature": "37F7x/y1/Re9DHQJsSJtmU7wuUPsLpEflZiX7elzn2fTrO9ng55oQDyFHJ9IOJyLixGdXdcMMKEVNuRd3uW0CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "5da9a2f6-817e-443a-aae8-72b5ef0aed96",
+        "sender_user_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "sender_username": "nastya_spec",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "Я согласная",
+        "payload_json": null,
+        "created_at": 1768824276820,
+        "updated_at": 1769426147992,
+        "deleted_at": 1768824319024,
+        "sync_status": "synced"
+      },
+      "row_id": "5da9a2f6-817e-443a-aae8-72b5ef0aed96",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426147992,
+      "seq": 2180,
+      "tx_id": "86ee2748af29a61851cd6338fd70a3935f5535c2acc68d2927a60c394136c8b8",
+      "signature": "JW+E/5AoVyfta7jqlwrrBgiiCvLoOnpmsDisWpzRAKJsocOCRw3X83rkwjVf63t+fLCzOy0PhQM/+oL7nAgaCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "63c9d8b7-8627-4734-b4af-77ae3b3893e3",
+        "sender_user_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "sender_username": "nastya_spec",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "@Настя продакшн арпроапоа",
+        "payload_json": null,
+        "created_at": 1768824311399,
+        "updated_at": 1769426147992,
+        "deleted_at": 1768824317224,
+        "sync_status": "synced"
+      },
+      "row_id": "63c9d8b7-8627-4734-b4af-77ae3b3893e3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426147992,
+      "seq": 2181,
+      "tx_id": "c46c39c92cf7e32ce3256affb6b82bbefc6c3450a3a90cc95351e2f7be504668",
+      "signature": "rz4XO1iMFmxUKrHah03LQfh/7/ru8gvYHHAMTyHvKGDkCidnKTKzlXHWj56bfNor6A48iDsJwSEd4+FhJxKNBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "cb93d837-b7c3-4f24-a73a-84a4467b1072",
+        "sender_user_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "sender_username": "nastya_spec",
+        "recipient_user_id": "07881c20-1c78-4c34-b58f-5aa0ec69d8f8",
+        "message_type": "text",
+        "body_text": "привеит",
+        "payload_json": null,
+        "created_at": 1768824335048,
+        "updated_at": 1769426147992,
+        "deleted_at": 1768824344181,
+        "sync_status": "synced"
+      },
+      "row_id": "cb93d837-b7c3-4f24-a73a-84a4467b1072",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426147992,
+      "seq": 2182,
+      "tx_id": "a78917e3f6d459eeac71d938b1caa21b1b2e8a22bab0b19ddbc1c4422648d961",
+      "signature": "cgoD3Znf8OQruiAy1zaHEI250ghL+RW6D6hJGcA7aOlR4CjtX4LyDUC0p1cV9pu+KuiaiGIdnbmHe4ECKaHBBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "71ac3157-91e5-476f-b643-bdfbd640e89a",
+        "sender_user_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "sender_username": "nastya_spec",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:pWGnbYuh8lV0eGuI:v/Zzh0uKxyI1XI1mRsMI2Q==:ar+lkwQT8TM0h7DF5Qml+88qy8pNemxBcKBuBX377lcf2034JQecm8HEvXV40AmMRUhkS+PTKYHhoqjWfyvVXkmB+qDbPNokrchkzh0QEtICHA==",
+        "created_at": 1768824369644,
+        "updated_at": 1769426147992,
+        "deleted_at": 1768827694129,
+        "sync_status": "synced"
+      },
+      "row_id": "71ac3157-91e5-476f-b643-bdfbd640e89a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426147992,
+      "seq": 2183,
+      "tx_id": "b7ea09b4c01a4b1dcd5888f2b48a9a317bf0194644fd9aff9340ca27eca8adee",
+      "signature": "Uos3i4uzi2txMc6mjHPrdPN6mg6BGANPUNdm5+DLcWlG116XdIJj4/ehcFyS1UVLyLW0Og+/NofpNm0e5kAcDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "chat_messages",
+      "row": {
+        "id": "50f5179f-f8a4-4172-bfa7-a66606c9f0c5",
+        "sender_user_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "sender_username": "nastya_spec",
+        "recipient_user_id": "bde486b7-537b-436e-b2a5-1a7100b2462e",
+        "message_type": "file",
+        "body_text": "723ca0af84a11f0a17ab2cb596b0919_1.jpeg",
+        "payload_json": "enc:v1:LuCD+QM5W9IKldak:mdqKeFu/JhSJpKpdER8RlA==:I+3iK6hsK79qIjHvD5859LqMpiuUnin21QviMyMVHS5r3qpLSz/dDek6Mn1MBoA2Eb8G276uYTHhZ7kCupzY7BqD1KOhFR6dCjwoO9FP27r2khY+9uJJh1a5gFEisIwOLekDreO8qCuDBdTnwgkf8vZWt++uXJLdpqQbFqnEZoeRbJzTOHVbBlIVhI22/olb35EeQIkuKrwt9ACov5U6QpYTXh8J47bwLn0vDBlYVw2PDZyp57pNq/W/eO0nhbHt4l3pZ6Q25MYun5RXuoqHgoF4mfnN7dExi298U38=",
+        "created_at": 1769426325487,
+        "updated_at": 1769426345007,
+        "deleted_at": 1769426343089,
+        "sync_status": "synced"
+      },
+      "row_id": "50f5179f-f8a4-4172-bfa7-a66606c9f0c5",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426345007,
+      "seq": 2184,
+      "tx_id": "8c852f0cb0c123e1a7d471068a5452d06077a1f740c9c617ab2cb19c2105bb0f",
+      "signature": "lagrYgtWAlAXJ+RyqRi0ZwMqMWTkD/SCEaDC5dneiHznGhrPz2dc/j7ALzv8uXZ/tCBiEFkDb59fkwMsLjt2CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "252d2085-054f-404e-932e-a239b90b4d58",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 03.02.2026, 00:00:50 — 03.02.2026, 12:00:50\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1770109250100,
+        "updated_at": 1770109250100,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "252d2085-054f-404e-932e-a239b90b4d58",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1770109250100,
+      "seq": 2185,
+      "tx_id": "8c386574d14fcb72e5ae2c48319d78f69c81981d9ddf4935e17fface7404b229",
+      "signature": "BxK26+EISGheFyap/0tdZrwTPosPXCbKwgMTZJ0ELE7S+Fgn8JbNCOOELDms7WqkKNiAtW/sFuKZp/B35IBiCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "e7b1f48f-5a75-4bd1-aecf-db8d10f10123",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 30.01.2026, 00:00:10 — 30.01.2026, 12:00:10\nСобытия: 0, сообщения: 3, ошибки: 0 (таймауты: 0)\nТоп вкладок: audit=3\nАктивные пользователи (по событиям): b1aac85c-d77f-43c4-915e-faea527530ef=3",
+        "payload_json": null,
+        "created_at": 1769763610704,
+        "updated_at": 1769763610704,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "e7b1f48f-5a75-4bd1-aecf-db8d10f10123",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769763610704,
+      "seq": 2186,
+      "tx_id": "e2e984ec7051a6cd87eb05555e99cc4c33012e19d3bf30779910033852cbd79d",
+      "signature": "9X4TIZ6YX57pk7iUwBP8cnZ+kgIvWtwM+BHUBI2vKULSZY5C7BT3Zo3BumCxIUiyrt2OFY38t6rmGlq1SBiyAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "f1b99135-1a01-4564-ad1b-8107ea50e649",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "system",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 30.01.2026, 05:00:10 — 30.01.2026, 17:00:10\nСобытия: 0, сообщения: 3, ошибки: 0 (таймауты: 0)\nТоп вкладок: audit=3\nАктивные пользователи (по событиям): b1aac85c-d77f-43c4-915e-faea527530ef=3",
+        "payload_json": null,
+        "created_at": 1769781610636,
+        "updated_at": 1769781610636,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f1b99135-1a01-4564-ad1b-8107ea50e649",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769781610636,
+      "seq": 2187,
+      "tx_id": "b472213c471f4b541c77ac95c533d1609dd965725c4a8f02ba4e6d54d95997f1",
+      "signature": "OqyVVSBvSUHfFB5qn39o1OPUH3jDrbXTjmb7qvZz2YLPOXGkCBLjE5hB6fSNfhcxV4CngZ+hv9ggPG/xPeCwBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "dd2665d1-4d6c-4ec0-8e10-edb0d8eae6ed",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "nastya_tech",
+        "payload_json": null,
+        "created_at": 1769163907532,
+        "updated_at": 1769163908314,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "dd2665d1-4d6c-4ec0-8e10-edb0d8eae6ed",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769163908314,
+      "seq": 2188,
+      "tx_id": "b54e6d24cff6b6913f32af3e99f17ba80a819e725a00d6214304f3e155355e63",
+      "signature": "dr8fM1mc7Z9d7sm58NsQ/ZNIGjMWV/RrHr5CYvlwF2kUKFGwcM9dmD7OQ5uvN2u4AxCbynPEtYYq6cbXEdZCBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "d879f5ff-7273-4928-a5e9-a041e4815ea9",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] assist\nuser=\"admin\"\ntab=engines\nQ: привет\nA: Как я могу помочь вам сегодня?",
+        "payload_json": null,
+        "created_at": 1769204553116,
+        "updated_at": 1769204553116,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "d879f5ff-7273-4928-a5e9-a041e4815ea9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769204553116,
+      "seq": 2189,
+      "tx_id": "fcb2b0db9fd837bbbeff0c167c508b929b403ff6c74e7f8dbd2d4ac16a01f8fa",
+      "signature": "eXRkEbhgYN5H5lK6OGh/kBQz7utCLjcjBLJarkBuoTA2BuNAOYsyHRPBILufsBY8WARg1P9hVlS0hzNR9n9NCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "dd8ee657-9ef7-41c6-929c-7b9304402b01",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] compare\nuser=\"admin\"\nСерверный снимок: 24.01.2026, 00:53:08\nКлиенты: drift=0, warning=0, unknown=37",
+        "payload_json": null,
+        "created_at": 1769205411893,
+        "updated_at": 1769205411893,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "dd8ee657-9ef7-41c6-929c-7b9304402b01",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769205411893,
+      "seq": 2190,
+      "tx_id": "099370e518045af1bea736f51f6a9d22c70e76ce8413c56ce0d01c63c41f30f4",
+      "signature": "vms/uuYguDnkuS3yzqNRozzgcXsKeQIIiRKcBqb8KGe/CZcXnb8nz2dbbYlLKd1hCcv0NWSwGgrXQJL85vwGCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "f26bee59-21c9-413f-97ed-0d9a0a58f68b",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] assist\nuser=\"admin\"\ntab=engines\nQ: привет\nA: Как я могу вам помочь?",
+        "payload_json": null,
+        "created_at": 1769205986098,
+        "updated_at": 1769205986098,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f26bee59-21c9-413f-97ed-0d9a0a58f68b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769205986098,
+      "seq": 2191,
+      "tx_id": "c474a082d0f45e5676c8bf0b3be2806468da941df21b9aba9cef5ddd29403468",
+      "signature": "BppMB9VhJz3PsbgPlbafbT2TpMD/8wu1MGmEFe6ZiC4fyCArnHQS+F5HSTi5OBbn2KKiBZ6RavNLizGmdJ4aCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "4ade8078-1aa0-4755-9497-ddfc7bf2a4d5",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] query\nuser=\"admin\"\ntab=engines\nSQL: select count(*)::int as count from entities e join entity_types t on t.id = e.type_id where t.code = 'engine' and e.deleted_at is null\nСтрок: 1\ncount=2\nВремя: 2 ms",
+        "payload_json": null,
+        "created_at": 1769205986252,
+        "updated_at": 1769205986252,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4ade8078-1aa0-4755-9497-ddfc7bf2a4d5",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769205986252,
+      "seq": 2192,
+      "tx_id": "fee36412580650e89a947b056376338c5b15e398fd9f693a0863b8b885a51958",
+      "signature": "JdS2tsuhq3iYSdA7ufTUqz/Ns+wOrtuCiE1bbpcI1A71TajNNRegG/+tD2AhfLKMH2UVckWtqoXeUxp83EfCDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "f6e574f8-fdf7-4509-8223-61ec0c1be9cc",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] compare\nuser=\"admin\"\nСерверный снимок: 24.01.2026, 01:04:57\nКлиенты: drift=0, warning=0, unknown=37",
+        "payload_json": null,
+        "created_at": 1769205986374,
+        "updated_at": 1769205986374,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f6e574f8-fdf7-4509-8223-61ec0c1be9cc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769205986374,
+      "seq": 2193,
+      "tx_id": "82e40f1a16287a32674a98041cd4c14bf40c62621fcfbe7699aa2bdd4530ee18",
+      "signature": "/FaKwrHIQRBtsGmKktDnZbo+DGHPfU3Rp7kv9bcDLijV3+5gPxmfYaa0dHa6vPS+n8CgGudFnStwZNqxAci9AA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "55e14d47-ea86-4a96-b99f-e328ba83efee",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] query\nuser=\"admin\"\ntab=engines\nSQL: select id, name, size, mime, created_at from file_assets where deleted_at is null and name ilike $1 order by created_at desc limit 200\nНет данных.\nВремя: 17 ms",
+        "payload_json": null,
+        "created_at": 1769205986510,
+        "updated_at": 1769205986510,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "55e14d47-ea86-4a96-b99f-e328ba83efee",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769205986510,
+      "seq": 2194,
+      "tx_id": "1517e98a550fa574fc0faebb35bea4579afa731b1f06b7a2ee30d5ae8e913ae4",
+      "signature": "tJvz1gNm5j+wh8n7K6gncaheTr3WPY3pK8DX1ZyNrg+SlYhz/2ETl63NrJXewHFzobeTJQTOFO4KTYwXYgKhDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "962568b9-231f-465f-b936-48441ab43505",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] assist\nuser=\"admin\"\ntab=engines\nQ: привет\nA: Что именно вы ищете по двигателем (engines)?",
+        "payload_json": null,
+        "created_at": 1769205231540,
+        "updated_at": 1769205231540,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "962568b9-231f-465f-b936-48441ab43505",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769205231540,
+      "seq": 2195,
+      "tx_id": "f47493d6c21fbc7f5d4712a38cae13b776911b2f8742108a93d16e961d929b7a",
+      "signature": "i7d0mJaWPqZOaS1F7VbTlliN9LzmSw7GyjjG5o/XTfqUC1NBzxe49r4EbXEc0rPxuMKeuetpZLm9vUmTaIg8CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "c7ed05ac-5205-4e76-93fd-affec6128c17",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Выбрано: 1cc9b8ac",
+        "payload_json": null,
+        "created_at": 1769159833414,
+        "updated_at": 1769159833997,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c7ed05ac-5205-4e76-93fd-affec6128c17",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769159833997,
+      "seq": 2196,
+      "tx_id": "191a34dedcf317e5ad7bdec8e327954d81bd14fd7f007e5f0bfce19899ac573d",
+      "signature": "j+fFSHr33QA+93+Z0SEvzC9AbnxNdDgZq4eXgyBsafbODTuhAhKS8OYzukNaTpvjvTl69aVeWrvIH3FN6+5cCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "c5318cb4-e7e1-4d66-9c5c-00b5c092e05f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "text",
+        "body_text": "2222222",
+        "payload_json": null,
+        "created_at": 1768828525267,
+        "updated_at": 1768828607636,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c5318cb4-e7e1-4d66-9c5c-00b5c092e05f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768828607636,
+      "seq": 2197,
+      "tx_id": "38dfcad09025e67516b00349643e8a2b40b1db2adc1acbf38ff8c4188ef4a41a",
+      "signature": "Q/dHeKTDhgIlCkAySrbkVMUIjb8vIKugd63vww6cmwdih4DrAU+Sok7qXmxn058tCfkN++9uMnaAuoEOOrNqCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "47a8c0ad-1e2d-4836-bf39-b7922a1fec9b",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Новый пользователь зарегистрировался: Анастасия Хайруллина (технолог), логин: nastya_tech.",
+        "payload_json": null,
+        "created_at": 1768808775271,
+        "updated_at": 1768808775271,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "47a8c0ad-1e2d-4836-bf39-b7922a1fec9b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768808775271,
+      "seq": 2198,
+      "tx_id": "77241dc82bbfe090c30ba686f0b33f90610b8bffad05498cee2aa43dc34fb269",
+      "signature": "j5QqR6uS25/3S4OO/lPDoEulh6Bd5TE/DivhDPyMu8v5vfIEUfamIry/Ycdbl/QPhkM6S62/BBCWUP2gOq9ECg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "bb2c056c-9fc8-42cc-a21c-b245cec92deb",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "3f2c4c22-5a0e-4037-a085-dfe0e85d3d43",
+        "message_type": "text",
+        "body_text": "здраствуйте",
+        "payload_json": null,
+        "created_at": 1768750460081,
+        "updated_at": 1768750539369,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "bb2c056c-9fc8-42cc-a21c-b245cec92deb",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768750539369,
+      "seq": 2199,
+      "tx_id": "0c4202f5b84eb0564bff77dc41a3c3104c751b76ddb698db534bc98e9f6eaf3f",
+      "signature": "Yotz167eT9QcyxCjiPaaUaIm/3Nyju15xBq7251YlS7C3tilLhKxZJ612HUeBpMn6S9ajEN/YpBMlBXw/UVSDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "da47b499-81b7-4951-a5be-8ffede9fb0d1",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "f286648b-2bf4-4977-9ba3-75591908f070",
+        "message_type": "text",
+        "body_text": "я могу пистаь сам себе?",
+        "payload_json": null,
+        "created_at": 1768750497737,
+        "updated_at": 1768750577027,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "da47b499-81b7-4951-a5be-8ffede9fb0d1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768750577027,
+      "seq": 2200,
+      "tx_id": "886b5ec57bbf921a35c5a1afced33ffaf3058c8b27c5e2e851b2842e24989f12",
+      "signature": "pcWUt1B2g7ug78nIVvVCZQZwdoT7ywcOjr1e0tLrBs8ssEdFTgXQAaHmr2jZeCVZLM7BVUzVJ3mGIaQGxRAqBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "83683069-3321-4c5e-ab53-4ffb9118cf97",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "f286648b-2bf4-4977-9ba3-75591908f070",
+        "message_type": "text",
+        "body_text": "видимо",
+        "payload_json": null,
+        "created_at": 1768750504673,
+        "updated_at": 1768750583958,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "83683069-3321-4c5e-ab53-4ffb9118cf97",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768750583958,
+      "seq": 2201,
+      "tx_id": "4613bfc6632b7e16efde5ae4e6f4bfe4f85ef238b839f26c0645bb7ec61dfa24",
+      "signature": "yNoT76ndmR4Csq63d4ZhfMLe1yO7I1q1pOZI+6NCGQ7fgVwt230TZ/EKSorvyDosjWzlCFCAuS0gml5UVQBRBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "7c7a94e7-d2a6-433f-8877-564ef90e69a2",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "f286648b-2bf4-4977-9ba3-75591908f070",
+        "message_type": "text",
+        "body_text": "@Савиных Валентин Владимирович отвечаю в ответ вот )",
+        "payload_json": null,
+        "created_at": 1768766542201,
+        "updated_at": 1768766621420,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7c7a94e7-d2a6-433f-8877-564ef90e69a2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768766621420,
+      "seq": 2202,
+      "tx_id": "4708224e840d1864bb580c1fc646cc543beaa9bb0124fcb5caa2b8d44db3c0fe",
+      "signature": "O6bnqZd0qJ/nQCwiZg0MWfagl9XAoAvGzBWmH3Xwxf2cv+YmDRh139s+xlgkQKAdn0LKLimsWOy8RMXAkPqKCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "6751b922-af72-42d9-a57a-6261d03a70d6",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "text",
+        "body_text": "добавил",
+        "payload_json": null,
+        "created_at": 1768816211852,
+        "updated_at": 1768816294266,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6751b922-af72-42d9-a57a-6261d03a70d6",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768816294266,
+      "seq": 2203,
+      "tx_id": "ed11213b73a302b9c6078847177618c2615e1b6b15200921250e4952eade4ed4",
+      "signature": "y1RY6jVH8QETsAtd1MF0pjuHpekDKJYEJ0hCIaT80LPJP68tdoWPLX5EWsqjByIKGP/VjUCEeuCrqgYEORu1Cw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "817d5ea1-81de-4fb1-975c-584688999bd6",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "привет, вечером что делаешь?",
+        "payload_json": null,
+        "created_at": 1768819536642,
+        "updated_at": 1768819536642,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "817d5ea1-81de-4fb1-975c-584688999bd6",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768819536642,
+      "seq": 2204,
+      "tx_id": "ebb1fdbb663dc9559f82511de541443b30d18616853c8ead2966f8105f013b33",
+      "signature": "z08qe4UUDtz653gnfMqvLIisroZHrN8r/OPa0RQg5XbVXT0zz6G9ITYM4T5TvoyefmrqIItW1fIPx6yP4SUSDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "0d4ebc38-6b6e-4ddf-98a1-5fe85ee64ffe",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:KYSha2iMLO0SEXyU:a3SxsIR61yy9wave3SjhDw==:18hcg/Pgs+fkBCqBBfqQLHlnbcWX2aa6AUQHSIgOCeqSh86+SQqsvzOGMGmsm4cgoCVRlT1tLyS8huq4+EI2V+i077Je2jAbekfh33gj3ARUiwnWy+2m5d/ZtnEwSEQk5/GUjHUb7h84RszFVrddHext21/FLTdpi05KrIA/5U9BnessEU+lftcz79oEIqLE0RljJDW06hkpVCeUKDRk3rpW+yMACOiJpKpD99mEDnFfNqfAmPcrtkzSpD4BRmwr67M+Gup0V2ZgipYXVmlSGOCUXgeaiuXJPHYSBVaIYOHhxHaaJLIXdw==",
+        "created_at": 1769074391464,
+        "updated_at": 1769074481516,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "0d4ebc38-6b6e-4ddf-98a1-5fe85ee64ffe",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769074481516,
+      "seq": 2205,
+      "tx_id": "6af6be6cb05d889f90d5f5a1ea12a8df7a42fb3dace8087eced677d3d3bb1ee8",
+      "signature": "jr8uTRQis+Tc94cHW72b1/m2b6LrxYCMDSuGMjotCxgstoCpKjTaekPNzVpjmfhENodHzKobnc+LHDKeNlSeAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "7626deda-f0c5-452e-a2e1-f079502f593c",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:RkhPCZT+fmMyruBT:CtzZWNJGjZvA3VgfhPklYw==:6nLReC3oyYv7DmjHWp4glcUT7zOLZgyf4Jhk/JM8aUw81ndfgcMsSMjmUwrLcxi+VCQvR++8jnG62DeAqx8VsbsexxfV7seM6u0Jh+UMVfkp0VvVdwy8uieHunZKwtjNSq5XO7XuI1zwtCitpTmYBR/mf8RjMef6EPlRgAF6P1Snso7cnh6z6MJK7IBK0/H8wWbWDJsRB4zwwCaT3zYEKpHCZ/FbKtWfL6g0OJmPyyEUgbARw3bLDM4e6XRhETOFCKBv4Ke3gF3O4ncayLs3gU+aHpOoK3u6kdIjgK6QsLZdlIt3TCinrg==",
+        "created_at": 1769075424396,
+        "updated_at": 1769075514444,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7626deda-f0c5-452e-a2e1-f079502f593c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769075514444,
+      "seq": 2206,
+      "tx_id": "f9bb7cc5ba97e1ae3b1d04280af5d55ba463552b3eeedebbcc4ad71731ae68de",
+      "signature": "/ESrmNkhHOPjavu7+B978ccZBvvn5aHowcw77q7Uzgertqs6QUFtYn6J8hhBeLi6BGkQlxS4VUM4KxZQ93frBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "5562474f-eaf0-472a-a938-fecbc56add6f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "text",
+        "body_text": "Дратути",
+        "payload_json": null,
+        "created_at": 1769102787266,
+        "updated_at": 1769102787266,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "5562474f-eaf0-472a-a938-fecbc56add6f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769102787266,
+      "seq": 2207,
+      "tx_id": "fe5ff2918610eb61cf91224a4d700c562148bb268098edae48ecd64ebc206b0e",
+      "signature": "30r0k71OLtWdVeJ7Tze7v+94wrNroP6Lz1Zq9zpzR60L5wvnWp8uTd9ekvArv5Pzd1fVGJNOKyuFgtvH2PTOCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "308fadd3-87e0-4ed6-a22d-9db99eec2972",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:MbJDVRwlLw/jbYrB:EX3H/fdwhCgu4Ks15mCGFA==:tWx6wQJBFgVZjwH14M8x8kCs5Rkee+eHv/ccH+ZNPuuYl9EXshm9bZoCzFS3toIfF2KLwXqybALms9eSzfGA9GBS97g3v3R4sqX4Nmiuko/Bm0PWmhey+CSW9RnzmykiRNeiUtm5Xltt+c/vjzjwI8oR05n1UlqQXMMT5Cbb",
+        "created_at": 1769102818975,
+        "updated_at": 1769102818975,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "308fadd3-87e0-4ed6-a22d-9db99eec2972",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769102818975,
+      "seq": 2208,
+      "tx_id": "ccfbcfd4219cb117d2cb8133d5bd945ae62b51f2835050635a4433d3bab903e1",
+      "signature": "qucEqq0Xt5zAg8kagb4sVc3F1qmw0qbA5tnFSgo7DQWtZrroiV9+4XuWlqIAYXjTFlxndT2mih6Mxyy7+hPhAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "4f8d9081-f7ff-4a4c-ba65-90ccd7f8e96d",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Новый пользователь зарегистрировался: Радик (Инженер-программист станков с ЧПУ), логин: radik.",
+        "payload_json": null,
+        "created_at": 1769148052334,
+        "updated_at": 1769148052334,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4f8d9081-f7ff-4a4c-ba65-90ccd7f8e96d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769148052334,
+      "seq": 2209,
+      "tx_id": "50d18fd60a56decec1647d17ea660452a95f626910672b9f092ea473da6fd521",
+      "signature": "QlYwpdwYgz8t34vGT4aKGVHqMpnNTHcNDlpSOA5aIZrBnRZJRnGTV1NDFczEHLFpfw9r2fjyN3lffgjVshC7Aw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "c691d0cb-60a6-4180-b3cd-a6b8be5f96c9",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "1111",
+        "payload_json": null,
+        "created_at": 1769148071449,
+        "updated_at": 1769148083075,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c691d0cb-60a6-4180-b3cd-a6b8be5f96c9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769148083075,
+      "seq": 2210,
+      "tx_id": "34d472b832a345729800bf05eebfc002298282268ece7c343b27d733351a3911",
+      "signature": "HgGOF/sFLoArW373tF+YADGaKKAwLrJvt8ymC/O0dbwVFQV9DRTBLMQVtH4NiAgkZ1Nfecl1zPOtQd4M+npwDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "f4425d5c-23c5-4d67-b5c3-3a263acf8f00",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "ea26eb81-70a8-478e-9e25-c3f46c92e3fd",
+        "message_type": "text",
+        "body_text": "@Радик ок",
+        "payload_json": null,
+        "created_at": 1769150208276,
+        "updated_at": 1769150300476,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f4425d5c-23c5-4d67-b5c3-3a263acf8f00",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769150300476,
+      "seq": 2211,
+      "tx_id": "691c3cd14a1ba95b99206709067e7767fa5682273921d97fd65b40f35b951440",
+      "signature": "nQpkRZ9XIHEMhYEoYPNJgrxUcAg6CIrbFzVLtuvSoHQYaaFXNRE0k4j6SktYk4DlZHmZN26OdQARsMgBODFtBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "35ae7242-7f9a-457a-b12c-37ee3dcdc0b1",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "ea26eb81-70a8-478e-9e25-c3f46c92e3fd",
+        "message_type": "text",
+        "body_text": "добавил тебя в систему",
+        "payload_json": null,
+        "created_at": 1769150463188,
+        "updated_at": 1769150463188,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "35ae7242-7f9a-457a-b12c-37ee3dcdc0b1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769150463188,
+      "seq": 2212,
+      "tx_id": "f9572273e7880f1632bce8cd20b1530f30037f22cd341c9e506f63b4a9c15821",
+      "signature": "PL7AvU3TN/wx6i/MxoMSKpd+Ah5GN+y1vGLdx3AGy4cXdwRk2eLu4NuMykh55sVZbvbqPqzu+laIpMzIOOrMBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "87d78d69-6ee9-425e-8a1c-ff423b4de257",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "b89d32f6",
+        "payload_json": null,
+        "created_at": 1769159817664,
+        "updated_at": 1769159818250,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "87d78d69-6ee9-425e-8a1c-ff423b4de257",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769159818250,
+      "seq": 2213,
+      "tx_id": "b67ff963954f493b8c072b13a6745ff1c888a2da70bc7d11195ef4a9b9141362",
+      "signature": "DO5aarZTdlwkXQuIn5rAvKVAnFXogFiv/wMR7iRlA6p6Qett1iuvxLAlIuckjKB2OCooC3Xgx+NSlU6eGFRFAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "c0ab89f5-6afb-4f24-95f1-4aa665222068",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] query\nuser=\"admin\"\ntab=engines\nSQL: select count(*)::int as count from entities e join entity_types t on t.id = e.type_id where t.code = 'engine' and e.deleted_at is null\nСтрок: 1\ncount=2\nВремя: 6 ms",
+        "payload_json": null,
+        "created_at": 1769206002852,
+        "updated_at": 1769206002852,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c0ab89f5-6afb-4f24-95f1-4aa665222068",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769206002852,
+      "seq": 2214,
+      "tx_id": "702a83a0142cd910cc929dfd15af5820f10a32776d3f9334a7fe6fc1e81f0fca",
+      "signature": "dwWaPbkDBjkacbqohp5o8Rbfw+Zms9+Y90ZyT6ls6IfsDYZucqGuLNyuZsSqgR8PXjnKdE7wyNyDcbbAfaBOBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "2dbdd34d-3f4e-4d98-8374-0212886ef532",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:e5EJJ5qQlX1MnMEr:DNqAirzPNDA2MzZk1y8Mkg==:F+qYn04eBVVkzR85jRKv3+dLnQ+U/7AKLUKYR7hyHf3bOLyBCgB+dnECrDe1Ll1Yr2NdZyiKJbxyC8nD3QLPCaPbHAqUkCXC7sc+hvf8ENh23XWvH2EhqupbSsJCR9KivHkVLI/6mtexN14/q4nkRhZR59mdZW4=",
+        "created_at": 1768822666584,
+        "updated_at": 1769423453247,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "2dbdd34d-3f4e-4d98-8374-0212886ef532",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769423453247,
+      "seq": 2215,
+      "tx_id": "a36ac9d3a045b6ae151927f0a6b413404857fe3e6517e50644361e4df20fe87c",
+      "signature": "PRrbH7pjoNAD941AFKog+/H/LvgpGpopaYasiuO1sZyTeitVtDU2QiVBcywrjOoEE5e2vSOIe+GlrPmfRtaEBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "41d87644-0e75-4813-a82a-75db6ecc9a20",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "валентин приди помоги",
+        "payload_json": null,
+        "created_at": 1769423945849,
+        "updated_at": 1769423946058,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "41d87644-0e75-4813-a82a-75db6ecc9a20",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769423946058,
+      "seq": 2216,
+      "tx_id": "0e947a54b52a44abddfaf54200517c960135279cad87feab06d01643831a04fa",
+      "signature": "tq0XgUf5m9ZwU4IdcgFuuglVQGdUHuynseZgKn00KITp1r+G7u4lDNlYIWutScNEFOELW3oEfdMOMFPxADZrCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "fa168857-1d8d-44d3-9f52-dbd909c8bed4",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 27.01.2026, 00:00:15 — 27.01.2026, 12:00:15\nСобытия: 0, сообщения: 4, ошибки: 0 (таймауты: 0)\nТоп вкладок: service=3, engine=1\nАктивные пользователи (по событиям): b1aac85c-d77f-43c4-915e-faea527530ef=4",
+        "payload_json": null,
+        "created_at": 1769504415552,
+        "updated_at": 1769504415552,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "fa168857-1d8d-44d3-9f52-dbd909c8bed4",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769504415552,
+      "seq": 2217,
+      "tx_id": "f33c0088e3e9a9bf20fb7b7f3315cd047d5694697f3d3af9618bf0d3c38da05b",
+      "signature": "vwRRnw7yjHSG6Uhb5bH1iRBzSsHVQyvmtWrfMVQ2NMB0buT1Z/gHPxzd8pp9cKgPckfVoT7ggXkTRg/b4NddAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "63eeabdc-da82-43e4-86e4-d82613677d7f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 27.01.2026, 05:00:21 — 27.01.2026, 17:00:21\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769522421070,
+        "updated_at": 1769522421070,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "63eeabdc-da82-43e4-86e4-d82613677d7f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769522421070,
+      "seq": 2218,
+      "tx_id": "3a3c0a7371f17cfcb39c9b8b0a84bfa32af61bb765a5f1480ce11222e9e38576",
+      "signature": "/g/QLoIGlT0hhtTfUqEU/B4V5HP0oQKjD5HtjztZNix+X/ImlDjivg9ZJ+M0/aQ1p4xHr84Erl1JpuY0BxvhAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "207c3c4d-1ac9-4a30-aa88-f131934f590f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 28.01.2026, 00:00:42 — 28.01.2026, 12:00:42\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769590842920,
+        "updated_at": 1769590842920,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "207c3c4d-1ac9-4a30-aa88-f131934f590f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769590842920,
+      "seq": 2219,
+      "tx_id": "b2c5628a2d507c0ae0acddb01bfc2d001e9dc2d555e704698a3d0fb35fa7aa06",
+      "signature": "yvrq0iTuujlIyxuEOsaPNmofrHL4WuM4a4ynUErnW+kd8JIkDB26vD40sNmIup+yu0T1AiFZaesQX/1QCKv6Ag==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "097f825e-1671-4b4e-be4c-098dfdc4f078",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 28.01.2026, 05:00:27 — 28.01.2026, 17:00:27\nСобытия: 0, сообщения: 10, ошибки: 1 (таймауты: 1)\nТоп вкладок: contracts=5, reports=5\nАктивные пользователи (по событиям): 9b30cf38-eacc-4275-9ecd-3aa83f312fe3=6, b1aac85c-d77f-43c4-915e-faea527530ef=5\nРекомендации:\n- Проверить стабильность Ollama/AI‑агента (есть ошибки/таймауты).",
+        "payload_json": null,
+        "created_at": 1769608828009,
+        "updated_at": 1769608828009,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "097f825e-1671-4b4e-be4c-098dfdc4f078",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769608828009,
+      "seq": 2220,
+      "tx_id": "b4fd8479022620779ad96dbc2da856409d1b9b1b684688aded6cb05c0b959765",
+      "signature": "vtHsccJhUOLMtdzydkOjzxvNTLg8SVRxWPI+WlCXrGY50LlvHtX/XSvV0g78Dqq8CO8WuYqkuCEHaFwxAFThCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "4e1b162e-3301-4f73-b50c-f1774a2112a9",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 29.01.2026, 00:00:19 — 29.01.2026, 12:00:19\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769677219623,
+        "updated_at": 1769677219623,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4e1b162e-3301-4f73-b50c-f1774a2112a9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769677219623,
+      "seq": 2221,
+      "tx_id": "d40ae43a394be435f304d19fce5deae103b71a90424b7a10f91ad67ef4895526",
+      "signature": "kadgfGJ4cFK34aknijF0uy7BR495SFH8L8vFxEHccgXVAuhXd/Ype8zUwmifM+1ygQGw1YO2hKN7XXJDCuAmCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "eb47cf17-3c61-4278-b6f1-29f43052300c",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 29.01.2026, 05:00:18 — 29.01.2026, 17:00:18\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769695218333,
+        "updated_at": 1769695218333,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "eb47cf17-3c61-4278-b6f1-29f43052300c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769695218333,
+      "seq": 2222,
+      "tx_id": "c092aa37d3420af42c63a58f3b915af6a65df290b78a83249a07edd6ee0bdb4a",
+      "signature": "G0JDVCktVgaDNFzKUdCDwEqGiEOfdG+lhPtv+Lb69Qj4+XtkYnCdbHymQfy6csK1twjXOlwLzvSZCCKX3wzkDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "4cb9480b-fa9d-4622-868d-2166dbb7787f",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] compare\nuser=\"admin\"\nСерверный снимок: 24.01.2026, 01:04:57\nКлиенты: drift=0, warning=0, unknown=37",
+        "payload_json": null,
+        "created_at": 1769206002889,
+        "updated_at": 1769206002889,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4cb9480b-fa9d-4622-868d-2166dbb7787f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769206002889,
+      "seq": 2223,
+      "tx_id": "0fc986c7d27f8c84c955de65f4f4e2225792cfa89d8b86e14314b43772f06c6e",
+      "signature": "XljaDsr+XN1B7AW/aqpnD4vQzEjQ36xLXIOjF43dZ3BNVDO7+NUxl9CkF40MF7TLKrJua3+TtDn8JDccR5KIAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "78156afa-0fd9-4bd4-ac5b-d144247a99d3",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "f286648b-2bf4-4977-9ba3-75591908f070",
+        "message_type": "text",
+        "body_text": "привет",
+        "payload_json": null,
+        "created_at": 1769208601313,
+        "updated_at": 1769208605620,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "78156afa-0fd9-4bd4-ac5b-d144247a99d3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769208605620,
+      "seq": 2224,
+      "tx_id": "80178d596bbaa5c779279649d8cac8c0eb325dc0b13e0c1d006b79568e346fc5",
+      "signature": "HO0MqwDzamukZSarrnaLnpmgS4d0zsAdgtKvzaP/7FqmCq5D8U6x4KHDDGUnIoa3LQJVHiBUqAoXiyuK122lCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "0ef43cce-269d-4809-8487-6a834424b4f5",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Новый пользователь зарегистрировался: Голубева Лилия Станиславовна (начальник отдела по работе с ГОЗ), логин: ur491.",
+        "payload_json": null,
+        "created_at": 1768819257868,
+        "updated_at": 1768819257868,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "0ef43cce-269d-4809-8487-6a834424b4f5",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768819257868,
+      "seq": 2225,
+      "tx_id": "6a7fcbd10f046cb4c81d903dcc0887b5934c43b28c031863082755a3328d1d08",
+      "signature": "IRsCp+cF1xo1Uw1lCIL6FhDSMmPN/URM5A2HQ+urQLaonmetlrs8vAFqyOEJdha6NXANvsbqMetem9po4EgSDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "dc05a16f-2182-43ed-9dbc-3301d8796149",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Новый пользователь зарегистрировался: Фатыхова Наталья Николаевна (мастер цеха), логин: fatyhova.",
+        "payload_json": null,
+        "created_at": 1768821638687,
+        "updated_at": 1768821638687,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "dc05a16f-2182-43ed-9dbc-3301d8796149",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768821638687,
+      "seq": 2226,
+      "tx_id": "f3661c0b21abef81f879bfdd3f6154c833ef2224191cc08c74898eca93f1c7a9",
+      "signature": "UuBkkG5ub21gwNv32GJ/OYA60eUUHZaZp/IPeLHtBPHcbhCnfIJ/jgNIYQH8O65Jje6dVDkDRP1nDjG0OUyzAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "5e9ba782-70fa-4cb0-9d73-1058f1c0c7d0",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "3942aac1-b2c7-438f-bb12-1f8830bf4e50",
+        "message_type": "text",
+        "body_text": "Здравствуйте",
+        "payload_json": null,
+        "created_at": 1768822035426,
+        "updated_at": 1768822035747,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "5e9ba782-70fa-4cb0-9d73-1058f1c0c7d0",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768822035747,
+      "seq": 2227,
+      "tx_id": "310f124b890627babf6ebb83d6f96c1f6b674fa1ccfefc3f28531f88ca9a2183",
+      "signature": "EopaSqt85gxH3BZL5QqR8yVn5f0MB9zquUF+c/bvorkDi275Qz6h/luoS28Dxn+zlMVnjFeIVfLXZLFvfcFJAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "6607655a-9f39-4be9-86ef-45468c23826d",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Новый пользователь зарегистрировался: Кривошеева Алина Александровна (специалист), логин: alina_goz.",
+        "payload_json": null,
+        "created_at": 1768823072009,
+        "updated_at": 1768823072009,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6607655a-9f39-4be9-86ef-45468c23826d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768823072009,
+      "seq": 2228,
+      "tx_id": "4c2ac58a8174714ad92939f546cee874bf9805c8c1bea58b664a5dde1cb53d74",
+      "signature": "soRz3JXFm9T0ONOBJ1rKGAnkWyl77GpT3+uqJv49UURibX/hD2r4uAsU1ulDFs3d1ZAlQBXE+MieeC488JunCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "d60a55e3-bf05-4caa-9ea3-c6092da23445",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Новый пользователь зарегистрировался: Воронцова Анастасия Юрисламовна (специалист отдела учета готовой продукции), логин: nastya_spec.",
+        "payload_json": null,
+        "created_at": 1768823996601,
+        "updated_at": 1768823996601,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "d60a55e3-bf05-4caa-9ea3-c6092da23445",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768823996601,
+      "seq": 2229,
+      "tx_id": "f2df36a02d655781229c661adcc9efa40ff666c041bcbaef1be572ec4ec25fd6",
+      "signature": "p0g2s0oXOnCwCmLqaSJThyRiDE+9nCynG8bK2SmkCxDJpLXu4zEefhRP4XAfct1JZV8AKD7T6j+YeHKctlaACA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "301e7231-579f-48c7-ada0-3b71e360a742",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "гнпегнепгнап",
+        "payload_json": null,
+        "created_at": 1768828685062,
+        "updated_at": 1768975094344,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "301e7231-579f-48c7-ada0-3b71e360a742",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768975094344,
+      "seq": 2230,
+      "tx_id": "93802636240d667536b748411efcdd53f34c5412481374188c66752d2edcb1de",
+      "signature": "1JCKr+rcWPFmEY/7O5DcvMOCJGDNwWnZhBlZjxbma2KD9+jSd2nqjtYTbQjHnHc1bgPPoi8ypMByPMr56GCDBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "f99ce584-336c-46d5-b318-2d309e83a0ce",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "message_type": "text",
+        "body_text": "привет",
+        "payload_json": null,
+        "created_at": 1768989598135,
+        "updated_at": 1768989684823,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f99ce584-336c-46d5-b318-2d309e83a0ce",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768989684823,
+      "seq": 2231,
+      "tx_id": "c6247606fd3cdd2b2d55f1aed6977ec4dba0a3fc92c20ffe6bf0ba23af94304d",
+      "signature": "e0DfmGDyJaaQVnFgizefJ25rkWzXQxRzvApSGzhFTj8+Nog8SVWbO1nJnzz4MnsfKxmuf2Hidf0VfypXCU/oDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "6d3736c6-1f99-4e98-b3b4-f9cd4dc6380e",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "ага привет",
+        "payload_json": null,
+        "created_at": 1768989735614,
+        "updated_at": 1768989736501,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6d3736c6-1f99-4e98-b3b4-f9cd4dc6380e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768989736501,
+      "seq": 2232,
+      "tx_id": "3e87c8dbeba1e287e51b7cd612abff900820839a919eaab11aa40dff759b4f9e",
+      "signature": "0cNtwqqlIDCqXG6xf+jOlSF6NkttX7DBqm5REYRrhBomUZ/4tJ5BeBy8fcfCtDghE2yTkBd4aLNE2Wr98EGYBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "28485409-5309-43f3-9954-ed2c856ab292",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 26.01.2026, 00:00:50 — 26.01.2026, 12:00:50\nСобытия: 0, сообщения: 2, ошибки: 0 (таймауты: 0)\nТоп вкладок: contracts=2\nАктивные пользователи (по событиям): b1aac85c-d77f-43c4-915e-faea527530ef=1, 9b30cf38-eacc-4275-9ecd-3aa83f312fe3=1",
+        "payload_json": null,
+        "created_at": 1769418050077,
+        "updated_at": 1769418050077,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "28485409-5309-43f3-9954-ed2c856ab292",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769418050077,
+      "seq": 2233,
+      "tx_id": "4cebcd3bd593b058d655c4bb8fca7b4b56661f343ec3759b8e57bb799fbac6d0",
+      "signature": "tAPJbuXqJbgZzOvdW6BORahKMDk4WVyPz7JbbUfjUAGrBFI7ciZbGa43lEEu30QHZsPOdGu3sMyOr4aWP6INDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "3178d48c-0dda-4cfb-8d30-5acfa4b89251",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "Не удалось синхронизироваться: Error: push HTTP 500: {\"ok\":false,\"error\":\"error: insert or update on table \\\"entities\\\" violates foreign key constraint \\\"entities_type_id_entity_types_id_fk\\\"\"} Error: push HTTP 500: {\"ok\":false,\"error\":\"error: insert or update on table \\\"entities\\\" violates foreign key constraint \\\"entities_type_id_entity_types_id_fk\\\"\"} at runSync (file:///C:/Users/%D0%9F%D0%9A41/AppData/Local/Programs/MatricaRMZ/resources/app.asar/dist/main/registerIpc-DuEPB7fP.js:1164:15) at process.processTicksAndRejections (node:internal/process/task_queues:95:5) at async SyncManager.runOnce (file:///C:/Users/%D0%9F%D0%9A41/AppData/Local/Programs/MatricaRMZ/resources/app.asar/dist/main/registerIpc-DuEPB7fP.js:1266:17) at async WebContents.<anonymous> (node:electron/js2c/browser_init:2:87023).",
+        "payload_json": null,
+        "created_at": 1768822534337,
+        "updated_at": 1769423453247,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3178d48c-0dda-4cfb-8d30-5acfa4b89251",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769423453247,
+      "seq": 2234,
+      "tx_id": "a88ba1cdc58d1ce620c03500a42a99fda0bf579a4b6dcb41b69c57b6357225a5",
+      "signature": "QWTCxGN7jaHRFLtKyQVbJijSZjVx5sDAR19yrkHb6yWqm78/F5hInEkWL+lBdaLy3YaL0IiW/sjs1TIafweFCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "201fe96f-392e-4da8-9ddd-dd53487f2940",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": null,
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:muBbXkazB6K88iTS:iQ5EgQwAoDKLKog7wG7hig==:CpDpqFDRVA8kTtuV3f8rknGQCFMGvk1Zbjxk0KAynz6jY9mStgzt1+MMFVzYb67roztlLoZoLjCWqFM/4dhz3pJozcWvrKk1zcmc+qXLZRWaohg+KbEhww3vh72HOU7shNTiqqwPBfvKojfXoUwxg7eSgXwsbBBYgjI1PaxxfRmKZeWJtQzR8ismsWhHKC7Q60NG2BQhGmRi",
+        "created_at": 1768822711432,
+        "updated_at": 1769423453247,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "201fe96f-392e-4da8-9ddd-dd53487f2940",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769423453247,
+      "seq": 2235,
+      "tx_id": "81bf417665b0d889811a0030e0714e7def68b2b8c11aaf7936fdde796f37d57a",
+      "signature": "8u5Oi3ytwr2yq+clJZD8yLgUB+gVk8+/uHoj153OIOLaVLSxd+ZkM4Sh/2JaGtsfMQSXA4yaKtXaiwDxo3WnDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "16b2677f-b668-4c71-a220-a337d964d476",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:ulCjunsHZvN7N8UG:A1wNrPoYQBxBqg95rKxuyA==:bU8+20Sgy2cI/KsMXq5rhqL5OQYlDASwZW8DVTCHjKyyjk3uZOVV8mKrnHx4hh8Wau3FINCaUqo4dF4SgdeoeHL9bm4JpAlBfLwhjhIlDidSHwzWtWANA2jRoec+4gEeNeSaEjfNY+Sylwynr/YKwKoUrqL/npQ7/XSV2hkN1j1SbHTMTdlKX7T4rXlUmLP9bpyQvstlcFSIGA6Z43Zfzh98FIPTQxqIJdjVRBSxnARAghfFIv70V0txtgCawi0+VgwqcvX8ebJ/VNc992IAGfkbHGyaKUSlmja39fT4ZqsDQb6/ToyfPYt8+fqOqyt/Mr9CZyamP9Ltt24+tEWFw3TcwfgKJp+3+GjKIhe1xEXmODi+/11Ar6QMpUuRBz9xGP9iihs7O2e9GtGV/6V+kOQjnch6lZGVrv340SE=",
+        "created_at": 1769422515456,
+        "updated_at": 1769423453247,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "16b2677f-b668-4c71-a220-a337d964d476",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769423453247,
+      "seq": 2236,
+      "tx_id": "b82861307bc98916e1097434c026ec3704f620a8feebeb335597b6caec7f33e6",
+      "signature": "CoN8214xtHWbmMJPXM2aFuAyDpazKLkRZkLNdFgDu3CJQTg+or3UX6GSv6YQDlyiLgmI55s15dF4CdKbocCaCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "f6112855-6264-48b0-aa74-299ceb07c8eb",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "file",
+        "body_text": "СВОДНАЯ дефектовочная ведомость.xlsx",
+        "payload_json": "enc:v1:37dF6VTcERZymPFF:SbrJpSfCmPGob1eS6QpGRw==:O19dCBW3/L7Ff76UqYkprf/Y1muuOJ5YQzHgfG4KHZtxXIwNMTO9ztXrRemiF/+Xz0sXEO4AFonwkVrhc9+bRzX5r2cw56Zlzf8iyPPc9AC3pATXB3j8RJQIRBroX6n+qC+g+Wll623LvsBei19I7+s4y1C8qi38zJU9VK6FHUNLbudkK7ZDUTZZKiy3at3LQSTsBI6jN7Jm7Ao/iDXBj/Qdto524qvX94BGeirZVYhC+zddEu/AdkoABaduAdz/rWl/bY6FizB7NEZ6D4EFrs08wbz/BpEmAM3EgluVnwSESZOLOgRnXQCDbTpAeybsxKFO4ngO6w==",
+        "created_at": 1769424264236,
+        "updated_at": 1769424264445,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f6112855-6264-48b0-aa74-299ceb07c8eb",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769424264445,
+      "seq": 2237,
+      "tx_id": "9402addca6747a4f86ee0da7000715648cbaf4451ee9fa7ed27e36521d03b2b1",
+      "signature": "TsTluJPxRT3tI/0E1xc9lKkT7R7DnMLGPI8qpUjq+845/gwVswLR6iTbmCjqecJ+J8ofD+0/n2oBJ/PLM3z2CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "7a7f1bcc-34fa-4a28-8252-bb494436dbfd",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "file",
+        "body_text": "акт комплектности двигателя.doc",
+        "payload_json": "enc:v1:IvOpZlWo8zJF1GjU:WWM1HyHEpz6F4VSxc6Ml3A==:jQaCORYLvt641ykwj/iBp2C8cDXyr+GtEqEO8dYtcms/378IWDK/WBeTQZX4QSV2dz9ZBytm7/rlAgT/kdJY1JZ+iw6EUL+JmPhCyQGkfMgroceEFfdcf3TPhNLQEYg/HGC/KV/c1pWn3LvCwgeyiDZUiEmOhOsdrgtqKfrZxPUFazH1P03M0bs5bR6DjQeUr5pPP72erKGz3i0+XGbaMMAtC4XCzWHfimiGn/zq3aP83c1wT6fN7w6QHv2ottMHXQ4JNcDiWWKJpj0B2lK2C6hUgnzMPTjHARH1MsukcR3nL5LIVpM9quXjoXuvlQ==",
+        "created_at": 1769424970357,
+        "updated_at": 1769424970573,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7a7f1bcc-34fa-4a28-8252-bb494436dbfd",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769424970573,
+      "seq": 2238,
+      "tx_id": "49b518bce8f5a011eaf87dcd69d5aa6691289e478b6bf477888e233b2c1a4f70",
+      "signature": "rqQnd578JBFzlQsVB94FZOclKmayoE6Ud1fhkND6QXZDTQJdz6G33CzpRPqKHLCIbflz35WUgY3+4lMD0r0aBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "c69e6841-b09b-46ea-856b-4937ddb00032",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "deep_link",
+        "body_text": null,
+        "payload_json": "enc:v1:ofknuyv3oOsZvfLw:ALiTBaRMy4nIiq7sGqx7Yg==:pIHSK4l0KBtCjD1CZ3Jv/uID8QvvJxQfUGiKOIBoizGUu140Csi0UiCBFtCYKte4yllaafrSBiBdsPg0OelR/sfOssd14afeGlCAFJQIc5pmseRvmOsVBPHsPF9IodHPe0bi87g9TEAahGd9wB7HQgjFu9Y2L7jXrzW7e/tHXu1xkMkVuXjdEdJRPDXksfKQsC59bZZBi7ZcXeYuJS6GGCIscsTMs9w3KCnPR1Tv7hlHQyBE70e2f4Mzc4bwviaIYPTwwCMw+gYCAUEmxWh44B//M2o+1Yl7T5WxifSwpjn84tyiJy10ml3x72DY8wlshMcFLH9PNzo/LFFl6Mnyu1xLu4J/TV2TkJnFcIBuI5vU/Z0h3EOodJ20vZVmkaUvHYt6K+KXuX+YhJ8Mw4t8Fw6cA635ig9XRjwSVUACVZsA4Q==",
+        "created_at": 1769425372515,
+        "updated_at": 1769425372824,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c69e6841-b09b-46ea-856b-4937ddb00032",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769425372824,
+      "seq": 2239,
+      "tx_id": "870322517d66ef4db40871517a7ee304f138bc8e4a547949c97bc29378b968ab",
+      "signature": "SoshiKSX9YDLtm0X2Efw62V3mpEUPFRE1fDSB51lkVT26TOO0zCtgN/BjxfYiwOZyic8mub2JvckEQAoEMHQAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "00a57359-9b44-45f4-82ff-fa88f417b8d2",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "нету допсолгалл",
+        "payload_json": null,
+        "created_at": 1769425385448,
+        "updated_at": 1769425385766,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "00a57359-9b44-45f4-82ff-fa88f417b8d2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769425385766,
+      "seq": 2240,
+      "tx_id": "f09967364b6777af1ba4e14410a1f1dd9b172712e6fbd0b7e946f3b1d5d24417",
+      "signature": "LC9bLrMWbgcICMlGDmUVWFNDz5NpgAD5AvlNK6VbwxaxTq1+XYUGH7Xy6g5GrYruaIJxFHprCtheltggoDVRDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "2146c1cf-b780-4359-8a9a-f7201da35cff",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "file",
+        "body_text": "Заявка в ЧТЗ от 03.06.2025.docx",
+        "payload_json": "enc:v1:gJ3HW4M5pz5n8Klz:K0cU5yxm+Fdah3qrGQ2CRg==:d/Ow32Ydb6nGTdJOgZckUjPAoLzMqq0RF0isOT0izHeaBX0qh7ZySZU0aEeSWaWChU/++M7PpAFiOF+lJxzbwOLVXKsSUhSzVcB2nxdBBz0iUv7B0YQk4y//K5LuC7Q+mwomrAEk4y3R/UzGbXiO2pqPL3dOyviuxQybDEJdensFs/Sv+Hj72z7J7ERnGvtGXFnovffiIbh9Ir3nRjyCZ2U3qk5xxnzfPjFtxhKODOhdDHrDMODaMXGUkNK9BEWyJIUoiqx1k30mth4Wgt4wJPqgkZED54APaQ/i9Gfb/0rcaA==",
+        "created_at": 1769425455172,
+        "updated_at": 1769425455480,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "2146c1cf-b780-4359-8a9a-f7201da35cff",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769425455480,
+      "seq": 2241,
+      "tx_id": "38dc29a12bc40148665d5f5c33d2bbc60b7c00057f21b603cb50ac42cc63af4a",
+      "signature": "zQXrXcfjHleZ6bT/vwnMow4rU4gl8u/s5vT94sSWjZVoD2uaBU0EAZiRMCQwgWxxWTiFOpWiG3OaHRVvi5qSAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "08ef664b-a8c2-4781-82bf-3fc4e2bb92e1",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": null,
+        "message_type": "text",
+        "body_text": "222222",
+        "payload_json": null,
+        "created_at": 1768823226739,
+        "updated_at": 1769425798281,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "08ef664b-a8c2-4781-82bf-3fc4e2bb92e1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769425798281,
+      "seq": 2242,
+      "tx_id": "45e43c080d3b03c7d75c2529abdde1d554294746c760b11fa498552d09f80f4a",
+      "signature": "eFdi4iHiUHKPSaNISwWaiPzSSXnroCJ2LyFxg+NE8Mn8cscP3gUB+IKxKEhjCchkjMYHzTIzkiRy0d7OHuUHCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "chat_messages",
+      "row": {
+        "id": "17eed279-8482-4615-85d7-9e096622f83a",
+        "sender_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "sender_username": "superadmin",
+        "recipient_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "message_type": "text",
+        "body_text": "[AI Agent] Отчет по использованию и качеству\nПериод: 26.01.2026, 05:00:34 — 26.01.2026, 17:00:34\nСобытия: 0, сообщения: 0, ошибки: 0 (таймауты: 0)",
+        "payload_json": null,
+        "created_at": 1769436034567,
+        "updated_at": 1769436034567,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "17eed279-8482-4615-85d7-9e096622f83a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769436034567,
+      "seq": 2243,
+      "tx_id": "c8e1344ccc41953410ba57304d34e30954f87c628f1004633ba575b47a62648f",
+      "signature": "a8uObOODk+Sx8IO1VacEGp+JV8B99eeziNTAl/jxEiKhli3KeApm308fmPe+kdStlx3YcGj36zB9Z4cS9vI7BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "72077813eff25d28d463e6996eb4ded468ae69516906f8ce5edd5c698e29908f"
+  "hash": "be63f4345cbac02b1c8f9c7a0587e509aa5decaddaa21f2b56dcb9f1415d80a9"
 }

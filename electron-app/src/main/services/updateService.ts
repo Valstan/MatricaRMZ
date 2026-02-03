@@ -199,7 +199,6 @@ async function installNow(args: { installerPath: string; version?: string }) {
     closeUpdateWindowSoon(4000);
     return;
   }
-  await openInstallerFolder(args.installerPath);
   const helper = await prepareUpdateHelper();
   await writeUpdaterLog(`update-helper spawn version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
   const spawned = await spawnUpdateHelper({
@@ -212,6 +211,7 @@ async function installNow(args: { installerPath: string; version?: string }) {
   });
   if (!spawned) {
     await writeUpdaterLog('update-helper spawn failed, keeping pending update');
+    await openInstallerFolder(args.installerPath);
     await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
     await stageUpdate('Не удалось запустить установщик. Повторим при следующем запуске.', 100, args.version);
     closeUpdateWindowSoon(4000);
@@ -879,8 +879,6 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     } else {
       await setUpdateUi('Подготовка установки…', 70, args.version);
     }
-    await openInstallerFolder(args.installerPath);
-    await sleep(800);
     await setUpdateUi('Запускаем установку…', 80, args.version);
     await writeUpdaterLog(`update-helper launching installer (detached)`);
     const launchAttempts = [
@@ -897,6 +895,7 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
     }
     if (!ok) {
       await writeUpdaterLog('installer launch failed, returning to app');
+      await openInstallerFolder(args.installerPath);
       await setUpdateUi('Не удалось запустить установщик (возможно файл занят). Возвращаемся в приложение…', 100, args.version);
       closeUpdateWindowSoon(4000);
       spawn(args.launchPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
@@ -1313,6 +1312,31 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     { delayMs: 10_000, label: 'retry-3' },
   ];
 
+  const runWithOutput = async (label: string, cmd: string, args: string[]) => {
+    try {
+      await writeUpdaterLog(`installer launch strategy=${label} cmd=${cmd} args=${args.map((a) => JSON.stringify(a)).join(' ')}`);
+      return await new Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string }>((resolve) => {
+        const child = spawn(cmd, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (buf) => {
+          stdout += String(buf);
+        });
+        child.stderr?.on('data', (buf) => {
+          stderr += String(buf);
+        });
+        child.once('error', (err) => {
+          resolve({ ok: false, code: null, stdout, stderr: `${stderr}${stderr ? '\n' : ''}${String(err)}` });
+        });
+        child.once('close', (code) => {
+          resolve({ ok: code === 0, code: code ?? null, stdout, stderr });
+        });
+      });
+    } catch (e) {
+      return { ok: false, code: null, stdout: '', stderr: String(e) };
+    }
+  };
+
   const trySpawn = async (label: string, cmd: string, args: string[]) => {
     try {
       await writeUpdaterLog(`installer launch strategy=${label} cmd=${cmd} args=${args.map((a) => JSON.stringify(a)).join(' ')}`);
@@ -1337,11 +1361,36 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     }
   };
 
+  const tryCmdStart = async (label: string) => {
+    const args = ['/c', 'start', '""', installerPath];
+    const res = await runWithOutput(`cmd-start-${label}`, 'cmd.exe', args);
+    if (!res.ok) {
+      await writeUpdaterLog(
+        `installer launch cmd-start failed (${label}) code=${res.code ?? 'n/a'} stdout=${res.stdout.trim()} stderr=${res.stderr.trim()}`,
+      );
+      return false;
+    }
+    await writeUpdaterLog(`installer launched via cmd-start (${label})`);
+    return true;
+  };
+
   const tryPowerShell = async () => {
     const escaped = installerPath.replace(/"/g, '`"');
-    const cmd = `Start-Process -FilePath "${escaped}" -Verb RunAs`;
-    await writeUpdaterLog(`installer launch cmd=powershell Start-Process "${escaped}"`);
-    return await trySpawn('powershell-start', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]);
+    const cmd = `Start-Process -FilePath "${escaped}" -Verb RunAs -PassThru | Select-Object -ExpandProperty Id`;
+    const res = await runWithOutput('powershell-start', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]);
+    if (!res.ok) {
+      await writeUpdaterLog(
+        `installer launch powershell failed code=${res.code ?? 'n/a'} stdout=${res.stdout.trim()} stderr=${res.stderr.trim()}`,
+      );
+      return false;
+    }
+    const pid = Number(res.stdout.trim().split(/\s+/).at(-1));
+    if (!Number.isFinite(pid) || pid <= 0) {
+      await writeUpdaterLog(`installer launch powershell returned invalid pid stdout=${res.stdout.trim()}`);
+      return false;
+    }
+    await writeUpdaterLog(`installer launched via powershell-start pid=${pid}`);
+    return true;
   };
 
   for (let i = 0; i < attempts.length; i += 1) {
@@ -1349,6 +1398,14 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
     await sleep(attempt.delayMs);
     try {
+      if (process.platform === 'win32') {
+        if (await tryCmdStart(attempt.label)) {
+          return true;
+        }
+        if (await tryPowerShell()) {
+          return true;
+        }
+      }
       await writeUpdaterLog(`installer launch strategy=shell-open path=${installerPath}`);
       const result = await shell.openPath(installerPath);
       if (!result) {
@@ -1360,17 +1417,6 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
       const msg = String(e);
       await writeUpdaterLog(`installer launch exception (shell-open): ${msg}`);
       if (!msg.toLowerCase().includes('ebusy')) return false;
-    }
-    if (process.platform === 'win32') {
-      await writeUpdaterLog(`installer launch cmd=cmd.exe /c start "" "${installerPath}"`);
-      if (await trySpawn('cmd-start', 'cmd.exe', ['/c', 'start', '', installerPath])) {
-        await writeUpdaterLog(`installer launched via cmd-start (${attempt.label})`);
-        return true;
-      }
-      if (await tryPowerShell()) {
-        await writeUpdaterLog(`installer launched via powershell-start (${attempt.label})`);
-        return true;
-      }
     }
     await writeUpdaterLog(`installer launch attempt ${attempt.label} failed, retrying`);
   }

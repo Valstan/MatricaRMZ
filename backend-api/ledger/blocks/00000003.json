@@ -1,35 +1,3691 @@
 {
   "height": 3,
-  "prev_hash": "ab53925b34234f0a204fd58adb60cbd59c6a2854356bae87fc30d358584b37ce",
-  "created_at": 1769476042245,
+  "prev_hash": "aa749e930b14c9693bd3bb006dee0e9e4a9985af0728683707dad38cf7d14baf",
+  "created_at": 1770117186786,
   "txs": [
     {
       "type": "upsert",
-      "table": "release_registry",
+      "table": "attribute_defs",
       "row": {
-        "id": "78ef9bf8-7f3b-4ac3-b32c-70c0bbd11c39",
-        "version": "1.0.0",
-        "notes": "reports export builder, AI chat timeout fallback",
-        "sha256": "85da3e1f777796e4895b4ed0514e272b1855c36a2b7f309cf460f6933984f152",
-        "file_name": "MatricaRMZ-Setup-1.0.0.exe",
-        "size": 93897223,
-        "payload_json": null,
-        "created_at": 1769476042242,
-        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "created_by_username": "valstan"
+        "id": "519e4426-fee7-4f34-a865-e0ad9815a4de",
+        "entity_type_id": "c6c777ed-2c92-4c35-993d-1338e9e513ce",
+        "code": "addres",
+        "name": "Адрес",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "created_at": 1769411281697,
+        "updated_at": 1769411412021,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "78ef9bf8-7f3b-4ac3-b32c-70c0bbd11c39",
+      "row_id": "519e4426-fee7-4f34-a865-e0ad9815a4de",
       "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
+        "userId": "system",
+        "username": "system",
+        "role": "system"
       },
-      "ts": 1769476042242,
-      "seq": 3,
-      "tx_id": "3ab6ac20d0d190cbf5dc88e3cb47fe4e3e17598a1bff2eb6890ea04ef509765a",
-      "signature": "wHZvVMske/5qEw+f7MgCEv92EGjXkAin9fbvO+fnM+WmirCRtLmzP5q3wgbDHwvu0mS/DvCRU5ffGObpkEPXBw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1769411412021,
+      "seq": 651,
+      "tx_id": "7f2f4f7bd85c5d5c98110490867bbb1d7939672881d46f8b3e70d16535371a40",
+      "signature": "Jx1BBQTqH6666g5HV3OkHtzyMos40KffVM3L4b1A1/1sTRTsL2o/z9iepIaRvY/nQC4OKKDbuIgGGPLrD1jbAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "6ab01c3d-1a25-4c41-b24e-8036eb479276",
+        "entity_type_id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766845269554,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6ab01c3d-1a25-4c41-b24e-8036eb479276",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 652,
+      "tx_id": "55be876ddeec301250d7488e1f57573dd6eaef7f330082f569083cb7e6ad2a3c",
+      "signature": "6NdxSPDfDlxZMUqHo7EtX+dgNtQOG0kPQVpAUiDmIfpBdDs6vzwAtMoYBgdr7F4sct4+/Qz9aUyFL9rRdzsnCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f8279d12-21bd-423c-acf7-234590b95c0a",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "drawings",
+        "name": "Чертежи",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 200,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f8279d12-21bd-423c-acf7-234590b95c0a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 653,
+      "tx_id": "d1e94fbbb661eefe23a9ac5e566b3bd1963c9fe6ace20c85ae0304e25751ea03",
+      "signature": "AAvQY/jVlXZldeGVS7/0AUoAqFBec0ith2h/zDxbrAycp9F1UGhYNlNY6eLEcpC27QSAoyGcBlDz8rsNd9M3Bw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "96d6330a-a988-4511-95e5-ea3791e29340",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "assembly_unit_number",
+        "name": "Номер сборочной единицы",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 35,
+        "meta_json": null,
+        "created_at": 1769598588422,
+        "updated_at": 1769598588422,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "96d6330a-a988-4511-95e5-ea3791e29340",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769598588422,
+      "seq": 654,
+      "tx_id": "d575b0920e4d73a09344d8fdbbd6c8f976d7132e81c4d709b00528b419d40be0",
+      "signature": "oH9N8GF3FzMRRsfIQBeKwAVnKR7G/cNlZ+Hd9X2hv0/hYnT9QA5hDbW39b0mkJkotJ/Fy4zJZ3VZp5CkHgYwDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "8891db2b-05ac-44c4-a9bf-0768117eca60",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "logging_mode",
+        "name": "Режим логирования (сервер)",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:5JJSg5+790wp3kNb:+x8iMWkGRQa67Uhe8X9J7Q==:RLNf+4XMMrYv0ltuUa0d9C/Vig==",
+        "created_at": 1769679773755,
+        "updated_at": 1769679773755,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "8891db2b-05ac-44c4-a9bf-0768117eca60",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769679773755,
+      "seq": 655,
+      "tx_id": "a2b7886cd563c30ff99b689baa3f14096b0c8a22ad0381714989b5495aae78a7",
+      "signature": "YtLVu4gTthU0TtZBMFk+WBobXpEqDdiTjNrHiMD+KMseOrnGBlQD+5MQu/Fk3lL47QBmTsUbz9imXdZS0JouCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "engine_number",
+        "name": "Номер двигателя",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766399386038,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "1174dfa5-75c2-4710-93b4-3f6abc5be17c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 656,
+      "tx_id": "95bee3f39e5989ad475f471ac035fe31c3bb0f7d7b8eaddaa29d07b3df1f3273",
+      "signature": "QM84DquyEaQ6/hpGIgW78ukEPTxqOTOQBICI7RndRbC77AAlXOZaxVOatRrUXQ992oHWC4UAZA11V1lNGMjXDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "engine_brand",
+        "name": "Марка двигателя",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1766399386038,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "eba340ae-bc7a-425d-9bcd-f203e8fc688d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 657,
+      "tx_id": "efa603bc10fea896e8dea62ee3e5c90df5e35b6be715b24f40f0bd3c56cf27b3",
+      "signature": "ZjIEUG63VAN1xUByC1yKgFGOGopnsM/Nph1XNEznuX39W2WaXbLXnFO2sBWCke9HW51k8hOay0xqrykOe4HIBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c7686db1-5efa-4125-83e6-72c75f557155",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c7686db1-5efa-4125-83e6-72c75f557155",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 658,
+      "tx_id": "e754f272cb17ceacb52d5225c08abd6aa6dae6cf6c05b2ad0b3528fb1b37b1e7",
+      "signature": "dRnClGXpm/luDasFd5AmRfkr7XVvLijATuCYqmRaI6SxidJqVpU7xZ1clY/JUnjSBe+1OrbbbyrxZDbPqzFzAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "dc746168-b372-411a-a264-e6e66e2fa4b7",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": "enc:v1:sFTh0P7y5iPko25L:z8QAOkS2xRsgwRKd1jsxdQ==:ORvzv0x9WQbXC9EvcnPK/2MoxFVBTzLbDEalDl4JR701",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "dc746168-b372-411a-a264-e6e66e2fa4b7",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 659,
+      "tx_id": "dc48acdcc450c28140749dd6d0e4dbfd18e20d4296d22c568c8fa56295e0faf9",
+      "signature": "raWkQzrGNcCRHCiIUv1NAgL8m9rHFHpc/ZIMqcJ81Bi4ehD2g8bKCw4M6fVLBReFp7yPK5Xeoi+HkOMcxFnyAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b51f7427-8c4c-498a-bda6-9f240fc0a63b",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "contract_id",
+        "name": "Контракт",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": "enc:v1:ax5n7UrzaFaHDWX7:+VCbvjkwHYOuPU2/ecPLyg==:dhEDIrMJFM4gqqay5OiBHZ27cLPGhbCaWtxOHNsINqxZ",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b51f7427-8c4c-498a-bda6-9f240fc0a63b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 660,
+      "tx_id": "176f91871d671f19adbfc72aa8d722c719babca303a67d5f05c17e5f81085d31",
+      "signature": "xYWhYIc9C1Mh8FggSuuIOIQ8Cn0jteUTgRC5UP1zmw9TcVWEGVh04uu5ofM4UT29VHjFt/Z620SGLA169V/xCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "053be44e-da47-42b0-92ef-d33f979995aa",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "work_order_id",
+        "name": "Наряд",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": "enc:v1:fLcKXJV+lNRtiBbk:dOPfsTne9/61TLy++pvjKg==:MJJmVlwtVlNkQz0ZcBxKnvaidtYggDNb4wnHFkvLRbfjfPE=",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "053be44e-da47-42b0-92ef-d33f979995aa",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 661,
+      "tx_id": "f4b67859049071db4b0c1bcb8c9f9ad5cd2a2d223e9ba84cfcc6b784a87444d9",
+      "signature": "GpABCTpNGJxjabptG/8VJjp/nOZKnq+ugb0dQOdt+OZWPH71PkYhVoQZ2DOHgDGIio3If7WLH2C6dqEsDtDoBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "09626b45-62e6-48ca-88a2-e840659138fc",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "workshop_id",
+        "name": "Цех",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": "enc:v1:gc8Bw4tvizw3ovJ3:c5S8wqFD7JFfH3cCDSgQOg==:9nbQ9dxgH2WctnU/DjeG8liixXW/HskFaZ43v3SpBbgR",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "09626b45-62e6-48ca-88a2-e840659138fc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 662,
+      "tx_id": "24977b24a7232ee60c5ba655cb03501f5a84f8b1942e8a1fac54ae9daa9801df",
+      "signature": "yXeulwdLyYd88bwovZVyD2/Ur0OquaRWg93uJGS6iQMU/xInqVvjTC1s9CemegY+0Ov2lTe6+QIETbAYFGXiDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a7f23cd0-a6e1-4465-b1cd-6a9f58abce66",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "section_id",
+        "name": "Участок",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 70,
+        "meta_json": "enc:v1:q0lD8JwOjNRJSWct:la8+LoD0K0PCXTSekK550Q==:ZY52Jhgy/rGqnZ63rveiRpifcLtRBvfrNl5HLLFFC0I=",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "a7f23cd0-a6e1-4465-b1cd-6a9f58abce66",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 663,
+      "tx_id": "c32d5dfc516ab26ec41488d9e82aa0b8efe78b999c06280468a4baed332d02bf",
+      "signature": "tu3Y3bAtIzQvB4qhMuT+lwOb7ss58qedFXf3M9D8tKVHQN2wY62wqyTRFNfe2Q06U1+rJr2Eui9145OMbJoIBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fd631af2-2e69-4dd6-b60d-5bb48b4c7218",
+        "entity_type_id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 15,
+        "meta_json": "enc:v1:c5+YoGOA1f178zqp:WwYthbD8wXXgVGBRXSPVdQ==:HTcmmPh+TBakxqUKWWvSsZoTrKAMZ1U+PF2O4LngR19q",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "fd631af2-2e69-4dd6-b60d-5bb48b4c7218",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 664,
+      "tx_id": "27a2ce4c192f5e33ff14d109b9a81f372440dea81a678f0050d2f1d0c1140403",
+      "signature": "NJ/lWYOsnqQto6ZZxaEgkz/WkO7dyAFrhlSop3JMoYiVUFZ2iUQF4DGI9wP4j2ptgreHdzy92eJXpt4A+/ieBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1f93df7b-17d9-4324-8549-de56b2e53650",
+        "entity_type_id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя (справочник)",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 25,
+        "meta_json": "enc:v1:3Pv2QnG9NJ4HRL9P:x2ksw0Vd6iBrLq1MGXM8Jg==:ZRw8ph7dYbpLNuI6l0dYjkpbsU0LWDHBwVBgAUPbo6B8qstnwA==",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "1f93df7b-17d9-4324-8549-de56b2e53650",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 665,
+      "tx_id": "bcd991a92526272c19bfd59bf2f1fc52dbc947ac042a34b1379fa66d0960147a",
+      "signature": "+Ok5vtRAS1AbxrPkXB/OHLYz3wiDJbTY1HqZRGf985EMus024a6zvgK86agr+vg6REpRgCj6uOyc0ZGP/E44CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "87eb684f-c491-43a1-93e9-70a6eec95f76",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "address",
+        "name": "Адрес",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1769415429933,
+        "updated_at": 1769454237128,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "87eb684f-c491-43a1-93e9-70a6eec95f76",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769454237128,
+      "seq": 666,
+      "tx_id": "d38fe22797c578b0e45085545a2d8e689a178f254c090471622a93d33dcc21b0",
+      "signature": "oqUeXXJSyo5lBnGsjPegm/1wEYg2aancsL9wcA7MgRSAWYJeoKprKzQAxxRHvo2XaEjk2AIo8XJ6u6dKy7WfBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f8448ca9-f5ec-4f46-9131-13b043efad1f",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "phone",
+        "name": "Телефон",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1769415430031,
+        "updated_at": 1769454237128,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f8448ca9-f5ec-4f46-9131-13b043efad1f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769454237128,
+      "seq": 667,
+      "tx_id": "1bf60ba324a39d612389d6d285ba81dd10dc1755dfe240461ce70f4a11fe025f",
+      "signature": "ovs+qaBL46dkMoaDvtgAHL4xx9V5jdkf36Z8tyHW47Z59SeCnkwP1S6oCiKE/bpAURdG/+5ih80GMO8j1nCbAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "03f25f7f-d40c-4908-adc1-6eaeb7326cff",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "email",
+        "name": "Email",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": null,
+        "created_at": 1769415430036,
+        "updated_at": 1769454237128,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "03f25f7f-d40c-4908-adc1-6eaeb7326cff",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769454237128,
+      "seq": 668,
+      "tx_id": "af1f1dd41d54929fb2224cf0d2c32f47c030ad875d88c7c246cf0964700d7d5a",
+      "signature": "1gGrcczFJzJrO02iN2nDkFOLyAb32D50lF1Jf6YjVU4juPlP+5Qj+I99NX8ZEkDLbankZVaOaKDELe5zd8OzDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f44711e4-a317-4609-b868-d9b7e641305e",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 35,
+        "meta_json": "enc:v1:T4WlvIAscdNXafjp:BS72VH+PouJT5yDxHyX//w==:KniOBkpHA5DFe9hSEhI2SXRBpBsS70bReHarINH+XHQV",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f44711e4-a317-4609-b868-d9b7e641305e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 669,
+      "tx_id": "c0e7928188bc2a79029687839624c89ca0cdc6cbca5458850b0cd5837797b6f3",
+      "signature": "5M2GZflb0ZB+Na6GeliAOYAXINCZVSYl/U+6Ho2EJvY6+yaX+hx74b0jCmHewxYbvOkDRsnVEUU1i/3ThkRLBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a6d15ad7-2ce6-40b8-bfa8-4d4e756b86cc",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "engine_brand_id",
+        "name": "Марка двигателя",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 27,
+        "meta_json": "enc:v1:ugWQHRNfOGKqx7lV:PCTQJ7Raa9oPz0k/6gxfKA==:2ytDuiS+3cvZjUlYBFAlri8tdl9zdOXuCwFNdC5tzJ9XzlMhMw==",
+        "created_at": 1768917918092,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "a6d15ad7-2ce6-40b8-bfa8-4d4e756b86cc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 670,
+      "tx_id": "daefb4506217bd2ebbd5fd3af78313b5b2d67c7a29aedf399b4b2e6d23dde6db",
+      "signature": "qgSkgZ3OYXieged9fJVqd+onD9yHbTmMvrvhBlIz28Js1OwSE1ui0fMNMLlbdVUhDY7zoC+2szwwbqgjqZJICQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e30ce086-4dfe-4ef5-b646-21386e9438b7",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "engine_count_items",
+        "name": "Количество двигателей (детализация)",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1768917918182,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "e30ce086-4dfe-4ef5-b646-21386e9438b7",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 671,
+      "tx_id": "d123ff0205fca42b6e313c004fa2ff9040d0c5c1274adcc6efa0338cbec2e04f",
+      "signature": "TkUeM1i3dWJPX20UfhKCaKPSFtkPTBxzkYyGUHXjMhmWrxej8Gvuu+4DAGPDfHFBfLhOTNK4MD67pI1jbAe/BQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "35665dff-2db4-44ec-8d6a-bc13af4b36fc",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "engine_count_total",
+        "name": "Количество двигателей (итого)",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 45,
+        "meta_json": null,
+        "created_at": 1768917918276,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "35665dff-2db4-44ec-8d6a-bc13af4b36fc",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 672,
+      "tx_id": "ff80746a4da51fc02c7e1db07ee6ec5af3c187e72c83496f5b931de6cf1eb081",
+      "signature": "iQ+Cp8C4d3CfhBIfJav8udAa613IzRKTvOV9hLeTNLJgjyg4I3Uw8373Kqw4uQ09Yolbgrc6T8gOL4KtB01ADg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1008045c-0e13-43fb-88e8-4ff7ea500476",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "contract_amount_rub",
+        "name": "Сумма контракта (₽)",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1768917918403,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "1008045c-0e13-43fb-88e8-4ff7ea500476",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 673,
+      "tx_id": "98b25986098e6c8d0fca6887963be91611bc8435944a7774f1ecd532c1cbdd3d",
+      "signature": "Gg/idNGZC+01RW/rZpPJV65CQWLd/ssuB3k5eoEbtfLNWlV/AaakoRHU5ojAR8b+9QyVg65+ftIyMlivEGlHCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "8d6a75c6-89f1-40f6-9e1f-e3ab13a9a28b",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "unit_price_rub",
+        "name": "Цена за единицу (₽)",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 55,
+        "meta_json": null,
+        "created_at": 1768917918497,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "8d6a75c6-89f1-40f6-9e1f-e3ab13a9a28b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 674,
+      "tx_id": "2aef5b49781b01f53a5c41f2f1c35c5743888e54ff23132b9807781b18ecd2b1",
+      "signature": "RKckhkczA1p2BEWCioZl3IE92OxpLM+lc5tpftIT0RHMc5eRoQjjpMZrwBuRJZyeVIifzkfrqg0FsVg1LALSDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "60768c1b-8100-4f64-95e3-b00639cebabf",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 35,
+        "meta_json": "enc:v1:+W2AZPsI9xWNy/6l:cnFa1k5hkYwyNJ4In85MGg==:IsqA5kXi6xqDyE0t8OzOWJw7zf0G4RRM1vSw4TKbcnz5",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "60768c1b-8100-4f64-95e3-b00639cebabf",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 675,
+      "tx_id": "21ccce4eda91f695931ac2e1e10c0a178589fd35ad84221d6aa7c4d63678b972",
+      "signature": "RCzwMyPqL/cUz3xok8aGTZhq43vsWcHS0QDCDTPt6GE4AjSM/xTLNRkw274QoWsuFgtUFtUATJ5uJBSiB5efAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3d33736d-bb1f-433c-82a1-8844d8e47ac0",
+        "entity_type_id": "a491ca5d-2589-45d8-90f5-4da7c50efbc4",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768944301434,
+        "sync_status": "synced"
+      },
+      "row_id": "3d33736d-bb1f-433c-82a1-8844d8e47ac0",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 676,
+      "tx_id": "451bdcc815fc7fbfe22dd5d0fd8c0aafb1a3dcda3851ebff6fbf9aa3881c61e7",
+      "signature": "9gmTZX9ia9RNy8h/XXOvzrl+NN+ytXXqIQdqvO/+q0M/Q0lc5G+7xiVxYbHuoGQ/fvFUOQWBVur8en43v36XAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e5f8a603-6cbc-4152-b7b6-44695b54cec4",
+        "entity_type_id": "a491ca5d-2589-45d8-90f5-4da7c50efbc4",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 15,
+        "meta_json": "enc:v1:wGxaxOxqgBAQ9CEg:+rOHoavYz0mxS7Sh1xtS9g==:0/x6F2/q/2hBOOWCO+xxjn5QO2FdjqNlQJTHLKroNuXm",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768944301434,
+        "sync_status": "synced"
+      },
+      "row_id": "e5f8a603-6cbc-4152-b7b6-44695b54cec4",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 677,
+      "tx_id": "2e580c6eab050f0b280009d88fae0ded1480cd9e9fb9d6b89cc383463a1054e3",
+      "signature": "aYTVqfO5taUploV9RvCu+65qTstlhqFd/oOhb6cHm4TdSUZNzkQUL9u9UiXbx2j++9p3xWFvgw7QEAM/UbNfDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "8d140948-719e-4264-a151-01751bcd9ee2",
+        "entity_type_id": "a491ca5d-2589-45d8-90f5-4da7c50efbc4",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768944301434,
+        "sync_status": "synced"
+      },
+      "row_id": "8d140948-719e-4264-a151-01751bcd9ee2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 678,
+      "tx_id": "b287039e440b5954142953c5e13d040474b74bf5db5526bbe20d329517656bfb",
+      "signature": "+iBEv0nbnNEDhliDqfHtcvhWFtut+GJqowha78o6XBWuUhWc5qVXmpECErRaIDAXG76Qy0+rzuHxSU7hDD/dDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "56e034dd-10a9-4d35-ad16-5c5dbe77a43c",
+        "entity_type_id": "3d33bdc0-d7c6-4f65-8243-e7e8a298dddf",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "56e034dd-10a9-4d35-ad16-5c5dbe77a43c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 679,
+      "tx_id": "70b7073aa3a2ba910a9fceee0d0229892889affcdf8ccb767b02227c79dbc025",
+      "signature": "GdbackAHIzVbx6aYvURZqWdiNWYf9Jv4MuWF1zSfyAkqLcQn5jTCHHXKbGim6JB1+IqZ7gCegHol1+/aMxOcDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "2b3116b3-55ee-4235-95c3-49d044312b6b",
+        "entity_type_id": "3d33bdc0-d7c6-4f65-8243-e7e8a298dddf",
+        "code": "parent_id",
+        "name": "Родительская категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": "enc:v1:mINiaQMQyfWlU0uy:sde+lOJ0TTIV54xAiLWo0Q==:U1nbQJRrdfBOYVL1X3aSmKlvgToxIDuyX9HyrvnGdYfL",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "2b3116b3-55ee-4235-95c3-49d044312b6b",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 680,
+      "tx_id": "974a459bcb06d41171f830cf51cbac32f6c6fe12acd757e720585929ff54e8f2",
+      "signature": "B/fLyGopkYZJHfGhvvDouVnCwljtS0irX9BJvtqahUWft6Egg7RbCsLC+f+7iXWejXsHqvURrrNuKECbIkruAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7582a3c7-06b3-4efd-b4b5-b2544c1921ff",
+        "entity_type_id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 35,
+        "meta_json": "enc:v1:3aPxC7agGXDU6BK7:ne9QUPNcZGIqv8E0kpkQ7Q==:UTivklYMN71P/uaJD9P6jKQgh3lqG/w05NcJfN3hHrog",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7582a3c7-06b3-4efd-b4b5-b2544c1921ff",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 681,
+      "tx_id": "b1d95b22a3de944e7a84a074b08d4aefd237adb311d5da4ae5f1ed7903fa5d7c",
+      "signature": "idDd1TAjoca/wWwA8oxxHgPqD/RGLwoqgTfq2hVEL/cYNKBRY6Zs5nAEH+PGSw2aaER/W9b0rOT6EU/Zhqg8Aw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "5057751d-f4bb-4c8b-ad23-e292696d19c0",
+        "entity_type_id": "2f2ac640-189e-412e-be91-839f43f6f604",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769977704951,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "5057751d-f4bb-4c8b-ad23-e292696d19c0",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769977704951,
+      "seq": 682,
+      "tx_id": "ff6b451f52e0b764d925b31b350a824ad1bd6347bcb30c6d4845bc2705d67646",
+      "signature": "CsJhL/kTo1gDzB58X6iAb1NVKSHvSxEpz11y6PDNiIkEAI6C8A9navOwriDA/Xugk6qgPwIddTikAPuQ4bCmAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "9c342eec-b02f-4ffb-ad0b-5b5fb044a871",
+        "entity_type_id": "2f2ac640-189e-412e-be91-839f43f6f604",
+        "code": "workshop_id",
+        "name": "Цех",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": "enc:v1:oILme+AGriYMH97r:eTz7gWXlegkNG+ruiS1VWg==:bqFr4WaaATeWUZJDX2ApwlfTJ7yFssKaaKQW0Xs2arC1",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768944323458,
+        "sync_status": "synced"
+      },
+      "row_id": "9c342eec-b02f-4ffb-ad0b-5b5fb044a871",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 683,
+      "tx_id": "c80016d04b58b0ea89783ea5d7e9cfefa3d53f664ee5a14d9904d8cb1b48de42",
+      "signature": "06LLb7yRQZ5iYnZ8WfDQ0cHqoiSN1OUDvy6aRIuwJoiJfvRI4bDHsUR3WdGxlWhsj8s0cE/mboS7VcNrBjyUBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "00e3a79c-412e-423d-a923-02d44ce75b49",
+        "entity_type_id": "2f2ac640-189e-412e-be91-839f43f6f604",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 25,
+        "meta_json": "enc:v1:g68we6QI5Q5Iz5DA:sHK8M96hfY+r5HgfxKAcog==:dYyXYpmMgZfpoJrbdMmeVd/2IGTv1Q4+aPUm91aGQ5S+",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768944323458,
+        "sync_status": "synced"
+      },
+      "row_id": "00e3a79c-412e-423d-a923-02d44ce75b49",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 684,
+      "tx_id": "fbd05be97538fcb8f6463374ec459751673372d7a1d96f34a80dae7d32afbe5d",
+      "signature": "TwXhiQ7DHmg6dhS1TYoX2xl0mIoNVGGHcSqYMFtUMJpSFulwBBGxmy6+uiM+zxTfDSMcsJ5qI3ofX6kegmCvAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "ef7413f4-ec95-4088-818a-beeadfe864f9",
+        "entity_type_id": "2f2ac640-189e-412e-be91-839f43f6f604",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768944323458,
+        "sync_status": "synced"
+      },
+      "row_id": "ef7413f4-ec95-4088-818a-beeadfe864f9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 685,
+      "tx_id": "55129436bba723d4dccad67924b344c7c36f6689bb212b5ff940e43e0d97be48",
+      "signature": "VY00bghooD8tKfiRBOiIyULLmXZrwQ4hgPN/w3RKMUJEvDy6hmzdo45wm5pcYcNze1ubaCem/XYri8tA1juODg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "90ebba63-3660-4264-b687-568e9d9c5123",
+        "entity_type_id": "a491ca5d-2589-45d8-90f5-4da7c50efbc4",
+        "code": "number",
+        "name": "Номер цеха",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "created_at": 1766672708343,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768696874768,
+        "sync_status": "synced"
+      },
+      "row_id": "90ebba63-3660-4264-b687-568e9d9c5123",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 686,
+      "tx_id": "4b67759f68f07f840565add753a612782e641086a44dc8415d2fb1a1c27bd7b2",
+      "signature": "a+sody6JKvcNKbkTNQ/UCYOLKBtBxhnD/MLP9HDfJJFG1wDVaKXC5YCcMYgWOLSnIR6vN/I0F8LGpI20GMSJDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e9bfeb5a-cc71-4a2b-b596-214f2709f2a2",
+        "entity_type_id": "00000000-0000-0000-0000-000000000010",
+        "code": "fff",
+        "name": "Что то",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "created_at": 1767083269119,
+        "updated_at": 1769388411316,
+        "deleted_at": 1767083311153,
+        "sync_status": "synced"
+      },
+      "row_id": "e9bfeb5a-cc71-4a2b-b596-214f2709f2a2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 687,
+      "tx_id": "5e78229448bdc7f459352ebf74764b0a463809b7cf55f425817d023700c55c1f",
+      "signature": "MVv6Y987gSkoW9Cvub8SDPWHvJTDRsRPQ/NMXLr4ljXtOfPatmVcRuCVNx+ILimo/Qui2b2P4fQhnsRSL0JoAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "401a2142-78f3-4428-9169-92f082b047a1",
+        "entity_type_id": "bfcb4d2c-d36d-4154-a7ed-25dda42c69dc",
+        "code": "2323",
+        "name": "33434",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 0,
+        "meta_json": null,
+        "created_at": 1767307715247,
+        "updated_at": 1769388411316,
+        "deleted_at": 1767307733703,
+        "sync_status": "synced"
+      },
+      "row_id": "401a2142-78f3-4428-9169-92f082b047a1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 688,
+      "tx_id": "7ee1392ee2a6d8f4064fdf0d8451b849934d1cad6e0fb59dca7fd8661bfc66e4",
+      "signature": "/02K7u9MT3lXRO1pB9Nd0c3FAmaGclLUlRCNIvJdI6hZDouzcs1AnWNOzATVnm0jvtzrmlk+C5rPi860DGVBAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "attribute_defs",
+      "row": {
+        "id": "27e413fe-b870-4013-903a-0ab1a8c3fbd9",
+        "entity_type_id": "40237419-e703-4b06-81eb-d43d164daa55",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1768738706560,
+        "updated_at": 1769388411316,
+        "deleted_at": 1768738718253,
+        "sync_status": "synced"
+      },
+      "row_id": "27e413fe-b870-4013-903a-0ab1a8c3fbd9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 689,
+      "tx_id": "e23b3757b9343cefcd97a4cbee98f3475ccce7a06ea74fa1d362062c6d49659f",
+      "signature": "v9kMOIkZxH/3ZBqT1mVDcsyjeq2a3u/XRESNHB2vLZ3gLrqV3ldzImPhcN+oxF3njxX2z8JzQsZ1//DgaDaHBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "17746032-5c99-44f0-bac7-9cc5106d0715",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "engine_node_id",
+        "name": "Узел двигателя",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 45,
+        "meta_json": "enc:v1:foVkwsHeen3s6nO+:3NZBa3v+jARu5DvxQCnkfw==:13Z9YpkvG5iVIksj3EM6rkADoax5gK5EH4nrTG6zSqS3Ji4Y",
+        "created_at": 1769381747871,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "17746032-5c99-44f0-bac7-9cc5106d0715",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 690,
+      "tx_id": "0b2fe144db709b3e51a2b44fe25bb432333d5f1a6f3aca3d615108d9bfc8dc05",
+      "signature": "GpfJx7MTKTjAiUb7mrDjg21Q4+NXRSlDZgBb5KKBmpQUTOBALELsi0oBmqdm8Q1lFQVDJYbO6lNMgkg1Obd4DA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "27cdf104-d88d-4adf-b872-2400712dd570",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "article",
+        "name": "Артикул / обозначение",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "27cdf104-d88d-4adf-b872-2400712dd570",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 691,
+      "tx_id": "1e786a8116ce98837d7f8a7243d556c52033c3e81c943d4eab76efd5fe3eb670",
+      "signature": "sAjTMQNXYyZrJb9sszRVatZ8SbQ/p4qFNUyeb/q/KqGJmOCRoyZV4hnJfM9Y8yq7C09/XcIpYf5qPCjAWMSrBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "466b8ade-29b7-4099-b3ba-2109199d91d5",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "login",
+        "name": "Логин",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:H2cwya5JFNHiVPzm:svb9Agtz3iPlj2ZrkRwctQ==:bPs9NxeO00JWcxLFT0gPnOkmGQ==",
+        "created_at": 1768734907643,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "466b8ade-29b7-4099-b3ba-2109199d91d5",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 692,
+      "tx_id": "336708f12d2724b3e29815c64e3155740baffb77f7138501b3b429308ed2d264",
+      "signature": "xjxENelOJIjIqUaVRJ+45jbj6uphVBG3vvaa0VORR8aoM+7X4uJHOf/jXO68FM1n8UGaD1JXKLN1dA5W5GuDBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "534c1908-7c96-4546-b50f-76cc9c6287f7",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "engine_brand_ids",
+        "name": "Марки двигателя",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "534c1908-7c96-4546-b50f-76cc9c6287f7",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 693,
+      "tx_id": "bfa05bf2d6ec02a295363ac32ef041c65d838b826d6cfb63b61d95835b458fce",
+      "signature": "OhdzkVMBLWO9j8FUMrwLpaaWf2Sj/cKihBfO7uXZsOGEcUT/DXsrDyWpkxQtzVfT4uA8+Bevt+2rmBA/4KsUAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "6bfc8009-ac6c-4803-8ec0-dae1e95aad76",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "access_enabled",
+        "name": "Доступ разрешен",
+        "data_type": "boolean",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:+ZuuIEmmcMrRUXFV:WpqYZMfaKWiTSuK/hy0rYw==:dUln26NaOYsVoJ7dQAcfm+Ri3A==",
+        "created_at": 1768734907643,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6bfc8009-ac6c-4803-8ec0-dae1e95aad76",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 694,
+      "tx_id": "690fbaef213d1eefea94f5d0d92d7b47d6d3d42a78dbb470ff7a2534e77ecbb5",
+      "signature": "tTHxbZUdCxZs+ub2l12JuKU0hVM1dsFb3RwCCZllr1/sG7zJCYhyOCjYZ8odG70r2QIIwIx0K7bexYWQvmXfDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "80fb3bee-534c-4125-8734-0358c8b0b48d",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "purchase_date",
+        "name": "Дата покупки",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "80fb3bee-534c-4125-8734-0358c8b0b48d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 695,
+      "tx_id": "bf0924b35ca07fde81634ff5d7139cab50c79a3f61b1638d43a68b5dbb475dc7",
+      "signature": "7HC3BdDNssyoVgqMjnPA+JhBUdb6jfE+L3M9G0F4D3Xh9B0mtffSm4b4pKcI/6uK12Xs1PXICC7a+25Mx5dsBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "941f0423-a1c7-4c40-8f0e-4100de226151",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "chat_display_name",
+        "name": "Имя в чате",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:JcFV4+asgGcq+QK6:NhJtdtHXDTC9Il75vmx/vQ==:iswe9kuDm9DSmeYY/KNRSdseQA==",
+        "created_at": 1768768298433,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "941f0423-a1c7-4c40-8f0e-4100de226151",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 696,
+      "tx_id": "77096c8f24d5b36ee0a1126aacf57a6f0135ee1f930cdd0bfb2847ddf4bbf36f",
+      "signature": "P/6ewemEhjaquM/ODbxERw7GrETamF+ICOsFblnAXmBoJBILm4lZs9yTWSsQodruYjpX321/vi66l1E8cAHCDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "9cbe5e8f-4987-43a6-8b59-d346dc2f465f",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "description",
+        "name": "Описание",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "9cbe5e8f-4987-43a6-8b59-d346dc2f465f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 697,
+      "tx_id": "a29a39812f4b4bbd18a022e0e2bab7599e9459fdcd74ea3981c8e2a7edfec26f",
+      "signature": "MoJ32Fu3wRDeTqD634HzTfe3Big4b3JxdLAgrvOdRpr7fkNMCrU1FYj/hRxKCJ6+WG2s+FH/2hjgBUZv4rIEBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a0bbaa53-b1f5-499e-aa1a-71e039838065",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "supplier",
+        "name": "Поставщик",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "a0bbaa53-b1f5-499e-aa1a-71e039838065",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 698,
+      "tx_id": "a1fb82f5f8c6ed980ebcd534021e7723cd96ada94e63f3f88bb6ee67f10366b0",
+      "signature": "HJZYnz6Ju6wwUMOxRe8CQWFgL9Nb3wizCUQF8dPCglzsuljPdagGUl/nMonmqxjVjicpv1BtClfeLEB6tfeyAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "aeb5d3c0-4924-4f83-ba51-aa33e7807c58",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "supplier_id",
+        "name": "Поставщик",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 59,
+        "meta_json": "enc:v1:NQNdZztJJdFAevju:g6VV9jtOuqIpxaxxtGT67A==:NRnfajL7rmhmgti3DPIWV8sUv2BpL4vefh8AUlpq7f18",
+        "created_at": 1768917808836,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "aeb5d3c0-4924-4f83-ba51-aa33e7807c58",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 699,
+      "tx_id": "bce0447871bcc60b9d594a8e0122d9e5b714c1d2a3c116b1acb0f695dc7f225a",
+      "signature": "8CB2StBJbQuwy+LCtyDQQal7g7zlYBx2U48n6xKsnNWLOd8BL40T+vxdF25s4xL+zjxlEgEcxWV060ZLihmDBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b339449f-6a6b-4510-9a58-1aebb1bcc2a1",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "tech_docs",
+        "name": "Технология",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 210,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b339449f-6a6b-4510-9a58-1aebb1bcc2a1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 700,
+      "tx_id": "90f61cb4118fdfe8fd1f22626e53d73ef8239066820b4e068bb9e44c25c14d19",
+      "signature": "2vJeEdgih9yJhVH4p/Xdj/v57Abj/ZPqT+6HZBs1wI/l5YgC2xv9px3jL4Je70KVnPgyQXpJukTLqRXi0IyADg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b899f8a8-bae4-4767-82c6-6fbc336c0c81",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b899f8a8-bae4-4767-82c6-6fbc336c0c81",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 701,
+      "tx_id": "d098316607f37fc2be7d975741eb8e2ac6ed76c9b4ba93a1f7588b08fec8763e",
+      "signature": "u1yv4+1v9qtOP2r5+q1JqU93Lbfqyvw7vJmB4nGdXmjHtGQAutIOVVFNMU42L2iunz1aOOstAjTzIcWPUmLEAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c825c7f5-f73f-4447-ab14-6e1bb4b0c1c6",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "password_hash",
+        "name": "Пароль (хэш)",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:tM2UBIaPFOS9adsw:7aBHW5laQ8tv5e9bl2QkOg==:9YuDSYk+QVdMCLm78fX6OJGlWA==",
+        "created_at": 1768734907643,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c825c7f5-f73f-4447-ab14-6e1bb4b0c1c6",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 702,
+      "tx_id": "63a2f33b0b73cb08166bba18238d86a55f797b8803e86d40311c1803b12b5faa",
+      "signature": "SAtYgdNLsKyLYRRK81ltySXG568er1fFpYK4JVYTYJ9FaM2R26ihEfi5xzfEqxdPNz78E5n6EZ8k/bWEG6e9AA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "cb228b26-9b14-405d-9ce7-97e6fd0bd25e",
+        "entity_type_id": "76ff9c7c-4ee9-425d-b65b-ca8b53e7185d",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766845299359,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "cb228b26-9b14-405d-9ce7-97e6fd0bd25e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 703,
+      "tx_id": "12fbeb73fd2ac81f8faf7c8ee203110fbb9846ba0b3d58ed946a5d05f7af1b67",
+      "signature": "y810gYO6te8NSlSVovRlka2QzvFN85suw1FO3S+58HNfF0WNGne+n5kQyUtUXPCABJsUia+ExtelZZfDqJ/+CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d5f9fbf3-be52-420c-83e3-a3396bbcd5c8",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "system_role",
+        "name": "Системная роль",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:jkihUDMfaP0PN7ed:ewN/5h6+8ayRS/tDgB6NpA==:m6Daji1Z3HInfbVGllbeWMZOZA==",
+        "created_at": 1768734907643,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "d5f9fbf3-be52-420c-83e3-a3396bbcd5c8",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 704,
+      "tx_id": "5394b58c055b92b8337b4b43c6b5fe2b5e3b649391f5f4882394fa7becef0954",
+      "signature": "+UQ+2GdwRge00/3D3xtobxxMpplv5asaaQDa/EVyfu4Mx2SNRu7mFK6raHa0a0UJuSJm60/6IMHNJ7iaUWyACQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "6c9b1090-c416-4f54-8245-00dfad4111c3",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "transfers",
+        "name": "Переводы",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 80,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6c9b1090-c416-4f54-8245-00dfad4111c3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 705,
+      "tx_id": "f2e4e583b3b95fba9b6d60b25af5497472f16f487fecc1156fa5d726e1ebfe1b",
+      "signature": "uNUy+EtbmESbjAqYzvg4enk9G9P6Vf6yo+vi3mFcjJ1yFvYi26wy9KdwcAcYPfvyRdS1nUaARjs7k9Rx7R0vBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1ba38508-5147-4ca6-bc23-f8e7ccae56a4",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "1ba38508-5147-4ca6-bc23-f8e7ccae56a4",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 706,
+      "tx_id": "0521053f3500d52c174e18e63cff3cbf4574306e002a1abf5e5ab3bc79781a1f",
+      "signature": "4MvwM1q2v9EkpMeJpZxNeheQBYM3R3yOdD6HuzjcbEE+bA054eSEO1BOa1IZhjxfTCeX9Ef20QhzB/pjdCajDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "628cd4ed-2153-4f46-a2d0-68087d84e77d",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "ceh",
+        "name": "Цех",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 4,
+        "meta_json": null,
+        "created_at": 1766672859254,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "628cd4ed-2153-4f46-a2d0-68087d84e77d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 707,
+      "tx_id": "be9d2001588810032bc255c6f034bf32349f3ab88e69b9ae2a8866a04edbf66c",
+      "signature": "qv/2qZ3RiMp2jq4ibK52aWZt3O3pkrpuAr/RpY/5eOudEemz0rC9jw2YdPW49sHq+J/6OHb5WxW0V3ORYcJVBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "48aff390-e564-4803-9363-b10943a3c382",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "birth_date",
+        "name": "Дата рождения",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "48aff390-e564-4803-9363-b10943a3c382",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 708,
+      "tx_id": "f7d2af3b726304e6e28bc2e99a8e18c21c7134b55d736c6d468780e3de91151a",
+      "signature": "xbC9ncEZN8gjmgwgoCSzAmIxjnmEZOVJWmv3tzz+j9YtBmrHoADucUBiV1RVov12a3nNoRNkg0ZWrY0dtorRAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "120defb1-e666-430e-99d3-0197869fc07a",
+        "entity_type_id": "2f165169-cb64-478e-8bef-899a6a909233",
+        "code": "name",
+        "name": "Наименование",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1769378868654,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "120defb1-e666-430e-99d3-0197869fc07a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 709,
+      "tx_id": "4b44dd298fc0667e021a6f6ec374902e517073d4934f48452ccd4fb8eda8bb44",
+      "signature": "ceDpydOooE1LqhnZ0poyrqmbRRlaPvsLNf0/reUXbrfp9oMF/j3pK2NV5hGGeUJfraXwDi9Na6l5Cl3KMW2PBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "6321faa1-fbd7-457b-bed0-9070e3a74121",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6321faa1-fbd7-457b-bed0-9070e3a74121",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 710,
+      "tx_id": "38ebe2fbdb126a49c73709f0b74b6fb0c42a7d0f63be6446b9789a242846d732",
+      "signature": "LgFLV0eYAEeoctUh67uscHKA0k64Yj6etTpiCRrIA/hKaxVf0LmCsK/X69M642vBfps63qH8o7ST4eYcvijgCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c88861fd-a7ab-4a3e-9123-7033a686dea8",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "inn",
+        "name": "ИНН",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c88861fd-a7ab-4a3e-9123-7033a686dea8",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 711,
+      "tx_id": "7ce0077e3db3dec79a94e673d618d09f54de5eeec257469507ef1d787fc2ee8d",
+      "signature": "iJCXfZVh7/FZTnFvGPM7zkJAwUEpv1EvZisDZuTfcZNs6oIpFceDbZjHFMsnY2tc5GDxs3ePcy713Et/w7drCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "15c32f2d-745d-434f-8b2f-bf63b029c852",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "kpp",
+        "name": "КПП",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "15c32f2d-745d-434f-8b2f-bf63b029c852",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 712,
+      "tx_id": "a76465ec5908281fe0da710b5c2a14981775b4d405ff9796dcf8e0f1ff015c3c",
+      "signature": "We6fXdQaNNsBg8qKtg5DN3324l+X/CS19qq0K/3B9wy13dUW4RkR9a7SMpbc8JjvwdflnZ/5LLW+sB8F2y4JCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e97c47ea-14ea-422b-8ee8-5f37c2b9c6c3",
+        "entity_type_id": "5692212a-05cd-4d3b-8efc-60b9d70f99be",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "e97c47ea-14ea-422b-8ee8-5f37c2b9c6c3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 713,
+      "tx_id": "c8b6fb50e9cc9dda14cf1e341c8eeab7ef4f2042096f9237119820afd4b90f86",
+      "signature": "BtS/y8geJWoqB3XiTXM+/vd3ib/IcZxq1FT+aubW39Ga2IRpaK9sdCkQOkTHgapuU7WyPSmaejVCNprQt+9YAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "40a8248b-4072-402d-b63b-97702ec88ac4",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "number",
+        "name": "Номер договора",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "40a8248b-4072-402d-b63b-97702ec88ac4",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 714,
+      "tx_id": "31ac1c1487597ab532a10f0ef49c2cec5504eaa4a021940fc44d007d92430db3",
+      "signature": "HSaq4Yf4+pM8ZSWZnoK5ewJ75ZZjD39hyJbfN7AsKdgWnUS3iLvcPMs0FI8r+KTKP5tvYN6iFlny4sIbnEXgBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "471ed2f3-4c76-4edc-85a2-cf5b4a81ed90",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "date",
+        "name": "Дата договора",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "471ed2f3-4c76-4edc-85a2-cf5b4a81ed90",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 715,
+      "tx_id": "1cf28d68ffc8f139de6a3c13d315f50163172ddc85fe14561248ffb607b6ac71",
+      "signature": "fQU9xbqnXv3yfsF8lKD7c81waeMcgNti75tebomKDpsfcDdjzl0eppaXx0nZBRoYndUVLmVOFmbaQS/eQyAPCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "35dfee1b-8faa-454e-862f-308ba2531770",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "internal_number",
+        "name": "Внутренний номер",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 25,
+        "meta_json": null,
+        "created_at": 1768917917932,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "35dfee1b-8faa-454e-862f-308ba2531770",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 716,
+      "tx_id": "84c7a4f552ac9b70efda5ce22422a68f188d84112d0ef024b03eb847beeaa038",
+      "signature": "t0K+TAta0kurhhS8Z2ETp8cnijsKXbuejh+T8r/8wkaInIrNVi/AGK1OyqyPmEXMLyj8piiUjxWwJNtK34I0AQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "de6ac0c8-f3b6-432a-9159-1bb29b5d4e33",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "customer_id",
+        "name": "Заказчик",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": "enc:v1:m2TSJlDEkFEiw/t3:ZQHVZ29RrZ0ECEFkNrCWQQ==:PMAhXA/TmUmUge5ZzWNzQPK731oR2p7DbFbu6xA1f7yI",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "de6ac0c8-f3b6-432a-9159-1bb29b5d4e33",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 717,
+      "tx_id": "e6f90f6b035b738e10fce42327c63488ee3e6efa1e40e7d53b07b403e242fa74",
+      "signature": "WE/izZS0KXhEe1WGaHSCPL6d+nyNFz1BhH3De+y+C7jEmp8pQzBJmMEzXLDpvjIFL1Jt/TfHtZGv25DNcJ8DDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f5287a7a-153e-461e-803b-4041cdcf09ac",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f5287a7a-153e-461e-803b-4041cdcf09ac",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 718,
+      "tx_id": "e6d8b450e3fbe2d48a5640de185b2cee1a627d23e0a91855dd311c7822d72fa4",
+      "signature": "l38hhLuATUW22poTPWO0yiDkd6IuvxYOResL9fsvKXGHVR/J9XM58oEnDGJRSuzTz1fesNz2LQHfOlifDvgPAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f1e61bbf-addc-459a-b45b-b91c0ad187f9",
+        "entity_type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "zakazchik",
+        "name": "Заказчик",
+        "data_type": "text",
+        "is_required": true,
+        "sort_order": 250,
+        "meta_json": null,
+        "created_at": 1768918168225,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f1e61bbf-addc-459a-b45b-b91c0ad187f9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 719,
+      "tx_id": "a896b7090e2ad3bb0c4b8421d7aeea01735e38a79b520bfc60e90789d921b809",
+      "signature": "cHA5HWecCCb3zwUeK2nUoe3yu/9sZiPRPpiyTa9mbsFRwFNBZZ7pnLiVdWy75zgdZxKPTJx3/yd5aYrBm51VAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1a364ad7-d34b-4155-b8cb-642e892f7a4a",
+        "entity_type_id": "f199da17-2836-461c-9324-9a2c6d5e8c9e",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "1a364ad7-d34b-4155-b8cb-642e892f7a4a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 720,
+      "tx_id": "3639a01cc2d0844930ce2b934a47a7fd19dc4b8655dd9a5322b891328602afcc",
+      "signature": "EyT7QYo8yJVYdLL/Cx6umhrlY7l0rIHXbn3zeYG4yNS9PFkS36u0feRQPVB3AE/1vhJ1CHIToezkqtJWbLJrCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fadc72ff-9c8b-4b19-9fcf-66606430b90c",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 58,
+        "meta_json": "enc:v1:PelQa7VeOnGSl2Ua:b7B8MCW8l5kvuD9ZtL41gA==:UST7mh3e75iUcAuK+QJWb8Oejg5NzlGlMJO7Ti5d/i/F",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "fadc72ff-9c8b-4b19-9fcf-66606430b90c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 721,
+      "tx_id": "ade87e267f1670ff944898fa63da06a8df7893d81319d3e2f2d744b1802d5824",
+      "signature": "rbB9PehbFTl5U0l0+cTQVgtu5Tknb0mwtStlamdKTsr7m9rtRtHXwcrw3FD54ALe8QHoCwoFyctdC1o13owJAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "440cdbb3-0854-46d7-a529-c5f00006bb25",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "department_id",
+        "name": "Подразделение",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": "enc:v1:q/fpfTHI9SJlUEYK:WilsLKBK9hMmkKtyVj27YA==:UzGoTjx1r0V/ZOsdsehjZdluxG+FyD4ykLubOgFL1DYLCck=",
+        "created_at": 1768811656732,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "440cdbb3-0854-46d7-a529-c5f00006bb25",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 722,
+      "tx_id": "f04765913f92fb5eb2682e631477743170dbe13d25c6e0a459f185cecbe47e6b",
+      "signature": "buelRPRr6A7FB98GRNjj1+eJnqJl0PDNLtUH/dPhOxGrts3nlQqI/ML8n/Ib1mxsxa8Buue3eUQF3bD2SKvNCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "ceb9532e-61b7-4a9b-9555-70c519ec9250",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "section_id",
+        "name": "Участок",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 70,
+        "meta_json": "enc:v1:fyefpMtU2vEyZSsH:MlwGaV2E7Ib05uu4eYcejA==:NcI7vjuXmI/zUZ5OmHr3CUewcpYJTUf26+lUX9+eX2E=",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "ceb9532e-61b7-4a9b-9555-70c519ec9250",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 723,
+      "tx_id": "9131564f754923d67fb90c6a2dc0a180b63bce2c1fdc7330de64a25d705a9284",
+      "signature": "Xbo90MhA1DQj8iHchbG+Q8uVJ7l6Fkd4K3eBTe8iuTqmUk8W9zdoXIUf47+Gw1Foez3VuCYSJf/pBoTcVkdnBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3a3d1daf-a3c5-4c15-b495-06c5cd415769",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "role",
+        "name": "Должность",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3a3d1daf-a3c5-4c15-b495-06c5cd415769",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 724,
+      "tx_id": "da76572ca33b838400858e92560050e9b8c5dcf2fcba503f4e0ddedd9691aa79",
+      "signature": "x82ej/eoz7S1VSBoM3XrUc7PzQfPHE2d10ORWaMSTNhai/98q/H2XWfDgTy4FXTPT50V4vI3sKtFn6RUSeleDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d35fa035-ce8e-48fc-959e-9ec36bddfd45",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "employment_status",
+        "name": "Статус (работает/уволен)",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 80,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "d35fa035-ce8e-48fc-959e-9ec36bddfd45",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 725,
+      "tx_id": "bb11f3e556d33ce09af197d9d85ac32f100ea178da4dc22f767df63c2ba1d306",
+      "signature": "TeDoSQbRbTQeJIkyXieIXnWO+pJ7ff/DJBY91GVRkzAXMlZX98kHE4fZ+C3Q+p3hF38sZP0wQnahvZoivz3JDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "0c10d888-9a81-48d0-a39c-9920f6a068ea",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "hire_date",
+        "name": "Дата приема на работу",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 90,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "0c10d888-9a81-48d0-a39c-9920f6a068ea",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 726,
+      "tx_id": "731052cb6faed388fca95ae546f65bf129abd8320f105a076d6bd460045c90c2",
+      "signature": "MSM37vUMS/XmAZ35YxCXYwNNX0dsKFIt5IPLLYRRZYLSLfEZTUn2X3GAbN3WxSa+dR5npeNN7tw2BfcGByVvBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "516b402b-5d3c-4479-9a4e-50cbd8562a44",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "termination_date",
+        "name": "Дата увольнения",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 100,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "516b402b-5d3c-4479-9a4e-50cbd8562a44",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 727,
+      "tx_id": "4d7d5d52cf7173e9f617cce99ec9779c818f4100a131061280845acbc440dbd0",
+      "signature": "6JAlMsQeE+E65iOSYXqPYJUFJdNt3Snf37LL8tY8gVVEcJkELpAdv7QBpR5Z/3Igg4zQqifi8/g5FrjYSzJ3CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3e225d25-fce0-47d3-a08a-c386b0fd3b8c",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "logging_enabled",
+        "name": "Логи включены (сервер)",
+        "data_type": "boolean",
+        "is_required": false,
+        "sort_order": 9900,
+        "meta_json": "enc:v1:XE5atpv5VLHPduB1:xsTaCB96nupBBBaTSEyQCg==:2fshE8bt3xYua7Uzj518yejZkA==",
+        "created_at": 1769679773755,
+        "updated_at": 1769679773755,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3e225d25-fce0-47d3-a08a-c386b0fd3b8c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769679773755,
+      "seq": 728,
+      "tx_id": "9b734e3e18319ac2d3646eb488af6a06d6608d859244696bd1c37e98dde3c6ae",
+      "signature": "a0ZdRJDw8D8NvGtUTKkiI9VpKb8EC28tja8AMtPdUiDC/FB82rqU+I63mJTF/yi0RTwjrvuoclNVy50cS2tAAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "5f639725-d7de-4304-93c7-9e1583139161",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "unit",
+        "name": "Единица измерения",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "5f639725-d7de-4304-93c7-9e1583139161",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 729,
+      "tx_id": "056c12fb81ce12b45fd436ce1732ffcfd058c6dbeed4edd94bec03ad8c19ec8c",
+      "signature": "dgzf4+OEwKRmUnd2EuFAknu+wmjhWOfO0Om9gOY6eTEeyfbRkcYOUr/kDbJ89c1YLJ6vU+MrSxkdOoKrQVI4Aw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "637c0653-704e-4d1b-9863-bb15ba82272f",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "637c0653-704e-4d1b-9863-bb15ba82272f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 730,
+      "tx_id": "0bd312299eb7e95241bd73eae7fb61ee658993af8b02afeb8d6584ec3342eb44",
+      "signature": "C4EyzP0euu5B6kEv0NyXkEtV2wINfL9ZBy6krfZ9ElQMfdhxAtQVBzQlyH+94oASh3jHKXoMNH2+6zuxgoM7CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "bc01398e-2cb6-445b-aaa9-9b73c7f2caf9",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "unit",
+        "name": "Единица измерения",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1766743911686,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "bc01398e-2cb6-445b-aaa9-9b73c7f2caf9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 731,
+      "tx_id": "8f3aa5592f7a28c41f11e4c2ea75c1c80ac42826925bf721c970c17a12365df8",
+      "signature": "tbVCLp7X1UNhgbPBuT1+MLCrtJxMujyc/8ow57KxijYVXHES0shWSIjLW4T6ge2URojOtfgrP1CTVY31BReyCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b32e5950-9439-4634-b3bc-f2ad6b745273",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b32e5950-9439-4634-b3bc-f2ad6b745273",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 732,
+      "tx_id": "5627305188f53ec3c10eff914eb3a51a050fee72bd099cc6fdebd10c02e7bdea",
+      "signature": "QRJFwT2Hzilhu1KNMHW/o8GKwyIidjCSlueB9o2x7kFDNRpnMctnp+0dNgB6e1LyWN7Y6WxOtcPllBNW90b2CQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "650bebc2-ae08-4040-812b-3aaf80187622",
+        "entity_type_id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+        "code": "number",
+        "name": "Номер наряда",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "650bebc2-ae08-4040-812b-3aaf80187622",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 733,
+      "tx_id": "456c48399e4bcac0bf5f17653e5419aba15266f145c80f574face2994c379b87",
+      "signature": "H7VYkzDifKDXmYBtnEPtQt512b5C/4lg93xIVsvd394gn2QWIhIXouWxunCMwS5Q8H+tNj4gigrr+9RbhuGrBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "50468489-3ce9-445c-8e97-4f510f849daf",
+        "entity_type_id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+        "code": "date",
+        "name": "Дата наряда",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "50468489-3ce9-445c-8e97-4f510f849daf",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 734,
+      "tx_id": "e2ad9cd608f109be578040deb72ae304f936badc8d9ed83f2fb9584366f1f6d0",
+      "signature": "+kZCdtYTYP2hs10Q9cQlxufo/YYaPOImq2tRZl5VXdqaMXtGq0mMiF3phmglETOMel8k/6ql2PvIoYLBVJT5Dg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "d9e78aa3-04bb-4514-9634-6dc592c5865d",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "shop",
+        "name": "Цех",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1769372736860,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "d9e78aa3-04bb-4514-9634-6dc592c5865d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 735,
+      "tx_id": "188cfefd8152754f077f47d89fac8d896b7ac3e235a68d34a26b61fb566bc1ce",
+      "signature": "UKKQ+3E1K2wa7/ZiuxMBwZa5/to6K+izADXmiPVhZNPGz0XXWdmp0Ay4CMhds1QcfCIdu+S8VTjsTo/bKYccAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "a734c3bb-9514-4a53-ba07-6872d4a7343a",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "photos",
+        "name": "Фото",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 310,
+        "meta_json": null,
+        "created_at": 1769372736865,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "a734c3bb-9514-4a53-ba07-6872d4a7343a",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 736,
+      "tx_id": "12cae278da0234c62a2baaed4f38ec1a8de5f21188fecdad7f14cc46d38059a9",
+      "signature": "6vM2ULqEMpXKE7EbXgxwAw7ffQCe0xtM8AnNLfYmbJ1UMt9tv1vGHKO+SoGZBCBbQdBBbAjXCXJOasLVUdWEAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "4a00b546-ab46-4606-acc6-52fe9dc886a7",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "description",
+        "name": "Описание",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1769370378273,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4a00b546-ab46-4606-acc6-52fe9dc886a7",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 737,
+      "tx_id": "52c1ee716f20597494dd5de57a2db1500d1bf060f6b87fc809cbbef826189bfe",
+      "signature": "nOyLA42fjWT1xz++1SzMA3v+CHtTyNQkpNIqydrRBqfP5866DHv9kpprxU09Ab53RRHqBUfGOydA+Mh25mLFDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f6a8ea04-389f-4c46-b953-39bc68bbb4ae",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "shop",
+        "name": "Магазин",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1769370378278,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f6a8ea04-389f-4c46-b953-39bc68bbb4ae",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 738,
+      "tx_id": "cca6abb4326f744d7d939536e3c086dc02baee08d490462884e41890cb3a123d",
+      "signature": "ew9LzWyvALn4gqCrkqNVheQLfwUnIjr2r/DJsumv1xGdxTgIr1Q0B7OD/Zi/XNF1HZEjHqYy5Spr/fvfcLjBDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "425bfea0-5045-4ca1-9688-81da4a10abdb",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "article",
+        "name": "Артикул",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": null,
+        "created_at": 1769370378280,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "425bfea0-5045-4ca1-9688-81da4a10abdb",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 739,
+      "tx_id": "fd1691e62f11b4887556110aeeedef73f78c68b5b89fe631e0b15efb6cbcd798",
+      "signature": "piRDY3xFPYV1rxJ8d/AEOKYek2rOd1jLWJetGEou4VAMVRYGoUpPWuAePZ6klH0Nlua9nUCJAqiqBkvO5wKSCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "052b2599-a5a3-46d2-b55e-451944b1068e",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "price",
+        "name": "Цена",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1769370378282,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "052b2599-a5a3-46d2-b55e-451944b1068e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 740,
+      "tx_id": "bfe25b6aa295e1200566200a8f1d48418412208584dd0b498593dc883efcad80",
+      "signature": "FEkEKLFo4BxCGcnHsMG479EQvng+H2qFCcPme/Fz41H2C+EdzNYzobs9c/hZj9vDgJcYodQAqgJ+0m1ZH7NEAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "798686d5-6ca6-401c-94c2-0f91714af62c",
+        "entity_type_id": "e86a8d4d-5872-4cbb-b01b-f60a80bb79dc",
+        "code": "field_name",
+        "name": "Название поля",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "798686d5-6ca6-401c-94c2-0f91714af62c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 741,
+      "tx_id": "89f812b90d864f144b4ada77e4abf7ca415db7532d38162500f28a4ecf09bc10",
+      "signature": "ytbLEu7hJIEJ8pbzzbxTjv1ZayzNC6S9IjwAUZ0Qi3TXTJpEa1jey1LFGYkPAN9sQPltB9Lg1V+tWo+Be0cIDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "534945c9-2c78-4494-a982-4d92a69635ee",
+        "entity_type_id": "e86a8d4d-5872-4cbb-b01b-f60a80bb79dc",
+        "code": "target_type_code",
+        "name": "Код справочника",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "534945c9-2c78-4494-a982-4d92a69635ee",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 742,
+      "tx_id": "a811243d8b01185f99d9795ccfd6149445fcf17d4e9dc9744bd252be723c69ef",
+      "signature": "S82Vpjr333O5Fem0nUotM49C7OCKHr3H3NUVAu6ByAzEIadd5O6YaWYbZg1bd/lN1GGu0DgFPsoMKqTajmB6Bw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c87017bc-d05f-4fa3-9793-f9fbcb3ab55e",
+        "entity_type_id": "e86a8d4d-5872-4cbb-b01b-f60a80bb79dc",
+        "code": "priority",
+        "name": "Приоритет",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c87017bc-d05f-4fa3-9793-f9fbcb3ab55e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 743,
+      "tx_id": "3f93b3eef1b87b6dcf6b3f536926c40fd76cd5138d69cbd1eeba188f1a069b66",
+      "signature": "RSiabv9/uK18iwtTZKPpsimVQi0pWhBXH6xb8nQa8BJho/whIeN+kupIw32B6N229c+NjM1Ny3lGvsBnlvkEDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "1e2c1475-c435-4b26-99a5-71dc2d9dee5d",
+        "entity_type_id": "e86a8d4d-5872-4cbb-b01b-f60a80bb79dc",
+        "code": "note",
+        "name": "Комментарий",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "1e2c1475-c435-4b26-99a5-71dc2d9dee5d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 744,
+      "tx_id": "269cf042dd66aa441b5b1e18deeaaf5025a73988b50f92524341f4bb4fdd2f68",
+      "signature": "TfXStltZBfyXhdCCeceg3QMLFhjcf+v0NsodNk7nehvAf3IOtWZJQX9ax2iXrfS6szTr5TVy86cwH2DYWDsaDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "cbff9436-044b-49dc-9a48-b960fa2a6c6e",
+        "entity_type_id": "c6c777ed-2c92-4c35-993d-1338e9e513ce",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1767009234816,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "cbff9436-044b-49dc-9a48-b960fa2a6c6e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 745,
+      "tx_id": "1bbf87d06c5df5cb3e4e40a9c7cb6d934a598bc949f8e3b8120a75fe4dd5aa41",
+      "signature": "h/KzGqIWBEaGckHgLkws3lTfLAUEhkxB5ez68+nIXNOkLTNitdQhlhabY3+bahKXW/J/ldwRVPmunhKeafwBCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "4ad7cf77-ae20-4774-880b-2bdaba02296d",
+        "entity_type_id": "2f165169-cb64-478e-8bef-899a6a909233",
+        "code": "address",
+        "name": "Адрес",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1769378868660,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4ad7cf77-ae20-4774-880b-2bdaba02296d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 746,
+      "tx_id": "9f227d19dd03c1e440974d783f8db8fb1e589c0e47a99ec6c3c2b7d1e5b95835",
+      "signature": "1fmlIlM+Bz/w85j/hHPUCrGzZVa3zncQ4EWaXsWBaC9zHv+9B63asM1EAjAHkyprur+rPoDMKaovM3OCoh4pAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7241b109-f964-4fb5-ba4a-485921b4c8ae",
+        "entity_type_id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+        "code": "contract_id",
+        "name": "Контракт",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": "enc:v1:zy8HGNr3DefqwbO0:dSZwcYnVGYt6KUvm0BUFrQ==:nVitHrikr0aWdhdXWNfElzacJ6zHIvID36lxy4uUhhTr",
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7241b109-f964-4fb5-ba4a-485921b4c8ae",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 747,
+      "tx_id": "73ad288fa3c41f7a2b37b8b18bdd86e15bd5512eb437b5a5f09bf0b97a460585",
+      "signature": "rrQI1AaFNN5o6DiCtmghEPuH25RgdqCI8Mz97Hr+KDzjXxtfN9QcsgC1AUCs0rFL2iee7KZcZ6+7UEmT9nx1Dg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "57143607-435f-4d8f-8142-ae95bd5c13e3",
+        "entity_type_id": "a727dd77-54e7-415c-91ef-9a7e1afd63d5",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "57143607-435f-4d8f-8142-ae95bd5c13e3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 748,
+      "tx_id": "68825179f4755e68a087d21500bcc6d43684da262cdec41986163b0b1c6546b2",
+      "signature": "f1N4qCsSGmmFEziiWis5QpDEwhopjZCm+TeGv2UKyK8Vy1HAvC3byu2O5eXiFMFA0cG36bWdW0yWxOuiWk+HBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "11ab583a-8682-453b-8409-f200864c6d1e",
+        "entity_type_id": "28ee161d-6e46-46d1-893e-743e56d7644d",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766733094407,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "11ab583a-8682-453b-8409-f200864c6d1e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 749,
+      "tx_id": "b8c08cf660c62929f60acb215f7680ae8484bf7feae1511d6f0f8c9edac2f3fa",
+      "signature": "dEFGKiSzVdasM87q08EKyDf3WtuYrRZ5koFOwgPZppnrIxPZU1jUWvn0vki1VkPHWi6BKU1ZJs9FyrWrv9LkAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "685f5a6f-d9c6-4149-9515-8bad582dc085",
+        "entity_type_id": "28ee161d-6e46-46d1-893e-743e56d7644d",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 15,
+        "meta_json": "enc:v1:Q2QVm6Mw6l+F6Luj:N9m1W/fT0Zg94jBEz4zwYA==:z71jz8PrFeF0GpRcVcmbYoA1uZbRaA8Xh7f7bhiprR2P",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "685f5a6f-d9c6-4149-9515-8bad582dc085",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 750,
+      "tx_id": "9a95134ad88b7234a4b5b769a349c42aa32e3a05c7d645bc0adf9ba3197181b8",
+      "signature": "TEK0J8AhgIKvxDNN5DjufbJfTiNhUrZEsnNdRBeoe3Wt/t++USAffdqfXqwikp6IytoK+rJhqInNNLF7dbXkCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "cd8c6e6b-4fc7-4a6a-8662-2f242057bf56",
+        "entity_type_id": "28ee161d-6e46-46d1-893e-743e56d7644d",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1766760461594,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "cd8c6e6b-4fc7-4a6a-8662-2f242057bf56",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 751,
+      "tx_id": "cd5c5501e0a6621384db51f8de8572d6d77cfc2ad1953943fe51db1775de5098",
+      "signature": "MDKqz1Gfzxoedy8K5GLSDXwJaGLbOKtLECfeHgTJSoqMstktvNNRLEHHTHytLnwOKtVrK7Xnd4setgVtcy3LCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "57547499-90b7-45b8-b578-bb354990075c",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "name",
+        "name": "Наименование",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1766743911686,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "57547499-90b7-45b8-b578-bb354990075c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 752,
+      "tx_id": "839ce490f4a52df7030c5f7059ed445e21939fd59da5a58694745ef149de2f50",
+      "signature": "c+YvzezzZe0Yvp/40xeAnzmN/2KccxVpVduGN8v1SSRk0Wi/gQsuKXvgzUWusaDxtR8cq1apVxoQkFeT9ntIAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "2100c4de-bcc4-46c1-a06a-8110dbba7a0d",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": "enc:v1:W8qqsnHFaDGrsD8H:dXBh0uvdUBDb0wqkrxIS6A==:st0bIWoTpn4cz951G9zJJ1kWgnh9hNXsPpHpVPBE9KhX",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "2100c4de-bcc4-46c1-a06a-8110dbba7a0d",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 753,
+      "tx_id": "b275f1ff3d9ec3f9d0df754bfab766cdc6ca5baed0a99e983d6e180a0b11ceaa",
+      "signature": "V+Z99qKFciuVX0Q1mhLYnPzvaj8cTuelVzRL7Ux882grVjTTwlByIxV4kvWBZUWxLzoMvDqBnhpFatRocQLyDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7eb0d68c-b06b-4fa6-8534-e1881ffea7f7",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "name",
+        "name": "Наименование",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7eb0d68c-b06b-4fa6-8534-e1881ffea7f7",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 754,
+      "tx_id": "1caca1946f0eeaa5cf57c42ccdbbe69d6d767a47b5d40e760d926aeee039ab05",
+      "signature": "dAxKTbTPxsqOEYCDHTxJP9nRWt5VY1ff1zWy/2SuS9bijcJmJi3jcYt0dUxf13+t9XuJNHc0T++41OeWjXWKBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fc2e6133-a6b1-4972-a501-ea34193cbb6e",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "category_id",
+        "name": "Категория",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": "enc:v1:LI0m5VSVK0NBpxUN://sqXNiJSGus3AeN+Hy3vA==:CPrP5wufrTttsCs//Kt/6fZz/MXWNPLz7AsZceSzvT2O",
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "fc2e6133-a6b1-4972-a501-ea34193cbb6e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 755,
+      "tx_id": "2048f5bb29e9e59fa06068b6192716f9ecfbd46db87de9d7cfa97ed5db6893ac",
+      "signature": "61T+EuvfLzAKl0Sv62HM2CP6rZ2BWFf96WA5kSmHksFDQOapn4b/j+nWNlO0KtuLhg6Iq3wZP4hmvwW82/h3AA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "901f5a5c-2afd-41a7-ad44-2b51ae37f8ce",
+        "entity_type_id": "c6c777ed-2c92-4c35-993d-1338e9e513ce",
+        "code": "name",
+        "name": "Наименование",
+        "data_type": "text",
+        "is_required": true,
+        "sort_order": 1,
+        "meta_json": null,
+        "created_at": 1767009284708,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "901f5a5c-2afd-41a7-ad44-2b51ae37f8ce",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 756,
+      "tx_id": "781fdbb911d273044b25e80b059e1e6ff0e221364c0865cb60169cad51494a0b",
+      "signature": "HJT7YZYdLJc+PrBEsIP5cM9j+PuPpSLzANWnHCJJ7DHQQJsibRX9xqn+zoyWSWzZ5glxDWZRhxOiMFByV3YkDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "e7b96f58-8f4b-4275-bde9-70fea851b38f",
+        "entity_type_id": "c6c777ed-2c92-4c35-993d-1338e9e513ce",
+        "code": "telephone",
+        "name": "Телефон",
+        "data_type": "text",
+        "is_required": true,
+        "sort_order": 2,
+        "meta_json": null,
+        "created_at": 1767009373592,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "e7b96f58-8f4b-4275-bde9-70fea851b38f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 757,
+      "tx_id": "0aa1a90cbd2c44722a861c5da14df3a36025d675d07c1aa37788d44c0065d4f1",
+      "signature": "H5NrkPIt8G+hbD3fOB3Wz37qPPSLp5/gP0JZUaPxEf6cKeWPSbcrgMBaEcDVeRctyPFr984/WABiyjtaKp4bAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "b61ea65b-b08d-44b8-aa01-9f80db003cec",
+        "entity_type_id": "e0710508-b092-4281-87f4-0c27345c27b6",
+        "code": "attachments",
+        "name": "Вложения",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 9990,
+        "meta_json": null,
+        "created_at": 1769370147985,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b61ea65b-b08d-44b8-aa01-9f80db003cec",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 758,
+      "tx_id": "fd6eff8a9ab5f954f34440c0ec9ae99045957dbe43501b2bff7816f152b55257",
+      "signature": "e0mftiNPv1uUIjNwthebldz689A5xG0hY/1P+9uyxK7s8gxwjNLwg8LDFGHHvochXwSzONKFRbVElX99bwNLCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3f8bbd07-7b52-46f8-be26-e89ae3df7d7c",
+        "entity_type_id": "e0710508-b092-4281-87f4-0c27345c27b6",
+        "code": "request_number",
+        "name": "Номер заявки",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1769370148132,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3f8bbd07-7b52-46f8-be26-e89ae3df7d7c",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 759,
+      "tx_id": "d4387c170a2929c0d94e3773f4443f0a6e33005f993c29c1ef1db58e4c1bca24",
+      "signature": "Hx2XKl/i05K0NB/gzfDDFHIMxUbMPLUpELoRFvLUKtkE89Q499RhNJ7J1QiFE0t9mpXhHZpoa313Hpb572RkAg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "75e59c20-e4e7-4c95-a04e-0b195851225e",
+        "entity_type_id": "e0710508-b092-4281-87f4-0c27345c27b6",
+        "code": "compiled_at",
+        "name": "Дата составления",
+        "data_type": "date",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1769370148144,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "75e59c20-e4e7-4c95-a04e-0b195851225e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 760,
+      "tx_id": "7c1433357cccbb80bd7a956129f702bb7a9adb270407106df142ddeeca1163f8",
+      "signature": "EW9WOP1FnQw5nDQ4L3rbeE75OnuxPdFLl0acs6GgF7ijPNVrjjm8ULicdUcCZd2AclgXYr273FausMpfulQ5BA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "4384c2bd-fc6c-4259-b4ff-dfb0eda3cfa9",
+        "entity_type_id": "e0710508-b092-4281-87f4-0c27345c27b6",
+        "code": "status",
+        "name": "Статус",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1769370148151,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "4384c2bd-fc6c-4259-b4ff-dfb0eda3cfa9",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 761,
+      "tx_id": "fbad43b3e0cad846c05b05abf328624e2288394bc5710f51a49f01e0ba547eb9",
+      "signature": "Wmb6S8ZJ/qebBiFT7AHrcfD1xYGhLJP0VQ4G6ZGd8Wc2+oadKIr6HXwRabCsSqyirdowfVSltGuVYTGA8hwZCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "718f179d-31d4-4d05-af1d-f63151445dbe",
+        "entity_type_id": "e0710508-b092-4281-87f4-0c27345c27b6",
+        "code": "title",
+        "name": "Описание",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1769370148158,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "718f179d-31d4-4d05-af1d-f63151445dbe",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 762,
+      "tx_id": "dc09d8a91c7b50b4a1c548769f0bb034bfe6be375d87034a5b53c1c2cfa4f3bc",
+      "signature": "eh8QNQL0Q8cSa2JVumfaN5tj/K2/L0XlZuqRPU4ImnQyxotSRb/8i7SUDD9KERoNgdXBvMlIc3NdRFxclf8zAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "58c4f1ef-7995-4a35-8900-b3a66f889015",
+        "entity_type_id": "e0710508-b092-4281-87f4-0c27345c27b6",
+        "code": "department_id",
+        "name": "Подразделение",
+        "data_type": "link",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": "enc:v1:m4eQ3NZ11dJdbuZK:c6Z3+Gynx28boQpGgxdaFQ==:YlFr8zS8tEoZUFd46if+/OwJW4C9Bl8fN0Qv+MSQdgcrVo4=",
+        "created_at": 1769370148177,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "58c4f1ef-7995-4a35-8900-b3a66f889015",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 763,
+      "tx_id": "bc230bf45f027ffa54e936ee3d46606e1e8e4778b4721a6c413457b2bd7183d7",
+      "signature": "SziVVFP9tXV49sRMkRV/nxxLEHZnnw4dyBnHW2792O/R6CbylvuDbGAhWNvau11s9KHE/9gPhdTOABM7rc+bDA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "333a7fe9-8889-4304-9480-2b1f234f2cfd",
+        "entity_type_id": "805193dc-4e74-47a1-acc2-235a9421f31b",
+        "code": "photos",
+        "name": "Фото",
+        "data_type": "json",
+        "is_required": false,
+        "sort_order": 70,
+        "meta_json": null,
+        "created_at": 1769370378284,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "333a7fe9-8889-4304-9480-2b1f234f2cfd",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 764,
+      "tx_id": "9a01a942b083795863ffd8f2bc46e1e83f162b13b70944cf73888876f8ad0a3c",
+      "signature": "k+5uzIH8d/Tnyug4NzDxTnSdNWHcimJob7fYagPkX+CgBYMnLXORMovR0zqkU76XBJkVI9iWRMqEXL5NJuuFCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "8ee8182f-d5b4-4c4b-b7e9-427f41d59549",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "description",
+        "name": "Описание",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1769372736857,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "8ee8182f-d5b4-4c4b-b7e9-427f41d59549",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 765,
+      "tx_id": "972edffdfe909577174c935883a3f32b4670771e96e878b61c354ba3d764e3ae",
+      "signature": "tCs5flZOQ/pYZzWZj8JDPU16TBX0DYqGDT+45nvQRRk7vWSaqqIE5oQwolEFWQeuPh3ICif0fH89K7gClHERCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "fc3eed64-d551-41df-9b79-eed8e4f19afa",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "article",
+        "name": "Артикул",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1769372736861,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "fc3eed64-d551-41df-9b79-eed8e4f19afa",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 766,
+      "tx_id": "989a61e56b6636d42ec458a1707d3acc028feb1e0ad84480c7a8a7c7c9aef47e",
+      "signature": "VxJkNWWDtG6zfIf96P+baERT87KBdZrOKeDUT2v12vxTWXYXjMEtkHflvCYt9zK/n88qFJkrWRrEXJDxV8WdDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "f452360e-e34e-4925-aa71-2ef97fc29026",
+        "entity_type_id": "a3940a22-bf48-41b2-98e6-6432002f25b7",
+        "code": "price",
+        "name": "Цена",
+        "data_type": "number",
+        "is_required": false,
+        "sort_order": 60,
+        "meta_json": null,
+        "created_at": 1769372736863,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f452360e-e34e-4925-aa71-2ef97fc29026",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 767,
+      "tx_id": "7b4092f744a096984f06793ef5b4345ca2d90dd9ae2aace48b01e9f1c5c3091f",
+      "signature": "J+1XfcOzFC9ssF9BK1Bps7XUfKylBYKNBDl4sz8+cLmZicZiMzJRSl7xYSjtcftpp4tBBbpXz3XziHUwhmdwBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3da431b0-b422-4451-ab3f-70fc2408b0b6",
+        "entity_type_id": "0578058e-4877-46a3-80f8-76c0a849d7ea",
+        "code": "name",
+        "name": "Название",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1769378868647,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3da431b0-b422-4451-ab3f-70fc2408b0b6",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 768,
+      "tx_id": "1b6470b8b357b798bc6e82effe3475c4eae6431df3bb5ac83a54a2dd2bc4c691",
+      "signature": "c4K1jq87nnQkSfWX//6OOqxjS8ChI2+9n1JGCC2ib0DvCda2eQrZFXBM1igxwetlZOV48ZaBx0LUDTieVKEDCA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "0028c71f-cd4e-4251-bd82-12acfe32f2a8",
+        "entity_type_id": "2f165169-cb64-478e-8bef-899a6a909233",
+        "code": "inn",
+        "name": "ИНН",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1769378868667,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "0028c71f-cd4e-4251-bd82-12acfe32f2a8",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 769,
+      "tx_id": "e64f239cfc7b0ee5a79e44b64a871340528c63ec09246ceb77b7f8c39f50b653",
+      "signature": "sX5jrKNg8LnDQDyUe8Xa4GMdcyP+uB+tYi1oopZhX9w7Ksll3o9BOZNQ6xGv0thzBhr34DXAX299h8fOL+mwBA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "3dfc010f-9917-42f2-8510-e66786ca40b2",
+        "entity_type_id": "2f165169-cb64-478e-8bef-899a6a909233",
+        "code": "phone",
+        "name": "Телефон",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1769378868674,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3dfc010f-9917-42f2-8510-e66786ca40b2",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 770,
+      "tx_id": "bdc16be738b9608fb7f93dd36b6eaaed46eb920f56b4dec9d8729c0e47ab43a4",
+      "signature": "rvPWj9j/r4ZHKxDlG2JS+Mpug2MfH1qA+Jz6Z1T/Wjr42HoqcO6Ga6lLtBbWdUbcslO0hh/gHYwqxVSiTcSsBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "af0aa027-03d9-4e6b-b717-5955694f525f",
+        "entity_type_id": "2f165169-cb64-478e-8bef-899a6a909233",
+        "code": "email",
+        "name": "Email",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1769378868680,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "af0aa027-03d9-4e6b-b717-5955694f525f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 771,
+      "tx_id": "98ac0e6b206137ff2c589dada1d9abdbc196126a83a151e563234bfae81500d8",
+      "signature": "+x35HZbrudOXylLLLLP+IpCxxrVi3US2wgHa1YWVYRlc+Z88FdtJYNOJBG2Puwzbn3lfCaRGNC5jnZb2bx0YAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c281962b-0b33-4ad8-b0c0-259fca4245b4",
+        "entity_type_id": "df764295-359d-4d2c-99e5-64b21deaf4a6",
+        "code": "name",
+        "name": "Наименование",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1769378868687,
+        "updated_at": 1769420310206,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c281962b-0b33-4ad8-b0c0-259fca4245b4",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769420310206,
+      "seq": 772,
+      "tx_id": "7830defa5158c692f4a19fd01703ac837a58f2e00b74c4dc3d824db1c9e7983e",
+      "signature": "EJkRkil1JxIHGKrhbEsFfQTTdoWX/J06VqSaiai9qwVj97pgoBfodHXdIu+JIN37WPeWcXnk8gkKqlL2X9kvCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "6e7a2564-eb37-4913-9523-b0c3b537fc21",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "last_name",
+        "name": "Фамилия",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 10,
+        "meta_json": null,
+        "created_at": 1768811656732,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6e7a2564-eb37-4913-9523-b0c3b537fc21",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 773,
+      "tx_id": "2d9eb340f806925ee369bbb7d928f6916a39ea4d7ef2eebb7ef39535ed382e2c",
+      "signature": "S/MH3sLU+VopvZX7MFIrdHeoigirDry4WNhgZWMTJjpJ6CUBORfWImrakOaUoaTMckSRoh8y0/+BY+ftbd1+Aw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "c3ddbfd3-b515-4fce-b6aa-ed86f23597c1",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "first_name",
+        "name": "Имя",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 20,
+        "meta_json": null,
+        "created_at": 1768811656732,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "c3ddbfd3-b515-4fce-b6aa-ed86f23597c1",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 774,
+      "tx_id": "ea8ed32763b2107879a192b26051813fc9747a957eb3f2f59adb361fc41d1a0a",
+      "signature": "sOkZqviHcHjYI2DdzEjWJo1Q1ZefMYFkSysp5i0k882CaIRlEHzbKA4kcM7YA38vPwUQvil2L7t4fbTpxrkgAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "59bf5d57-8dff-491a-b2c9-5b8560c9a33f",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "middle_name",
+        "name": "Отчество",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 30,
+        "meta_json": null,
+        "created_at": 1768811656732,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "59bf5d57-8dff-491a-b2c9-5b8560c9a33f",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 775,
+      "tx_id": "3f0715a21d613407928121ce7bdeb6133ea3837d4412eb0b3655e16f25e1c8b3",
+      "signature": "Pp1dQT2CmcAdKm4wixXM4b9NsMt/RMV0BHiHxIp4GScRb6mhMRPd5BR/r22QLu2VPK+XSJm+61govUvxgDthAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "492b0f72-855f-4037-9c2f-e0bea7c715ef",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "full_name",
+        "name": "ФИО",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 40,
+        "meta_json": null,
+        "created_at": 1766643085352,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "492b0f72-855f-4037-9c2f-e0bea7c715ef",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 776,
+      "tx_id": "23bcf84ae46bf0a3aa338b8d1b2fda49c778249b88cb37ee7b13b288c23e6477",
+      "signature": "lLjZMzR1HVW2oUY92V6+Ik/0HGfLoH3QRYjVqlNo0FQQ3L5gC7Ah5mV+6I+97gSDP4gRyZJbtGJWDisrio9IAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "attribute_defs",
+      "row": {
+        "id": "7429eeb4-2557-4cda-8071-cc09ddc5d795",
+        "entity_type_id": "563a130e-0240-4a25-84ab-1c3514d691db",
+        "code": "personnel_number",
+        "name": "Табельный номер",
+        "data_type": "text",
+        "is_required": false,
+        "sort_order": 50,
+        "meta_json": null,
+        "created_at": 1768941111450,
+        "updated_at": 1769388411316,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "7429eeb4-2557-4cda-8071-cc09ddc5d795",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769388411316,
+      "seq": 777,
+      "tx_id": "d37790ef6156189dffbcd186d2bc7d24a9b11cc9377e510df997a4d7ebf6747f",
+      "signature": "Log7g319xjbGiHCKaLubUgS6UICkPW1AefYYYkMxGdYSrz6xCZ7RZy/eXfahplfBu+GrY3L7iS0IHRsEXqQQCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "5eccaaddb3541e4ad179fb53b8df54335e6b7632e40e43493bb6acc173ad07d9"
+  "hash": "30187011fd9ffa1164bef89595d868c2695f3378a03fef040ca6b7ccacc14368"
 }

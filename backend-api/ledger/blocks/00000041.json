@@ -1,35 +1,32 @@
 {
   "height": 41,
-  "prev_hash": "9014dd2ce66ffe964ab03acf541f4df592095155d4a10c2876eee187381e50dd",
-  "created_at": 1769687657426,
+  "prev_hash": "7e8fab0ad2220ec8373f87231324b69129ad16422dfcb0c9347c13f1c46035bc",
+  "created_at": 1770118159757,
   "txs": [
     {
       "type": "upsert",
-      "table": "release_registry",
+      "table": "user_presence",
       "row": {
-        "id": "8e1dfc54-8baf-43a6-8458-587e0be4f935",
-        "version": "1.0.14",
-        "notes": "Supply reports: defect/supply stats with contract totals; updater recovery/reset and cache integrity messaging",
-        "sha256": "4217fbc2248b0333b2ae779e53face815f785d1fba52141049e3843380a62323",
-        "file_name": "MatricaRMZ-Setup-1.0.14.exe",
-        "size": 93911020,
-        "payload_json": null,
-        "created_at": 1769687657422,
-        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
-        "created_by_username": "admin"
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770118159754,
+        "created_at": 1770118159754,
+        "updated_at": 1770118159754,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "8e1dfc54-8baf-43a6-8458-587e0be4f935",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
-        "userId": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
-        "username": "admin",
-        "role": "admin"
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
       },
-      "ts": 1769687657422,
-      "seq": 104,
-      "tx_id": "da12d7cebc36f6a9a824a1a5ebddb1b6a0b650e81dc4d303f3daee340cb05898",
-      "signature": "Z7gyDAXFJQcWAtzApviOv7GowPPkE+89Z6ReBbhZy+hPyQS23/TpmWaVMiM3ClOmFprVOzmdn7saiRLLorAQDw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770118159754,
+      "seq": 2383,
+      "tx_id": "97eb9d60d98ffb1bf3572a09849e00f01f6ff9d9a320ac15d8b3e9c3ef4e8e8f",
+      "signature": "FHUAX0CgmHJgnP8x1nDCLDXCfwVnvYm1o7uIoCl1htjMItikwjrd/uMGpgkw7QCtm4g/YmC/GCY8dAswARhPAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "7a5ba28991c4aa77fb8573656d151819de63cbb8a2da341804783336d8cbc937"
+  "hash": "fc8c9a3659ddfe661ff8e42606d9ae93c6a358a5278f3600418e399a87866481"
 }

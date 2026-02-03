@@ -1,27 +1,32 @@
 {
   "height": 39,
-  "prev_hash": "21ab54fd7f1e585158f4fd1f82923ebe19fc7a6375be042c658f64506a754f8f",
-  "created_at": 1769681203152,
+  "prev_hash": "d53863d289295bb0d2185fd74f137d093f03631efca2ef56af434586eb49d619",
+  "created_at": 1770118099977,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "user_presence",
       "row": {
-        "id": "064be67a-0fc1-49e0-b36a-32cb51750cea",
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770118099938,
+        "created_at": 1770118099938,
+        "updated_at": 1770118099938,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "064be67a-0fc1-49e0-b36a-32cb51750cea",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
-        "userId": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
-        "username": "nastya_tech",
-        "role": "admin"
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
       },
-      "ts": 1769681203151,
-      "seq": 102,
-      "tx_id": "b9d6fc56ee620e1f19a1457d8c79b0fd5b2087e43c8921b85b7cf2bb2a440e63",
-      "signature": "FgyLJLljbz5rseo27QigEMvoRCcIHkLH/VpHnzEMYw65PYZdgAXSJgNcfprGxSGpypKt+8eYE/D5MV8xU3xhCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770118099938,
+      "seq": 2381,
+      "tx_id": "14318ca361e7ed68479c986510142f54b77a4b27c4e4c6b1f9695a02fd76bb65",
+      "signature": "EXZGNeW6fvXGe5OyZ1PcR0zNKVFaTuoEQ2H6V+MNJEuzU24yge60dT1Tx3cnulLZEORchIKYFY1zCl8gs81oBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "2d8e76870c387323d45cc4f5e5a3d935e27bbf0a0bbf07a9c11d8a05d0a7c9f9"
+  "hash": "d2fc9de336225ba4d92f2d23a425faf6de8426a0fa3f2f7ab7d74f56532f7948"
 }

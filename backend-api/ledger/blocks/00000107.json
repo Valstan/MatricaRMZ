@@ -1,35 +1,32 @@
 {
   "height": 107,
-  "prev_hash": "6e03ed87cfac7c99630e6d48fa65bdaec38d75b364c625dde76e780a22af5913",
-  "created_at": 1769973325806,
+  "prev_hash": "5f39cbb4ce4a81f8717c492390de2f1e69293d0b4ca8ae68caf07b508f1195a0",
+  "created_at": 1770120139777,
   "txs": [
     {
       "type": "upsert",
-      "table": "release_registry",
+      "table": "user_presence",
       "row": {
-        "id": "eeefbf7d-c08d-494a-8b4f-e66ba7a50236",
-        "version": "1.0.28",
-        "notes": "",
-        "sha256": "5bd938d359f675db03128c6e1ae4fbbe8d91f397601e571a0352fbbb74fa2910",
-        "file_name": "MatricaRMZ-Setup-1.0.28.exe",
-        "size": 93915129,
-        "payload_json": null,
-        "created_at": 1769973325804,
-        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "created_by_username": "valstan"
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120139770,
+        "created_at": 1770120139770,
+        "updated_at": 1770120139770,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "eeefbf7d-c08d-494a-8b4f-e66ba7a50236",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769973325804,
-      "seq": 3098,
-      "tx_id": "52ef4f1485696319ff7006ac74be8aa603f5f480e47d203690fbd153a730efc3",
-      "signature": "RxleX+gxGe6Uz3aQ5sa3oGLJKZm8xYRfpuy698R78Sode4VXj/MFtVGa9x48fzXATsOXAwr8OhfR/6JwAxrEAg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120139770,
+      "seq": 2449,
+      "tx_id": "78c92aa79b6d9a4254a8dd01c1edcbd03359c959ba2b08bf11ad5b833ecbbb52",
+      "signature": "ytuMw0F1MouT22g6sZXF2QJdbZ+OfLscTN+ALfNd97No3Xd88FA1hv1hwMWBsgOWN9KaD2/ndoJ7S/9dSXmDCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "e9c849d1cbe8cc7c08ad2f015799e5c5252031268ce15ccf5f355f72152f8072"
+  "hash": "da21f711471d0583075216ec1c0d1befaf8a35b008093632abc2d20ce28e0648"
 }

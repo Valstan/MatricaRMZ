@@ -1,33 +1,32 @@
 {
   "height": 116,
-  "prev_hash": "ac0370fe851fec7e241e023a93c215d719a6b39f76c23dc8fb4b367b15eb641b",
-  "created_at": 1769973861692,
+  "prev_hash": "ac0c3cfcb1544b3c8ff3abbdfbaf51b4c91fd6dd864c80afe33cb734e0389b24",
+  "created_at": 1770120440711,
   "txs": [
     {
       "type": "upsert",
-      "table": "attribute_values",
+      "table": "user_presence",
       "row": {
-        "id": "05ca03eb-8c18-4cb6-b217-1327beaeb465",
-        "entity_id": "f9389ea4-bc58-4308-9780-685c801f024b",
-        "attribute_def_id": "a6d15ad7-2ce6-40b8-bfa8-4d4e756b86cc",
-        "value_json": "\"fa88725d-9707-a744-4467-36ccb3639f95\"",
-        "created_at": 1769973861684,
-        "updated_at": 1769973861684,
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120440698,
+        "created_at": 1770120440698,
+        "updated_at": 1770120440698,
         "deleted_at": null,
         "sync_status": "synced"
       },
-      "row_id": "05ca03eb-8c18-4cb6-b217-1327beaeb465",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
-        "role": "admin"
+        "role": "superadmin"
       },
-      "ts": 1769973861691,
-      "seq": 3117,
-      "tx_id": "fb6eb15462b5bc2481c93a53a27657c31cf97443801e60225dffa0e4d189c545",
-      "signature": "vck3o4rj5EK5X5tDDqEiOuZPyIGswVy08b8gWbStbvgt+YrpTd8AiC3e2ya9EnmbJQacViuGTkwBk1ECCCTwCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120440698,
+      "seq": 2458,
+      "tx_id": "9f57ccb3c5d9fb1f8ace634ee88be2e616263c2ba86d4197c19c0f8f61e2851f",
+      "signature": "5x/wkaacEzpjxqwjON4t0gyuzoPzvFFzGsvPkZrvoW4pSlk3ZLnWBizg9FLzMigLwprQF9xtaD6X+Fl0edqPDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "ce7fe9eb01cb336c46fa21d8445ca8ad177c420aa8c28b31f1466efff97d82e1"
+  "hash": "a03a6cc7951ec5519f271e474d4832011cdc66d17453217a51f00ec84333a62c"
 }

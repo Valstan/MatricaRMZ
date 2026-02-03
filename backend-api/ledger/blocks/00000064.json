@@ -1,32 +1,32 @@
 {
   "height": 64,
-  "prev_hash": "3ca5ef1c5929ef3637c9f3d9e80fed0be24352952f7e3779ab79e927c0d0fc28",
-  "created_at": 1769718276642,
+  "prev_hash": "d719e2d148466f157a0dc7d54562d841b80db48e73e9cc196e57a698c4cd7e25",
+  "created_at": 1770118890000,
   "txs": [
     {
       "type": "upsert",
-      "table": "operations",
+      "table": "user_presence",
       "row": {
-        "id": "370a3c24-d444-4e4b-bc42-4e57f3f2733f",
-        "status": "checklist",
-        "note": "Лист дефектовки двигателя",
-        "performed_at": null,
-        "performed_by": null,
-        "meta_json": null,
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770118889997,
+        "created_at": 1770118889997,
+        "updated_at": 1770118889997,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "370a3c24-d444-4e4b-bc42-4e57f3f2733f",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769718276641,
-      "seq": 2371,
-      "tx_id": "d59a126268a7a9fe26dc86c1abdfa70f961791a645db157bc45185c7caaab073",
-      "signature": "BslVVXFHIwN8Z8Vrqff2VP412Lol4QjT12wOqKkvDD8m1o23SmGoP/qDToYvElT6xB+RyPY0lSNA458rNg6ODQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770118889997,
+      "seq": 2406,
+      "tx_id": "3e95d0d544636b8fd19a82b533e5b2f908f65105b4e1915164ee767d81fab030",
+      "signature": "cd6fqsFWzPRMFuVScUCcTQiXNl4XlzSl0gUcAml50e+jL8QT70F3MeWGvMJ9SX/8CymnqzhgIXSTxw3xp6Q8AA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "205666e252da2f09aa6d4fac7e951b6eeab5a15f0fb4bd9fc9bbbe8144c31a3e"
+  "hash": "774181fc75a29fe6622dcadd8ece263c1b8bc2ade16cb47a7cd37524a31a9980"
 }

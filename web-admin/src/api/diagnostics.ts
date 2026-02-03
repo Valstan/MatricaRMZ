@@ -86,6 +86,10 @@ export async function requestClientSync(
   });
 }
 
+export async function requestMasterdataSnapshotAll() {
+  return await apiJson('/admin/masterdata/sync-snapshot/all', { method: 'POST' });
+}
+
 export async function getEntityDiff(clientId: string, entityId: string) {
   return await apiJson(
     `/diagnostics/entity-diff?clientId=${encodeURIComponent(clientId)}&entityId=${encodeURIComponent(entityId)}`,

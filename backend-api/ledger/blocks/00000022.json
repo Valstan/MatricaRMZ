@@ -1,32 +1,32 @@
 {
   "height": 22,
-  "prev_hash": "4b5b7c58d8f838b767b868145db1806c5e6924447b7133d63bb7c8600dbfd6bd",
-  "created_at": 1769596033577,
+  "prev_hash": "5fafe0f10037d185a08c11eff4be16e93dbc8422a2a2d2245ad1bbc535b6c911",
+  "created_at": 1770117619670,
   "txs": [
     {
       "type": "upsert",
-      "table": "notes",
+      "table": "user_presence",
       "row": {
-        "id": "d1b08bab-5da9-4ffb-a12b-8d16e1ee15bf",
-        "title": "Новая заметка",
-        "body_json": null,
-        "importance": "normal",
-        "due_at": null,
-        "sort_order": 0,
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770117619576,
+        "created_at": 1770117619576,
+        "updated_at": 1770117619576,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "d1b08bab-5da9-4ffb-a12b-8d16e1ee15bf",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769596033575,
-      "seq": 58,
-      "tx_id": "20c83da38deb29727e04c5b433f6a59d315f87c435953025419028f0a23d5985",
-      "signature": "bbybC3kMfuFaD/FLKBQktHFClR0bhsGnEv/uwSq+uyGrAhyvmvy9x0IjPm8n/nnHJBGRzZmYqsY/8ewDYqmRBg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770117619576,
+      "seq": 2364,
+      "tx_id": "ace73b48824e0873e1a96c7168baf302848884d268299d07639a55dddfc46aa4",
+      "signature": "40kwK2w5l6pK3+4+i+IhmVONBvEnAHjJDChCF8PHknUERb7hsSYOqp/K3wDxO5lxkS7BDUuBTqF9qU67tEQlCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "3ee09529d8a358743c229672120ae06f36ebb5578e2058156dc8648069f21e20"
+  "hash": "c2cf66846aa50f373ef07e7d19a310a4f84fc96490be1b720385f12c55af9a91"
 }

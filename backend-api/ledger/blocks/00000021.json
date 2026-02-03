@@ -1,35 +1,32 @@
 {
   "height": 21,
-  "prev_hash": "2dbcd4000805473737e7a6bce6359afc17c630fd6ea3e937fe0eb740fb084b93",
-  "created_at": 1769584323096,
+  "prev_hash": "6ab95d5d9ab6c4090835fcb89904b9c007d67ea5269aafb98960de4a78cadaad",
+  "created_at": 1770117559663,
   "txs": [
     {
       "type": "upsert",
-      "table": "release_registry",
+      "table": "user_presence",
       "row": {
-        "id": "935181b7-99ac-4fba-b6d7-e1388ea67892",
-        "version": "1.0.4",
-        "notes": "update installer launch uses normal shell open",
-        "sha256": "e09c4302933a3521c394f35cf9f61304c38334130aedb860f36e44cf63b56fa2",
-        "file_name": "MatricaRMZ-Setup-1.0.4.exe",
-        "size": 93898735,
-        "payload_json": null,
-        "created_at": 1769584323093,
-        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
-        "created_by_username": "admin"
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770117559660,
+        "created_at": 1770117559660,
+        "updated_at": 1770117559660,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "935181b7-99ac-4fba-b6d7-e1388ea67892",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
-        "userId": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
-        "username": "admin",
-        "role": "admin"
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
       },
-      "ts": 1769584323093,
-      "seq": 57,
-      "tx_id": "80a9b341f35fecd40132bca9203196b909934b9253398059010c6d146811f15c",
-      "signature": "QZhTXvHskPGrQiqmbDj9BxgQw29Fyiu/ZlPaNGcbjfGWtUgvgiaw+IlODpYcUGfNnTOhFEvCI9qrRH3XYevTCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770117559660,
+      "seq": 2363,
+      "tx_id": "7d45d84032789e587bed17b302c1ad09002aa788ad0a85bbaa857561afe73769",
+      "signature": "xyBp6ZSlWsV+jOhXX9CNgx48HD7M60iFJDd0SnPrqSaBYxQA2QsXk1nr+Kr/lPrXvr744RDnFSaWF+9rPJhlDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "4b5b7c58d8f838b767b868145db1806c5e6924447b7133d63bb7c8600dbfd6bd"
+  "hash": "5fafe0f10037d185a08c11eff4be16e93dbc8422a2a2d2245ad1bbc535b6c911"
 }

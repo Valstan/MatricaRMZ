@@ -1,35 +1,32 @@
 {
   "height": 89,
-  "prev_hash": "75bfdd47ae3f88699e9e039980902b4aa8cfb0912d5aa8ca430a546c949b1e89",
-  "created_at": 1769877908793,
+  "prev_hash": "2c47a68067658d12c2bd465498c09d7f3e82b1b0c4e8b3a401d31e82095c7d19",
+  "created_at": 1770119599822,
   "txs": [
     {
       "type": "upsert",
-      "table": "release_registry",
+      "table": "user_presence",
       "row": {
-        "id": "eed6e7c6-18bf-4194-a2d9-64f3e8010d1e",
-        "version": "1.0.25",
-        "notes": "fix sqlite migration for last_server_seq on legacy dbs",
-        "sha256": "ed7627e6da3719cc2b422c95c5da703c1d54eebca124cfacafda98e958ae79d8",
-        "file_name": "MatricaRMZ-Setup-1.0.25.exe",
-        "size": 93915094,
-        "payload_json": null,
-        "created_at": 1769877908789,
-        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "created_by_username": "valstan"
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770119599820,
+        "created_at": 1770119599820,
+        "updated_at": 1770119599820,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "eed6e7c6-18bf-4194-a2d9-64f3e8010d1e",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769877908789,
-      "seq": 2638,
-      "tx_id": "338267029a6c472c8168c98563815a73f3cc197e9d826a7bc6946ca208e5ba3e",
-      "signature": "B+Fs63eEWzbpXHJ5rKnFaK/v2HExiTgP2e4it6pI7gxx5D/9zT6HRhypJ30yFHYFGmyW+FrzL7y8vZK2B3bGAg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770119599820,
+      "seq": 2431,
+      "tx_id": "4b8243e4397081600eea7fefd7f85dfc4666750dc0dd6bd46396b609be15dda7",
+      "signature": "cY1UKgOQgAcY7DMUtLdCPGJ30EVN1tM25YKBapGj0xoigtzHldhKaz1QMLz1IRloFzsRNnl/3CmOVLwTMl4bDg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "e71e25da04e71b4f224b0997ab74c25b2b17b40f986330db00a6450437440388"
+  "hash": "d06fa27089e1e0700f19998a0b144baf8dcc0a38f4a09a3f6800149f7f7c61c0"
 }

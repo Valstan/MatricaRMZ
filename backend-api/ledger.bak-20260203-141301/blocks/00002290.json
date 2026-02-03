@@ -1,0 +1,32 @@
+{
+  "height": 2290,
+  "prev_hash": "0e9782e15d66076e7b3a173f205021ad5374000488261d71bf0baea7d38540b0",
+  "created_at": 1770038944660,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770038944654,
+        "created_at": 1770038944654,
+        "updated_at": 1770038944654,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1770038944654,
+      "seq": 7648,
+      "tx_id": "cfb540c49d81b04ad62cadc6a7ce67eae1d8e77347b514eeab7375a14b43a431",
+      "signature": "RGf1rZXtwu6FJS/f3aU2nbCZFDFmemlReiDtY0D3XK5ZyZ3B9TowOTX5Z5eqdLPtCbKsdNl8nGhAd9Y5no0EBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "0b680602e41f560f27d76930f64ffb536f34fb1ccb4f60bf26224fe877387107"
+}

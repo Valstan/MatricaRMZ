@@ -1,0 +1,224 @@
+{
+  "height": 58,
+  "prev_hash": "34862786ad27e32ef0001d9a03af60f4c54acb8c2dd7c9a2b3dc70072a126920",
+  "created_at": 1769717003123,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1769716999382,
+        "created_at": 1768786447304,
+        "updated_at": 1769716999382,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769716999382,
+      "seq": 2350,
+      "tx_id": "8ba5e5cb99107531deff66b6d7cefbfee5f8806779e9cac0902959be79b5ce30",
+      "signature": "8n82lmpqPVpForJocOg+pf/4UqToAmiUseOT3AJ+0g3qj6d74WyS38bsZuAqc/4Fl4bsKk8pmw7LK/SVF5M0BA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "3942aac1-b2c7-438f-bb12-1f8830bf4e50",
+        "user_id": "3942aac1-b2c7-438f-bb12-1f8830bf4e50",
+        "last_activity_at": 1769426301352,
+        "created_at": 1768819258568,
+        "updated_at": 1769426301352,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "3942aac1-b2c7-438f-bb12-1f8830bf4e50",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426301352,
+      "seq": 2351,
+      "tx_id": "e848d3d5b5ac9965060cca232d8c5d07b55a0030cdd9ac53ee5eed52bfcadd34",
+      "signature": "bW6oeMTLPkAeECLQvWMMvqLWfaztQrsT7EeXSJ5ajXHU6JKeft+ct+7ehHnqG15A0VgrhhixgQ++D/ocjUaSAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "user_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+        "last_activity_at": 1769433524582,
+        "created_at": 1768823997188,
+        "updated_at": 1769433524582,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "6bb18a1a-9a28-4ef0-8630-ff3189fe3b20",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769433524582,
+      "seq": 2352,
+      "tx_id": "219718fae9638e15736f8871e41fcef6a6cbb32c35c9b9d33aac5cae2b0078d5",
+      "signature": "PiEsf7zbOh8QfBpJQzLFOy6Fq8W3H8fe5QDAxXi+iJdTQbOw/30Rze+b70RtzyV+20doyOladWVa1Da2RnmHDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "ea26eb81-70a8-478e-9e25-c3f46c92e3fd",
+        "user_id": "ea26eb81-70a8-478e-9e25-c3f46c92e3fd",
+        "last_activity_at": 1769176741182,
+        "created_at": 1769148052973,
+        "updated_at": 1769176741182,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "ea26eb81-70a8-478e-9e25-c3f46c92e3fd",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769176741182,
+      "seq": 2353,
+      "tx_id": "311971004a9568043abca5d8c47f586ae74c988ae0b2ce824abf44713e62a075",
+      "signature": "hZQPJjrnk1kB53jGVfuavPKHudM8AepUXRJT2Zf7PLGBHhkCQLKrgrGy1YEOjR40AoAZYKawn8GcABYpwVAGDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "bde486b7-537b-436e-b2a5-1a7100b2462e",
+        "user_id": "bde486b7-537b-436e-b2a5-1a7100b2462e",
+        "last_activity_at": 1769426796750,
+        "created_at": 1768821639377,
+        "updated_at": 1769426796750,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "bde486b7-537b-436e-b2a5-1a7100b2462e",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769426796750,
+      "seq": 2354,
+      "tx_id": "0e8986f210b56b05f28a559b5f8c64783b9df9ddfc8f5eb990dba0c2aff09e74",
+      "signature": "Xia2pTYr51aixpeUFTWlICqwyLlkhLX3LgJAqGGRWNpllSnSHN+dkF9grCX+J9+keM+/19E7Wg84RoM4n8nFBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "07881c20-1c78-4c34-b58f-5aa0ec69d8f8",
+        "user_id": "07881c20-1c78-4c34-b58f-5aa0ec69d8f8",
+        "last_activity_at": 1768786220009,
+        "created_at": 1768785584858,
+        "updated_at": 1768786220009,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "07881c20-1c78-4c34-b58f-5aa0ec69d8f8",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768786220009,
+      "seq": 2355,
+      "tx_id": "09d75583bfbc80318c6ac5a5ddcdcb957263b62b76854b5a0d805c2ec10bb390",
+      "signature": "MpdIEXNk1D2MbTkbY4sEaAU5znj0UHMrWLEnklx4zKlMRYVe16Uw+DBWewqgW1Z8CgV2Tveoj8W1jMGjIA0DBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "f286648b-2bf4-4977-9ba3-75591908f070",
+        "user_id": "f286648b-2bf4-4977-9ba3-75591908f070",
+        "last_activity_at": 1768784138414,
+        "created_at": 1768750200998,
+        "updated_at": 1768784138414,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "f286648b-2bf4-4977-9ba3-75591908f070",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1768784138414,
+      "seq": 2356,
+      "tx_id": "b581bba4642a134d0bd38735aed3af347e0ee491964d7a4d925e63e62fb895a4",
+      "signature": "ZOPthSe6M3Y2QwA/cTfLayAiliESTH+XKwkMYa0JrTZxkg/TPJD50KsPQ1bkO1dlhw7FdoTI7BiAdH953DTcAQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "user_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+        "last_activity_at": 1769698314152,
+        "created_at": 1768808776002,
+        "updated_at": 1769698314152,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "9b30cf38-eacc-4275-9ecd-3aa83f312fe3",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769698314152,
+      "seq": 2357,
+      "tx_id": "8b9cc7eb2db243c001d8e886a4e8ecfc6a83f4d6a12b0fa2199173da4e784e83",
+      "signature": "2o7tMTpJ3ckkUnBuRDx8kDtY+A0R29ZIshSDRHBa+IXaeb8orsDwaybGndjvK11LPfHplps4MMYSINzRINnHBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "user_presence",
+      "row": {
+        "id": "45e2abd3-d8c9-4731-be3f-5f066528f7a6",
+        "user_id": "45e2abd3-d8c9-4731-be3f-5f066528f7a6",
+        "last_activity_at": 1769595768607,
+        "created_at": 1768823072739,
+        "updated_at": 1769595768607,
+        "deleted_at": null,
+        "sync_status": "synced"
+      },
+      "row_id": "45e2abd3-d8c9-4731-be3f-5f066528f7a6",
+      "actor": {
+        "userId": "system",
+        "username": "system",
+        "role": "system"
+      },
+      "ts": 1769595768607,
+      "seq": 2358,
+      "tx_id": "866ad38104efe8541dd58107d49281002f2d91f110545f1e1344c93be3978884",
+      "signature": "OYewiPDBtHjjB/XR4/VIpiygp9Axxxea85xLhQ3J9hIq6Ztnty6ogZ5+DBj/sRHcO2Pkm7KKgZGGN2TmnIjFDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "edeb8abf895b6f2e0bf0069e96ed1e1974e5af0b70f69c79dc59b2f9eac37582"
+}

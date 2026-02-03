@@ -1,0 +1,65 @@
+{
+  "height": 5,
+  "prev_hash": "b3db6c6879cd4cf459896dce1f1587f7d129dcff429b48ce8bfc408100144087",
+  "created_at": 1769507166432,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "entities",
+      "row": {
+        "id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+        "deleted_at": null
+      },
+      "row_id": "bcf82083-771d-46a9-91bb-9990a0312e8b",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769507166430,
+      "seq": 5,
+      "tx_id": "5648ff7ec79d4163c41769cb0d8a54e2347be6d4ab0eb00f8893f2c24d713962",
+      "signature": "AX08Uf7uzloSuut9imslWuFrEDXYCxjQU3p+Nh+5Lry2+AWb5IZ6PXVLWF/klKIeEi40XpX4MpFCRqX4X19YBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entities",
+      "row": {
+        "id": "ec90e6cb-fddc-465e-98c3-5b08376e02de",
+        "deleted_at": null
+      },
+      "row_id": "ec90e6cb-fddc-465e-98c3-5b08376e02de",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769507166430,
+      "seq": 6,
+      "tx_id": "b1722eeaf9321ed3c977223837a99be9c795cf62368c230ecb0140d06e61ecad",
+      "signature": "Wq1FuVwqanpGzx8qgB6GZNn0p5HfFKWrMZG1tUzocEMMdDgIG2Phg6CKE3wvwsKP0WnMYvBuqdnTSKjCb8mMAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entities",
+      "row": {
+        "id": "ae2262ad-f5b6-4edd-a065-9886b62593f2",
+        "deleted_at": null
+      },
+      "row_id": "ae2262ad-f5b6-4edd-a065-9886b62593f2",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769507166430,
+      "seq": 7,
+      "tx_id": "50d7f7bba64cbbba694a2fb48cc4c7a1097387d0fea08929e5e46c30e795a9c2",
+      "signature": "r0SBE/BFKfRhOC5o6nptFsG1iasxQDbiQYwov9IG5kz7yrQxnb6DA1ViSif+2pq0tsn34SUMHVOgxVcw7izHAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "c4349edf22a3dbd895b8c142ff724750ec84211f698ffbd0669ca03872492fed"
+}

@@ -1,0 +1,35 @@
+{
+  "height": 24,
+  "prev_hash": "1af7ea6ab5c5c9c3160dc8cf16d3e2429ae4838e0de4bb87d496a40b0dbe8539",
+  "created_at": 1769602471302,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "release_registry",
+      "row": {
+        "id": "d3df989b-2b92-4d09-a844-767fc5110623",
+        "version": "1.0.5",
+        "notes": "sync guard for missing entity type_id",
+        "sha256": "df16df6eb0a54b423c8834d71e9bf0a7421813e7228b6aef6a3ed7fff4b2cdfd",
+        "file_name": "MatricaRMZ-Setup-1.0.5.exe",
+        "size": 93898866,
+        "payload_json": null,
+        "created_at": 1769602471301,
+        "created_by_user_id": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "created_by_username": "admin"
+      },
+      "row_id": "d3df989b-2b92-4d09-a844-767fc5110623",
+      "actor": {
+        "userId": "a4f2af64-9507-4cf4-a1ad-6d7a943a37db",
+        "username": "admin",
+        "role": "admin"
+      },
+      "ts": 1769602471301,
+      "seq": 68,
+      "tx_id": "133a27370cdde4991bf39c79a2f09c5945a63b4f58be9cd85063c04df90107ad",
+      "signature": "Cx4QG1bAXpT/qIgr9VtnwhPjC11WGVCHfmAoOasbf2U1XmeXNmEsuW3MoyXqxLJigiTskd8JMpV/zz+0iljLBw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "7c726aca68fc772df9f399956b5bdf8f0da056f4bcb6f422fe4a9c8f101c4c4b"
+}

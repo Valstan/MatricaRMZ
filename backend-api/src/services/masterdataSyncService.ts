@@ -1,8 +1,10 @@
 import { asc, eq } from 'drizzle-orm';
 import { SyncTableName } from '@matricarmz/shared';
+import type { LedgerTxPayload } from '@matricarmz/ledger';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, changeLog, entities, entityTypes } from '../database/schema.js';
+import { signAndAppend } from '../ledger/ledgerService.js';
 
 const BATCH_SIZE = Number(process.env.MATRICA_SNAPSHOT_BATCH_SIZE ?? 1000);
 
@@ -106,6 +108,35 @@ function opFromPayload(payload: SyncRowPayload) {
   return (payload as any)?.deleted_at ? 'delete' : 'upsert';
 }
 
+function buildLedgerPayloads(tableName: SyncTableName, rows: Array<{ id: string }>, payloads: SyncRowPayload[]) {
+  const actor = { userId: 'system', username: 'system', role: 'system' };
+  return payloads.map((p, idx): LedgerTxPayload => {
+    const ts = Number((p as any)?.updated_at ?? Date.now());
+    return {
+      type: opFromPayload(p),
+      table: tableName as any,
+      row: p,
+      row_id: String(rows[idx]?.id ?? ''),
+      actor,
+      ts,
+    };
+  });
+}
+
+async function appendLedgerSnapshot(tableName: SyncTableName, rows: Array<{ id: string }>, payloads: SyncRowPayload[]) {
+  if (rows.length === 0) return 0;
+  let total = 0;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const chunkRows = rows.slice(i, i + BATCH_SIZE);
+    const chunkPayloads = payloads.slice(i, i + BATCH_SIZE);
+    if (chunkRows.length === 0) continue;
+    const txs = buildLedgerPayloads(tableName, chunkRows, chunkPayloads);
+    signAndAppend(txs);
+    total += chunkRows.length;
+  }
+  return total;
+}
+
 async function insertChangeLog(tableName: SyncTableName, rows: Array<{ id: string }>, payloads: SyncRowPayload[]) {
   if (rows.length === 0) return 0;
   const ts = nowMs();
@@ -124,7 +155,10 @@ async function insertChangeLog(tableName: SyncTableName, rows: Array<{ id: strin
 async function emitEntityTypeRow(entityTypeId: string) {
   const rows = await db.select().from(entityTypes).where(eq(entityTypes.id, entityTypeId)).limit(1);
   if (!rows[0]) return 0;
-  return insertChangeLog(SyncTableName.EntityTypes, rows as any[], rows.map((r) => entityTypePayload(r as any)));
+  const payloads = rows.map((r) => entityTypePayload(r as any));
+  await insertChangeLog(SyncTableName.EntityTypes, rows as any[], payloads);
+  await appendLedgerSnapshot(SyncTableName.EntityTypes, rows as any[], payloads);
+  return rows.length;
 }
 
 async function emitAttributeDefs(entityTypeId: string) {
@@ -139,7 +173,9 @@ async function emitAttributeDefs(entityTypeId: string) {
       .limit(BATCH_SIZE)
       .offset(offset);
     if (rows.length === 0) break;
-    total += await insertChangeLog(SyncTableName.AttributeDefs, rows as any[], rows.map((r) => attributeDefPayload(r as any)));
+    const payloads = rows.map((r) => attributeDefPayload(r as any));
+    await insertChangeLog(SyncTableName.AttributeDefs, rows as any[], payloads);
+    total += await appendLedgerSnapshot(SyncTableName.AttributeDefs, rows as any[], payloads);
     offset += rows.length;
     if (rows.length < BATCH_SIZE) break;
   }
@@ -158,7 +194,9 @@ async function emitEntities(entityTypeId: string) {
       .limit(BATCH_SIZE)
       .offset(offset);
     if (rows.length === 0) break;
-    total += await insertChangeLog(SyncTableName.Entities, rows as any[], rows.map((r) => entityPayload(r as any)));
+    const payloads = rows.map((r) => entityPayload(r as any));
+    await insertChangeLog(SyncTableName.Entities, rows as any[], payloads);
+    total += await appendLedgerSnapshot(SyncTableName.Entities, rows as any[], payloads);
     offset += rows.length;
     if (rows.length < BATCH_SIZE) break;
   }
@@ -188,7 +226,8 @@ async function emitAttributeValues(entityTypeId: string) {
       .offset(offset);
     if (rows.length === 0) break;
     const payloads = rows.map((r) => attributeValuePayload(r as any));
-    total += await insertChangeLog(SyncTableName.AttributeValues, rows as any[], payloads);
+    await insertChangeLog(SyncTableName.AttributeValues, rows as any[], payloads);
+    total += await appendLedgerSnapshot(SyncTableName.AttributeValues, rows as any[], payloads);
     offset += rows.length;
     if (rows.length < BATCH_SIZE) break;
   }
@@ -205,7 +244,9 @@ async function emitSnapshotAllRows<T>(
   for (;;) {
     const rows = await db.select().from(sourceTable).orderBy(asc(sourceTable.id)).limit(BATCH_SIZE).offset(offset);
     if (rows.length === 0) break;
-    total += await insertChangeLog(tableName, rows as any[], rows.map((r: T) => payloadFn(r)));
+    const payloads = rows.map((r: T) => payloadFn(r));
+    await insertChangeLog(tableName, rows as any[], payloads);
+    total += await appendLedgerSnapshot(tableName, rows as any[], payloads);
     offset += rows.length;
     if (rows.length < BATCH_SIZE) break;
   }

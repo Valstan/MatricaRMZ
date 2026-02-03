@@ -1,266 +1,32 @@
 {
   "height": 71,
-  "prev_hash": "8754bcb91906c86bc6e93baae099a60e335e81d114121867e8d156080f42f890",
-  "created_at": 1769768437617,
+  "prev_hash": "813964398b8683050e27df86a6cb0c67fa398d6060338e29f1240265980343a0",
+  "created_at": 1770119059819,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "user_presence",
       "row": {
-        "id": "ed625dd3-d102-4bc6-97e7-1c87dc8f4464",
-        "deleted_at": null
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770119059817,
+        "created_at": 1770119059817,
+        "updated_at": 1770119059817,
+        "deleted_at": null,
+        "sync_status": "synced"
       },
-      "row_id": "ed625dd3-d102-4bc6-97e7-1c87dc8f4464",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
         "role": "superadmin"
       },
-      "ts": 1769768437613,
-      "seq": 2383,
-      "tx_id": "8b0a2c55a7aaca6b24707989257026ab58130402d95905394118884264407ad7",
-      "signature": "rDFXg4LnTAFcawuPeJhbvcohuY0RUd/Z3cBQSBF99+SRJIvEsADzpByvALB2j1ALPqDNlhVckOcWQbTHNcfkAA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "entities",
-      "row": {
-        "id": "430e1729-b83c-4504-860e-f4fe99cc4392",
-        "deleted_at": null
-      },
-      "row_id": "430e1729-b83c-4504-860e-f4fe99cc4392",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2384,
-      "tx_id": "46961ef0d5121b804a395724383d72f0447c8f5ad0ba7ca15a63ce9261f50d43",
-      "signature": "XD7y6XMsk7lf+u5Gm4s7+5xhGFCP3bvmfklWzLplAjb7DuPP9qOtwLQ96ppIn+jKsa7k/eVw2qq/NKFo63qJAA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "7eed8d8b-a314-4ac9-94da-b2c21a17c661",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "7eed8d8b-a314-4ac9-94da-b2c21a17c661",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2385,
-      "tx_id": "afb2e898b51ed45b7db12cd1f6edbf927aacc8ecdbe7ace1138e41373cbb02f2",
-      "signature": "C+G9um4gVqy9bv+XX7CTtCwXFdxR/fUXZBoGYy61+hmbKacCRH5n1JiH8g9IyWm80z+lQwKqh+cTBpzbLM8sCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "776cc7d2-3d79-42cf-9b68-4ba062b56b80",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "776cc7d2-3d79-42cf-9b68-4ba062b56b80",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2386,
-      "tx_id": "c09f7ef0700d369292c5ea787f8788576a7ba2381120952f16545a7b4ab0946e",
-      "signature": "9zmx4RbB9pAza66Px+TSzaFO5gZ0iGEHav3azvi3Jn5lCAAyUGEeumGXj/+J25kd7NISq3eLzKn8fm/inle3Bw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "815fb50b-5258-4774-b6a2-abfa1a64339a",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "815fb50b-5258-4774-b6a2-abfa1a64339a",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2387,
-      "tx_id": "5b01aefa70bf3aca67b12a39d340014f406ce13728122581ff9e804124fa85af",
-      "signature": "ZSsQGzCQRjJ/qxaCOQ5WzSE4Ku1voEP3AVv3VNezOxF54f+aeE74LzArFFPmgFenq84QKf5N8KwSEwrlaJDNCw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "28035248-60d2-4de4-9546-962fe1096e52",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "28035248-60d2-4de4-9546-962fe1096e52",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2388,
-      "tx_id": "8c31bca9aa955d06c28de35b404c94353351b27fb48b85e62187ab46bee9caec",
-      "signature": "5ixNptejTs9QyvhJvNPggq40Gsy0xNX5qNOf/D3rtmtV/f2oxZZPzAUwQFacmZWx2kQ0+Ceo5lLz38smbzOkAw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "2b1db38e-1360-4c29-8349-a94d731cb707",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "2b1db38e-1360-4c29-8349-a94d731cb707",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2389,
-      "tx_id": "9315ff933bb8a8e4d47cbc0b6e184d87e0f2f5d4143dacbbc1dbffdab3f6c7fe",
-      "signature": "rAUBdO+1OUgGA8p2R8ZDU3q4vdWEBnRnaBDtQF0hB6ZGhvQKAkAcFRN073DGE7b4irdroVX0623zDMO8CqcWAQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "c593aaaa-b0ba-40a3-9c63-a206ec5642bf",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "c593aaaa-b0ba-40a3-9c63-a206ec5642bf",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2390,
-      "tx_id": "e65a79d8dfbb8898044d42de1b7150bbf2213ad0c629b5cb06ef5baa240f17ac",
-      "signature": "N4eAt516mop/5Sp68LeCnbH1AC+Dgc7avrvg8qF4VWLuZ/ge+KOLj5BMeSDlO7sTTSxOoATw60L/G96//9INDw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "7a5e653b-1d46-40da-bd2c-20777051fee3",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "7a5e653b-1d46-40da-bd2c-20777051fee3",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2391,
-      "tx_id": "4d60d07ad320a84f205328e659055cec2988fb79b6a8f49a6726565313eee8c6",
-      "signature": "u+IOl31RNxORnWeSBbB7rD2hxxEkwvpwgtQRI5Qql9sUT+/qhCt8iXFHMhzPDk/Kk+5N4GsUaZKJ8sb5a+vBDQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "f5a58f4a-6505-4f39-90ab-0985685f0f55",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "f5a58f4a-6505-4f39-90ab-0985685f0f55",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2392,
-      "tx_id": "4709387416d71f5bb54e27a15ad4b5053d699cd4ba55135c1f24734eae3978b3",
-      "signature": "sNOrYFTL7KUO4nSg6/PNCgQFtfUlVgUFyryiBRK+9U+RUU0whND/+5cA/+6ZXanrQZzpNiwZIR6+tBmbm9aiBw==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "5f76d6a0-b559-4a07-8d81-07324a810366",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "5f76d6a0-b559-4a07-8d81-07324a810366",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2393,
-      "tx_id": "81b8a4fe1ac58a067f68e1fd7310edb87a6f3775aec4a2a5c72722379c1aad1c",
-      "signature": "2CCr4hn4aowyVC1bgly9YK46HLfaxDfcLHLkVP1Tgls++MmsoivGEIcRrAFcRknvqXvEYl015dxtW85crtUjAQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "7139a84a-fcfe-4e49-9c27-a7b1d99eadee",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "7139a84a-fcfe-4e49-9c27-a7b1d99eadee",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2394,
-      "tx_id": "3745a62ceee1754ba38fa784dd43276bbc5c8866a8ce13c77a2536158993d019",
-      "signature": "/RMN4qgus03zgU6NVEMLeOUNVrPtNx6s7q31Hmm9hQpia6WxxTkJo8Nwvv1vOv9pbUih/1Y7DT30rbqYGX9mCg==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
-    },
-    {
-      "type": "upsert",
-      "table": "attribute_values",
-      "row": {
-        "id": "b9f2baf5-86dc-42e9-abf3-1a2f2b24fa6e",
-        "value_json": null,
-        "deleted_at": null
-      },
-      "row_id": "b9f2baf5-86dc-42e9-abf3-1a2f2b24fa6e",
-      "actor": {
-        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
-        "username": "valstan",
-        "role": "superadmin"
-      },
-      "ts": 1769768437613,
-      "seq": 2395,
-      "tx_id": "1f2ee6fd4ad83be3197e61942b869d890a17d7c5ecd261c4f3e71ec1a78e3a84",
-      "signature": "DWJlMPUyEEM9aYVS3rBJPQuCbL+i69PWhEfeSZFJmDX4vWOY4r2CCYMQqvChntwR03qGGjwVDpHw25x9iokLCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770119059817,
+      "seq": 2413,
+      "tx_id": "4a52ac9848aaff8d0d86c70f60d10f242a051156d0c65176a0d792ddb9a16903",
+      "signature": "os+VvV81U6MoJ6dmvsw0IGyfqUJHKbJVMEgvu/+5MZXNLINtKr1sDS+IWXi+Hobhq7niIKMqm2xGVWjEA4ehAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "620f5eca4fda2e60e5a97e9459a2af959072208773a7f2f2d141365bbbed030b"
+  "hash": "58bd5891e49a964274d0bd59248b012d9de667916fa7640765a38b62b4f198d4"
 }

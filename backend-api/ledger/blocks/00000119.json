@@ -1,31 +1,32 @@
 {
   "height": 119,
-  "prev_hash": "18ab63f484af7852a4da951086abde489f873af27cb479ba691e392c9190b3ae",
-  "created_at": 1769973868885,
+  "prev_hash": "d10fb523812b4e116479d5b6758e763d50dcdd824ddd012b757a56a503c5bfa7",
+  "created_at": 1770120499759,
   "txs": [
     {
       "type": "upsert",
-      "table": "entities",
+      "table": "user_presence",
       "row": {
-        "id": "f9389ea4-bc58-4308-9780-685c801f024b",
-        "type_id": "79070784-e7a6-4624-84a0-47db12c2d387",
-        "created_at": 1769973839227,
-        "updated_at": 1769973868806,
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120499742,
+        "created_at": 1770120499742,
+        "updated_at": 1770120499742,
         "deleted_at": null,
         "sync_status": "synced"
       },
-      "row_id": "f9389ea4-bc58-4308-9780-685c801f024b",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
-        "role": "admin"
+        "role": "superadmin"
       },
-      "ts": 1769973868885,
-      "seq": 3120,
-      "tx_id": "f8a5d3315009e13dab470b6ffe6f4ed64eb060fd70c93b40e647aa452b248a58",
-      "signature": "wdJQay+Wy0jawfol5xbRrjWZkaw7ZHphmK8Uvf0uenwHlujiFJLx01bhQr0OPYwbT5xX5sOrCUi3QZn+eiK3CQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120499742,
+      "seq": 2461,
+      "tx_id": "dae2b6dfecfa24e4c1cea7125f8300f23f19ff6ae639b3aea64ce0f92cdd8a36",
+      "signature": "xEEW5kqTS8LrmunBDmhTCp/ApBjTeW82XMmUAaw4FM9TzSVGdqudFTgG886GyunqYVC8MhGHGChHA1ZqcrimCQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "bc4de03fc2a89a276c681b46cca09f48a0b55ed829891b380195cdca1acb8d99"
+  "hash": "f2da45470cfebdecab2c64257491492ab9a31c7cb39205fb6d38a22e00bea4c3"
 }

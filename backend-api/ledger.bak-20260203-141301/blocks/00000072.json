@@ -1,0 +1,65 @@
+{
+  "height": 72,
+  "prev_hash": "620f5eca4fda2e60e5a97e9459a2af959072208773a7f2f2d141365bbbed030b",
+  "created_at": 1769772072600,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "entities",
+      "row": {
+        "id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
+        "deleted_at": null
+      },
+      "row_id": "8cbff343-f534-4510-a6ba-cb7b64084eed",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769772072598,
+      "seq": 2396,
+      "tx_id": "c92e42b3a9b2d92332a88ef6d288b5f44673a43285ffc69731e5feb1bb72c628",
+      "signature": "2Tqh9oRfYrmjxdbdo9tDn+DmWik3sCAbUVLqabFD8zSuRykJqn9AZBgpAFiLy5xwdz/8jB49szXJbPI+3SYmDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entities",
+      "row": {
+        "id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
+        "deleted_at": null
+      },
+      "row_id": "96470080-e208-49af-a1fa-12c9b9fc6b12",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769772072598,
+      "seq": 2397,
+      "tx_id": "0dbb465ecfbadc0af16f2ab501f5b1e899788377ea759261c593c143d252baa6",
+      "signature": "7+n7QKzkJH99up8q0gA1gwo+OJlG5SXMBMyld09hNGF+0aSwygJL01G4UncKHYylffcSaVQckTKQlM7Xu+m/BA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entities",
+      "row": {
+        "id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
+        "deleted_at": null
+      },
+      "row_id": "fdcbe2c5-4a0d-4fd8-9358-d96c1a8c76a3",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1769772072598,
+      "seq": 2398,
+      "tx_id": "6695d9d7bd7c1ffa34a9bafd9135ecf6439fb6c65aec8d4129b5f0bececbe0fb",
+      "signature": "+EY41yIgR5yitFWBW1qSnAnwOb966Mdbd3AEKzSNe/V9+oLpoqb5UU4CVLHP4SgLwfQd5pNyhFXgLb6BmKhfBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "23fbceb4aa7ef46a38f2975acbf577f6afc026821b14d88c4399310147cbd8cb"
+}

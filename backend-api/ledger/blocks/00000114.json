@@ -1,33 +1,32 @@
 {
   "height": 114,
-  "prev_hash": "4afc8af06e51853d1331934d48f89369c5fb0ee87e91e7c08ffae8f08cbb17b4",
-  "created_at": 1769973857178,
+  "prev_hash": "6c8892a1cf88afddb52d80d0397fa13201ab5e584276a2338ff4e1a16be84638",
+  "created_at": 1770120379648,
   "txs": [
     {
       "type": "upsert",
-      "table": "attribute_values",
+      "table": "user_presence",
       "row": {
-        "id": "176a2365-e704-49c0-a6a3-37de0a73d1f3",
-        "entity_id": "f9389ea4-bc58-4308-9780-685c801f024b",
-        "attribute_def_id": "35dfee1b-8faa-454e-862f-308ba2531770",
-        "value_json": "\"333\"",
-        "created_at": 1769973857170,
-        "updated_at": 1769973857170,
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120379644,
+        "created_at": 1770120379644,
+        "updated_at": 1770120379644,
         "deleted_at": null,
         "sync_status": "synced"
       },
-      "row_id": "176a2365-e704-49c0-a6a3-37de0a73d1f3",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
-        "role": "admin"
+        "role": "superadmin"
       },
-      "ts": 1769973857177,
-      "seq": 3115,
-      "tx_id": "42e50c67fcaff93281c13a3a115dd640795afb526d3a20135102eb74501510e2",
-      "signature": "JcobA1R1ja5cmv+qKsg2qajvik+bkpycIvhXsPcGE12+3WD+kK0hg/pv1DNqAj5BhpKV2vWGjDRGwWQqmqtHCA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120379644,
+      "seq": 2456,
+      "tx_id": "3cbd3e9b26c382062c6c1af50d090d200dd0432815a51f31f8007f913e149b25",
+      "signature": "+5RfUCGtnrcqHeAkgQdEaXNkr/Gb2M8FDXJX0td6rV5D7OtJ4sSvRRGVs0nFQMjWZ9DsmbmX7FVryihHrCQXCw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "4bc1a1ea453d2e7aa743a174d48aee3c29f05dbe7c9089571d426cde6167a757"
+  "hash": "33d150da769a1ddd727d92e15c52c55f6db0c9563ab504618365ecaad932ac73"
 }

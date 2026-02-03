@@ -1,0 +1,358 @@
+{
+  "height": 99,
+  "prev_hash": "7593d88dd72adc97908dbfc4300bea007b3ba6d1a32e6b25c785ef0ec91a4790",
+  "created_at": 1769937361813,
+  "txs": [
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "e49a8ee3-a898-4b20-894f-71e751a2f51f",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "e49a8ee3-a898-4b20-894f-71e751a2f51f",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2886,
+      "tx_id": "9deb02e9ba8dcc5a63192dc63b51756a1cd407e415dcf9f1d8eadffbf527331c",
+      "signature": "LjMjq/zKUSLpz7UmRPuMgfWXrDtZXkm0kUZBAPT4JwiONbPvbdZo6WRCZz/99jZ36gAoAi0NUPCBDU+P/AFEBQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "e3ff1ee1-8090-4bbb-98bf-caba3a959b33",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "e3ff1ee1-8090-4bbb-98bf-caba3a959b33",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2887,
+      "tx_id": "af66c9b7b2e7f4fdfde3eead2e4e32f87295ded167efd32536508ff41ab9bbee",
+      "signature": "uC1HPNxW358ERWGwrSdtvJkpZ8mOP6vGrNhfpkxCJDwtRR+k6v+Sl6Uz+Ad2prvPF0pn+DAr5PTpL9RukLiTAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "fb5fc6f4-f856-4b84-ba7f-9f991e84ffd0",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "fb5fc6f4-f856-4b84-ba7f-9f991e84ffd0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2888,
+      "tx_id": "8aeb7cfd8b249bb3b5335dad90ce91c79f844b588b5e8c731cdcc2534c80551c",
+      "signature": "OKqyqFTGB0NZ0v+xa2UZUva2h7SIHYngaGkT5Cx27SkvIiOe1+l80RaGe5cBrjqmPNnYpb2uzq7jZ+o6RKTxBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "162d3152-ad8c-43b8-afb9-ffe7ba684cd0",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "162d3152-ad8c-43b8-afb9-ffe7ba684cd0",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2889,
+      "tx_id": "5d12937cbe9dd267d69d1eb649e6ee2bc1a0cfdac56b23f55ed893d5c59eb50d",
+      "signature": "U5pna9WTjnaozCRj/kKds//hLbv9RWVeznL/RA4cnfcVdA91YrdnbW52dhzg9jdvjIPvfMgA23X1GqUzgdPHDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "95c14455-2626-4296-8468-7daa9c95b149",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1766399386038,
+        "updated_at": 1769937361805,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "95c14455-2626-4296-8468-7daa9c95b149",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2890,
+      "tx_id": "f8797bb1037295cddbfa9cb4a37bcefad5c44ce2c5a0080d33bfac169ed1a161",
+      "signature": "sCztVSRHz4qwry80BILzHb3Avb0h/sgbshlJzULDRkgglUABVOxmjbZMwPCykgVluuKSe+Pq+/h5CVdVHeXlCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "upsert",
+      "table": "entity_types",
+      "row": {
+        "id": "79070784-e7a6-4624-84a0-47db12c2d387",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1766643085352,
+        "updated_at": 1769937361805,
+        "deleted_at": null,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "79070784-e7a6-4624-84a0-47db12c2d387",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2891,
+      "tx_id": "88e505e96a0d5736245b150326572e99e9f169c1eae2f50eb23535c617e87565",
+      "signature": "okpnoxO3JnAriN0i8Jla4uodmtKYzaaRxsE7E4dyTo/K9ATW1EuqkstkB31pDeeYEDjIr+h3YBIe/yzrhUDbDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "0330c1a3-249b-421e-b192-cc2f1a3d629a",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "0330c1a3-249b-421e-b192-cc2f1a3d629a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2892,
+      "tx_id": "263fe3e1d10b38496f9e58bf8c2fa005e671ed02aae1fa1594db5af8a1ecc9db",
+      "signature": "0YKRbtuNS7QHYMuks/r2i0eY7Das3bWHFuuC7V+duR4nrpobMYE24NZcKCAc5ds2Si1tSot2CNKfcd08O6+3CA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "7da3a93a-6e2b-4a80-822b-e22f19ee2499",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "7da3a93a-6e2b-4a80-822b-e22f19ee2499",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2893,
+      "tx_id": "b43def3537e1db40461de9de7a63dcee34a368c58c7e962933f05ae9b01f7cf6",
+      "signature": "Axd9SQUc4UdIUpRj8l4iD4ht2cI7CLIB1UOFTqmo+PFO465e7mcEB0U2n9ptoPeO4F5vDehhL9UtmK3C7mrMAA==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "065b3470-0a0c-4057-8c99-fef85fd9e0e2",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "065b3470-0a0c-4057-8c99-fef85fd9e0e2",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2894,
+      "tx_id": "55de9985c6fc331c73cae6e69737b64ebc2ac60493a4b294b3b1562e4d911458",
+      "signature": "DC4+YeCZYVLNNWJVHqRyC6Wiz4eIai0+BI+JRTh0wRRQJW0OX83VqpiOyblcwyeYtI1KzsPc9xjGYiGaNwfOCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "5f2a6771-5b67-459b-aae4-661ce8084dcc",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "5f2a6771-5b67-459b-aae4-661ce8084dcc",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2895,
+      "tx_id": "a0c474b06c1156f197c4449212f897a64446fdac83788342d235916fb1cab446",
+      "signature": "wqNbR/cBBXAN6kPubaEaYOufA6zioF9D2EW5s/P/f0REwd5foyNX4nPrc2IUgirswO/COlhz6VK642sFe6ZsAw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "a3601e51-58e6-4c59-b968-878c03eb3130",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "a3601e51-58e6-4c59-b968-878c03eb3130",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2896,
+      "tx_id": "12d2883dc179bfee409fc4f8ad0548bf7969e1be108953e251739587c1c07dc0",
+      "signature": "2QY6tcVDc0e3kwcs/Fa9zWxz6ItebxNdx9SKybk//CYWLPv2hkp4JlPWGz03P9m9HKwdM4ymi1oEFcDgHAxnCg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "7b661225-b878-481e-95bb-89d2f4e86174",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "7b661225-b878-481e-95bb-89d2f4e86174",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2897,
+      "tx_id": "5f68a481086faf71afcc361e3efc39f47df9a6de165779d29db665710aa51cce",
+      "signature": "Kfts+GDxxkZavz1gHKQ5eCkoQSMVKUuQHYuc7W7eu0fZ+l/yh14cUKGJEogc2Kny2pk6BHCUqWqbxveR3cgjDQ==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "7e1f3222-0190-4a05-a9ca-17776cc98a8c",
+        "code": "engine",
+        "name": "Двигатель",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "7e1f3222-0190-4a05-a9ca-17776cc98a8c",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2898,
+      "tx_id": "c16211f2d4d602b26c4ef842d7251a2a4a36d3ece2d50b2c75c7a2da5d4b56ff",
+      "signature": "LBtE1b8Wx+2CEQbqPVCykJ1NG435GP/XgNnCt+ec5yAsb0DhpBLFNfUVKGS3umlRSJ6HGRjqY4+3E9k8s843Bw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "type": "delete",
+      "table": "entity_types",
+      "row": {
+        "id": "ce572415-5583-4aad-90ed-5f993821aa7a",
+        "code": "contract",
+        "name": "Контракт",
+        "created_at": 1769937361805,
+        "updated_at": 1769937361805,
+        "deleted_at": 1769937361805,
+        "sync_status": "synced",
+        "last_server_seq": null
+      },
+      "row_id": "ce572415-5583-4aad-90ed-5f993821aa7a",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "superadmin",
+        "role": "superadmin"
+      },
+      "ts": 1769937361805,
+      "seq": 2899,
+      "tx_id": "ab49538c10bc09cf3ad46a9daa4f7c56ea3cb59cb99ac6d3f0f9fc572045e7db",
+      "signature": "0T614KXIlY0p74Ez/bslP+BQC9sgwtOKq/URNnUke+CjdF8Utyr40c48Jh/4JxSYwmRalfZ3PLccFQIPirV5Bg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "ff65f3e9b2ee23f85bd26b0cc1b6624b41ff39d95853f7e8c236a9d2449fb7e9"
+}

@@ -1,33 +1,32 @@
 {
   "height": 118,
-  "prev_hash": "43e3116ffe2529dabe3b9bffd8bdd24806e0903c2c0bc9c01a5aa41046ab44b0",
-  "created_at": 1769973868831,
+  "prev_hash": "909db7abad3baae779a31bf6de8c17e411008849f805c7ce0f582dfdc07b4388",
+  "created_at": 1770120499578,
   "txs": [
     {
       "type": "upsert",
-      "table": "attribute_values",
+      "table": "user_presence",
       "row": {
-        "id": "cff6e5d8-965a-4a70-b696-051922161737",
-        "entity_id": "f9389ea4-bc58-4308-9780-685c801f024b",
-        "attribute_def_id": "1008045c-0e13-43fb-88e8-4ff7ea500476",
-        "value_json": "30000",
-        "created_at": 1769973868806,
-        "updated_at": 1769973868806,
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120499575,
+        "created_at": 1770120499575,
+        "updated_at": 1770120499575,
         "deleted_at": null,
         "sync_status": "synced"
       },
-      "row_id": "cff6e5d8-965a-4a70-b696-051922161737",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
-        "role": "admin"
+        "role": "superadmin"
       },
-      "ts": 1769973868830,
-      "seq": 3119,
-      "tx_id": "4e5b944fdae304a430afd12a3ddac5891ce1dd9b35053cb34946b800db7199aa",
-      "signature": "2T3+WmIGNSpoTscAhMn1Exio5i+DrEbRNzlBYBuOsdUPr/Rj/cIm5KMnzQAgoUntSmBkAFJFtFdnH9/MSMHJAQ==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120499575,
+      "seq": 2460,
+      "tx_id": "47bcd396f863ecce49513b5a29abdc0164f06c13854b5eba6729e744564619d8",
+      "signature": "Kuvkwrf1ns70UpRb0b/sznikG57lehNFa9cFQznT6osix+V/e1ZGEguwlKSIrEEHyKyPKRi4YUnsHgt5wj7FDw==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "18ab63f484af7852a4da951086abde489f873af27cb479ba691e392c9190b3ae"
+  "hash": "d10fb523812b4e116479d5b6758e763d50dcdd824ddd012b757a56a503c5bfa7"
 }

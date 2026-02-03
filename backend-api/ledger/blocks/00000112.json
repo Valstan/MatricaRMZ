@@ -1,33 +1,32 @@
 {
   "height": 112,
-  "prev_hash": "8a43b7f0766762b574d6ef70b0fdbf9f094f3d2fa76b1bc231204a855e7e63c2",
-  "created_at": 1769973853301,
+  "prev_hash": "458bd4dfec80aad8eccc78e68140d3e9a347d412411ac17677e0a998172db5d0",
+  "created_at": 1770120319728,
   "txs": [
     {
       "type": "upsert",
-      "table": "attribute_values",
+      "table": "user_presence",
       "row": {
-        "id": "7421168a-b60e-45f8-ba3a-9226a8dad928",
-        "entity_id": "f9389ea4-bc58-4308-9780-685c801f024b",
-        "attribute_def_id": "471ed2f3-4c76-4edc-85a2-cf5b4a81ed90",
-        "value_json": "1762203600000",
-        "created_at": 1769973853285,
-        "updated_at": 1769973853285,
+        "id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "last_activity_at": 1770120319594,
+        "created_at": 1770120319594,
+        "updated_at": 1770120319594,
         "deleted_at": null,
         "sync_status": "synced"
       },
-      "row_id": "7421168a-b60e-45f8-ba3a-9226a8dad928",
+      "row_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
       "actor": {
         "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
         "username": "valstan",
-        "role": "admin"
+        "role": "superadmin"
       },
-      "ts": 1769973853301,
-      "seq": 3113,
-      "tx_id": "e0f8638265e1ef42577b880b64929838e2269b5753f75c208164c096f2a6bed9",
-      "signature": "LXygot79asJjQzPw9BaJVjqwnAdGz28r/nNrqe2lXmIYVtBLXVhI6UbyI+ETG/9/xd9PWbuW4/qLyt6d0LkEAA==",
-      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+      "ts": 1770120319594,
+      "seq": 2454,
+      "tx_id": "022308ede129bab718dcf680ed126a7127b24f4b06b79f03e6afc34690cd5673",
+      "signature": "JiifM0fpX16yV1nxyjzJaxg3qNKR3Qql0mLwinwExs6I1eDtFwVjrR9YFFWqAXnDhbspQad9w0Goj6dl3BFOBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n"
     }
   ],
-  "hash": "6e8b3d128732617eab44cc5cb0b673a75a99cfc09a31ef58f287573c45e9cd11"
+  "hash": "f841168cf5b2b99a7683872a8951b09dba38b68b2fa4690d33dd18932571b026"
 }

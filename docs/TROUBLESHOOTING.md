@@ -205,4 +205,35 @@ pnpm exec tsx src/scripts/ledgerReplayToDb.ts
 
 Важно: делайте это в период минимальной нагрузки и только после бэкапа.
 
+---
+
+## 9) Клиентский full-pull не помогает, ФИО пустые, в логах `ledger/state/changes filtered invalid rows`
+
+### Симптом
+- В web‑admin “Диагностика” виден drift по `attribute_values`, но “Перекачать с сервера” не исправляет.
+- На сервере в логах backend:
+  - `[ledger/state/changes] filtered invalid rows: ...`
+- На клиенте возможны ошибки синка `net::ERR_CONNECTION_RESET`.
+
+### Причина
+Клиент тянет изменения **из ledger** (`/ledger/state/changes`), а не из `change_log`.
+Если ledger повреждён/неконсистентен (массово “filtered invalid rows”), клиент отбрасывает изменения и остаётся с пустыми полями.
+
+### Решение (пересобрать ledger из БД)
+```bash
+sudo systemctl stop matricarmz-backend.service
+
+# резервная копия старого ledger
+mv /home/valstan/MatricaRMZ/backend-api/ledger /home/valstan/MatricaRMZ/backend-api/ledger.bak-$(date +%Y%m%d-%H%M%S)
+
+# пересборка ledger
+cd /home/valstan/MatricaRMZ/backend-api
+pnpm run ledger:import
+
+sudo systemctl start matricarmz-backend.service
+curl -sS http://127.0.0.1:3001/health
+```
+
+После этого на клиенте: “Перекачать с сервера”/“Повторить синхронизацию”.
+
 

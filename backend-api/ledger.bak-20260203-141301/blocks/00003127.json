@@ -1,0 +1,35 @@
+{
+  "height": 3127,
+  "prev_hash": "3cf8651c31618cfa0dd5497e584b4ff6a50691118e6bc0e1b304a2eec1b1a27d",
+  "created_at": 1770070946711,
+  "txs": [
+    {
+      "type": "upsert",
+      "table": "release_registry",
+      "row": {
+        "id": "486cb06b-d408-4c51-aa02-22eee8663523",
+        "version": "1.0.41",
+        "notes": "Автопубликация 1.0.41",
+        "sha256": "6963839e305b99d303f86a5e1a6942d166d65c030a5e4c95ee2b9136bced8092",
+        "file_name": "MatricaRMZ-Setup-1.0.41.exe",
+        "size": 86666462,
+        "payload_json": null,
+        "created_at": 1770070946709,
+        "created_by_user_id": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "created_by_username": "valstan"
+      },
+      "row_id": "486cb06b-d408-4c51-aa02-22eee8663523",
+      "actor": {
+        "userId": "b1aac85c-d77f-43c4-915e-faea527530ef",
+        "username": "valstan",
+        "role": "superadmin"
+      },
+      "ts": 1770070946709,
+      "seq": 8501,
+      "tx_id": "93078d970ed6beef5363ca2023bfd0b591aac9e2acdf299f1e6f2b67de4c2fb7",
+      "signature": "qcIibUo15Rq2es1IFLxeJdPEUanLIAUdQ0ulEoq1Pgd1cszWb/C9sMVdhHeXObw7w//yC3NUKhIaZYbJ/6rxBg==",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "hash": "483191ff76ed9c29d69e7f509ca2d3164cb5ca69d3277dbcc931278eef770bfe"
+}

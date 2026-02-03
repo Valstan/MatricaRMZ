@@ -1,4 +1,4 @@
 {
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASHWMIkrljQVYDqkdH51TTJDvSSVf3W60GF04X6gybw0=\n-----END PUBLIC KEY-----\n",
-  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIDy3vTYBi6yXKyKjLqCpg1Qt8PG2nnXiRHM/Ujwu0fEn\n-----END PRIVATE KEY-----\n"
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANdPdQZwKA6XVDMHTdZhhf1xP9Irh/1GEeLTvMZhINuo=\n-----END PUBLIC KEY-----\n",
+  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIE0hps6AmIqtxCGft9VrZvn4lKLjK9nCKEI7dpfd1ppD\n-----END PRIVATE KEY-----\n"
 }

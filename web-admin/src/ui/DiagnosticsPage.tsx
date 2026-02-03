@@ -4,6 +4,7 @@ import {
   getConsistencyReport,
   getClientLastError,
   getEntityDiff,
+  requestMasterdataSnapshotAll,
   requestClientSync,
   runConsistencyCheck,
   type ConsistencyClientReport,
@@ -178,6 +179,14 @@ export function DiagnosticsPage() {
   async function requestSync(clientId: string, type: 'sync_now' | 'force_full_pull') {
     setLoading(true);
     setError('');
+    if (type === 'force_full_pull') {
+      const snap = await requestMasterdataSnapshotAll();
+      if (!snap?.ok) {
+        setError(snap?.error ?? 'Ошибка переснимка справочников');
+        setLoading(false);
+        return;
+      }
+    }
     const r = await requestClientSync(clientId, type);
     if (!r?.ok) {
       setError(r?.error ?? 'Ошибка запуска синхронизации');
