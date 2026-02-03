@@ -8,7 +8,14 @@ import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 import { getUpdatesRootDir } from './updatePaths.js';
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex'; downloadUrl?: string }
+  | {
+      ok: true;
+      updateAvailable: boolean;
+      version?: string;
+      source?: 'github' | 'yandex';
+      downloadUrl?: string;
+      expectedSize?: number | null;
+    }
   | { ok: false; error: string };
 
 export type UpdateFlowResult =
@@ -159,10 +166,14 @@ function isSetupInstallerName(name: string) {
 async function validateInstallerPath(
   installerPath: string,
   expectedName?: string,
+  expectedSize?: number | null,
 ): Promise<{ ok: true; isSetup: boolean; size: number; actualName: string } | { ok: false; error: string }> {
   const st = await stat(installerPath).catch(() => null);
   if (!st || !st.isFile()) return { ok: false, error: 'installer file is missing' };
   if (st.size <= 0) return { ok: false, error: 'installer file is empty' };
+  if (expectedSize && Number.isFinite(expectedSize) && st.size !== expectedSize) {
+    return { ok: false, error: `installer size mismatch: expected ${expectedSize} got ${st.size}` };
+  }
   const actualName = basename(installerPath);
   const expected = expectedName ? basename(expectedName) : '';
   const expectedRequiresSetup = expected ? isSetupInstallerName(expected) : false;
@@ -177,10 +188,17 @@ async function queuePendingUpdate(args: {
   version: string;
   installerPath: string;
   expectedName?: string;
+  expectedSize?: number | null;
+  downloadUrl?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const validation = await validateInstallerPath(args.installerPath, args.expectedName);
+  const validation = await validateInstallerPath(args.installerPath, args.expectedName, args.expectedSize ?? null);
   if (!validation.ok) return validation;
-  await writePendingUpdate({ version: args.version, installerPath: args.installerPath });
+  await writePendingUpdate({
+    version: args.version,
+    installerPath: args.installerPath,
+    expectedSize: args.expectedSize ?? null,
+    downloadUrl: args.downloadUrl ?? null,
+  });
   await writeUpdaterLog(
     `pending-update saved version=${args.version} installer=${args.installerPath} size=${validation.size}`,
   );
@@ -450,18 +468,33 @@ function pendingUpdatePath() {
   return join(getUpdatesRootDir(), 'pending-update.json');
 }
 
-async function writePendingUpdate(data: { version: string; installerPath: string }) {
+async function writePendingUpdate(data: {
+  version: string;
+  installerPath: string;
+  expectedSize?: number | null;
+  downloadUrl?: string | null;
+}) {
   const outDir = getUpdatesRootDir();
   await mkdir(outDir, { recursive: true });
   await writeFile(pendingUpdatePath(), JSON.stringify(data, null, 2), 'utf8');
 }
 
-async function readPendingUpdate(): Promise<{ version: string; installerPath: string } | null> {
+async function readPendingUpdate(): Promise<{
+  version: string;
+  installerPath: string;
+  expectedSize?: number | null;
+  downloadUrl?: string | null;
+} | null> {
   try {
     const raw = await readFile(pendingUpdatePath(), 'utf8');
     const json = JSON.parse(raw) as any;
     if (!json?.version || !json?.installerPath) return null;
-    return { version: String(json.version), installerPath: String(json.installerPath) };
+    return {
+      version: String(json.version),
+      installerPath: String(json.installerPath),
+      expectedSize: json.expectedSize != null ? Number(json.expectedSize) : null,
+      downloadUrl: typeof json.downloadUrl === 'string' ? String(json.downloadUrl) : null,
+    };
   } catch {
     return null;
   }
@@ -500,7 +533,7 @@ async function findCachedInstaller(): Promise<{ version: string; installerPath: 
 async function resolveLocalInstaller(currentVersion: string, serverVersion: string | null) {
   const pending = await readPendingUpdate();
   if (pending?.version && compareSemver(pending.version, currentVersion) > 0) {
-    const validation = await validateInstallerPath(pending.installerPath, pending.installerPath);
+    const validation = await validateInstallerPath(pending.installerPath, pending.installerPath, pending.expectedSize ?? null);
     if (!validation.ok) {
       await clearPendingUpdate();
     } else if (!serverVersion || compareSemver(pending.version, serverVersion) >= 0) {
@@ -561,6 +594,42 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
     await clearPendingUpdate();
     return false;
   }
+  if (pending.expectedSize && Number.isFinite(pending.expectedSize)) {
+    const validation = await validateInstallerPath(pending.installerPath, pending.installerPath, pending.expectedSize ?? null);
+    if (!validation.ok) {
+      await writeUpdaterLog(`pending-update integrity failed: ${validation.error}`);
+      if (pending.downloadUrl) {
+        await writeUpdaterLog(`pending-update re-download start url=${pending.downloadUrl}`);
+        const redl = await downloadWithResume(pending.downloadUrl, pending.installerPath, {
+          attempts: 3,
+          timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+          noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+          useBitsOnWindows: true,
+          bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
+          backoffMs: 800,
+          maxBackoffMs: 6000,
+          jitterMs: 300,
+        });
+        if (!redl.ok || !redl.filePath) {
+          await writeUpdaterLog(`pending-update re-download failed: ${redl.error ?? 'download failed'}`);
+          await rm(pending.installerPath, { force: true }).catch(() => {});
+          await clearPendingUpdate();
+          return false;
+        }
+        const recheck = await validateInstallerPath(pending.installerPath, pending.installerPath, pending.expectedSize ?? null);
+        if (!recheck.ok) {
+          await writeUpdaterLog(`pending-update integrity still failed: ${recheck.error}`);
+          await rm(pending.installerPath, { force: true }).catch(() => {});
+          await clearPendingUpdate();
+          return false;
+        }
+      } else {
+        await rm(pending.installerPath, { force: true }).catch(() => {});
+        await clearPendingUpdate();
+        return false;
+      }
+    }
+  }
   showUpdateWindow(parentWindow ?? null);
   lockUpdateUi(true);
   await setUpdateUi('Найдена скачанная версия. Устанавливаем…', 80, pending.version);
@@ -604,13 +673,18 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     if (!y.ok || !y.updateAvailable || !y.version) return null;
     const version = y.version;
     await cleanupUpdateCache(version);
-    const ydl = await downloadYandexUpdate(y);
+    const ydl = await downloadYandexUpdate({ version: y.version, path: y.path, downloadUrl: y.downloadUrl });
     if (!ydl.ok || !ydl.filePath) {
       setUpdateState({ state: 'error', source: 'yandex', version, message: ydl.error ?? 'download failed' });
       return { ok: false, error: ydl.error ?? 'download failed' };
     }
     const cachedPath = await cacheInstaller(ydl.filePath, version);
-    const queued = await queuePendingUpdate({ version, installerPath: cachedPath });
+    const queued = await queuePendingUpdate({
+      version,
+      installerPath: cachedPath,
+      expectedSize: y.expectedSize ?? null,
+      downloadUrl: y.downloadUrl ?? null,
+    });
     if (!queued.ok) {
       setUpdateState({ state: 'error', source: 'yandex', version, message: queued.error });
       return { ok: false, error: queued.error };
@@ -637,7 +711,12 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       return { ok: false, error: gdl.error ?? 'download failed' };
     }
     const cachedPath = await cacheInstaller(gdl.filePath, version);
-    const queued = await queuePendingUpdate({ version, installerPath: cachedPath });
+    const queued = await queuePendingUpdate({
+      version,
+      installerPath: cachedPath,
+      expectedSize: gh.expectedSize ?? null,
+      downloadUrl: gh.downloadUrl ?? null,
+    });
     if (!queued.ok) {
       setUpdateState({ state: 'error', source: 'github', version, message: queued.error });
       return { ok: false, error: queued.error };
@@ -755,7 +834,7 @@ export async function runAutoUpdateFlow(
     if (y.ok && y.updateAvailable && y.version) {
       await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 5, y.version);
       await cleanupUpdateCache(y.version ?? 'latest');
-      const ydl = await downloadYandexUpdate(y, {
+      const ydl = await downloadYandexUpdate({ version: y.version, path: y.path, downloadUrl: y.downloadUrl }, {
         onProgress: (pct) => {
           void setUpdateUi(`Скачиваем (Yandex)…`, pct, y.version);
         },
@@ -769,6 +848,9 @@ export async function runAutoUpdateFlow(
       const queued = await queuePendingUpdate({
         version: y.version ?? 'latest',
         installerPath: cachedPath,
+        expectedName: y.path,
+        expectedSize: y.expectedSize ?? null,
+        downloadUrl: y.downloadUrl ?? null,
       });
       if (!queued.ok) {
         await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, y.version);
@@ -798,6 +880,8 @@ export async function runAutoUpdateFlow(
       const queued = await queuePendingUpdate({
         version: gh.version ?? 'latest',
         installerPath: cachedPath,
+        expectedSize: gh.expectedSize ?? null,
+        downloadUrl: gh.downloadUrl ?? null,
       });
       if (!queued.ok) {
         await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, gh.version);
@@ -914,10 +998,27 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
 }
 
 
-type YandexUpdateInfo = { ok: true; updateAvailable: boolean; version?: string; path?: string; source: 'yandex' } | { ok: false; error: string };
+type YandexUpdateInfo =
+  | {
+      ok: true;
+      updateAvailable: boolean;
+      version?: string;
+      path?: string;
+      source: 'yandex';
+      expectedSize?: number | null;
+      downloadUrl?: string;
+    }
+  | { ok: false; error: string };
 type YandexConfig = { publicKey: string; basePath: string };
 type GithubReleaseInfo =
-  | { ok: true; updateAvailable: boolean; version?: string; downloadUrl?: string; source: 'github' }
+  | {
+      ok: true;
+      updateAvailable: boolean;
+      version?: string;
+      downloadUrl?: string;
+      source: 'github';
+      expectedSize?: number | null;
+    }
   | { ok: false; error: string };
 
 async function readReleaseInfo(): Promise<{ yandexPublicKey?: string; yandexBasePath?: string } | null> {
@@ -1012,7 +1113,7 @@ async function getYandexDownloadHref(publicKey: string, path: string): Promise<s
   return typeof json?.href === 'string' ? json.href : null;
 }
 
-async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<string[]> {
+async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<Array<{ name: string; size?: number | null }>> {
   const api =
     'https://cloud-api.yandex.net/v1/disk/public/resources?' +
     new URLSearchParams({
@@ -1028,7 +1129,12 @@ async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<
   if (!r.ok) throw new Error(`Yandex list failed ${r.status}`);
   const json = (await r.json().catch(() => null)) as any;
   const items = (json?._embedded?.items ?? []) as any[];
-  return items.map((x) => String(x?.name ?? '')).filter(Boolean);
+  return items
+    .map((x) => ({
+      name: String(x?.name ?? ''),
+      size: x?.size != null ? Number(x.size) : null,
+    }))
+    .filter((x) => x.name);
 }
 
 function extractVersionFromFileName(fileName: string): string | null {
@@ -1048,17 +1154,34 @@ function getUpdateDownloadDir(version?: string, fileName?: string) {
   return join(getUpdatesRootDir(), ver);
 }
 
-function pickNewestInstaller(items: string[]): string | null {
-  const exes = items.filter((n) => n.toLowerCase().endsWith('.exe'));
+function pickNewestInstaller(items: Array<{ name: string; size?: number | null }>): { name: string; size?: number | null } | null {
+  const exes = items.filter((n) => n.name.toLowerCase().endsWith('.exe'));
   if (exes.length === 0) return null;
-  const preferred = exes.filter((n) => isSetupInstallerName(n));
+  const preferred = exes.filter((n) => isSetupInstallerName(n.name));
   const candidates = preferred.length > 0 ? preferred : exes;
   const parsed = candidates
-    .map((n) => ({ n, v: extractVersionFromFileName(n) }))
+    .map((n) => ({ n, v: extractVersionFromFileName(n.name) }))
     .filter((x) => x.v);
   if (parsed.length === 0) return candidates[0];
   parsed.sort((a, b) => compareSemver(b.v!, a.v!));
   return parsed[0].n;
+}
+
+async function getYandexItemMeta(publicKey: string, pathOnDisk: string): Promise<{ size?: number | null } | null> {
+  const api =
+    'https://cloud-api.yandex.net/v1/disk/public/resources?' +
+    new URLSearchParams({
+      public_key: publicKey,
+      path: normalizePublicPath(pathOnDisk),
+    }).toString();
+  const r = await fetchWithRetry(
+    api,
+    { method: 'GET' },
+    { attempts: 3, timeoutMs: UPDATE_CHECK_TIMEOUT_MS, backoffMs: 500, maxBackoffMs: 3000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+  );
+  if (!r.ok) return null;
+  const json = (await r.json().catch(() => null)) as any;
+  return { size: json?.size != null ? Number(json.size) : null };
 }
 
 // download helper moved to netFetch.ts
@@ -1089,7 +1212,17 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
         if (latest) {
           const current = app.getVersion();
           const updateAvailable = compareSemver(latest, current) > 0;
-          return { ok: true, updateAvailable, version: latest, path: parsed.path, source: 'yandex' };
+          const meta = parsed.path ? await getYandexItemMeta(publicKey, joinPosix(basePath, parsed.path)) : null;
+          const href = parsed.path ? await getYandexDownloadHref(publicKey, joinPosix(basePath, parsed.path)) : null;
+          return {
+            ok: true,
+            updateAvailable,
+            version: latest,
+            path: parsed.path,
+            source: 'yandex',
+            expectedSize: meta?.size ?? null,
+            downloadUrl: href ?? undefined,
+          };
         }
       }
     }
@@ -1097,12 +1230,21 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
     const items = await listPublicFolder(publicKey, basePath);
     const exe = pickNewestInstaller(items);
     if (!exe) return { ok: false, error: 'no installer found in yandex folder' };
-    await writeUpdaterLog(`yandex pick installer=${exe}`);
-    const version = extractVersionFromFileName(exe);
+    await writeUpdaterLog(`yandex pick installer=${exe.name}`);
+    const version = extractVersionFromFileName(exe.name);
     if (!version) return { ok: false, error: 'cannot extract version from installer name' };
     const current = app.getVersion();
     const updateAvailable = compareSemver(version, current) > 0;
-    return { ok: true, updateAvailable, version, path: exe, source: 'yandex' };
+    const href = await getYandexDownloadHref(publicKey, joinPosix(basePath, exe.name));
+    return {
+      ok: true,
+      updateAvailable,
+      version,
+      path: exe.name,
+      source: 'yandex',
+      expectedSize: exe.size ?? null,
+      downloadUrl: href ?? undefined,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -1136,20 +1278,27 @@ async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | Githu
     const assets = Array.isArray(json?.assets) ? json.assets : [];
     const exeCandidates = assets
       .filter((a: any) => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.exe'))
-      .map((a: any) => a as { name: string; browser_download_url?: string });
+      .map((a: any) => a as { name: string; browser_download_url?: string; size?: number });
     const preferred = exeCandidates.find((a) => isSetupInstallerName(a.name));
     const exe = preferred ?? exeCandidates[0];
     const downloadUrl = exe?.browser_download_url ? String(exe.browser_download_url) : undefined;
     if (!downloadUrl) return { ok: false, error: 'github release missing exe asset' };
     await writeUpdaterLog(`github pick installer=${exe?.name ?? 'unknown'}`);
-    return { ok: true, updateAvailable: true, version, downloadUrl, source: 'github' };
+    return {
+      ok: true,
+      updateAvailable: true,
+      version,
+      downloadUrl,
+      source: 'github',
+      expectedSize: exe?.size != null ? Number(exe.size) : null,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
 }
 
 async function downloadYandexUpdate(
-  info: { version?: string; path?: string },
+  info: { version?: string; path?: string; downloadUrl?: string },
   opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
 ) {
   try {
@@ -1161,10 +1310,10 @@ async function downloadYandexUpdate(
       const items = await listPublicFolder(publicKey, basePath);
       const exe = pickNewestInstaller(items);
       if (!exe) return { ok: false as const, error: 'no installer found in yandex folder' };
-      fileName = exe;
+      fileName = exe.name;
     }
     const filePath = joinPosix(basePath, fileName);
-    const href = await getYandexDownloadHref(publicKey, filePath);
+    const href = info.downloadUrl ?? (await getYandexDownloadHref(publicKey, filePath));
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
     const outDir = getUpdateDownloadDir(info.version, fileName);
     await mkdir(outDir, { recursive: true });

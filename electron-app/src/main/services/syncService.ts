@@ -652,9 +652,19 @@ function isInvalidChatMessageError(body: string): boolean {
   return text.includes('sync_invalid_row') && text.includes('chat_messages');
 }
 
+function isInvalidChatReadError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('chat_reads');
+}
+
 function isInvalidAttributeValueError(body: string): boolean {
   const text = String(body ?? '').toLowerCase();
   return text.includes('sync_invalid_row') && text.includes('attribute_values');
+}
+
+function isInvalidNotesError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('notes');
 }
 
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
@@ -692,12 +702,28 @@ async function markPendingChatMessagesError(db: BetterSQLite3Database, ids?: str
   await db.update(chatMessages).set({ syncStatus: 'error' }).where(eq(chatMessages.syncStatus, 'pending'));
 }
 
+async function markPendingChatReadsError(db: BetterSQLite3Database, ids?: string[]) {
+  if (ids && ids.length > 0) {
+    await db.update(chatReads).set({ syncStatus: 'error' }).where(inArray(chatReads.id, ids));
+    return;
+  }
+  await db.update(chatReads).set({ syncStatus: 'error' }).where(eq(chatReads.syncStatus, 'pending'));
+}
+
 async function markPendingAttributeValuesError(db: BetterSQLite3Database, ids?: string[]) {
   if (ids && ids.length > 0) {
     await db.update(attributeValues).set({ syncStatus: 'error' }).where(inArray(attributeValues.id, ids));
     return;
   }
   await db.update(attributeValues).set({ syncStatus: 'error' }).where(eq(attributeValues.syncStatus, 'pending'));
+}
+
+async function markPendingNotesError(db: BetterSQLite3Database, ids?: string[]) {
+  if (ids && ids.length > 0) {
+    await db.update(notes).set({ syncStatus: 'error' }).where(inArray(notes.id, ids));
+    return;
+  }
+  await db.update(notes).set({ syncStatus: 'error' }).where(eq(notes.syncStatus, 'pending'));
 }
 
 async function fetchWithRetryLogged(
@@ -2085,7 +2111,9 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         let attemptedInvalidAttrDefs = false;
         let attemptedInvalidEntities = false;
         let attemptedInvalidChatMessages = false;
+        let attemptedInvalidChatReads = false;
         let attemptedInvalidAttributeValues = false;
+        let attemptedInvalidNotes = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -2155,10 +2183,32 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               }
               continue;
             }
+            if (!attemptedInvalidChatReads && isInvalidChatReadError(body)) {
+              attemptedInvalidChatReads = true;
+              logSync(`push invalid chat_reads: marking pending as error and retrying`);
+              await markPendingChatReadsError(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
             if (!attemptedInvalidAttributeValues && isInvalidAttributeValueError(body)) {
               attemptedInvalidAttributeValues = true;
               logSync(`push invalid attribute_values: marking pending as error and retrying`);
               await markPendingAttributeValuesError(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidNotes && isInvalidNotesError(body)) {
+              attemptedInvalidNotes = true;
+              logSync(`push invalid notes: marking pending as error and retrying`);
+              await markPendingNotesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
