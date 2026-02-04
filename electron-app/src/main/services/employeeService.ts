@@ -55,6 +55,10 @@ async function fetchEmployeeAccess(db: BetterSQLite3Database, apiBaseUrl: string
       id: String(row?.id ?? ''),
       accessEnabled: row?.accessEnabled === true,
       systemRole: String(row?.systemRole ?? ''),
+      deleteRequestedAt:
+        typeof row?.deleteRequestedAt === 'number' ? row.deleteRequestedAt : row?.deleteRequestedAt != null ? Number(row.deleteRequestedAt) : null,
+      deleteRequestedById: row?.deleteRequestedById ? String(row.deleteRequestedById) : null,
+      deleteRequestedByUsername: row?.deleteRequestedByUsername ? String(row.deleteRequestedByUsername) : null,
     }))
     .filter((row: EmployeeAccessRow) => row.id);
 }
@@ -186,6 +190,9 @@ export async function listEmployeesSummary(
       updatedAt: Number(row.updatedAt ?? 0),
       accessEnabled: access?.accessEnabled,
       systemRole: access?.systemRole ?? '',
+      deleteRequestedAt: access?.deleteRequestedAt ?? null,
+      deleteRequestedById: access?.deleteRequestedById ?? null,
+      deleteRequestedByUsername: access?.deleteRequestedByUsername ?? null,
     };
   });
 }
@@ -224,5 +231,6 @@ export async function deleteEmployeeRemote(sysDb: BetterSQLite3Database, apiBase
   if (!r.ok) {
     return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
   }
-  return { ok: true as const };
+  const mode = r.json?.mode === 'deleted' ? 'deleted' : r.json?.mode === 'requested' ? 'requested' : null;
+  return { ok: true as const, mode };
 }

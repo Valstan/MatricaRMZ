@@ -117,6 +117,9 @@ contextBridge.exposeInMainWorld('matrica', {
         ipcRenderer.invoke('admin:users:create', args),
       update: async (userId: string, args: { role?: string; accessEnabled?: boolean; password?: string; login?: string; fullName?: string }) =>
         ipcRenderer.invoke('admin:users:update', userId, args),
+      deleteRequest: async (userId: string) => ipcRenderer.invoke('admin:users:deleteRequest', userId),
+      deleteConfirm: async (userId: string) => ipcRenderer.invoke('admin:users:deleteConfirm', userId),
+      deleteCancel: async (userId: string) => ipcRenderer.invoke('admin:users:deleteCancel', userId),
       pendingApprove: async (args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string }) =>
         ipcRenderer.invoke('admin:users:pendingApprove', args),
       permissionsGet: async (userId: string) => ipcRenderer.invoke('admin:users:permissionsGet', userId),

@@ -13,6 +13,9 @@ type Row = {
   employmentStatus?: string | null;
   accessEnabled?: boolean;
   systemRole?: string | null;
+  deleteRequestedAt?: number | null;
+  deleteRequestedById?: string | null;
+  deleteRequestedByUsername?: string | null;
   personnelNumber?: string | null;
   updatedAt: number;
 };
@@ -128,8 +131,9 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
               const status = String(row.employmentStatus ?? '').toLowerCase();
               const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
               const accessState = row.accessEnabled;
-              const accessLabel = accessState === true ? formatAccessRole(row.systemRole) : accessState === false ? 'Запрещен' : 'Нет данных';
-              const accessColor = accessState === true ? '#065f46' : accessState === false ? '#b91c1c' : '#6b7280';
+              const accessLabel = accessState === true ? formatAccessRole(row.systemRole) : 'запрещено';
+              const accessColor = accessState === true ? '#065f46' : '#b91c1c';
+              const deleteRequested = !!row.deleteRequestedAt;
               return (
                 <tr
                   key={row.id}
@@ -145,7 +149,25 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                     e.currentTarget.style.backgroundColor = 'transparent';
                   }}
                 >
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без ФИО)'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span>{row.displayName || '(без ФИО)'}</span>
+                      {deleteRequested && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            padding: '2px 6px',
+                            borderRadius: 999,
+                            background: '#fef3c7',
+                            color: '#92400e',
+                            border: '1px solid #fde68a',
+                          }}
+                        >
+                          на удаление
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.position || '—'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.departmentName || '—'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{statusLabel}</td>
@@ -166,7 +188,11 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                               setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
                               return;
                             }
-                            setStatus('Удалено');
+                            if ((r as any).mode === 'deleted') {
+                              setStatus('Удалено');
+                            } else {
+                              setStatus('Запрос на удаление отправлен');
+                            }
                             setTimeout(() => setStatus(''), 900);
                             await refresh();
                           } catch (err) {

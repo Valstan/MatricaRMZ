@@ -230,10 +230,11 @@ export function EmployeeDetailsPage(props: {
       isActive: !!accountPerms.user.isActive,
     };
   }, [accountPerms?.user]);
-  const canEditAccount =
+  const canEditLoginPassword =
     props.canManageUsers && (meRole === 'superadmin' || (meRole === 'admin' && String(accountUser?.role ?? '') === 'user'));
-  const canToggleAccess = props.canManageUsers && (meRole === 'admin' || meRole === 'superadmin');
-  const canEditPermissions = canEditAccount;
+  const canEditRole = props.canManageUsers && meRole === 'superadmin';
+  const canToggleAccess = props.canManageUsers && meRole === 'superadmin';
+  const canEditPermissions = canEditLoginPassword;
 
   useEffect(() => {
     void loadEmployee();
@@ -308,6 +309,13 @@ export function EmployeeDetailsPage(props: {
     setAccountRole(String(accountUser.role ?? 'user'));
     setAccountActive(!!accountUser.isActive);
   }, [accountUser?.id, accountUser?.login, accountUser?.role, accountUser?.isActive]);
+
+  useEffect(() => {
+    if (meRole !== 'superadmin') {
+      setCreateRole('user');
+      setCreateActive(false);
+    }
+  }, [meRole]);
 
   async function loadEmployee() {
     try {
@@ -385,17 +393,23 @@ export function EmployeeDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canEdit) return;
-    if (!confirm('Удалить сотрудника?')) return;
+    const isSuper = meRole === 'superadmin';
+    if (!confirm(isSuper ? 'Удалить сотрудника? Это действие нельзя отменить.' : 'Запросить удаление сотрудника?')) return;
     try {
-      setStatus('Удаление…');
+      setStatus(isSuper ? 'Удаление…' : 'Запрос на удаление…');
       const r = await window.matrica.employees.delete(props.employeeId);
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
         return;
       }
-      setStatus('Удалено');
-      setTimeout(() => setStatus(''), 900);
-      props.onClose();
+      if ((r as any).mode === 'deleted') {
+        setStatus('Удалено');
+        setTimeout(() => setStatus(''), 900);
+        props.onClose();
+      } else {
+        setStatus('Запрос на удаление отправлен');
+        setTimeout(() => setStatus(''), 1500);
+      }
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -967,7 +981,7 @@ export function EmployeeDetailsPage(props: {
         )}
         {props.canEdit && (
           <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
-            Удалить
+            {meRole === 'superadmin' ? 'Удалить' : 'Запросить удаление'}
           </Button>
         )}
         <Button variant="ghost" onClick={printEmployeeCard}>
@@ -1243,7 +1257,7 @@ export function EmployeeDetailsPage(props: {
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', gap: 10, alignItems: 'center' }}>
                 <div style={{ color: '#6b7280', fontSize: 12 }}>Логин</div>
-                <Input value={accountLogin} onChange={(e) => setAccountLogin(e.target.value)} placeholder="логин" disabled={!canEditAccount} />
+                <Input value={accountLogin} onChange={(e) => setAccountLogin(e.target.value)} placeholder="логин" disabled={!canEditLoginPassword} />
                 <Button
                   variant="ghost"
                   onClick={async () => {
@@ -1254,7 +1268,7 @@ export function EmployeeDetailsPage(props: {
                     setAccountStatus(r.ok ? 'Логин обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
                     await loadAccountPerms();
                   }}
-                  disabled={!canEditAccount || !accountLogin.trim()}
+                  disabled={!canEditLoginPassword || !accountLogin.trim()}
                 >
                   Сохранить
                 </Button>
@@ -1272,7 +1286,7 @@ export function EmployeeDetailsPage(props: {
                       setAccountStatus(r.ok ? 'Роль обновлена' : `Ошибка: ${r.error ?? 'unknown'}`);
                       await loadAccountPerms();
                     }}
-                    disabled={!canEditAccount}
+                    disabled={!canEditRole}
                     style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
                   >
                     <option value="user">user</option>
@@ -1312,7 +1326,7 @@ export function EmployeeDetailsPage(props: {
                   value={accountPassword}
                   onChange={(e) => setAccountPassword(e.target.value)}
                   placeholder="новый пароль"
-                  disabled={!canEditAccount}
+                  disabled={!canEditLoginPassword}
                 />
                 <Button
                   variant="ghost"
@@ -1323,7 +1337,7 @@ export function EmployeeDetailsPage(props: {
                     setAccountStatus(r.ok ? 'Пароль обновлён' : `Ошибка: ${r.error ?? 'unknown'}`);
                     setAccountPassword('');
                   }}
-                  disabled={!canEditAccount}
+                  disabled={!canEditLoginPassword}
                 >
                   Сменить пароль
                 </Button>
@@ -1334,21 +1348,21 @@ export function EmployeeDetailsPage(props: {
               <div style={{ color: '#6b7280' }}>Учётной записи нет.</div>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
                 <div style={{ color: '#6b7280' }}>Логин</div>
-                <Input value={createLogin} onChange={(e) => setCreateLogin(e.target.value)} placeholder="логин" disabled={!canEditAccount} />
+                <Input value={createLogin} onChange={(e) => setCreateLogin(e.target.value)} placeholder="логин" disabled={!canEditLoginPassword} />
                 <div style={{ color: '#6b7280' }}>Пароль</div>
                 <Input
                   type="password"
                   value={createPassword}
                   onChange={(e) => setCreatePassword(e.target.value)}
                   placeholder="пароль"
-                  disabled={!canEditAccount}
+                  disabled={!canEditLoginPassword}
                 />
                 <div style={{ color: '#6b7280' }}>Роль</div>
                 <select
                   value={createRole}
                   onChange={(e) => setCreateRole(e.target.value)}
                   style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-                  disabled={!canEditAccount}
+                  disabled={!canEditRole}
                 >
                   <option value="user">user</option>
                   <option value="employee" disabled={!canCreateEmployee}>
@@ -1389,7 +1403,7 @@ export function EmployeeDetailsPage(props: {
                       props.onAccessChanged?.();
                     }
                   }}
-                  disabled={!canEditAccount}
+                  disabled={!canEditLoginPassword}
                 >
                   Создать учётную запись
                 </Button>

@@ -5,6 +5,9 @@ export type AdminUserSummary = {
   fullName?: string;
   role: string;
   isActive: boolean;
+  deleteRequestedAt?: number | null;
+  deleteRequestedById?: string | null;
+  deleteRequestedByUsername?: string | null;
 };
 
 export type AdminUserPermissionsPayload = {

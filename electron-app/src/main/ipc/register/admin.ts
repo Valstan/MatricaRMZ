@@ -25,6 +25,9 @@ import {
 import {
   adminCreateDelegation,
   adminCreateUser,
+  adminRequestUserDelete,
+  adminConfirmUserDelete,
+  adminCancelUserDelete,
   adminGetUserPermissions,
   adminListUserDelegations,
   adminListUsers,
@@ -190,6 +193,21 @@ export function registerAdminIpc(ctx: IpcContext) {
     return adminUpdateUser(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId, args);
     },
   );
+  ipcMain.handle('admin:users:deleteRequest', async (_e, userId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'admin.users.manage');
+    return adminRequestUserDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId);
+  });
+  ipcMain.handle('admin:users:deleteConfirm', async (_e, userId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'admin.users.manage');
+    return adminConfirmUserDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId);
+  });
+  ipcMain.handle('admin:users:deleteCancel', async (_e, userId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'admin.users.manage');
+    return adminCancelUserDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId);
+  });
   ipcMain.handle(
     'admin:users:pendingApprove',
     async (_e, args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string }) => {

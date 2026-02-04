@@ -84,7 +84,7 @@ function diagnoseWindowsRelease(tag) {
   }
 }
 
-async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000) {
+async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000, pollIntervalMs = 5_000) {
   const started = Date.now();
   // eslint-disable-next-line no-console
   console.log(`Waiting for release asset: ${tag} (timeout=${Math.ceil(maxWaitMs / 1000)}s)`);
@@ -104,7 +104,7 @@ async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000) {
     } catch {
       // ignore and retry
     }
-    await sleep(5_000);
+    await sleep(Math.max(500, pollIntervalMs));
   }
   return null;
 }
@@ -137,7 +137,7 @@ function fetchUpdatesStatus(base) {
   return { lastError, version };
 }
 
-async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000) {
+async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000, pollIntervalMs = 20_000) {
   if (process.env.MATRICA_RELEASE_SKIP_STATUS_WAIT === 'true') {
     // eslint-disable-next-line no-console
     console.log('updates/status wait skipped via MATRICA_RELEASE_SKIP_STATUS_WAIT=true');
@@ -168,7 +168,7 @@ async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000) {
       // eslint-disable-next-line no-console
       console.log(`updates/status tick error: ${lastSeen.lastError}`);
     }
-    await sleep(20_000);
+    await sleep(Math.max(1000, pollIntervalMs));
   }
   // eslint-disable-next-line no-console
   console.log(
@@ -249,23 +249,30 @@ async function main() {
   // Trigger Windows release build + download installer + validate updates status (best-effort).
   if (hasGh()) {
     try {
-      run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
+      if (process.env.MATRICA_RELEASE_TRIGGER_WINDOWS_WORKFLOW === 'true') {
+        run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('Windows workflow trigger skipped (tag push already triggers workflow).');
+      }
       const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 30_000);
+      const assetPollMs = envInt('MATRICA_RELEASE_ASSET_POLL_MS', 2_000);
       const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
+      const statusPollMs = envInt('MATRICA_RELEASE_STATUS_POLL_MS', 5_000);
       let assetName = null;
       const maxAttempts = envInt('MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS', 6);
       const downloadAttempts = envInt('MATRICA_RELEASE_DOWNLOAD_ATTEMPTS', 3);
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         // eslint-disable-next-line no-console
         console.log(`Asset wait attempt ${attempt}/${maxAttempts}`);
-        assetName = await waitForReleaseAsset(tag, /\.exe$/i, assetWaitMs);
+        assetName = await waitForReleaseAsset(tag, /\.exe$/i, assetWaitMs, assetPollMs);
         if (assetName) break;
       }
       if (assetName) {
         const destDir = '/opt/matricarmz/updates';
         try {
           downloadWindowsInstaller(tag, assetName, destDir, downloadAttempts);
-          await waitForUpdatesStatus(version, statusWaitMs);
+          await waitForUpdatesStatus(version, statusWaitMs, statusPollMs);
         } catch (e) {
           // eslint-disable-next-line no-console
           console.log(`Windows installer download failed: ${String(e)}`);

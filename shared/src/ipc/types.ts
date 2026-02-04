@@ -49,6 +49,9 @@ export type EmployeeListItem = {
   employmentStatus?: string | null;
   accessEnabled?: boolean;
   systemRole?: string | null;
+  deleteRequestedAt?: number | null;
+  deleteRequestedById?: string | null;
+  deleteRequestedByUsername?: string | null;
   personnelNumber?: string | null;
   updatedAt: number;
 };
@@ -538,7 +541,20 @@ export type MatricaApi = {
     };
     users: {
       list: () => Promise<
-        | { ok: true; users: { id: string; username: string; login?: string; fullName?: string; role: string; isActive: boolean }[] }
+        | {
+            ok: true;
+            users: {
+              id: string;
+              username: string;
+              login?: string;
+              fullName?: string;
+              role: string;
+              isActive: boolean;
+              deleteRequestedAt?: number | null;
+              deleteRequestedById?: string | null;
+              deleteRequestedByUsername?: string | null;
+            }[];
+          }
         | { ok: false; error: string }
       >;
       create: (args: {
@@ -606,6 +622,9 @@ export type MatricaApi = {
         note?: string;
       }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       delegationRevoke: (args: { id: string; note?: string }) => Promise<{ ok: boolean; error?: string }>;
+      deleteRequest: (userId: string) => Promise<{ ok: boolean; error?: string }>;
+      deleteConfirm: (userId: string) => Promise<{ ok: boolean; error?: string }>;
+      deleteCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>;
     };
   };
   employees: {

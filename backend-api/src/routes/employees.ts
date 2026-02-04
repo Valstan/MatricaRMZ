@@ -17,6 +17,9 @@ employeesRouter.get('/access', requirePermission(PermissionCode.EmployeesView), 
       id: r.id,
       accessEnabled: r.accessEnabled,
       systemRole: r.systemRole,
+      deleteRequestedAt: r.deleteRequestedAt ?? null,
+      deleteRequestedById: r.deleteRequestedById ?? null,
+      deleteRequestedByUsername: r.deleteRequestedByUsername ?? null,
     }));
     return res.json({ ok: true, rows });
   } catch (e) {

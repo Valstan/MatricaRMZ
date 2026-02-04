@@ -53,10 +53,13 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     if (!gate.ok) return gate;
     const remote = await deleteEmployeeRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), employeeId);
     if (!remote.ok) return remote;
-    const local = await softDeleteEntity(ctx.dataDb(), employeeId);
-    if (!local.ok) return local;
-    await ctx.mgr.runOnce().catch(() => {});
-    return local;
+    if (remote.mode === 'deleted') {
+      const local = await softDeleteEntity(ctx.dataDb(), employeeId);
+      if (!local.ok) return local;
+      await ctx.mgr.runOnce().catch(() => {});
+      return local;
+    }
+    return { ok: true as const, mode: remote.mode ?? 'requested' };
   });
 
   ipcMain.handle('employees:merge', async () => {

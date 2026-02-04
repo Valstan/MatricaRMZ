@@ -16,6 +16,9 @@ const AUTH_CODES = {
   chatDisplayName: 'chat_display_name',
   loggingEnabled: 'logging_enabled',
   loggingMode: 'logging_mode',
+  deleteRequestedAt: 'delete_requested_at',
+  deleteRequestedById: 'delete_requested_by_id',
+  deleteRequestedByUsername: 'delete_requested_by_username',
 } as const;
 
 function nowMs() {
@@ -310,6 +313,9 @@ export async function ensureEmployeeAuthDefs() {
   await ensure(AUTH_CODES.chatDisplayName, 'Имя в чате', 'text');
   await ensure(AUTH_CODES.loggingEnabled, 'Логи включены (сервер)', 'boolean');
   await ensure(AUTH_CODES.loggingMode, 'Режим логирования (сервер)', 'text');
+  await ensure(AUTH_CODES.deleteRequestedAt, 'Удаление: запрошено (дата)', 'number');
+  await ensure(AUTH_CODES.deleteRequestedById, 'Удаление: инициатор (id)', 'text');
+  await ensure(AUTH_CODES.deleteRequestedByUsername, 'Удаление: инициатор (логин)', 'text');
 
   return { ok: true as const, employeeTypeId, defs: byCode };
 }
@@ -321,6 +327,9 @@ export async function getEmployeeAuthDefIds() {
   const passwordDefId = ensured.defs[AUTH_CODES.passwordHash];
   const roleDefId = ensured.defs[AUTH_CODES.systemRole];
   const accessDefId = ensured.defs[AUTH_CODES.accessEnabled];
+  const deleteRequestedAtDefId = ensured.defs[AUTH_CODES.deleteRequestedAt];
+  const deleteRequestedByIdDefId = ensured.defs[AUTH_CODES.deleteRequestedById];
+  const deleteRequestedByUsernameDefId = ensured.defs[AUTH_CODES.deleteRequestedByUsername];
   if (!loginDefId || !passwordDefId || !roleDefId || !accessDefId) return null;
   return {
     employeeTypeId: ensured.employeeTypeId,
@@ -328,6 +337,9 @@ export async function getEmployeeAuthDefIds() {
     passwordDefId,
     roleDefId,
     accessDefId,
+    deleteRequestedAtDefId,
+    deleteRequestedByIdDefId,
+    deleteRequestedByUsernameDefId,
   };
 }
 
@@ -429,10 +441,19 @@ export async function listEmployeesAuth() {
   const defIds = [defs.loginDefId, defs.passwordDefId, defs.roleDefId, defs.accessDefId, fullNameDefId, chatDisplayDefId].filter(
     Boolean,
   ) as string[];
+  const deleteDefIds = [defs.deleteRequestedAtDefId, defs.deleteRequestedByIdDefId, defs.deleteRequestedByUsernameDefId].filter(
+    Boolean,
+  ) as string[];
   const vals = await db
     .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
-    .where(and(inArray(attributeValues.entityId, ids as any), inArray(attributeValues.attributeDefId, defIds as any), isNull(attributeValues.deletedAt)))
+    .where(
+      and(
+        inArray(attributeValues.entityId, ids as any),
+        inArray(attributeValues.attributeDefId, [...defIds, ...deleteDefIds] as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
     .limit(200_000);
 
   const byEntity: Record<string, Record<string, unknown>> = {};
@@ -453,6 +474,11 @@ export async function listEmployeesAuth() {
       const accessEnabled = rec[defs.accessDefId] === true;
       const fullName = fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '';
       const chatDisplayName = chatDisplayDefId ? String(rec[chatDisplayDefId] ?? '').trim() : '';
+      const deleteRequestedAtRaw = defs.deleteRequestedAtDefId ? rec[defs.deleteRequestedAtDefId] : null;
+      const deleteRequestedAt =
+        typeof deleteRequestedAtRaw === 'number' ? deleteRequestedAtRaw : deleteRequestedAtRaw != null ? Number(deleteRequestedAtRaw) : null;
+      const deleteRequestedById = defs.deleteRequestedByIdDefId ? String(rec[defs.deleteRequestedByIdDefId] ?? '').trim() : '';
+      const deleteRequestedByUsername = defs.deleteRequestedByUsernameDefId ? String(rec[defs.deleteRequestedByUsernameDefId] ?? '').trim() : '';
       return {
         id,
         login,
@@ -461,6 +487,9 @@ export async function listEmployeesAuth() {
         accessEnabled,
         fullName,
         chatDisplayName,
+        deleteRequestedAt: Number.isFinite(deleteRequestedAt as number) ? (deleteRequestedAt as number) : null,
+        deleteRequestedById: deleteRequestedById || null,
+        deleteRequestedByUsername: deleteRequestedByUsername || null,
       };
     }),
   };
@@ -481,6 +510,9 @@ export async function getEmployeeAuthById(employeeId: string) {
   for (const v of vals as any[]) {
     rec[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
   }
+  const deleteRequestedAtRaw = defs.deleteRequestedAtDefId ? rec[defs.deleteRequestedAtDefId] : null;
+  const deleteRequestedAt =
+    typeof deleteRequestedAtRaw === 'number' ? deleteRequestedAtRaw : deleteRequestedAtRaw != null ? Number(deleteRequestedAtRaw) : null;
   return {
     id: employeeId,
     login: String(rec[defs.loginDefId] ?? '').trim(),
@@ -488,6 +520,9 @@ export async function getEmployeeAuthById(employeeId: string) {
     systemRole: String(rec[defs.roleDefId] ?? 'user').trim().toLowerCase(),
     accessEnabled: rec[defs.accessDefId] === true,
     fullName: fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '',
+    deleteRequestedAt: Number.isFinite(deleteRequestedAt as number) ? (deleteRequestedAt as number) : null,
+    deleteRequestedById: defs.deleteRequestedByIdDefId ? String(rec[defs.deleteRequestedByIdDefId] ?? '').trim() || null : null,
+    deleteRequestedByUsername: defs.deleteRequestedByUsernameDefId ? String(rec[defs.deleteRequestedByUsernameDefId] ?? '').trim() || null : null,
   };
 }
 
@@ -589,6 +624,25 @@ export async function setEmployeeAuth(
   if (args.systemRole !== undefined) await upsertAttrValue(employeeId, defs.roleDefId, args.systemRole ?? 'user');
   if (args.accessEnabled !== undefined) await upsertAttrValue(employeeId, defs.accessDefId, args.accessEnabled === true);
 
+  return { ok: true as const };
+}
+
+export async function setEmployeeDeleteRequest(
+  employeeId: string,
+  args: { requestedAt?: number | null; requestedById?: string | null; requestedByUsername?: string | null },
+) {
+  const defs = await getEmployeeAuthDefIds();
+  if (!defs) return { ok: false as const, error: 'employee type not found' };
+  if (args.requestedAt !== undefined && defs.deleteRequestedAtDefId) {
+    const ts = args.requestedAt == null ? null : Number(args.requestedAt);
+    await upsertAttrValue(employeeId, defs.deleteRequestedAtDefId, Number.isFinite(ts as number) ? ts : null);
+  }
+  if (args.requestedById !== undefined && defs.deleteRequestedByIdDefId) {
+    await upsertAttrValue(employeeId, defs.deleteRequestedByIdDefId, args.requestedById ?? null);
+  }
+  if (args.requestedByUsername !== undefined && defs.deleteRequestedByUsernameDefId) {
+    await upsertAttrValue(employeeId, defs.deleteRequestedByUsernameDefId, args.requestedByUsername ?? null);
+  }
   return { ok: true as const };
 }
 

@@ -95,17 +95,23 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const selectedRole = String(selectedUser?.role ?? 'user').toLowerCase();
   const selectedIsSelf = !!me && selectedUserId === me.id;
   const adminLocked = meRole === 'admin' && (selectedRole === 'admin' || selectedRole === 'superadmin');
-  const canEditRoleOrAccess = !selectedIsSelf && !adminLocked;
+  const canEditRoleOrAccess = meRole === 'superadmin' && !selectedIsSelf;
   const canEditPermissions = !selectedIsSelf && !adminLocked;
   const canEditPassword = !adminLocked;
   const canCreateAdmin = meRole === 'superadmin';
   const canCreateEmployee = meRole === 'superadmin';
-  const canEditRole = canEditRoleOrAccess && !(meRole === 'admin' && selectedRole === 'employee');
+  const canEditRole = canEditRoleOrAccess;
   const canEditLogin = !selectedIsSelf && !adminLocked && !(meRole === 'admin' && selectedRole === 'employee');
 
   useEffect(() => {
     setEditLogin(selectedUser?.login ?? '');
   }, [selectedUser?.id, selectedUser?.login]);
+
+  useEffect(() => {
+    if (meRole !== 'superadmin') {
+      setNewUser((p) => ({ ...p, role: 'user', accessEnabled: false }));
+    }
+  }, [meRole]);
 
   useEffect(() => {
     void (async () => {
@@ -378,7 +384,14 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                     const pendingRole = pendingRoles[u.id] ?? 'user';
                     return (
                       <div key={u.id} style={{ border: '1px solid #eef2f7', borderRadius: 10, padding: 10 }}>
-                        <div style={{ fontWeight: 700 }}>{u.username}</div>
+                        <div style={{ fontWeight: 700, display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span>{u.username}</span>
+                          {u.deleteRequestedAt && (
+                            <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                              на удаление
+                            </span>
+                          )}
+                        </div>
                         <div className="muted" style={{ fontSize: 12 }}>
                           login: {u.login ?? u.id}
                         </div>
@@ -389,6 +402,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                               onChange={(e) =>
                                 setPendingRoles((p) => ({ ...p, [u.id]: e.target.value === 'admin' ? 'admin' : 'user' }))
                               }
+                              disabled={!canApprovePending}
                             >
                               <option value="user">user</option>
                               <option value="admin">admin</option>
@@ -405,12 +419,14 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                               setStatus(r.ok ? 'Пользователь одобрен' : `Ошибка: ${r.error ?? 'unknown'}`);
                               await refreshUsers();
                             }}
+                            disabled={!canApprovePending}
                           >
                             Одобрить
                           </Button>
                           <select
                             value={mergeTarget}
                             onChange={(e) => setPendingMergeTargets((p) => ({ ...p, [u.id]: e.target.value }))}
+                            disabled={!canApprovePending}
                           >
                             <option value="">Слить с существующим…</option>
                             {users
@@ -437,6 +453,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                               setStatus(r.ok ? 'Пользователь слит' : `Ошибка: ${r.error ?? 'unknown'}`);
                               await refreshUsers();
                             }}
+                            disabled={!canApprovePending}
                           >
                             Слить
                           </Button>
@@ -479,6 +496,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                     type="checkbox"
                     checked={newUser.accessEnabled}
                     onChange={(e) => setNewUser((p) => ({ ...p, accessEnabled: e.target.checked }))}
+                    disabled={!canEditRoleOrAccess}
                   />
                   доступ включен
                 </label>
@@ -514,7 +532,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               >
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.username} ({u.role}) {u.isActive ? '' : '[disabled]'}
+                    {u.username} ({u.role}) {u.isActive ? '' : '[disabled]'} {u.deleteRequestedAt ? '[на удаление]' : ''}
                   </option>
                 ))}
                 {users.length === 0 && <option value="">(пусто)</option>}
@@ -620,6 +638,76 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                       Сменить пароль
                     </Button>
                   </div>
+
+                  {selectedUser && (
+                    <div style={{ marginTop: 12, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Удаление пользователя</div>
+                      {selectedUser.deleteRequestedAt ? (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <div style={{ color: '#6b7280', fontSize: 12 }}>
+                            Запрос на удаление: {new Date(selectedUser.deleteRequestedAt).toLocaleString('ru-RU')}
+                            {selectedUser.deleteRequestedByUsername ? ` • ${selectedUser.deleteRequestedByUsername}` : ''}
+                          </div>
+                          {meRole === 'superadmin' && !selectedIsSelf && (
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <Button
+                                onClick={async () => {
+                                  if (!confirm('Подтвердить удаление пользователя?')) return;
+                                  setStatus('Удаление...');
+                                  const r = await adminUsers.confirmUserDelete(selectedUserId);
+                                  setStatus(r.ok ? 'Пользователь удалён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                  await refreshUsers();
+                                }}
+                              >
+                                Подтвердить удаление
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                onClick={async () => {
+                                  setStatus('Отмена удаления...');
+                                  const r = await adminUsers.cancelUserDelete(selectedUserId);
+                                  setStatus(r.ok ? 'Удаление отменено' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                  await refreshUsers();
+                                }}
+                              >
+                                Отменить удаление
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {meRole === 'superadmin' && !selectedIsSelf && (
+                            <Button
+                              onClick={async () => {
+                                if (!confirm('Удалить пользователя? Это действие нельзя отменить.')) return;
+                                setStatus('Удаление...');
+                                const r = await adminUsers.confirmUserDelete(selectedUserId);
+                                setStatus(r.ok ? 'Пользователь удалён' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                await refreshUsers();
+                              }}
+                            >
+                              Удалить
+                            </Button>
+                          )}
+                          {meRole === 'admin' && !selectedIsSelf && (
+                            <Button
+                              variant="ghost"
+                              onClick={async () => {
+                                if (!confirm('Запросить удаление пользователя?')) return;
+                                setStatus('Запрос на удаление...');
+                                const r = await adminUsers.requestUserDelete(selectedUserId);
+                                setStatus(r.ok ? 'Запрос отправлен' : `Ошибка: ${r.error ?? 'unknown'}`);
+                                await refreshUsers();
+                              }}
+                            >
+                              Запросить удаление
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -631,8 +719,15 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                 <>
                   <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
                     <Input value={permQuery} onChange={(e) => setPermQuery(e.target.value)} placeholder="Поиск прав…" />
-                    <div className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                      Пользователь: <span style={{ fontWeight: 800, color: '#111827' }}>{userPerms.user.username}</span> ({userPerms.user.role})
+                    <div className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap', display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span>
+                        Пользователь: <span style={{ fontWeight: 800, color: '#111827' }}>{userPerms.user.username}</span> ({userPerms.user.role})
+                      </span>
+                      {selectedUser?.deleteRequestedAt && (
+                        <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                          на удаление
+                        </span>
+                      )}
                     </div>
                   </div>
 

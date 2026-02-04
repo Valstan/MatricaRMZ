@@ -16,15 +16,18 @@ import {
   getEmployeeAuthById,
   getEmployeeProfileById,
   getEmployeeTypeId,
+  getSuperadminUserId,
   isLoginTaken,
   isSuperadminLogin,
   listEmployeesAuth,
   normalizeRole,
   setEmployeeAuth,
+  setEmployeeDeleteRequest,
   setEmployeeFullName,
   setEmployeeProfile,
 } from '../services/employeeAuthService.js';
 import { detachIncomingLinksAndSoftDeleteEntity } from '../services/adminMasterdataService.js';
+import { reassignUserReferences } from '../services/userDeletionService.js';
 
 export const adminUsersRouter = Router();
 
@@ -69,6 +72,68 @@ function ensureManageAllowed(args: {
   return { ok: true as const };
 }
 
+async function requestUserDelete(args: { actor: AuthenticatedRequest['user']; targetId: string }) {
+  const actor = args.actor;
+  const actorRole = String(actor?.role ?? '').toLowerCase();
+  if (!actor?.id) return { ok: false as const, error: 'auth required' };
+  if (actor.id === args.targetId) return { ok: false as const, error: 'cannot delete self' };
+
+  const target = await getEmployeeAuthById(args.targetId);
+  if (!target) return { ok: false as const, error: 'employee not found' };
+  const targetRole = normalizeRole(target.login, target.systemRole);
+  if (targetRole === 'superadmin' || isSuperadminLogin(target.login)) {
+    return { ok: false as const, error: 'superadmin is protected' };
+  }
+  if (actorRole === 'admin' && targetRole !== 'user') {
+    return { ok: false as const, error: 'admin can delete only users' };
+  }
+
+  await setEmployeeDeleteRequest(args.targetId, {
+    requestedAt: Date.now(),
+    requestedById: actor.id,
+    requestedByUsername: actor.username,
+  });
+  return { ok: true as const, mode: 'requested' as const };
+}
+
+async function cancelUserDelete(args: { actor: AuthenticatedRequest['user']; targetId: string }) {
+  if (!args.actor?.id) return { ok: false as const, error: 'auth required' };
+  await setEmployeeDeleteRequest(args.targetId, {
+    requestedAt: null,
+    requestedById: null,
+    requestedByUsername: null,
+  });
+  return { ok: true as const, mode: 'cancelled' as const };
+}
+
+async function confirmUserDelete(args: { actor: AuthenticatedRequest['user']; targetId: string }) {
+  const actor = args.actor;
+  if (!actor?.id) return { ok: false as const, error: 'auth required' };
+  if (actor.id === args.targetId) return { ok: false as const, error: 'cannot delete self' };
+  const target = await getEmployeeAuthById(args.targetId);
+  if (!target) return { ok: false as const, error: 'employee not found' };
+  const targetRole = normalizeRole(target.login, target.systemRole);
+  if (targetRole === 'superadmin' || isSuperadminLogin(target.login)) {
+    return { ok: false as const, error: 'superadmin is protected' };
+  }
+
+  const superadminId = await getSuperadminUserId();
+  if (!superadminId) return { ok: false as const, error: 'superadmin not found' };
+  const superadmin = await getEmployeeAuthById(superadminId);
+  const superadminUsername = superadmin?.fullName || superadmin?.login || superadminId;
+
+  await reassignUserReferences({
+    fromUserId: args.targetId,
+    toUserId: superadminId,
+    toUsername: superadminUsername,
+    actor: { id: actor.id, username: actor.username, role: actor.role ?? 'superadmin' },
+  });
+
+  const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username, role: actor.role ?? 'superadmin' }, args.targetId);
+  if (!r.ok) return r;
+  return { ok: true as const, mode: 'deleted' as const };
+}
+
 adminUsersRouter.get('/users', async (_req, res) => {
   try {
     const list = await listEmployeesAuth();
@@ -83,6 +148,9 @@ adminUsersRouter.get('/users', async (_req, res) => {
         fullName: r.fullName,
         role,
         isActive: r.accessEnabled,
+        deleteRequestedAt: r.deleteRequestedAt ?? null,
+        deleteRequestedById: r.deleteRequestedById ?? null,
+        deleteRequestedByUsername: r.deleteRequestedByUsername ?? null,
       };
     });
     return res.json({ ok: true, users });
@@ -122,7 +190,7 @@ adminUsersRouter.post('/users', async (req, res) => {
     if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'login already exists' });
 
     const actorLevel = roleLevel(actorRole);
-    if (actorLevel < 1) return res.status(403).json({ ok: false, error: 'admin only' });
+    if (actorLevel < 2) return res.status(403).json({ ok: false, error: 'superadmin only' });
     if (actorLevel === 1 && role !== 'user') return res.status(403).json({ ok: false, error: 'admin can create only users' });
     if (role === 'employee' && actorLevel < 2) {
       return res.status(403).json({ ok: false, error: 'superadmin only' });
@@ -144,11 +212,13 @@ adminUsersRouter.post('/users', async (req, res) => {
     }
 
     await ensureEmployeeAuthDefs();
+    const finalRole = actorLevel === 1 ? 'user' : role;
+    const finalAccess = actorLevel === 1 ? false : accessEnabled;
     await setEmployeeAuth(employeeId, {
       login,
       passwordHash,
-      systemRole: role,
-      accessEnabled,
+      systemRole: finalRole,
+      accessEnabled: finalAccess,
     });
     if (parsed.data.fullName) await setEmployeeFullName(employeeId, parsed.data.fullName);
 
@@ -164,10 +234,69 @@ adminUsersRouter.post('/users/:id/delete', async (req, res) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
     if (!actor?.id) return res.status(401).json({ ok: false, error: 'auth required' });
+    const actorRole = String(actor.role ?? '').toLowerCase();
     if (!(await hasPermission(actor.id, PermissionCode.EmployeesCreate))) {
       return res.status(403).json({ ok: false, error: 'forbidden' });
     }
-    const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username }, id);
+    if (actorRole === 'superadmin') {
+      const r = await confirmUserDelete({ actor, targetId: id });
+      return res.json(r);
+    }
+    const r = await requestUserDelete({ actor, targetId: id });
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/users/:id/delete-request', async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!(await hasPermission(actor.id, PermissionCode.EmployeesCreate))) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    const r = await requestUserDelete({ actor, targetId: id });
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/users/:id/delete-confirm', async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!(await hasPermission(actor.id, PermissionCode.EmployeesCreate))) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    if (String(actor.role ?? '').toLowerCase() !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'superadmin only' });
+    }
+    const r = await confirmUserDelete({ actor, targetId: id });
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+adminUsersRouter.post('/users/:id/delete-cancel', async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!(await hasPermission(actor.id, PermissionCode.EmployeesCreate))) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    if (String(actor.role ?? '').toLowerCase() !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'superadmin only' });
+    }
+    const r = await cancelUserDelete({ actor, targetId: id });
     return res.json(r);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -198,7 +327,6 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
 
     if (parsed.data.action === 'approve') {
       const role = (parsed.data.role ?? 'user').toLowerCase();
-      if (actorLevel === 1 && role !== 'user') return res.status(403).json({ ok: false, error: 'admin can approve only user role' });
       await setEmployeeAuth(pendingId, { systemRole: role, accessEnabled: true });
       await emitEmployeeSyncSnapshot(pendingId);
       return res.json({ ok: true });
@@ -252,8 +380,7 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
     const actorRole = String(actor?.role ?? '').toLowerCase();
     const targetRole = normalizeRole(target.login, target.systemRole);
 
-    const touchingRoleOrAccess =
-      parsed.data.role !== undefined || parsed.data.accessEnabled !== undefined || parsed.data.login !== undefined;
+    const touchingRoleOrAccess = parsed.data.role !== undefined || parsed.data.accessEnabled !== undefined;
     const manageGate = ensureManageAllowed({
       actorId,
       actorRole,
@@ -272,6 +399,9 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
     }
 
+    if (actorRole !== 'superadmin' && (parsed.data.role !== undefined || parsed.data.accessEnabled !== undefined)) {
+      return res.status(403).json({ ok: false, error: 'superadmin only for role/access' });
+    }
     if (actorRole === 'admin' && parsed.data.role && parsed.data.role.trim().toLowerCase() !== 'user') {
       return res.status(403).json({ ok: false, error: 'admin can assign only user role' });
     }

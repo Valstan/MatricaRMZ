@@ -74,3 +74,15 @@ export function pendingApprove(args: { pendingUserId: string; action: 'approve' 
   });
 }
 
+export function requestUserDelete(userId: string) {
+  return apiJson(`/admin/users/${encodeURIComponent(userId)}/delete-request`, { method: 'POST' });
+}
+
+export function confirmUserDelete(userId: string) {
+  return apiJson(`/admin/users/${encodeURIComponent(userId)}/delete-confirm`, { method: 'POST' });
+}
+
+export function cancelUserDelete(userId: string) {
+  return apiJson(`/admin/users/${encodeURIComponent(userId)}/delete-cancel`, { method: 'POST' });
+}
+

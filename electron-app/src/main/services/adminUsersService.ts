@@ -134,4 +134,22 @@ export async function adminRevokeDelegation(db: BetterSQLite3Database, apiBaseUr
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+export async function adminRequestUserDelete(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+  const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/delete-request`, { method: 'POST' });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
+export async function adminConfirmUserDelete(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+  const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/delete-confirm`, { method: 'POST' });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
+export async function adminCancelUserDelete(db: BetterSQLite3Database, apiBaseUrl: string, userId: string) {
+  const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/delete-cancel`, { method: 'POST' });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 

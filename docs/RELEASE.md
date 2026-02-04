@@ -55,8 +55,11 @@ sha256sum "MatricaRMZ-Setup-X.Y.Z.exe"
 Параметры контроля Windows‑шага (env):
 - `MATRICA_RELEASE_ASSET_WAIT_MS` — таймаут ожидания артефакта на одну попытку (по умолчанию 30000 мс).
 - `MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS` — количество попыток ожидания (по умолчанию 6).
+- `MATRICA_RELEASE_ASSET_POLL_MS` — пауза между проверками артефакта (по умолчанию 2000 мс).
 - `MATRICA_RELEASE_DOWNLOAD_ATTEMPTS` — количество попыток скачивания артефакта (по умолчанию 3).
 - `MATRICA_RELEASE_STATUS_WAIT_MS` — таймаут ожидания `/updates/status` (по умолчанию 120000 мс).
+- `MATRICA_RELEASE_STATUS_POLL_MS` — пауза между проверками `/updates/status` (по умолчанию 5000 мс).
+- `MATRICA_RELEASE_TRIGGER_WINDOWS_WORKFLOW` — вручную запускать workflow в `pnpm release:auto` (по умолчанию `false`, т.к. тег уже триггерит workflow).
 Также на сервере доступен `sudo` без пароля для операций перезапуска сервисов и управления файлами.
 
 ## Быстрый релиз (оптимальный путь)
@@ -91,10 +94,13 @@ sudo systemctl restart matricarmz-backend.service
 ```bash
 gh workflow run release-electron-windows.yml --ref vX.Y.Z
 ```
+В `pnpm release:auto` ручной запуск отключён по умолчанию, чтобы избежать двойного запуска workflow.
 
 После завершения сборки Windows (автоматически):
 - скачивается `MatricaRMZ-Setup-X.Y.Z.exe` в `/opt/matricarmz/updates`;
 - проверяется `/updates/status` (ожидается `lastError=null` и версия `X.Y.Z`).
+Загрузка в Yandex.Disk выполняется один раз в GitHub Actions (см. шаг `Upload artifacts to Yandex Disk`).  
+`pnpm release:auto` ничего не загружает в Yandex.Disk, он только скачивает инсталлятор на сервер для torrent‑раздачи.
 
 ## Обновления клиента (Windows)
 
