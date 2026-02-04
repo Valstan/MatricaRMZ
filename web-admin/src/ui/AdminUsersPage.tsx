@@ -51,6 +51,18 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const [releaseTokenStatus, setReleaseTokenStatus] = useState<string>('');
   const [releaseAutoStatus, setReleaseAutoStatus] = useState<string>('');
 
+  function formatAccessLabel(role: string | null | undefined, isActive?: boolean) {
+    if (!isActive) return 'запрещено';
+    const normalized = String(role ?? '').trim().toLowerCase();
+    if (!normalized) return 'Пользователь';
+    if (normalized === 'superadmin') return 'Суперадминистратор';
+    if (normalized === 'admin') return 'Администратор';
+    if (normalized === 'employee') return 'Сотрудник';
+    if (normalized === 'pending') return 'Ожидает подтверждения';
+    if (normalized === 'user') return 'Пользователь';
+    return normalized;
+  }
+
   async function refreshUsers() {
     const r = await adminUsers.listUsers();
     if (!r.ok) {
@@ -532,7 +544,8 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               >
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.username} ({u.role}) {u.isActive ? '' : '[disabled]'} {u.deleteRequestedAt ? '[на удаление]' : ''}
+                    {u.username} ({formatAccessLabel(u.role, u.isActive)}) {u.isActive ? '' : '[disabled]'}{' '}
+                    {u.deleteRequestedAt ? '[на удаление]' : ''}
                   </option>
                 ))}
                 {users.length === 0 && <option value="">(пусто)</option>}
@@ -721,7 +734,9 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                     <Input value={permQuery} onChange={(e) => setPermQuery(e.target.value)} placeholder="Поиск прав…" />
                     <div className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap', display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span>
-                        Пользователь: <span style={{ fontWeight: 800, color: '#111827' }}>{userPerms.user.username}</span> ({userPerms.user.role})
+                        Пользователь:{' '}
+                        <span style={{ fontWeight: 800, color: '#111827' }}>{userPerms.user.username}</span>{' '}
+                        ({formatAccessLabel(userPerms.user.role, userPerms.user.isActive)})
                       </span>
                       {selectedUser?.deleteRequestedAt && (
                         <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>

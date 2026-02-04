@@ -1,11 +1,9 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
-import type { EmployeeAccessInfo } from '@matricarmz/shared';
 import { httpAuthed } from './httpClient.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
 
-type EmployeeAccessRow = EmployeeAccessInfo;
 
 function safeJsonParse(value: string | null): unknown {
   if (value == null) return null;
@@ -44,23 +42,6 @@ async function getDefsByType(db: BetterSQLite3Database, entityTypeId: string) {
   const byCode: Record<string, string> = {};
   for (const d of defs as any[]) byCode[String(d.code)] = String(d.id);
   return { defs, byCode };
-}
-
-async function fetchEmployeeAccess(db: BetterSQLite3Database, apiBaseUrl: string): Promise<EmployeeAccessRow[]> {
-  const r = await httpAuthed(db, apiBaseUrl, '/employees/access', { method: 'GET' });
-  if (!r.ok) return [];
-  const rows = Array.isArray(r.json?.rows) ? r.json.rows : [];
-  return rows
-    .map((row: any) => ({
-      id: String(row?.id ?? ''),
-      accessEnabled: row?.accessEnabled === true,
-      systemRole: String(row?.systemRole ?? ''),
-      deleteRequestedAt:
-        typeof row?.deleteRequestedAt === 'number' ? row.deleteRequestedAt : row?.deleteRequestedAt != null ? Number(row.deleteRequestedAt) : null,
-      deleteRequestedById: row?.deleteRequestedById ? String(row.deleteRequestedById) : null,
-      deleteRequestedByUsername: row?.deleteRequestedByUsername ? String(row.deleteRequestedByUsername) : null,
-    }))
-    .filter((row: EmployeeAccessRow) => row.id);
 }
 
 export async function listEmployeeAttributeDefs(db: BetterSQLite3Database) {
@@ -112,6 +93,8 @@ export async function listEmployeesSummary(
     employeeDefByCode.department_id,
     employeeDefByCode.employment_status,
     employeeDefByCode.personnel_number,
+    employeeDefByCode.access_enabled,
+    employeeDefByCode.system_role,
   ].filter(Boolean) as string[];
 
   const vals =
@@ -158,10 +141,6 @@ export async function listEmployeesSummary(
     }
   }
 
-  const accessRows = await fetchEmployeeAccess(sysDb, apiBaseUrl);
-  const accessById: Record<string, EmployeeAccessRow> = {};
-  for (const r of accessRows) accessById[r.id] = r;
-
   return rows.map((row) => {
     const entityId = String(row.id);
     const rec = byEntity[entityId] ?? {};
@@ -174,7 +153,8 @@ export async function listEmployeesSummary(
     const departmentId = String(rec[employeeDefByCode.department_id] ?? '').trim();
     const employmentStatus = String(rec[employeeDefByCode.employment_status] ?? '').trim();
     const personnelNumber = String(rec[employeeDefByCode.personnel_number] ?? '').trim();
-    const access = accessById[entityId];
+    const accessEnabled = rec[employeeDefByCode.access_enabled] === true;
+    const systemRole = String(rec[employeeDefByCode.system_role] ?? '').trim();
     return {
       id: entityId,
       displayName: fullName || computedName || undefined,
@@ -188,11 +168,11 @@ export async function listEmployeesSummary(
       employmentStatus,
       personnelNumber,
       updatedAt: Number(row.updatedAt ?? 0),
-      accessEnabled: access?.accessEnabled,
-      systemRole: access?.systemRole ?? '',
-      deleteRequestedAt: access?.deleteRequestedAt ?? null,
-      deleteRequestedById: access?.deleteRequestedById ?? null,
-      deleteRequestedByUsername: access?.deleteRequestedByUsername ?? null,
+      accessEnabled,
+      systemRole,
+      deleteRequestedAt: null,
+      deleteRequestedById: null,
+      deleteRequestedByUsername: null,
     };
   });
 }

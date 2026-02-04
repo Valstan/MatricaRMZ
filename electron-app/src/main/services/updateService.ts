@@ -1,18 +1,23 @@
 import { app, BrowserWindow, shell } from 'electron';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { spawn } from 'node:child_process';
+import { createReadStream } from 'node:fs';
 import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 import { getUpdatesRootDir } from './updatePaths.js';
+import { SettingsKey, settingsGetString } from './settingsStore.js';
+import { getLanServerPort, getLocalLanPeers, listLanPeers, registerLanPeers, startLanUpdateServer } from './lanUpdateService.js';
 
 export type UpdateCheckResult =
   | {
       ok: true;
       updateAvailable: boolean;
       version?: string;
-      source?: 'github' | 'yandex';
+      source?: 'github' | 'yandex' | 'lan';
       downloadUrl?: string;
       expectedSize?: number | null;
     }
@@ -21,7 +26,7 @@ export type UpdateCheckResult =
 export type UpdateFlowResult =
   | { action: 'no_update' }
   | { action: 'update_started' }
-  | { action: 'update_downloaded'; version?: string; source?: 'github' | 'yandex' }
+  | { action: 'update_downloaded'; version?: string; source?: 'github' | 'yandex' | 'lan' }
   | { action: 'error'; error: string };
 
 export type UpdateHelperArgs = {
@@ -46,9 +51,12 @@ let updateUiWindow: BrowserWindow | null = null;
 let updateUiLocked = false;
 const updateLog: string[] = [];
 
+let updateApiBaseUrl = '';
+let updateDb: BetterSQLite3Database | null = null;
+
 type UpdateRuntimeState = {
   state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
-  source?: 'github' | 'yandex';
+  source?: 'github' | 'yandex' | 'lan';
   version?: string;
   progress?: number;
   message?: string;
@@ -56,6 +64,24 @@ type UpdateRuntimeState = {
 };
 
 let updateState: UpdateRuntimeState = { state: 'idle', updatedAt: Date.now() };
+
+export function configureUpdateService(opts: { apiBaseUrl?: string; db?: BetterSQLite3Database }) {
+  if (opts.apiBaseUrl) updateApiBaseUrl = String(opts.apiBaseUrl).trim();
+  if (opts.db) updateDb = opts.db;
+}
+
+async function resolveUpdateApiBaseUrl(): Promise<string> {
+  if (updateApiBaseUrl) return updateApiBaseUrl;
+  if (updateDb) {
+    try {
+      const next = (await settingsGetString(updateDb, SettingsKey.ApiBaseUrl))?.trim() ?? '';
+      if (next) updateApiBaseUrl = next;
+    } catch {
+      // ignore
+    }
+  }
+  return updateApiBaseUrl;
+}
 
 async function openInstallerFolder(installerPath: string) {
   if (process.platform !== 'win32') return;
@@ -114,6 +140,10 @@ async function writeUpdaterLog(message: string) {
   } catch {
     // ignore log write failures
   }
+}
+
+async function logLan(message: string) {
+  await writeUpdaterLog(`lan-update: ${message}`);
 }
 
 async function describePath(label: string, path: string) {
@@ -182,6 +212,89 @@ async function validateInstallerPath(
     return { ok: false, error: `installer mismatch: expected setup, got ${actualName}` };
   }
   return { ok: true, isSetup: actualIsSetup, size: st.size, actualName };
+}
+
+type ServerUpdateMeta = {
+  version: string;
+  fileName: string;
+  size: number;
+  sha256?: string;
+};
+
+function joinUrl(base: string, path: string) {
+  const b = String(base ?? '').trim().replace(/\/+$/, '');
+  const p = String(path ?? '').trim().replace(/^\/+/, '');
+  return `${b}/${p}`;
+}
+
+async function computeSha256(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  return await new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on('error', reject);
+    stream.on('data', (buf) => hash.update(buf));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+async function fetchLatestUpdateMetaFromServer(): Promise<ServerUpdateMeta | null> {
+  const apiBaseUrl = await resolveUpdateApiBaseUrl();
+  if (!apiBaseUrl) return null;
+  try {
+    const url = joinUrl(apiBaseUrl, '/updates/latest-meta');
+    const res = await fetchWithRetry(
+      url,
+      { method: 'GET' },
+      { attempts: 3, timeoutMs: 8000, backoffMs: 600, maxBackoffMs: 3000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+    );
+    if (!res.ok) {
+      await logLan(`server meta HTTP ${res.status}`);
+      return null;
+    }
+    const json = (await res.json().catch(() => null)) as any;
+    if (!json?.ok) return null;
+    const version = String(json.version ?? '').trim();
+    const fileName = String(json.fileName ?? '').trim();
+    const size = Number(json.size ?? 0);
+    const sha256 = String(json.sha256 ?? '').trim();
+    if (!version || !fileName || !Number.isFinite(size) || size <= 0) return null;
+    return { version, fileName, size, sha256: sha256 || undefined };
+  } catch {
+    return null;
+  }
+}
+
+async function findCachedInstallerForVersion(
+  version: string,
+  expectedName?: string,
+): Promise<{ filePath: string; fileName: string } | null> {
+  const dir = join(getUpdatesRootDir(), version);
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const files = entries.filter((e) => e.isFile()).map((e) => e.name);
+  if (files.length === 0) return null;
+  if (expectedName && files.includes(expectedName)) {
+    return { filePath: join(dir, expectedName), fileName: expectedName };
+  }
+  const exe = files.find((f) => f.toLowerCase().endsWith('.exe'));
+  if (!exe) return null;
+  return { filePath: join(dir, exe), fileName: exe };
+}
+
+async function validateInstallerIntegrity(
+  installerPath: string,
+  expectedName: string,
+  expectedSize: number,
+  expectedSha?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const basic = await validateInstallerPath(installerPath, expectedName, expectedSize);
+  if (!basic.ok) return basic;
+  if (expectedSha) {
+    const actual = await computeSha256(installerPath);
+    if (actual.toLowerCase() !== expectedSha.toLowerCase()) {
+      return { ok: false, error: 'installer sha256 mismatch' };
+    }
+  }
+  return { ok: true };
 }
 
 async function queuePendingUpdate(args: {
@@ -761,6 +874,44 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         return;
       }
 
+      const serverMeta = await fetchLatestUpdateMetaFromServer();
+      if (serverMeta) {
+        const cmp = compareSemver(serverMeta.version, current);
+        if (cmp <= 0) {
+          void tryAdvertiseLan(serverMeta).catch(() => {});
+          setUpdateState({ state: 'idle' });
+          return;
+        }
+        const lan = await tryDownloadFromLan(serverMeta);
+        if (lan.ok) {
+          const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
+          const queued = await queuePendingUpdate({
+            version: serverMeta.version,
+            installerPath: cachedPath,
+            expectedName: serverMeta.fileName,
+            expectedSize: serverMeta.size,
+            downloadUrl: `lan://${serverMeta.fileName}`,
+          });
+          if (!queued.ok) {
+            setUpdateState({ state: 'error', source: 'lan', version: serverMeta.version, message: queued.error });
+            return;
+          }
+          setUpdateState({
+            state: 'downloaded',
+            source: 'lan',
+            version: serverMeta.version,
+            progress: 100,
+            message: 'Обновление скачано из локальной сети. Запускаем установку…',
+          });
+          await releaseUpdateLock();
+          lockReleased = true;
+          backgroundInFlight = false;
+          showUpdateWindow(null);
+          await installNow({ installerPath: cachedPath, version: serverMeta.version });
+          return;
+        }
+      }
+
       const y = await tryYandexDownload();
       if (y?.ok) {
         await releaseUpdateLock();
@@ -817,8 +968,12 @@ export async function runAutoUpdateFlow(
 
     await stageUpdate('Проверяем локальные обновления…', 2);
     const current = app.getVersion();
-    const serverVersion = await getServerVersion();
+    const serverMeta = await fetchLatestUpdateMetaFromServer();
+    const serverVersion = serverMeta?.version ?? (await getServerVersion());
     if (serverVersion && compareSemver(serverVersion, current) <= 0) {
+      if (serverMeta && compareSemver(serverMeta.version, current) <= 0) {
+        void tryAdvertiseLan(serverMeta).catch(() => {});
+      }
       await stageUpdate('Обновлений нет. Запускаем приложение…', 100);
       closeUpdateWindowSoon(700);
       return { action: 'no_update' };
@@ -827,6 +982,28 @@ export async function runAutoUpdateFlow(
     if (local.action === 'install') {
       await installNow({ installerPath: local.installerPath, version: local.version });
       return { action: 'update_started' };
+    }
+
+    if (serverMeta && compareSemver(serverMeta.version, current) > 0) {
+      await stageUpdate('Проверяем обновления в локальной сети…', 20);
+      const lan = await tryDownloadFromLan(serverMeta);
+      if (lan.ok) {
+        const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
+        const queued = await queuePendingUpdate({
+          version: serverMeta.version,
+          installerPath: cachedPath,
+          expectedName: serverMeta.fileName,
+          expectedSize: serverMeta.size,
+          downloadUrl: `lan://${serverMeta.fileName}`,
+        });
+        if (!queued.ok) {
+          await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, serverMeta.version);
+          closeUpdateWindowSoon(3500);
+          return { action: 'error', error: queued.error };
+        }
+        await installNow({ installerPath: cachedPath, version: serverMeta.version });
+        return { action: 'update_started' };
+      }
     }
 
     await stageUpdate('Проверяем Яндекс.Диск…', 20);
@@ -909,6 +1086,13 @@ export async function runAutoUpdateFlow(
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     if (!app.isPackaged) return { ok: true, updateAvailable: false };
+    const serverMeta = await fetchLatestUpdateMetaFromServer();
+    if (serverMeta) {
+      const current = app.getVersion();
+      const updateAvailable = compareSemver(serverMeta.version, current) > 0;
+      if (!updateAvailable) void tryAdvertiseLan(serverMeta).catch(() => {});
+      return { ok: true, updateAvailable, version: serverMeta.version, source: 'lan' };
+    }
     const y = await checkYandexForUpdates();
     if (y.ok && y.updateAvailable) return y;
     const gh = await checkGithubReleaseForUpdates();
@@ -1152,6 +1336,84 @@ function resolveUpdateVersion(version?: string, fileName?: string) {
 function getUpdateDownloadDir(version?: string, fileName?: string) {
   const ver = resolveUpdateVersion(version, fileName);
   return join(getUpdatesRootDir(), ver);
+}
+
+async function tryAdvertiseLan(meta: ServerUpdateMeta): Promise<void> {
+  const apiBaseUrl = await resolveUpdateApiBaseUrl();
+  if (!apiBaseUrl) return;
+  await logLan(`advertise start version=${meta.version} file=${meta.fileName}`);
+  const cached = await findCachedInstallerForVersion(meta.version, meta.fileName);
+  if (!cached) {
+    await logLan('advertise skip: cached installer not found');
+    return;
+  }
+  const integrity = await validateInstallerIntegrity(cached.filePath, meta.fileName, meta.size, meta.sha256);
+  if (!integrity.ok) {
+    await logLan(`advertise skip: integrity ${integrity.error}`);
+    return;
+  }
+  const server = await startLanUpdateServer(cached.filePath, meta.fileName);
+  if (!server.ok) {
+    await logLan(`advertise server failed: ${server.error}`);
+    return;
+  }
+  const peers = getLocalLanPeers(server.port);
+  if (peers.length === 0) {
+    await logLan('advertise skip: no LAN peers found');
+    return;
+  }
+  const registered = await registerLanPeers(apiBaseUrl, meta.version, peers);
+  if (!registered.ok) {
+    await logLan(`advertise registry failed: ${registered.error}`);
+    return;
+  }
+  await logLan(`advertise ok: port=${server.port} peers=${peers.length}`);
+}
+
+async function tryDownloadFromLan(meta: ServerUpdateMeta): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
+  const apiBaseUrl = await resolveUpdateApiBaseUrl();
+  if (!apiBaseUrl) return { ok: false as const, error: 'apiBaseUrl missing' };
+  const serverPort = getLanServerPort() ?? undefined;
+  const serverFile = getLanServerFileName() ?? '';
+  const selfPeers = getLocalLanPeers(serverPort ?? 0);
+  const excludeIp = selfPeers[0]?.ip;
+  const peers = await listLanPeers(apiBaseUrl, meta.version, excludeIp ? { ip: excludeIp, port: serverPort } : undefined);
+  await logLan(`download peers=${peers.length} version=${meta.version}`);
+  if (!peers.length) return { ok: false as const, error: 'no peers' };
+
+  const outDir = getUpdateDownloadDir(meta.version, meta.fileName);
+  await mkdir(outDir, { recursive: true });
+  const outPath = join(outDir, meta.fileName);
+
+  for (const peer of peers) {
+    const ip = String(peer.ip ?? '').trim();
+    const port = Number(peer.port ?? 0);
+    if (!ip || !Number.isFinite(port) || port <= 0) continue;
+    const url = `http://${ip}:${port}/updates/file/${encodeURIComponent(meta.fileName)}`;
+    await logLan(`download try peer=${ip}:${port}`);
+    const dl = await downloadWithResume(url, outPath, {
+      attempts: 3,
+      timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+      noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+      useBitsOnWindows: false,
+      backoffMs: 800,
+      maxBackoffMs: 6000,
+      jitterMs: 300,
+    });
+    if (!dl.ok || !dl.filePath) {
+      await logLan(`download failed peer=${ip}:${port} error=${dl.error ?? 'unknown'}`);
+      continue;
+    }
+    const integrity = await validateInstallerIntegrity(outPath, meta.fileName, meta.size, meta.sha256);
+    if (!integrity.ok) {
+      await logLan(`download integrity failed peer=${ip}:${port} error=${integrity.error}`);
+      await rm(outPath, { force: true }).catch(() => {});
+      continue;
+    }
+    await logLan(`download ok peer=${ip}:${port}`);
+    return { ok: true as const, filePath: outPath };
+  }
+  return { ok: false as const, error: 'lan download failed' };
 }
 
 function pickNewestInstaller(items: Array<{ name: string; size?: number | null }>): { name: string; size?: number | null } | null {

@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { initNetworkService } from './services/networkService.js';
 import {
   applyPendingUpdateIfAny,
+  configureUpdateService,
   initAutoUpdate,
   recoverStuckUpdateState,
   runAutoUpdateFlow,
@@ -223,6 +224,7 @@ app.whenReady().then(() => {
 
       registerIpc(db, { clientId: stableClientId, apiBaseUrl });
       logToFile('IPC registered, SQLite ready');
+      configureUpdateService({ apiBaseUrl, db });
 
       const remote = await applyRemoteClientSettings({
         db,

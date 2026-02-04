@@ -38,23 +38,10 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const width = useWindowWidth();
   const twoCol = width >= 1400;
   const queryTimer = useRef<number | null>(null);
-  const mergeAttempted = useRef(false);
 
   async function refresh() {
     try {
       setStatus('Загрузка…');
-      if (!mergeAttempted.current && props.canCreate) {
-        mergeAttempted.current = true;
-        try {
-          setStatus('Сверка с сервером…');
-          const r = await window.matrica.employees.merge();
-          if (!r?.ok) {
-            setStatus(`Ошибка сверки: ${r?.error ?? 'unknown'}`);
-          }
-        } catch (e) {
-          setStatus(`Ошибка сверки: ${String(e)}`);
-        }
-      }
       const list = await window.matrica.employees.list();
       setRows(list as any);
       setStatus('');

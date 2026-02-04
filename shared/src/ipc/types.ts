@@ -124,12 +124,12 @@ export type SyncStatus = {
 };
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex'; downloadUrl?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' | 'lan'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateRuntimeState = {
   state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
-  source?: 'github' | 'yandex';
+  source?: 'github' | 'yandex' | 'lan';
   version?: string;
   progress?: number;
   message?: string;
