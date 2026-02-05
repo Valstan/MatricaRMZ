@@ -5,6 +5,7 @@ import {
   attributeDefRowSchema,
   chatMessageRowSchema,
   entityRowSchema,
+  operationRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
@@ -667,6 +668,11 @@ function isInvalidNotesError(body: string): boolean {
   return text.includes('sync_invalid_row') && text.includes('notes');
 }
 
+function isInvalidOperationsError(body: string): boolean {
+  const text = String(body ?? '').toLowerCase();
+  return text.includes('sync_invalid_row') && text.includes('operations');
+}
+
 async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
   const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
   if (ids.length === 0) return 0;
@@ -700,6 +706,14 @@ async function markPendingChatMessagesError(db: BetterSQLite3Database, ids?: str
     return;
   }
   await db.update(chatMessages).set({ syncStatus: 'error' }).where(eq(chatMessages.syncStatus, 'pending'));
+}
+
+async function markPendingOperationsError(db: BetterSQLite3Database, ids?: string[]) {
+  if (ids && ids.length > 0) {
+    await db.update(operations).set({ syncStatus: 'error' }).where(inArray(operations.id, ids));
+    return;
+  }
+  await db.update(operations).set({ syncStatus: 'error' }).where(eq(operations.syncStatus, 'pending'));
 }
 
 async function markPendingChatReadsError(db: BetterSQLite3Database, ids?: string[]) {
@@ -930,14 +944,29 @@ async function collectPending(db: BetterSQLite3Database) {
       .where(eq(attributeValues.syncStatus, pending))
       .limit(limitFor(SyncTableName.AttributeValues)),
   );
-  await add(
-    SyncTableName.Operations,
-    await db
+  {
+    const pendingOps = await db
       .select()
       .from(operations)
       .where(eq(operations.syncStatus, pending))
-      .limit(limitFor(SyncTableName.Operations)),
-  );
+      .limit(limitFor(SyncTableName.Operations));
+    const valid: typeof pendingOps = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingOps) {
+      const syncRow = toSyncRow(SyncTableName.Operations, row);
+      const parsed = operationRowSchema.safeParse(syncRow);
+      if (parsed.success) {
+        valid.push(row);
+      } else {
+        invalidIds.push(String(row.id));
+      }
+    }
+    if (invalidIds.length > 0) {
+      await markPendingOperationsError(db, invalidIds);
+      logSync(`push drop invalid operations count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.Operations, valid);
+  }
   await add(
     SyncTableName.AuditLog,
     await db.select().from(auditLog).where(eq(auditLog.syncStatus, pending)).limit(limitFor(SyncTableName.AuditLog)),
@@ -2114,6 +2143,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         let attemptedInvalidChatReads = false;
         let attemptedInvalidAttributeValues = false;
         let attemptedInvalidNotes = false;
+        let attemptedInvalidOperations = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -2209,6 +2239,17 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
               attemptedInvalidNotes = true;
               logSync(`push invalid notes: marking pending as error and retrying`);
               await markPendingNotesError(db);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidOperations && isInvalidOperationsError(body)) {
+              attemptedInvalidOperations = true;
+              logSync(`push invalid operations: marking pending as error and retrying`);
+              await markPendingOperationsError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;

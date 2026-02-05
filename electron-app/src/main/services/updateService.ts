@@ -10,7 +10,14 @@ import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 import { getUpdatesRootDir } from './updatePaths.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
-import { getLanServerPort, getLocalLanPeers, listLanPeers, registerLanPeers, startLanUpdateServer } from './lanUpdateService.js';
+import {
+  getLanServerFileName,
+  getLanServerPort,
+  getLocalLanPeers,
+  listLanPeers,
+  registerLanPeers,
+  startLanUpdateServer,
+} from './lanUpdateService.js';
 
 export type UpdateCheckResult =
   | {
