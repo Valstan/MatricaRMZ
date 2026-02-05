@@ -4,6 +4,10 @@ export function listUsers() {
   return apiJson('/admin/users', { method: 'GET' });
 }
 
+export function getAccessReport() {
+  return apiJson('/admin/users/access-report', { method: 'GET' });
+}
+
 export function resyncEmployees() {
   return apiJson('/admin/users/sync-snapshot', { method: 'POST' });
 }

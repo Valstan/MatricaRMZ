@@ -419,6 +419,7 @@ export type MatricaApi = {
     // Обновляет permissions по данным сервера (/auth/me) и сохраняет в локальную сессию.
     sync: () => Promise<AuthStatus>;
     login: (args: { username: string; password: string }) => Promise<AuthLoginResult>;
+    loginOptions: () => Promise<{ ok: true; rows: Array<{ login: string; fullName: string; role: string }> } | { ok: false; error: string }>;
     register: (args: { login: string; password: string; fullName: string; position: string }) => Promise<AuthLoginResult>;
     logout: (args: { refreshToken?: string }) => Promise<AuthLogoutResult>;
     changePassword: (args: { currentPassword: string; newPassword: string }) => Promise<{ ok: boolean; error?: string }>;

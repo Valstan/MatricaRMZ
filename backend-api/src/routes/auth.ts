@@ -21,6 +21,7 @@ import {
   getSuperadminUserId,
   getEmployeeProfileById,
   getEmployeeLoggingSettings,
+  listEmployeesAuth,
   isLoginTaken,
   isSuperadminLogin,
   normalizeRole,
@@ -181,6 +182,28 @@ authRouter.post('/register', async (req, res) => {
     return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions });
   } catch (e) {
     logError('auth register failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/login-options', async (_req, res) => {
+  try {
+    const list = await listEmployeesAuth();
+    if (!list.ok) return res.status(500).json({ ok: false, error: list.error });
+    const rows = list.rows
+      .map((r) => {
+        const role = normalizeRole(r.login, r.systemRole);
+        return {
+          login: r.login ?? '',
+          fullName: r.fullName ?? '',
+          role,
+          accessEnabled: r.accessEnabled === true,
+        };
+      })
+      .filter((r) => r.accessEnabled && r.role !== 'pending' && r.role !== 'employee' && r.login.trim());
+    rows.sort((a, b) => a.login.localeCompare(b.login, 'ru'));
+    return res.json({ ok: true, rows });
+  } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

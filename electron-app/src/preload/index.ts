@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('matrica', {
     status: async () => ipcRenderer.invoke('auth:status'),
     sync: async () => ipcRenderer.invoke('auth:sync'),
     login: async (args: { username: string; password: string }) => ipcRenderer.invoke('auth:login', args),
+    loginOptions: async () => ipcRenderer.invoke('auth:loginOptions'),
     register: async (args: { login: string; password: string; fullName: string; position: string }) =>
       ipcRenderer.invoke('auth:register', args),
     logout: async (args: { refreshToken?: string }) => ipcRenderer.invoke('auth:logout', args),

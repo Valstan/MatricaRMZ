@@ -17,6 +17,8 @@ export type SessionPayload = {
   savedAt: number;
 };
 
+export type LoginOption = { login: string; fullName: string; role: string };
+
 function nowMs() {
   return Date.now();
 }
@@ -144,6 +146,32 @@ export async function authLogin(
       user: payload.user,
       permissions: payload.permissions,
     };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function authLoginOptions(
+  _db: BetterSQLite3Database,
+  args: { apiBaseUrl: string },
+): Promise<{ ok: true; rows: LoginOption[] } | { ok: false; error: string }> {
+  try {
+    const url = `${args.apiBaseUrl}/auth/login-options`;
+    const r = await net.fetch(url, { method: 'GET' });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `login-options HTTP ${r.status}: ${t || 'no body'}` };
+    }
+    const json = (await r.json().catch(() => null)) as any;
+    if (!json?.ok || !Array.isArray(json.rows)) return { ok: false, error: 'bad login-options response' };
+    const rows = json.rows
+      .map((row: any) => ({
+        login: String(row.login ?? '').trim(),
+        fullName: String(row.fullName ?? '').trim(),
+        role: String(row.role ?? '').trim(),
+      }))
+      .filter((row: LoginOption) => row.login);
+    return { ok: true, rows };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

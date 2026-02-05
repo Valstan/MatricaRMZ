@@ -159,6 +159,30 @@ adminUsersRouter.get('/users', async (_req, res) => {
   }
 });
 
+adminUsersRouter.get('/users/access-report', async (_req, res) => {
+  try {
+    const list = await listEmployeesAuth();
+    if (!list.ok) return res.status(500).json({ ok: false, error: list.error });
+    const rows = list.rows
+      .map((r) => {
+        const role = normalizeRole(r.login, r.systemRole);
+        const username = r.fullName || r.login || r.id;
+        return {
+          id: r.id,
+          fullName: r.fullName ?? '',
+          username,
+          login: r.login ?? '',
+          role,
+          isActive: r.accessEnabled === true,
+        };
+      })
+      .filter((r) => r.isActive && r.role !== 'pending');
+    return res.json({ ok: true, rows });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 adminUsersRouter.post('/users/sync-snapshot', async (_req, res) => {
   try {
     const r = await emitEmployeesSyncSnapshotAll();

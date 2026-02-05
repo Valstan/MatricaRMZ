@@ -24,6 +24,8 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   const [status, setStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loginOptions, setLoginOptions] = useState<Array<{ login: string; fullName: string; role: string }>>([]);
+  const [loginOptionsStatus, setLoginOptionsStatus] = useState<string>('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [regLogin, setRegLogin] = useState('');
   const [regPassword, setRegPassword] = useState('');
@@ -39,13 +41,26 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
     props.onChanged?.(s);
   }
 
+  async function refreshLoginOptions() {
+    setLoginOptionsStatus('');
+    const r = await window.matrica.auth.loginOptions().catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r?.ok) {
+      setLoginOptions([]);
+      setLoginOptionsStatus(r?.error ? `Ошибка списка логинов: ${r.error}` : 'Ошибка списка логинов');
+      return;
+    }
+    setLoginOptions(Array.isArray(r.rows) ? r.rows : []);
+  }
+
   useEffect(() => {
     void refresh();
+    void refreshLoginOptions();
   }, []);
 
   useEffect(() => {
     if (!status.loggedIn) {
       setPresence(null);
+      void refreshLoginOptions();
       return;
     }
     let alive = true;
@@ -123,7 +138,21 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
               {mode === 'login' ? (
                 <>
                   <div style={{ color: 'var(--muted)' }}>Логин</div>
-                  <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" />
+                  <div>
+                    <Input
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="username"
+                      list="login-options"
+                    />
+                    <datalist id="login-options">
+                      {loginOptions.map((opt) => {
+                        const label = opt.fullName ? `${opt.login} — ${opt.fullName} (${opt.role})` : `${opt.login} (${opt.role})`;
+                        return <option key={opt.login} value={opt.login} label={label} />;
+                      })}
+                    </datalist>
+                    {loginOptionsStatus && <div style={{ marginTop: 4, fontSize: 12, color: 'var(--danger)' }}>{loginOptionsStatus}</div>}
+                  </div>
                   <div style={{ color: 'var(--muted)' }}>Пароль</div>
                   <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
                 </>
@@ -192,6 +221,11 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
               <Button variant="ghost" onClick={() => void refresh()}>
                 Обновить
               </Button>
+              {mode === 'login' && (
+                <Button variant="ghost" onClick={() => void refreshLoginOptions()}>
+                  Обновить логины
+                </Button>
+              )}
             </div>
           </>
         ) : (

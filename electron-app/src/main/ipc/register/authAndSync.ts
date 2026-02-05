@@ -4,6 +4,7 @@ import type { IpcContext } from '../ipcContext.js';
 import {
   authChangePassword,
   authLogin,
+  authLoginOptions,
   authLogout,
   authProfileGet,
   authProfileUpdate,
@@ -31,6 +32,7 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
       return res;
     })(),
   );
+  ipcMain.handle('auth:loginOptions', async () => authLoginOptions(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl() }));
   ipcMain.handle('auth:register', async (_e, args: { login: string; password: string; fullName: string; position: string }) =>
     authRegister(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), ...args }),
   );

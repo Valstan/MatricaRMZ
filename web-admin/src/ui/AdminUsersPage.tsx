@@ -50,6 +50,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const [releaseTokenExpiresAt, setReleaseTokenExpiresAt] = useState<number | null>(null);
   const [releaseTokenStatus, setReleaseTokenStatus] = useState<string>('');
   const [releaseAutoStatus, setReleaseAutoStatus] = useState<string>('');
+  const [accessReportStatus, setAccessReportStatus] = useState<string>('');
 
   function formatAccessLabel(role: string | null | undefined, isActive?: boolean) {
     if (!isActive) return 'запрещено';
@@ -177,6 +178,43 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     }
     setReleaseTokenStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
     return false;
+  }
+
+  function csvEscape(value: string) {
+    const s = String(value ?? '');
+    if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
+  async function downloadAccessReport() {
+    setAccessReportStatus('Формируем отчёт...');
+    const r = await adminUsers.getAccessReport();
+    if (!r?.ok || !Array.isArray(r.rows)) {
+      setAccessReportStatus(`Ошибка отчёта: ${r?.error ?? 'unknown'}`);
+      return;
+    }
+    const header = ['ФИО', 'роль', 'логин'];
+    const lines = [header.join(',')];
+    for (const row of r.rows as any[]) {
+      const fullName = String(row.fullName ?? row.username ?? '').trim();
+      const role = String(row.role ?? '').trim();
+      const login = String(row.login ?? '').trim();
+      lines.push([fullName, role, login].map(csvEscape).join(','));
+    }
+    const csv = '\uFEFF' + lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `access-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setAccessReportStatus(`Готово: ${r.rows.length}`);
+    setTimeout(() => setAccessReportStatus(''), 2000);
   }
 
   return (
@@ -360,6 +398,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <strong>Пользователи и права доступа</strong>
               <span style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={() => void downloadAccessReport()}>
+                Отчёт по доступам
+              </Button>
+              {accessReportStatus && <div className="muted" style={{ fontSize: 12 }}>{accessReportStatus}</div>}
               <Button
                 variant="ghost"
                 onClick={async () => {
