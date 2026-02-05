@@ -205,11 +205,15 @@ export function MasterdataPage(props: {
         setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
         return;
       }
-      if (!opts?.skipTypesRefresh) {
+      const resolvedId = r?.resync?.resolvedId ? String(r.resync.resolvedId) : null;
+      const needsRefresh = !opts?.skipTypesRefresh || (resolvedId && resolvedId !== targetTypeId);
+      if (needsRefresh) {
         await refreshTypes();
       }
-      await refreshDefs(targetTypeId);
-      await refreshEntities(targetTypeId);
+      const nextTypeId = resolvedId && resolvedId !== targetTypeId ? resolvedId : targetTypeId;
+      if (nextTypeId !== targetTypeId) setSelectedTypeId(nextTypeId);
+      await refreshDefs(nextTypeId);
+      await refreshEntities(nextTypeId);
       if (!opts?.silent) {
         setStatus('Справочник обновлён.');
         setTimeout(() => setStatus(''), 1200);

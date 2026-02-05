@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
@@ -11,6 +11,31 @@ function nowMs() {
 
 export async function listEntityTypes(db: BetterSQLite3Database) {
   return db.select().from(entityTypes).where(isNull(entityTypes.deletedAt)).orderBy(asc(entityTypes.code)).limit(2000);
+}
+
+export async function archiveLocalEntityType(db: BetterSQLite3Database, entityTypeId: string) {
+  const ts = nowMs();
+  // Soft-delete local-only leftovers without pushing to server.
+  await db.update(entityTypes).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' }).where(eq(entityTypes.id, entityTypeId));
+  await db
+    .update(attributeDefs)
+    .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+    .where(eq(attributeDefs.entityTypeId, entityTypeId));
+
+  const entityRows = await db.select({ id: entities.id }).from(entities).where(eq(entities.typeId, entityTypeId)).limit(200_000);
+  const entityIds = entityRows.map((r) => String(r.id)).filter(Boolean);
+  if (entityIds.length > 0) {
+    await db.update(entities).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' }).where(inArray(entities.id, entityIds));
+    const chunkSize = 500;
+    for (let i = 0; i < entityIds.length; i += chunkSize) {
+      const chunk = entityIds.slice(i, i + chunkSize);
+      await db
+        .update(attributeValues)
+        .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+        .where(inArray(attributeValues.entityId, chunk));
+    }
+  }
+  return { ok: true as const };
 }
 
 export async function getEntityTypeDeleteInfo(db: BetterSQLite3Database, entityTypeId: string) {

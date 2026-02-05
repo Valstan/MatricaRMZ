@@ -4,6 +4,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, requirePermOrThrow, viewModeWriteError } from '../ipcContext.js';
 
 import {
+  archiveLocalEntityType,
   deleteAttributeDef,
   deleteEntityType,
   getAttributeDefDeleteInfo,
@@ -70,8 +71,15 @@ export function registerAdminIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     const gate = await requirePermOrResult(ctx, 'masterdata.view');
     if (!gate.ok) return gate as any;
-    const resync = await adminResyncEntityType(ctx.sysDb, ctx.mgr.getApiBaseUrl(), entityTypeId);
+    const localTypes = await listEntityTypes(ctx.dataDb());
+    const localType = localTypes.find((t) => String(t.id) === String(entityTypeId));
+    const resync = await adminResyncEntityType(ctx.sysDb, ctx.mgr.getApiBaseUrl(), entityTypeId, {
+      code: localType?.code ?? null,
+    });
     if (!resync.ok) return resync;
+    if (resync.resolvedId && String(resync.resolvedId) !== String(entityTypeId)) {
+      await archiveLocalEntityType(ctx.dataDb(), String(entityTypeId));
+    }
     const sync = await ctx.mgr.runOnce().catch((e) => ({ ok: false as const, error: String(e) }));
     return { ok: true as const, resync, sync };
   });
