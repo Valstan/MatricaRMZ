@@ -687,12 +687,12 @@ export function ContractDetailsPage(props: {
                 { entityTypeId: contractTypeId },
               ).then(() => setDefs([...defs]));
             }}
-            renderItem={(field, itemProps, dragHandleProps, state) => (
+            renderItem={(field, itemProps, _dragHandleProps, state) => (
               <div
                 {...itemProps}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '24px minmax(140px, 180px) 1fr',
+                  gridTemplateColumns: 'minmax(140px, 180px) 1fr',
                   gap: 10,
                   alignItems: 'center',
                   padding: '6px 8px',
@@ -701,22 +701,6 @@ export function ContractDetailsPage(props: {
                   background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
                 }}
               >
-                <div
-                  {...dragHandleProps}
-                  title="Перетащить"
-                  style={{
-                    ...dragHandleProps.style,
-                    width: 24,
-                    height: 24,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#94a3b8',
-                    userSelect: 'none',
-                  }}
-                >
-                  :::
-                </div>
                 <div style={{ color: '#6b7280' }}>{field.label}</div>
                 {field.render}
               </div>
@@ -914,7 +898,7 @@ export function ContractDetailsPage(props: {
                   { entityTypeId: contractTypeId, startAt: 300 },
                 ).then(() => setDefs([...defs]));
               }}
-              renderItem={(def, dragHandleProps, state) => {
+              renderItem={(def, itemProps, _dragHandleProps, state) => {
                 const value = editingAttr[def.code] !== undefined ? editingAttr[def.code] : contract.attributes?.[def.code];
                 const isEditing = editingAttr[def.code] !== undefined;
                 const linkOpt =
@@ -924,9 +908,8 @@ export function ContractDetailsPage(props: {
 
                 return (
                   <div
-                    {...dragHandleProps}
+                    {...itemProps}
                     style={{
-                      ...dragHandleProps.style,
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 6,

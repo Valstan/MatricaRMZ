@@ -479,12 +479,12 @@ export function EngineDetailsPage(props: {
               { entityTypeId: engineTypeId },
             ).then(() => setEngineDefs([...engineDefs]));
           }}
-          renderItem={(field, itemProps, dragHandleProps, state) => (
+          renderItem={(field, itemProps, _dragHandleProps, state) => (
             <div
               {...itemProps}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '24px minmax(140px, 180px) 1fr',
+                gridTemplateColumns: 'minmax(140px, 180px) 1fr',
                 gap: 10,
                 alignItems: 'center',
                 padding: '6px 8px',
@@ -493,22 +493,6 @@ export function EngineDetailsPage(props: {
                 background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
               }}
             >
-              <div
-                {...dragHandleProps}
-                title="Перетащить"
-                style={{
-                  ...dragHandleProps.style,
-                  width: 24,
-                  height: 24,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#94a3b8',
-                  userSelect: 'none',
-                }}
-              >
-                :::
-              </div>
               <div style={{ color: '#6b7280' }}>{field.label}</div>
               {field.render}
             </div>

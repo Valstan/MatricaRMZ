@@ -514,12 +514,12 @@ export function SimpleMasterdataDetailsPage(props: {
               { entityTypeId },
             ).then(() => setDefs([...defs]));
           }}
-          renderItem={(field, itemProps, dragHandleProps, state) => (
+          renderItem={(field, itemProps, _dragHandleProps, state) => (
             <div
               {...itemProps}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '24px minmax(160px, 200px) 1fr',
+                gridTemplateColumns: 'minmax(160px, 200px) 1fr',
                 gap: 10,
                 alignItems: 'center',
                 padding: '6px 8px',
@@ -528,22 +528,6 @@ export function SimpleMasterdataDetailsPage(props: {
                 background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
               }}
             >
-              <div
-                {...dragHandleProps}
-                title="Перетащить"
-                style={{
-                  ...dragHandleProps.style,
-                  width: 24,
-                  height: 24,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#94a3b8',
-                  userSelect: 'none',
-                }}
-              >
-                :::
-              </div>
               <div
                 style={{
                   color: '#6b7280',

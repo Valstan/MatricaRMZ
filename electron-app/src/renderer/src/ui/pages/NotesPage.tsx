@@ -508,12 +508,12 @@ export function NotesPage(props: {
           getKey={(n) => n.id}
           canDrag={props.canEdit}
           onReorder={(next) => void reorderNotes(next)}
-          renderItem={(item, itemProps, dragHandleProps, state) => (
+          renderItem={(item, itemProps, _dragHandleProps, state) => (
             <div
               {...itemProps}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '24px 1fr',
+                gridTemplateColumns: '1fr',
                 gap: 10,
                 alignItems: 'start',
                 padding: '6px 8px',
@@ -522,22 +522,6 @@ export function NotesPage(props: {
                 background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
               }}
             >
-              <div
-                {...dragHandleProps}
-                title="Перетащить"
-                style={{
-                  ...dragHandleProps.style,
-                  width: 24,
-                  height: 24,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#94a3b8',
-                  userSelect: 'none',
-                }}
-              >
-                :::
-              </div>
               {renderNote(item)}
             </div>
           )}
