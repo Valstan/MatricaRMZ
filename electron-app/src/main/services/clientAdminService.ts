@@ -126,6 +126,7 @@ export async function applyRemoteClientSettings(args: {
             payload = null;
           }
         }
+        let skipDefaultSync = false;
         if (syncReqType === 'force_full_pull') {
           args.log?.(`sync request: force_full_pull id=${syncReqId}`);
           const startedAt = Date.now();
@@ -146,7 +147,7 @@ export async function applyRemoteClientSettings(args: {
           }).catch((e) => {
             args.log?.(`sync request failed: ${String(e)}`);
           });
-          continue;
+          skipDefaultSync = true;
         } else if (syncReqType === 'sync_now') {
           args.log?.(`sync request: sync_now id=${syncReqId}`);
         } else if (syncReqType === 'entity_diff') {
@@ -183,9 +184,11 @@ export async function applyRemoteClientSettings(args: {
             }
           }
         }
-        await runSync(db, args.clientId, args.apiBaseUrl).catch((e) => {
-          args.log?.(`sync request failed: ${String(e)}`);
-        });
+        if (!skipDefaultSync) {
+          await runSync(db, args.clientId, args.apiBaseUrl).catch((e) => {
+            args.log?.(`sync request failed: ${String(e)}`);
+          });
+        }
       }
     }
 
