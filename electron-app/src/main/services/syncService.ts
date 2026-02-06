@@ -1376,9 +1376,38 @@ function toSyncRow(table: SyncTableName, row: any): any {
   }
 }
 
+function isSyncRow(table: SyncTableName, row: any): boolean {
+  if (!row || typeof row !== 'object') return false;
+  switch (table) {
+    case SyncTableName.EntityTypes:
+      return 'created_at' in row && 'code' in row;
+    case SyncTableName.Entities:
+      return 'created_at' in row && 'type_id' in row;
+    case SyncTableName.AttributeDefs:
+      return 'created_at' in row && 'entity_type_id' in row;
+    case SyncTableName.AttributeValues:
+      return 'created_at' in row && 'attribute_def_id' in row;
+    case SyncTableName.Operations:
+      return 'created_at' in row && 'engine_entity_id' in row;
+    case SyncTableName.AuditLog:
+      return 'created_at' in row && 'table_name' in row;
+    case SyncTableName.ChatMessages:
+      return 'created_at' in row && 'sender_user_id' in row;
+    case SyncTableName.ChatReads:
+      return 'created_at' in row && 'message_id' in row;
+    case SyncTableName.Notes:
+      return 'created_at' in row && 'owner_user_id' in row;
+    case SyncTableName.NoteShares:
+      return 'created_at' in row && 'note_id' in row;
+    case SyncTableName.UserPresence:
+      return 'created_at' in row && 'user_id' in row;
+  }
+}
+
 function toLedgerTx(table: SyncTableName, row: any) {
   const { primary } = getE2eKeys();
-  const syncRow = encryptRowSensitive(toSyncRow(table, row), primary);
+  const normalized = isSyncRow(table, row) ? row : toSyncRow(table, row);
+  const syncRow = encryptRowSensitive(normalized, primary);
   const deletedAt = (syncRow as any)?.deleted_at ?? null;
   return {
     type: deletedAt ? 'delete' : 'upsert',

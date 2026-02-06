@@ -125,6 +125,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const canCreateEmployee = meRole === 'superadmin';
   const canEditRole = canEditRoleOrAccess;
   const canEditLogin = !selectedIsSelf && !adminLocked && !(meRole === 'admin' && selectedRole === 'employee');
+  const canApprovePending = canManageUsers && (meRole === 'admin' || meRole === 'superadmin');
 
   useEffect(() => {
     setEditLogin(selectedUser?.login ?? '');
