@@ -20,6 +20,8 @@ type Row = {
   updatedAt: number;
 };
 
+type SortKey = 'displayName' | 'position' | 'departmentName' | 'employmentStatus' | 'access' | 'updatedAt';
+
 function formatAccessRole(role: string | null | undefined) {
   const normalized = String(role ?? '').trim().toLowerCase();
   if (!normalized) return 'Пользователь';
@@ -35,6 +37,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
   const queryTimer = useRef<number | null>(null);
@@ -84,19 +88,97 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     });
   }, [rows, query]);
 
+  const sortValue = (row: Row, key: SortKey) => {
+    switch (key) {
+      case 'displayName':
+        return String(row.displayName ?? '').toLowerCase();
+      case 'position':
+        return String(row.position ?? '').toLowerCase();
+      case 'departmentName':
+        return String(row.departmentName ?? '').toLowerCase();
+      case 'employmentStatus': {
+        const status = String(row.employmentStatus ?? '').toLowerCase();
+        return status === 'fired' ? 'уволен' : status ? status : 'работает';
+      }
+      case 'access':
+        return row.accessEnabled === true ? formatAccessRole(row.systemRole).toLowerCase() : 'запрещено';
+      case 'updatedAt':
+        return Number(row.updatedAt ?? 0);
+      default:
+        return String(row.displayName ?? '').toLowerCase();
+    }
+  };
+
   const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [filtered]);
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        if (av === bv) return a.id.localeCompare(b.id, 'ru') * dir;
+        return av > bv ? dir : -dir;
+      }
+      const as = String(av ?? '');
+      const bs = String(bv ?? '');
+      if (as === bs) return a.id.localeCompare(b.id, 'ru') * dir;
+      return as.localeCompare(bs, 'ru') * dir;
+    });
+  }, [filtered, sortDir, sortKey]);
+
+  const headerCellStyle: React.CSSProperties = {
+    padding: '10px 12px',
+    textAlign: 'left',
+    fontWeight: 700,
+    fontSize: 14,
+    color: '#374151',
+    position: 'sticky',
+    top: 0,
+    background: '#f9fafb',
+    zIndex: 1,
+  };
+
+  const headerButtonStyle: React.CSSProperties = {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    font: 'inherit',
+    color: 'inherit',
+    cursor: 'pointer',
+  };
+
+  const renderSortLabel = (label: string, key: SortKey) => {
+    const active = sortKey === key;
+    const suffix = active ? (sortDir === 'asc' ? ' ^' : ' v') : '';
+    return (
+      <button
+        type="button"
+        style={headerButtonStyle}
+        onClick={() => {
+          if (active) {
+            setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+            return;
+          }
+          setSortKey(key);
+          setSortDir('asc');
+        }}
+      >
+        {label}
+        {suffix}
+      </button>
+    );
+  };
 
   const tableHeader = (
     <thead>
-      <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Сотрудник</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Должность</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Подразделение</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Статус</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Доступ</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
+      <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+        <th style={headerCellStyle}>{renderSortLabel('Сотрудник', 'displayName')}</th>
+        <th style={headerCellStyle}>{renderSortLabel('Должность', 'position')}</th>
+        <th style={headerCellStyle}>{renderSortLabel('Подразделение', 'departmentName')}</th>
+        <th style={headerCellStyle}>{renderSortLabel('Статус', 'employmentStatus')}</th>
+        <th style={headerCellStyle}>{renderSortLabel('Доступ', 'access')}</th>
+        <th style={{ ...headerCellStyle, width: 140 }}>Действия</th>
       </tr>
     </thead>
   );
@@ -224,30 +306,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             Создать сотрудника
           </Button>
         )}
-        <Button
-          variant="ghost"
-          onClick={async () => {
-            try {
-              setStatus('Подгружаем сотрудников с сервера…');
-              const r = await window.matrica.employees.resyncFromServer();
-              if (!r?.ok) {
-                setStatus(`Ошибка подгрузки: ${r?.error ?? 'unknown'}`);
-                return;
-              }
-              if (r.sync && r.sync.ok === false) {
-                setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
-                return;
-              }
-              setStatus('Готово. Обновляем список…');
-              await refresh();
-              setStatus('');
-            } catch (e) {
-              setStatus(`Ошибка: ${String(e)}`);
-            }
-          }}
-        >
-          Подгрузить с сервера
-        </Button>
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по ФИО…" />
         </div>

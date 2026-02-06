@@ -17,6 +17,7 @@ import { and, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
+import { logWarn } from '../../utils/logger.js';
 import {
   attributeDefs,
   attributeValues,
@@ -85,6 +86,36 @@ export async function applyPushBatch(
   const actorRole = String(actor.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const collected = opts.collectChanges ?? null;
+
+  function parseRows<T>(
+    table: SyncTableName,
+    raw: unknown[],
+    schema: { safeParse: (input: unknown) => { success: boolean; data?: T } },
+  ): T[] {
+    const parsed: T[] = [];
+    let invalid = 0;
+    const sampleIds: string[] = [];
+    for (const row of raw) {
+      const res = schema.safeParse(row);
+      if (res.success) {
+        parsed.push(res.data as T);
+        continue;
+      }
+      invalid += 1;
+      const id = (row as any)?.id;
+      if (sampleIds.length < 5 && id) sampleIds.push(String(id));
+    }
+    if (invalid > 0) {
+      logWarn('sync invalid rows dropped', {
+        table,
+        invalid,
+        sample_ids: sampleIds,
+        client_id: req.client_id,
+        user: actor.username,
+      });
+    }
+    return parsed;
+  }
 
   return await db.transaction(async (tx) => {
     // Обновляем/создаем sync_state строку (последнее время push).
@@ -208,7 +239,12 @@ export async function applyPushBatch(
       }
     }
 
-    async function filterStaleBySeqOrUpdatedAt(table: any, rows: any[], tableName: SyncTableName): Promise<any[]> {
+    async function filterStaleBySeqOrUpdatedAt(
+      table: any,
+      rows: any[],
+      tableName: SyncTableName,
+      opts?: { allowConflicts?: boolean },
+    ): Promise<any[]> {
       if (rows.length === 0) return rows;
       const ids = rows.map((r) => r.id);
       const existing = await tx
@@ -247,7 +283,9 @@ export async function applyPushBatch(
         return !(cur.updatedAt > r.updated_at);
       });
       if (conflicts > 0) {
-        throw new Error(`sync_conflict: ${tableName} (${conflicts})`);
+        if (!opts?.allowConflicts) {
+          throw new Error(`sync_conflict: ${tableName} (${conflicts})`);
+        }
       }
       return filtered;
     }
@@ -317,7 +355,7 @@ export async function applyPushBatch(
       const raw = grouped.get(SyncTableName.EntityTypes) ?? [];
       // Parse + filter out historical bulk/test artifacts so they never pollute production again.
       // These were created by bench/debug clients (e.g. "bulkbench") and should not sync.
-      const parsedAll = raw.map((x) => entityTypeRowSchema.parse(x));
+      const parsedAll = parseRows(SyncTableName.EntityTypes, raw, entityTypeRowSchema);
       const parsed = parsedAll.filter((r) => !isBulkEntityTypeRow(r));
 
       // Build remap by code -> existing server ID (if any).
@@ -350,7 +388,9 @@ export async function applyPushBatch(
       }
       const deduped = Array.from(dedupMap.values());
 
-      const rows = await filterStaleBySeqOrUpdatedAt(entityTypes, deduped, SyncTableName.EntityTypes);
+      const rows = await filterStaleBySeqOrUpdatedAt(entityTypes, deduped, SyncTableName.EntityTypes, {
+        allowConflicts: true,
+      });
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()
@@ -400,7 +440,7 @@ export async function applyPushBatch(
     // Entities
     {
       const raw = grouped.get(SyncTableName.Entities) ?? [];
-      const parsed = raw.map((x) => entityRowSchema.parse(x));
+      const parsed = parseRows(SyncTableName.Entities, raw, entityRowSchema);
       const remapped = parsed.map((r) => {
         const mappedTypeId = entityTypeIdRemap.get(String(r.type_id));
         return mappedTypeId ? { ...r, type_id: mappedTypeId } : r;
@@ -467,7 +507,7 @@ export async function applyPushBatch(
     // AttributeDefs
     {
       const raw = grouped.get(SyncTableName.AttributeDefs) ?? [];
-      const parsed = raw.map((x) => attributeDefRowSchema.parse(x));
+      const parsed = parseRows(SyncTableName.AttributeDefs, raw, attributeDefRowSchema);
       const withTypeRemap = parsed.map((r) => {
         const mappedTypeId = entityTypeIdRemap.get(String(r.entity_type_id));
         return mappedTypeId ? { ...r, entity_type_id: mappedTypeId } : r;
@@ -515,7 +555,9 @@ export async function applyPushBatch(
       }
       const deduped = Array.from(dedupMap.values());
 
-      let rows = await filterStaleBySeqOrUpdatedAt(attributeDefs, deduped, SyncTableName.AttributeDefs);
+      let rows = await filterStaleBySeqOrUpdatedAt(attributeDefs, deduped, SyncTableName.AttributeDefs, {
+        allowConflicts: true,
+      });
       // Extra safety: remap by (entity_type_id, code) using the *current* rows to avoid
       // unique violations if earlier remap missed a server match.
       if (rows.length > 0) {
@@ -623,7 +665,7 @@ export async function applyPushBatch(
     // AttributeValues
     {
       const raw = grouped.get(SyncTableName.AttributeValues) ?? [];
-      const parsed = raw.map((x) => attributeValueRowSchema.parse(x));
+      const parsed = parseRows(SyncTableName.AttributeValues, raw, attributeValueRowSchema);
       const remapped = parsed.map((r) => {
         const mappedDefId = attributeDefIdRemap.get(String(r.attribute_def_id));
         return mappedDefId ? { ...r, attribute_def_id: mappedDefId } : r;
@@ -716,7 +758,7 @@ export async function applyPushBatch(
     // Operations
     {
       const raw = grouped.get(SyncTableName.Operations) ?? [];
-      const parsed = raw.map((x) => operationRowSchema.parse(x));
+      const parsed = parseRows(SyncTableName.Operations, raw, operationRowSchema);
       let rows = await filterStaleBySeqOrUpdatedAt(operations, parsed, SyncTableName.Operations);
       const ids = rows.map((r) => r.id);
       const existing = await tx
@@ -799,7 +841,7 @@ export async function applyPushBatch(
     // AuditLog
     {
       const raw = grouped.get(SyncTableName.AuditLog) ?? [];
-      const parsed = raw.map((x) => auditLogRowSchema.parse(x));
+      const parsed = parseRows(SyncTableName.AuditLog, raw, auditLogRowSchema);
       const rows = await filterStaleBySeqOrUpdatedAt(auditLog, parsed, SyncTableName.AuditLog);
       if (rows.length > 0) {
         await tx
@@ -839,7 +881,7 @@ export async function applyPushBatch(
     // ChatMessages
     {
       const raw = grouped.get(SyncTableName.ChatMessages) ?? [];
-      const parsedAll = raw.map((x) => chatMessageRowSchema.parse(x));
+      const parsedAll = parseRows(SyncTableName.ChatMessages, raw, chatMessageRowSchema);
       if (parsedAll.length > 0 && actor.id) {
         // Never trust sender fields from client.
         const parsed = parsedAll.map((r) => ({
@@ -929,7 +971,7 @@ export async function applyPushBatch(
     // ChatReads
     {
       const raw = grouped.get(SyncTableName.ChatReads) ?? [];
-      const parsedAll = raw.map((x) => chatReadRowSchema.parse(x));
+      const parsedAll = parseRows(SyncTableName.ChatReads, raw, chatReadRowSchema);
       if (parsedAll.length > 0 && actor.id) {
         // Never trust user_id from client (read receipts are personal).
         const parsed = parsedAll.map((r) => ({
@@ -986,7 +1028,7 @@ export async function applyPushBatch(
     // Notes
     {
       const raw = grouped.get(SyncTableName.Notes) ?? [];
-      const parsedAll = raw.map((x) => noteRowSchema.parse(x));
+      const parsedAll = parseRows(SyncTableName.Notes, raw, noteRowSchema);
       if (parsedAll.length > 0 && actor.id) {
         // Never trust owner_user_id from client.
         const parsed = parsedAll.map((r) => ({
@@ -1059,7 +1101,7 @@ export async function applyPushBatch(
     // NoteShares
     {
       const raw = grouped.get(SyncTableName.NoteShares) ?? [];
-      const parsedAll = raw.map((x) => noteShareRowSchema.parse(x));
+      const parsedAll = parseRows(SyncTableName.NoteShares, raw, noteShareRowSchema);
       if (parsedAll.length > 0 && actor.id) {
         const rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll, SyncTableName.NoteShares);
         const noteIds = Array.from(new Set(rows.map((r) => String(r.note_id))));

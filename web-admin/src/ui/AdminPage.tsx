@@ -133,6 +133,38 @@ export function MasterdataPage(props: {
     return linkTargetByCode[def.code] ?? null;
   }
 
+  function isServerOnlyDef(def: AttrDefRow): boolean {
+    const meta = safeParseMetaJson(def.metaJson);
+    return meta?.serverOnly === true;
+  }
+
+  function orderEmployeeDefs(defsForType: AttrDefRow[]) {
+    const order = [
+      'last_name',
+      'first_name',
+      'middle_name',
+      'full_name',
+      'personnel_number',
+      'birth_date',
+      'role',
+      'employment_status',
+      'hire_date',
+      'termination_date',
+      'department_id',
+      'section_id',
+      'category_id',
+      'transfers',
+      'attachments',
+    ];
+    const idx = new Map(order.map((code, i) => [code, i]));
+    return defsForType.slice().sort((a, b) => {
+      const ai = idx.has(a.code) ? idx.get(a.code)! : order.length + 100;
+      const bi = idx.has(b.code) ? idx.get(b.code)! : order.length + 100;
+      if (ai !== bi) return ai - bi;
+      return (a.sortOrder - b.sortOrder) || a.code.localeCompare(b.code);
+    });
+  }
+
   function formatDefDataType(def: AttrDefRow): string {
     if (def.dataType !== 'link') return def.dataType;
     const targetCode = getLinkTargetTypeCode(def);
@@ -287,7 +319,13 @@ export function MasterdataPage(props: {
       setStatus(`Ошибка свойств: ${r.error ?? 'unknown'}`);
       return;
     }
-    setDefs(r.rows ?? []);
+    const next = r.rows ?? [];
+    if (selectedType?.code === 'employee') {
+      const filtered = next.filter((d) => !isServerOnlyDef(d));
+      setDefs(orderEmployeeDefs(filtered));
+      return;
+    }
+    setDefs(next);
   }
 
   async function refreshEntities(typeId: string, opts?: { selectId?: string }) {
