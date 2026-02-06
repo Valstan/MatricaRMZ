@@ -70,7 +70,7 @@ export class SyncManager {
     this.nextAt = null;
   }
 
-  async runOnce(): Promise<SyncRunResult> {
+  async runOnce(opts?: Parameters<typeof runSync>[3]): Promise<SyncRunResult> {
     // Не запускаем параллельные синки.
     if (this.inFlight) return this.lastResult ?? { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'sync busy' };
     this.inFlight = true;
@@ -81,7 +81,7 @@ export class SyncManager {
       // UI читает apiBaseUrl из SQLite, а менеджер живёт в памяти.
       // Перед каждым синком подхватываем актуальную конфигурацию.
       await this.refreshApiBaseUrlFromDb();
-      const r = await runSync(this.db, this.clientId, this.apiBaseUrl);
+      const r = await runSync(this.db, this.clientId, this.apiBaseUrl, opts);
       this.lastResult = r;
       this.lastSyncAt = nowMs();
       this.state = r.ok ? 'idle' : 'error';

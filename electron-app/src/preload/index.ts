@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld('matrica', {
     configSet: async (args: { apiBaseUrl: string }) => ipcRenderer.invoke('sync:config:set', args),
     reset: async () => ipcRenderer.invoke('sync:reset'),
     resetLocalDb: async () => ipcRenderer.invoke('sync:resetLocalDb'),
+    onProgress: (handler: (event: any) => void) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
+      ipcRenderer.on('sync:progress', wrapped);
+      return () => ipcRenderer.removeListener('sync:progress', wrapped);
+    },
   },
   changes: {
     list: async (args?: { status?: string; limit?: number }) => ipcRenderer.invoke('changes:list', args),

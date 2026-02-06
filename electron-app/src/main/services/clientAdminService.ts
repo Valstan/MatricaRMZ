@@ -4,7 +4,14 @@ import { eq } from 'drizzle-orm';
 import { hostname as getHostname } from 'node:os';
 
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
-import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from './settingsStore.js';
+import {
+  SettingsKey,
+  settingsGetBoolean,
+  settingsGetNumber,
+  settingsGetString,
+  settingsSetBoolean,
+  settingsSetString,
+} from './settingsStore.js';
 import { resetSyncState, runSync } from './syncService.js';
 import { httpAuthed } from './httpClient.js';
 import { getEntityDetails } from './entityService.js';
@@ -15,6 +22,18 @@ export type RemoteClientSettings = {
   torrentEnabled: boolean;
   loggingEnabled: boolean;
   loggingMode: 'dev' | 'prod';
+};
+
+type SyncProgressEvent = {
+  mode: 'force_full_pull';
+  state: 'start' | 'progress' | 'done' | 'error';
+  startedAt: number;
+  elapsedMs: number;
+  estimateMs: number | null;
+  etaMs: number | null;
+  progress: number | null;
+  pulled?: number;
+  error?: string;
 };
 
 type RemoteSettingsResponse = {
@@ -63,6 +82,7 @@ export async function applyRemoteClientSettings(args: {
   clientId: string;
   version: string;
   log?: (msg: string) => void;
+  onSyncProgress?: (event: SyncProgressEvent) => void;
 }): Promise<RemoteClientSettings> {
   const { db, apiBaseUrl, clientId, version } = args;
   const hostname = getHostname();
@@ -108,7 +128,25 @@ export async function applyRemoteClientSettings(args: {
         }
         if (syncReqType === 'force_full_pull') {
           args.log?.(`sync request: force_full_pull id=${syncReqId}`);
+          const startedAt = Date.now();
+          const lastDuration = await settingsGetNumber(db, SettingsKey.LastFullPullDurationMs, 0);
+          const estimateMs = Math.max(60_000, Math.min(15 * 60_000, lastDuration || 180_000));
+          args.onSyncProgress?.({
+            mode: 'force_full_pull',
+            state: 'start',
+            startedAt,
+            elapsedMs: 0,
+            estimateMs,
+            etaMs: estimateMs,
+            progress: 0,
+          });
           await resetSyncState(db);
+          await runSync(db, args.clientId, args.apiBaseUrl, {
+            fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress },
+          }).catch((e) => {
+            args.log?.(`sync request failed: ${String(e)}`);
+          });
+          continue;
         } else if (syncReqType === 'sync_now') {
           args.log?.(`sync request: sync_now id=${syncReqId}`);
         } else if (syncReqType === 'entity_diff') {
@@ -165,6 +203,7 @@ export function startClientSettingsPolling(args: {
   version: string;
   log?: (msg: string) => void;
   onApplied?: (settings: RemoteClientSettings) => void;
+  onSyncProgress?: (event: SyncProgressEvent) => void;
 }) {
   const intervalMs = 60_000;
   const tick = () =>

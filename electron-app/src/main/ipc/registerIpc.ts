@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -87,12 +87,23 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     currentPermissions,
   };
 
+  function emitSyncProgress(payload: unknown) {
+    try {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('sync:progress', payload);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   startClientSettingsPolling({
     db: sysDb,
     apiBaseUrl: mgr.getApiBaseUrl(),
     clientId: opts.clientId,
     version: app.getVersion(),
     log: logToFile,
+    onSyncProgress: emitSyncProgress,
   });
 
   // Register IPC domains

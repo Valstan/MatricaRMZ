@@ -66,19 +66,29 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
 
   async function refreshUsers() {
     const r = await adminUsers.listUsers();
-    if (!r.ok) {
+    if (!r?.ok) {
       setStatus(`Ошибка users.list: ${r.error}`);
       return;
     }
-    setUsers(r.users ?? []);
-    if (!selectedUserId && r.users?.[0]) setSelectedUserId(r.users[0].id);
+    if (!Array.isArray(r.users)) {
+      setUsers([]);
+      setStatus('Ошибка users.list: invalid payload');
+      return;
+    }
+    setUsers(r.users);
+    if (!selectedUserId && r.users[0]) setSelectedUserId(r.users[0].id);
   }
 
   async function openUser(userId: string) {
     setSelectedUserId(userId);
     const r = await adminUsers.getUserPermissions(userId);
-    if (!r.ok) {
+    if (!r?.ok) {
       setStatus(`Ошибка perms.get: ${r.error}`);
+      setUserPerms(null);
+      return;
+    }
+    if (!r.user) {
+      setStatus('Ошибка perms.get: missing user payload');
       setUserPerms(null);
       return;
     }

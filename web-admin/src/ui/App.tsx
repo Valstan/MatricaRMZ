@@ -19,6 +19,7 @@ import { NotesPage } from './NotesPage.js';
 import { listNotes } from '../api/notes.js';
 import { listAudit } from '../api/audit.js';
 import { Button } from './components/Button.js';
+import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
 import { UserSettingsPage, type UiPrefs } from './UserSettingsPage.js';
@@ -469,7 +470,11 @@ export function App() {
               canUploadFiles={caps.canUploadFiles}
             />
           )}
-          {tab === 'admin' && <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />}
+          {tab === 'admin' && (
+            <ErrorBoundary title="Ошибка раздела «Админ»">
+              <AdminUsersPage canManageUsers={caps.canManageUsers} me={user} />
+            </ErrorBoundary>
+          )}
           {tab === 'clients' && <ClientAdminPage />}
           {tab === 'diagnostics' && <DiagnosticsPage />}
           {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} status={auditStatus} />}

@@ -2054,10 +2054,55 @@ export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui
   }
 }
 
-export async function runSync(db: BetterSQLite3Database, clientId: string, apiBaseUrl: string): Promise<SyncRunResult> {
+type FullPullProgressEvent = {
+  mode: 'force_full_pull';
+  state: 'start' | 'progress' | 'done' | 'error';
+  startedAt: number;
+  elapsedMs: number;
+  estimateMs: number | null;
+  etaMs: number | null;
+  progress: number | null;
+  pulled?: number;
+  error?: string;
+};
+
+type RunSyncOptions = {
+  fullPull?: {
+    reason: 'force_full_pull';
+    startedAt: number;
+    estimateMs: number;
+    onProgress?: (event: FullPullProgressEvent) => void;
+  };
+};
+
+export async function runSync(
+  db: BetterSQLite3Database,
+  clientId: string,
+  apiBaseUrl: string,
+  opts?: RunSyncOptions,
+): Promise<SyncRunResult> {
   const startedAt = nowMs();
   let currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   let attemptedFix = false;
+  const fullPull = opts?.fullPull ?? null;
+  const emitFullPull = (state: FullPullProgressEvent['state'], extra?: Partial<FullPullProgressEvent>) => {
+    if (!fullPull?.onProgress) return;
+    const now = nowMs();
+    const elapsedMs = Math.max(0, now - fullPull.startedAt);
+    const estimateMs = Number.isFinite(fullPull.estimateMs) ? Math.max(0, fullPull.estimateMs) : null;
+    const progress = estimateMs && estimateMs > 0 ? Math.min(0.99, elapsedMs / estimateMs) : null;
+    const etaMs = estimateMs && estimateMs > 0 ? Math.max(0, estimateMs - elapsedMs) : null;
+    fullPull.onProgress({
+      mode: 'force_full_pull',
+      state,
+      startedAt: fullPull.startedAt,
+      elapsedMs,
+      estimateMs,
+      etaMs,
+      progress,
+      ...extra,
+    });
+  };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const session = await getSession(db).catch(() => null);
@@ -2121,6 +2166,7 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
           const res = await pullOnce(sinceCursor);
           totalPulled += res.changes.length;
           last = res;
+          emitFullPull('progress', { pulled: totalPulled });
           if (!res.has_more) break;
           if (res.server_cursor === sinceCursor) {
             logSync(`pull paging stalled cursor=${sinceCursor}, stopping`);
@@ -2370,6 +2416,20 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
       logSync(`ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
       await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
       await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
+      if (fullPull) {
+        const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
+        await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});
+        fullPull.onProgress?.({
+          mode: 'force_full_pull',
+          state: 'done',
+          startedAt: fullPull.startedAt,
+          elapsedMs: durationMs,
+          estimateMs: fullPull.estimateMs,
+          etaMs: 0,
+          progress: 1,
+          pulled,
+        });
+      }
       return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
     } catch (e) {
       const err = formatError(e);
@@ -2382,6 +2442,19 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
         }
       }
       logSync(`error ${err}`);
+      if (fullPull) {
+        const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
+        fullPull.onProgress?.({
+          mode: 'force_full_pull',
+          state: 'error',
+          startedAt: fullPull.startedAt,
+          elapsedMs: durationMs,
+          estimateMs: fullPull.estimateMs,
+          etaMs: null,
+          progress: null,
+          error: err,
+        });
+      }
       void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
         component: 'sync',
         action: 'run',
@@ -2393,6 +2466,19 @@ export async function runSync(db: BetterSQLite3Database, clientId: string, apiBa
   }
   const err = 'sync failed: apiBaseUrl auto-fix exhausted';
   logSync(`error ${err}`);
+  if (fullPull) {
+    const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
+    fullPull.onProgress?.({
+      mode: 'force_full_pull',
+      state: 'error',
+      startedAt: fullPull.startedAt,
+      elapsedMs: durationMs,
+      estimateMs: fullPull.estimateMs,
+      etaMs: null,
+      progress: null,
+      error: err,
+    });
+  }
   void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
     component: 'sync',
     action: 'run',

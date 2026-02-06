@@ -123,6 +123,18 @@ export type SyncStatus = {
   nextAutoSyncInMs: number | null;
 };
 
+export type SyncProgressEvent = {
+  mode: 'force_full_pull';
+  state: 'start' | 'progress' | 'done' | 'error';
+  startedAt: number;
+  elapsedMs: number;
+  estimateMs: number | null;
+  etaMs: number | null;
+  progress: number | null;
+  pulled?: number;
+  error?: string;
+};
+
 export type UpdateCheckResult =
   | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' | 'lan'; downloadUrl?: string }
   | { ok: false; error: string };
@@ -455,6 +467,7 @@ export type MatricaApi = {
     configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
     reset: () => Promise<{ ok: boolean; error?: string }>;
     resetLocalDb: () => Promise<{ ok: boolean; restarting?: boolean; error?: string }>;
+    onProgress?: (handler: (event: SyncProgressEvent) => void) => () => void;
   };
   changes: {
     list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;

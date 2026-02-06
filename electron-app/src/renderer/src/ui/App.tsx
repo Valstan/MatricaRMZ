@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 
-import type { AuthStatus, EngineDetails, EngineListItem, SyncStatus, AiAgentContext } from '@matricarmz/shared';
+import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
@@ -39,6 +39,15 @@ export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [fullSyncUi, setFullSyncUi] = useState<{
+    open: boolean;
+    progress: number | null;
+    etaMs: number | null;
+    estimateMs: number | null;
+    pulled?: number;
+    error?: string;
+  } | null>(null);
+  const fullSyncCloseTimer = useRef<number | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
   const [tab, setTab] = useState<TabId>('engines');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
@@ -96,6 +105,62 @@ export function App() {
     void window.matrica.settings.uiGet().then((r: any) => {
       if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right' });
     });
+  }, []);
+
+  useEffect(() => {
+    if (!window.matrica?.sync?.onProgress) return;
+    const unsubscribe = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
+      if (!evt || evt.mode !== 'force_full_pull') return;
+      if (fullSyncCloseTimer.current) {
+        window.clearTimeout(fullSyncCloseTimer.current);
+        fullSyncCloseTimer.current = null;
+      }
+      if (evt.state === 'start') {
+        setFullSyncUi({
+          open: true,
+          progress: evt.progress ?? 0,
+          etaMs: evt.etaMs ?? null,
+          estimateMs: evt.estimateMs ?? null,
+        });
+        return;
+      }
+      if (evt.state === 'progress') {
+        setFullSyncUi((prev) => ({
+          open: true,
+          progress: evt.progress ?? prev?.progress ?? 0,
+          etaMs: evt.etaMs ?? prev?.etaMs ?? null,
+          estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
+          pulled: evt.pulled ?? prev?.pulled,
+        }));
+        return;
+      }
+      if (evt.state === 'done') {
+        setFullSyncUi((prev) => ({
+          open: true,
+          progress: 1,
+          etaMs: 0,
+          estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
+          pulled: evt.pulled ?? prev?.pulled,
+        }));
+        fullSyncCloseTimer.current = window.setTimeout(() => setFullSyncUi(null), 1500);
+        return;
+      }
+      if (evt.state === 'error') {
+        setFullSyncUi((prev) => ({
+          open: true,
+          progress: prev?.progress ?? null,
+          etaMs: null,
+          estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
+          pulled: prev?.pulled,
+          error: evt.error ?? 'unknown',
+        }));
+      }
+    });
+    return () => {
+      if (fullSyncCloseTimer.current) window.clearTimeout(fullSyncCloseTimer.current);
+      fullSyncCloseTimer.current = null;
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -898,6 +963,92 @@ export function App() {
     window.matrica?.log?.send?.('error', `renderer fatal: ${message}\n${stack}`).catch(() => {});
   }
 
+  function formatDuration(ms: number | null | undefined) {
+    if (!ms || ms <= 0) return '0:00';
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return `${min}:${String(sec).padStart(2, '0')}`;
+  }
+
+  function renderFullSyncModal() {
+    if (!fullSyncUi?.open) return null;
+    const pct = fullSyncUi.progress != null ? Math.max(0, Math.min(100, Math.round(fullSyncUi.progress * 100))) : 0;
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: 20,
+        }}
+      >
+        <div style={{ width: 'min(560px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Полная синхронизация</div>
+          <div style={{ marginTop: 8, color: 'var(--muted)' }}>
+            Выполняется полная синхронизация с главной базой предприятия. Пожалуйста дождитесь окончания операции.
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div
+              style={{
+                position: 'relative',
+                height: 18,
+                borderRadius: 999,
+                background: '#e2e8f0',
+                overflow: 'hidden',
+                border: '1px solid rgba(37, 99, 235, 0.35)',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: `${pct}%`,
+                  background: '#2563eb',
+                  transition: 'width 0.4s ease',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 10px',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 11,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                }}
+              >
+                <span>Прогресс: {pct}%</span>
+                <span>Осталось ~ {formatDuration(fullSyncUi.etaMs)}</span>
+              </div>
+            </div>
+          </div>
+          {fullSyncUi.error && (
+            <div style={{ marginTop: 10, color: 'var(--danger)' }}>
+              Ошибка синхронизации: {fullSyncUi.error}
+            </div>
+          )}
+          {fullSyncUi.error && (
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="ghost" onClick={() => setFullSyncUi(null)}>
+                Закрыть
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderFatalModal() {
     if (!fatalOpen || !fatalError) return null;
     const details = `${fatalError.message}\n${fatalError.stack ?? ''}`.trim();
@@ -1036,6 +1187,7 @@ export function App() {
         </div>
         }
       >
+        {renderFullSyncModal()}
         {renderFatalModal()}
       <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
