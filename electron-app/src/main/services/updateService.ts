@@ -793,7 +793,24 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     if (!y.ok || !y.updateAvailable || !y.version) return null;
     const version = y.version;
     await cleanupUpdateCache(version);
-    const ydl = await downloadYandexUpdate({ version: y.version, path: y.path, downloadUrl: y.downloadUrl });
+    setUpdateState({
+      state: 'downloading',
+      source: 'yandex',
+      version,
+      progress: 0,
+      message: 'Скачиваем обновление (Yandex)…',
+    });
+    const ydl = await downloadYandexUpdate({ version: y.version, path: y.path, downloadUrl: y.downloadUrl }, {
+      onProgress: (pct) => {
+        setUpdateState({
+          state: 'downloading',
+          source: 'yandex',
+          version,
+          progress: Math.max(0, Math.min(100, pct)),
+          message: 'Скачиваем обновление (Yandex)…',
+        });
+      },
+    });
     if (!ydl.ok || !ydl.filePath) {
       setUpdateState({ state: 'error', source: 'yandex', version, message: ydl.error ?? 'download failed' });
       return { ok: false, error: ydl.error ?? 'download failed' };
@@ -825,7 +842,24 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     if (!gh.ok || !gh.updateAvailable || !gh.downloadUrl || !gh.version) return null;
     const version = gh.version;
     await cleanupUpdateCache(version);
-    const gdl = await downloadGithubUpdate(gh.downloadUrl, version);
+    setUpdateState({
+      state: 'downloading',
+      source: 'github',
+      version,
+      progress: 0,
+      message: 'Скачиваем обновление (GitHub)…',
+    });
+    const gdl = await downloadGithubUpdate(gh.downloadUrl, version, {
+      onProgress: (pct) => {
+        setUpdateState({
+          state: 'downloading',
+          source: 'github',
+          version,
+          progress: Math.max(0, Math.min(100, pct)),
+          message: 'Скачиваем обновление (GitHub)…',
+        });
+      },
+    });
     if (!gdl.ok || !gdl.filePath) {
       setUpdateState({ state: 'error', source: 'github', version, message: gdl.error ?? 'download failed' });
       return { ok: false, error: gdl.error ?? 'download failed' };
@@ -889,7 +923,24 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
           setUpdateState({ state: 'idle' });
           return;
         }
-        const lan = await tryDownloadFromLan(serverMeta);
+        setUpdateState({
+          state: 'downloading',
+          source: 'lan',
+          version: serverMeta.version,
+          progress: 0,
+          message: 'Скачиваем обновление (Локальная сеть)…',
+        });
+        const lan = await tryDownloadFromLan(serverMeta, {
+          onProgress: (pct) => {
+            setUpdateState({
+              state: 'downloading',
+              source: 'lan',
+              version: serverMeta.version,
+              progress: Math.max(0, Math.min(100, pct)),
+              message: 'Скачиваем обновление (Локальная сеть)…',
+            });
+          },
+        });
         if (lan.ok) {
           const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
           const queued = await queuePendingUpdate({
@@ -1377,7 +1428,10 @@ async function tryAdvertiseLan(meta: ServerUpdateMeta): Promise<void> {
   await logLan(`advertise ok: port=${server.port} peers=${peers.length}`);
 }
 
-async function tryDownloadFromLan(meta: ServerUpdateMeta): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
+async function tryDownloadFromLan(
+  meta: ServerUpdateMeta,
+  opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
+): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
   const apiBaseUrl = await resolveUpdateApiBaseUrl();
   if (!apiBaseUrl) return { ok: false as const, error: 'apiBaseUrl missing' };
   const serverPort = getLanServerPort() ?? undefined;
@@ -1406,6 +1460,7 @@ async function tryDownloadFromLan(meta: ServerUpdateMeta): Promise<{ ok: true; f
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
+      onProgress: opts?.onProgress,
     });
     if (!dl.ok || !dl.filePath) {
       await logLan(`download failed peer=${ip}:${port} error=${dl.error ?? 'unknown'}`);

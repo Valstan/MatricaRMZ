@@ -945,13 +945,30 @@ export function App() {
   const showUpdateBanner =
     updateStatus &&
     ['downloading', 'downloaded', 'error', 'checking'].includes(String(updateStatus.state));
+  const updateSourceLabel = (() => {
+    const src = String(updateStatus?.source ?? '').toLowerCase();
+    if (src === 'yandex') return 'Yandex';
+    if (src === 'github') return 'GitHub';
+    if (src === 'lan') return 'Локальная сеть';
+    return '';
+  })();
   const updateBannerText = (() => {
     if (!updateStatus) return '';
-    if (updateStatus.message) return String(updateStatus.message);
-    if (updateStatus.state === 'downloading') return 'Скачиваем обновление…';
-    if (updateStatus.state === 'downloaded') return 'Обновление скачано, установка после перезапуска.';
-    if (updateStatus.state === 'checking') return 'Проверяем обновления…';
+    if (updateStatus.state === 'downloading') {
+      const pct = Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)));
+      const src = updateSourceLabel ? ` (${updateSourceLabel})` : '';
+      return `Скачиваем обновление${src}… ${pct}%`;
+    }
+    if (updateStatus.state === 'checking') {
+      const src = updateSourceLabel ? ` (${updateSourceLabel})` : '';
+      return `Проверяем обновления${src}…`;
+    }
+    if (updateStatus.state === 'downloaded') {
+      const src = updateSourceLabel ? ` (${updateSourceLabel})` : '';
+      return `Обновление скачано${src}, установка после перезапуска.`;
+    }
     if (updateStatus.state === 'error') return `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`;
+    if (updateStatus.message) return String(updateStatus.message);
     return '';
   })();
 
