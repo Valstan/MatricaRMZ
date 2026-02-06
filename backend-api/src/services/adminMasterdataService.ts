@@ -1,7 +1,13 @@
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
-import { SyncTableName } from '@matricarmz/shared';
+import {
+  SyncTableName,
+  attributeDefRowSchema,
+  attributeValueRowSchema,
+  entityRowSchema,
+  entityTypeRowSchema,
+} from '@matricarmz/shared';
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 
 import { db } from '../database/db.js';
@@ -16,6 +22,21 @@ function nowMs() {
 
 function normalizeOpFromDeletedAt(deletedAt: number | null | undefined) {
   return deletedAt ? 'delete' : 'upsert';
+}
+
+const syncRowValidators: Record<string, (payload: unknown) => boolean> = {
+  [SyncTableName.EntityTypes]: (payload) => entityTypeRowSchema.safeParse(payload).success,
+  [SyncTableName.Entities]: (payload) => entityRowSchema.safeParse(payload).success,
+  [SyncTableName.AttributeDefs]: (payload) => attributeDefRowSchema.safeParse(payload).success,
+  [SyncTableName.AttributeValues]: (payload) => attributeValueRowSchema.safeParse(payload).success,
+};
+
+function assertSyncPayload(tableName: SyncTableName, payload: unknown) {
+  const validator = syncRowValidators[String(tableName)];
+  if (!validator) return;
+  if (!validator(payload)) {
+    throw new Error(`sync_invalid_row: ${String(tableName)}`);
+  }
 }
 
 function entityTypePayload(row: {
@@ -109,6 +130,7 @@ function attributeValuePayload(row: {
 }
 
 async function insertChangeLog(tableName: SyncTableName, rowId: string, payload: unknown, actor: Actor) {
+  assertSyncPayload(tableName, payload);
   await db.insert(changeLog).values({
     tableName,
     rowId: rowId as any,
