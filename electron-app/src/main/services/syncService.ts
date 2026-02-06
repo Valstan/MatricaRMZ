@@ -840,9 +840,68 @@ export async function resetSyncState(db: BetterSQLite3Database) {
 
 async function collectPending(db: BetterSQLite3Database) {
   const pending = 'pending';
+  const errored = 'error';
 
   const packs: SyncPushRequest['upserts'] = [];
   let total = 0;
+
+  function isUuid(raw: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw);
+  }
+
+  async function fixEntityTypeIdIfCode(row: any): Promise<string | null> {
+    const raw = row?.typeId == null ? '' : String(row.typeId).trim();
+    if (!raw || isUuid(raw)) return null;
+    const rows = await db
+      .select({ id: entityTypes.id })
+      .from(entityTypes)
+      .where(and(eq(entityTypes.code, raw), isNull(entityTypes.deletedAt)))
+      .limit(1);
+    let match = rows[0]?.id ? String(rows[0].id) : '';
+    if (!match && raw.toLowerCase() !== raw) {
+      const lower = raw.toLowerCase();
+      const rowsLower = await db
+        .select({ id: entityTypes.id })
+        .from(entityTypes)
+        .where(and(eq(entityTypes.code, lower), isNull(entityTypes.deletedAt)))
+        .limit(1);
+      if (rowsLower[0]?.id) match = String(rowsLower[0].id);
+    }
+    if (!match) return null;
+    await db
+      .update(entities)
+      .set({ typeId: match, updatedAt: nowMs(), syncStatus: pending as any })
+      .where(eq(entities.id, row.id));
+    return match;
+  }
+
+  async function recoverErroredRows(
+    table: typeof entities | typeof attributeDefs | typeof operations,
+    schema: { safeParse: (row: unknown) => { success: boolean } },
+    tableName: SyncTableName,
+    fixRow?: (row: any) => Promise<string | null>,
+    limit = 500,
+  ) {
+    const rows = await db.select().from(table).where(eq(table.syncStatus, errored as any)).limit(limit);
+    if (!rows.length) return;
+    const recoveredIds: string[] = [];
+    for (const row of rows as any[]) {
+      let parsed = schema.safeParse(toSyncRow(tableName, row));
+      if (!parsed.success && fixRow) {
+        const fixed = await fixRow(row);
+        if (fixed) row.typeId = fixed;
+        parsed = schema.safeParse(toSyncRow(tableName, row));
+      }
+      if (parsed.success) recoveredIds.push(String(row.id));
+    }
+    if (recoveredIds.length === 0) return;
+    await db.update(table).set({ syncStatus: pending as any }).where(inArray(table.id, recoveredIds as any));
+    logSync(`push recover error rows table=${tableName} count=${recoveredIds.length}`);
+  }
+
+  await recoverErroredRows(entities, entityRowSchema, SyncTableName.Entities, fixEntityTypeIdIfCode);
+  await recoverErroredRows(attributeDefs, attributeDefRowSchema, SyncTableName.AttributeDefs);
+  await recoverErroredRows(operations, operationRowSchema, SyncTableName.Operations);
 
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
@@ -882,8 +941,12 @@ async function collectPending(db: BetterSQLite3Database) {
     const valid: typeof pendingEntities = [];
     const invalidIds: string[] = [];
     for (const row of pendingEntities) {
-      const syncRow = toSyncRow(SyncTableName.Entities, row);
-      const parsed = entityRowSchema.safeParse(syncRow);
+      let parsed = entityRowSchema.safeParse(toSyncRow(SyncTableName.Entities, row));
+      if (!parsed.success) {
+        const fixed = await fixEntityTypeIdIfCode(row);
+        if (fixed) row.typeId = fixed;
+        parsed = entityRowSchema.safeParse(toSyncRow(SyncTableName.Entities, row));
+      }
       if (parsed.success) {
         valid.push(row);
       } else {

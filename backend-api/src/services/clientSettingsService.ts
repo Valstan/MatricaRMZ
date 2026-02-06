@@ -28,6 +28,7 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     lastHostname: null,
     lastPlatform: null,
     lastArch: null,
+    lastUsername: null,
   };
 }
 
@@ -61,7 +62,14 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
 
 export async function touchClientSettings(
   clientId: string,
-  args: { version?: string | null; ip?: string | null; hostname?: string | null; platform?: string | null; arch?: string | null },
+  args: {
+    version?: string | null;
+    ip?: string | null;
+    hostname?: string | null;
+    platform?: string | null;
+    arch?: string | null;
+    username?: string | null;
+  },
 ): Promise<void> {
   const ts = nowMs();
   await db
@@ -73,6 +81,7 @@ export async function touchClientSettings(
       lastHostname: args.hostname ?? null,
       lastPlatform: args.platform ?? null,
       lastArch: args.arch ?? null,
+      lastUsername: args.username ?? null,
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));

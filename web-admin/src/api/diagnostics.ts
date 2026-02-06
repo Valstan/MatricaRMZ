@@ -37,6 +37,7 @@ export type ConsistencyClientReport = {
   lastArch: string | null;
   lastVersion: string | null;
   lastIp: string | null;
+  lastUsername: string | null;
   lastPulledServerSeq: number | null;
   lastPulledAt: number | null;
   lastPushedAt: number | null;

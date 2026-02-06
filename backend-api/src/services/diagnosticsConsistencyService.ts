@@ -56,6 +56,7 @@ export type ConsistencyClientReport = {
   lastArch: string | null;
   lastVersion: string | null;
   lastIp: string | null;
+  lastUsername: string | null;
   lastPulledServerSeq: number | null;
   lastPulledAt: number | null;
   lastPushedAt: number | null;
@@ -372,6 +373,7 @@ export async function getConsistencyReport() {
       lastArch: settings?.lastArch ?? null,
       lastVersion: settings?.lastVersion ?? null,
       lastIp: settings?.lastIp ?? null,
+      lastUsername: settings?.lastUsername ?? null,
       lastPulledServerSeq: sync?.lastPulledServerSeq == null ? null : Number(sync.lastPulledServerSeq),
       lastPulledAt: sync?.lastPulledAt == null ? null : Number(sync.lastPulledAt),
       lastPushedAt: sync?.lastPushedAt == null ? null : Number(sync.lastPushedAt),

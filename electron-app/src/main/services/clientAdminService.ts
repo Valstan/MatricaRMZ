@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { hostname as getHostname } from 'node:os';
 
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
+import { getSession } from './authService.js';
 import {
   SettingsKey,
   settingsGetBoolean,
@@ -88,10 +89,13 @@ export async function applyRemoteClientSettings(args: {
   const hostname = getHostname();
   const platform = process.platform;
   const arch = process.arch;
+  const session = await getSession(db).catch(() => null);
+  const username = session?.user?.username ? String(session.user.username).trim() : '';
   const url = joinUrl(
     apiBaseUrl,
     `/client/settings?clientId=${encodeURIComponent(clientId)}&version=${encodeURIComponent(version ?? '')}` +
-      `&hostname=${encodeURIComponent(hostname)}&platform=${encodeURIComponent(platform)}&arch=${encodeURIComponent(arch)}`,
+      `&hostname=${encodeURIComponent(hostname)}&platform=${encodeURIComponent(platform)}&arch=${encodeURIComponent(arch)}` +
+      (username ? `&username=${encodeURIComponent(username)}` : ''),
   );
   try {
     const res = await fetchWithTimeout(url, 8_000);

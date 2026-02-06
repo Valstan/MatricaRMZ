@@ -12,6 +12,7 @@ clientSettingsRouter.get('/settings', async (req, res) => {
     hostname: z.string().max(200).optional().nullable(),
     platform: z.string().max(50).optional().nullable(),
     arch: z.string().max(50).optional().nullable(),
+    username: z.string().max(200).optional().nullable(),
   });
   const parsed = schema.safeParse({
     clientId: String(req.query.clientId ?? ''),
@@ -19,6 +20,7 @@ clientSettingsRouter.get('/settings', async (req, res) => {
     hostname: req.query.hostname ? String(req.query.hostname) : null,
     platform: req.query.platform ? String(req.query.platform) : null,
     arch: req.query.arch ? String(req.query.arch) : null,
+    username: req.query.username ? String(req.query.username) : null,
   });
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
@@ -31,6 +33,7 @@ clientSettingsRouter.get('/settings', async (req, res) => {
       platform: parsed.data.platform ?? null,
       arch: parsed.data.arch ?? null,
       ip: ip ? String(ip) : null,
+      username: parsed.data.username ?? null,
     });
     return res.json({
       ok: true,

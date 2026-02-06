@@ -366,6 +366,7 @@ export const clientSettings = pgTable('client_settings', {
   lastHostname: text('last_hostname'),
   lastPlatform: text('last_platform'),
   lastArch: text('last_arch'),
+  lastUsername: text('last_username'),
 
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),

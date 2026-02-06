@@ -471,7 +471,8 @@ export function DiagnosticsPage() {
                   {formatTs(c.lastPulledAt)} | lastPush: {formatTs(c.lastPushedAt)} | snapshot: {formatTs(c.snapshotAt)}
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  хост: {c.lastHostname ?? '—'} · платформа: {c.lastPlatform ?? '—'} · версия: {c.lastVersion ?? '—'}
+                  хост: {c.lastHostname ?? '—'} · платформа: {c.lastPlatform ?? '—'} · версия: {c.lastVersion ?? '—'} · логин:{' '}
+                  {c.lastUsername ?? '—'}
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
                   последний запрос: {formatSyncRequest(c)}
