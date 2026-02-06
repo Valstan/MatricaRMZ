@@ -53,6 +53,7 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
     lastHostname: null,
     lastPlatform: null,
     lastArch: null,
+    lastUsername: null,
     createdAt: ts,
     updatedAt: ts,
   };
