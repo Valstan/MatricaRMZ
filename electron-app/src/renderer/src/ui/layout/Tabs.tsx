@@ -296,7 +296,20 @@ export function Tabs(props: {
 
   return (
     <div style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 6, rowGap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 6,
+          rowGap: 6,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          marginTop: 8,
+          padding: '6px 8px',
+          borderRadius: 12,
+          background: 'rgba(148, 163, 184, 0.2)',
+          border: '1px solid rgba(148, 163, 184, 0.35)',
+        }}
+      >
         {menuItems.map((id) => (
           <div
             key={id}

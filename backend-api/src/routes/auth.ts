@@ -25,6 +25,7 @@ import {
   isLoginTaken,
   isSuperadminLogin,
   normalizeRole,
+  setEmployeeNamePartsFromFullName,
   setEmployeeAuth,
   setEmployeeLoggingSettings,
   setEmployeeProfile,
@@ -126,6 +127,7 @@ authRouter.post('/register', async (req, res) => {
     const passwordHash = await hashPassword(password);
     await setEmployeeAuth(employeeId, { login, passwordHash, systemRole: 'pending', accessEnabled: true });
     await setEmployeeProfile(employeeId, { fullName, position });
+    await setEmployeeNamePartsFromFullName(employeeId, fullName);
 
     const superadminId = await getSuperadminUserId();
     if (superadminId) {

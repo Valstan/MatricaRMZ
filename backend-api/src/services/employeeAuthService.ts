@@ -740,6 +740,25 @@ export async function setEmployeeProfile(
   return { ok: true as const };
 }
 
+export async function setEmployeeNamePartsFromFullName(employeeId: string, fullNameRaw: string | null | undefined) {
+  const fullName = String(fullNameRaw ?? '').trim();
+  if (!fullName) return { ok: true as const };
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const lastName = parts[0] ?? '';
+  const firstName = parts[1] ?? '';
+  const middleName = parts.length > 2 ? parts.slice(2).join(' ') : '';
+
+  const lastNameDefId = await getEmployeeAttrDefId('last_name');
+  const firstNameDefId = await getEmployeeAttrDefId('first_name');
+  const middleNameDefId = await getEmployeeAttrDefId('middle_name');
+
+  if (lastNameDefId && lastName) await upsertAttrValue(employeeId, lastNameDefId, lastName);
+  if (firstNameDefId && firstName) await upsertAttrValue(employeeId, firstNameDefId, firstName);
+  if (middleNameDefId && middleName) await upsertAttrValue(employeeId, middleNameDefId, middleName);
+
+  return { ok: true as const };
+}
+
 export async function isLoginTaken(login: string, exceptEmployeeId?: string | null) {
   const defs = await getEmployeeAuthDefIds();
   if (!defs) return false;

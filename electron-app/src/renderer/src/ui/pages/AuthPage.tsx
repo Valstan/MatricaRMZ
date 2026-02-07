@@ -34,6 +34,52 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   const [msg, setMsg] = useState<string>('');
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const regPasswordValid = regPassword.trim().length >= 6;
+  const palette = {
+    formBg: '#0b1f3a',
+    formBorder: '#1c3a66',
+    text: '#ffffff',
+    hint: '#facc15',
+    inputBg: '#0f2b55',
+    inputBorder: '#1f3b66',
+    buttonBg: '#0f5132',
+    buttonBorder: '#0b3d26',
+  };
+
+  async function submitLogin() {
+    setMsg('Входим...');
+    const r = await window.matrica.auth.login({ username, password });
+    if (!r.ok) {
+      setMsg(`Ошибка: ${r.error}`);
+      return;
+    }
+    setPassword('');
+    setMsg('OK: вход выполнен.');
+    await refresh();
+  }
+
+  async function submitRegister() {
+    setMsg('Регистрируем...');
+    const r = await window.matrica.auth.register({
+      login: regLogin,
+      password: regPassword,
+      fullName: regFullName,
+      position: regPosition,
+    });
+    if (!r.ok) {
+      setMsg(`Ошибка: ${r.error}`);
+      return;
+    }
+    setRegPassword('');
+    setMsg('OK: регистрация выполнена.');
+    await refresh();
+  }
+
+  function clearRegisterFields() {
+    setRegLogin('');
+    setRegPassword('');
+    setRegFullName('');
+    setRegPosition('');
+  }
 
   async function refresh() {
     const s = await window.matrica.auth.status();
@@ -80,14 +126,45 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   }, [status.loggedIn]);
 
   return (
-    <div>
-      <h2 style={{ margin: '8px 0' }}>Вход</h2>
-      <div style={{ color: 'var(--muted)', marginBottom: 12 }}>
-        Синхронизация теперь требует авторизации. Локальные данные доступны без входа, но push/pull будут работать только после входа.
-      </div>
+    <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div
+        style={{
+          border: `1px solid ${palette.formBorder}`,
+          borderRadius: 16,
+          padding: 20,
+          width: '100%',
+          maxWidth: 560,
+          background: palette.formBg,
+          color: palette.text,
+          boxShadow: '0 18px 40px rgba(0,0,0,0.35)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <Button
+            onClick={() => setMode('login')}
+            style={{
+              background: palette.buttonBg,
+              color: palette.text,
+              border: `1px solid ${palette.buttonBorder}`,
+              opacity: mode === 'login' ? 1 : 0.7,
+            }}
+          >
+            Вход
+          </Button>
+          <Button
+            onClick={() => setMode('register')}
+            style={{
+              background: palette.buttonBg,
+              color: palette.text,
+              border: `1px solid ${palette.buttonBorder}`,
+              opacity: mode === 'register' ? 1 : 0.7,
+            }}
+          >
+            Регистрация нового пользователя
+          </Button>
+        </div>
 
-      <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, maxWidth: 560, background: 'var(--surface)' }}>
-        <div style={{ marginBottom: 10, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span>Статус:</span>
           {presence ? (
             <span
@@ -125,25 +202,18 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
 
         {!status.loggedIn ? (
           <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <Button variant={mode === 'login' ? 'primary' : 'ghost'} onClick={() => setMode('login')}>
-                Вход
-              </Button>
-              <Button variant={mode === 'register' ? 'primary' : 'ghost'} onClick={() => setMode('register')}>
-                Регистрация
-              </Button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'grid', gap: 12, justifyItems: 'center' }}>
               {mode === 'login' ? (
                 <>
-                  <div style={{ color: 'var(--muted)' }}>Логин</div>
-                  <div>
+                  <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
+                    <div style={{ marginBottom: 6, fontWeight: 700 }}>Логин</div>
                     <Input
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="username"
+                      placeholder="логин"
                       list="login-options"
+                      onFocus={() => void refreshLoginOptions()}
+                      style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
                     />
                     <datalist id="login-options">
                       {loginOptions.map((opt) => {
@@ -151,85 +221,91 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                         return <option key={opt.login} value={opt.login} label={label} />;
                       })}
                     </datalist>
-                    {loginOptionsStatus && <div style={{ marginTop: 4, fontSize: 12, color: 'var(--danger)' }}>{loginOptionsStatus}</div>}
+                    {loginOptionsStatus && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: palette.hint }}>{loginOptionsStatus}</div>
+                    )}
                   </div>
-                  <div style={{ color: 'var(--muted)' }}>Пароль</div>
-                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" />
+                  <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
+                    <div style={{ marginBottom: 6, fontWeight: 700 }}>Пароль</div>
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="пароль"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void submitLogin();
+                      }}
+                      style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
+                    />
+                  </div>
                 </>
               ) : (
                 <>
-                  <div style={{ color: 'var(--muted)' }}>Логин</div>
-                  <Input value={regLogin} onChange={(e) => setRegLogin(e.target.value)} placeholder="username" />
-                  <div style={{ color: 'var(--muted)' }}>Пароль</div>
-                  <div>
+                  <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
+                    <div style={{ marginBottom: 6, fontWeight: 700 }}>Логин</div>
+                    <Input
+                      value={regLogin}
+                      onChange={(e) => setRegLogin(e.target.value)}
+                      placeholder="логин"
+                      style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
+                    />
+                  </div>
+                  <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
+                    <div style={{ marginBottom: 6, fontWeight: 700 }}>Пароль</div>
                     <Input
                       type="password"
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
-                      placeholder="password"
+                      placeholder="пароль"
+                      style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
                     />
-                    <div style={{ marginTop: 4, fontSize: 12, color: regPassword ? (regPasswordValid ? 'var(--success)' : 'var(--danger)') : 'var(--muted)' }}>
-                      Минимум 6 символов
-                    </div>
+                    <div style={{ marginTop: 6, fontSize: 12, color: palette.hint }}>Минимум 6 символов</div>
                     {!regPasswordValid && regPassword && (
-                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--danger)' }}>Пароль слишком короткий</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: palette.hint }}>Пароль слишком короткий</div>
                     )}
                   </div>
-                  <div style={{ color: 'var(--muted)' }}>ФИО</div>
-                  <Input value={regFullName} onChange={(e) => setRegFullName(e.target.value)} placeholder="Фамилия Имя Отчество" />
-                  <div style={{ color: 'var(--muted)' }}>Должность</div>
-                  <Input value={regPosition} onChange={(e) => setRegPosition(e.target.value)} placeholder="Должность на заводе" />
+                  <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
+                    <div style={{ marginBottom: 6, fontWeight: 700 }}>ФИО</div>
+                    <Input
+                      value={regFullName}
+                      onChange={(e) => setRegFullName(e.target.value)}
+                      placeholder="Фамилия Имя Отчество"
+                      style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
+                    />
+                  </div>
+                  <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
+                    <div style={{ marginBottom: 6, fontWeight: 700 }}>Должность</div>
+                    <Input
+                      value={regPosition}
+                      onChange={(e) => setRegPosition(e.target.value)}
+                      placeholder="Должность на заводе"
+                      style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
+                    />
+                  </div>
                 </>
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
               <Button
-                onClick={async () => {
-                  if (mode === 'login') {
-                    setMsg('Входим...');
-                    const r = await window.matrica.auth.login({ username, password });
-                    if (!r.ok) {
-                      setMsg(`Ошибка: ${r.error}`);
-                      return;
-                    }
-                    setPassword('');
-                    setMsg('OK: вход выполнен.');
-                    await refresh();
-                    return;
-                  }
-
-                  setMsg('Регистрируем...');
-                  const r = await window.matrica.auth.register({
-                    login: regLogin,
-                    password: regPassword,
-                    fullName: regFullName,
-                    position: regPosition,
-                  });
-                  if (!r.ok) {
-                    setMsg(`Ошибка: ${r.error}`);
-                    return;
-                  }
-                  setRegPassword('');
-                  setMsg('OK: регистрация выполнена.');
-                  await refresh();
-                }}
+                onClick={mode === 'login' ? submitLogin : submitRegister}
                 disabled={mode === 'register' && !regPasswordValid}
+                style={{ background: palette.buttonBg, color: palette.text, border: `1px solid ${palette.buttonBorder}` }}
               >
                 {mode === 'login' ? 'Войти' : 'Зарегистрироваться'}
               </Button>
-              <Button variant="ghost" onClick={() => void refresh()}>
-                Обновить
-              </Button>
-              {mode === 'login' && (
-                <Button variant="ghost" onClick={() => void refreshLoginOptions()}>
-                  Обновить логины
+              {mode === 'register' && (
+                <Button
+                  onClick={clearRegisterFields}
+                  style={{ background: palette.buttonBg, color: palette.text, border: `1px solid ${palette.buttonBorder}` }}
+                >
+                  Очистить
                 </Button>
               )}
             </div>
           </>
         ) : (
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button
               variant="ghost"
               onClick={async () => {
@@ -238,16 +314,21 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                 setMsg(r.ok ? 'OK: выход выполнен.' : `Ошибка: ${r.error ?? 'unknown'}`);
                 await refresh();
               }}
+              style={{ background: palette.buttonBg, color: palette.text, border: `1px solid ${palette.buttonBorder}` }}
             >
               Выйти
             </Button>
-            <Button variant="ghost" onClick={() => void refresh()}>
+            <Button
+              variant="ghost"
+              onClick={() => void refresh()}
+              style={{ background: palette.buttonBg, color: palette.text, border: `1px solid ${palette.buttonBorder}` }}
+            >
               Обновить
             </Button>
           </div>
         )}
 
-        {msg && <div style={{ marginTop: 10, color: 'var(--muted)' }}>{msg}</div>}
+        {msg && <div style={{ marginTop: 12, textAlign: 'center', color: palette.hint }}>{msg}</div>}
       </div>
     </div>
   );
