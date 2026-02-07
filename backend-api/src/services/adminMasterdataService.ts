@@ -8,11 +8,9 @@ import {
   entityRowSchema,
   entityTypeRowSchema,
 } from '@matricarmz/shared';
-import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
-
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, changeLog, entities, entityTypes, rowOwners } from '../database/schema.js';
-import { signAndAppend } from '../ledger/ledgerService.js';
+import { attributeDefs, attributeValues, entities, entityTypes, rowOwners } from '../database/schema.js';
+import { recordSyncChanges } from './sync/syncChangeService.js';
 
 type Actor = { id: string; username: string; role?: string };
 
@@ -131,24 +129,18 @@ function attributeValuePayload(row: {
 
 async function insertChangeLog(tableName: SyncTableName, rowId: string, payload: unknown, actor: Actor) {
   assertSyncPayload(tableName, payload);
-  await db.insert(changeLog).values({
-    tableName,
-    rowId: rowId as any,
-    op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
-    payloadJson: JSON.stringify(payload),
-    createdAt: nowMs(),
-  });
-
-  const op = normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null);
-  const tx: LedgerTxPayload = {
-    type: op === 'delete' ? 'delete' : 'upsert',
-    table: tableName as LedgerTableName,
-    row: payload as Record<string, unknown>,
-    row_id: rowId,
-    actor: { userId: actor.id, username: actor.username, role: actor.role ?? 'admin' },
-    ts: nowMs(),
-  };
-  signAndAppend([tx]);
+  await recordSyncChanges(
+    { id: actor.id, username: actor.username, role: actor.role ?? 'admin' },
+    [
+      {
+        tableName,
+        rowId,
+        op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
+        payload: payload as Record<string, unknown>,
+        ts: nowMs(),
+      },
+    ],
+  );
 }
 
 async function ensureOwner(tableName: SyncTableName, rowId: string, actor: Actor) {

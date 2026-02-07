@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { and, eq, gt } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { chatMessages, changeLog, refreshTokens } from '../database/schema.js';
+import { chatMessages, refreshTokens } from '../database/schema.js';
 import { signAccessToken, signAccessTokenWithTtl, type AuthUser } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
@@ -30,6 +30,7 @@ import {
   setEmployeeProfile,
 } from '../services/employeeAuthService.js';
 import { SyncTableName } from '@matricarmz/shared';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 export const authRouter = Router();
 
@@ -143,25 +144,30 @@ authRouter.post('/register', async (req, res) => {
         deletedAt: null,
         syncStatus: 'synced',
       });
-      await db.insert(changeLog).values({
-        tableName: SyncTableName.ChatMessages,
-        rowId: msgId as any,
-        op: 'upsert',
-        payloadJson: JSON.stringify({
-          id: msgId,
-          sender_user_id: employeeId,
-          sender_username: login,
-          recipient_user_id: superadminId,
-          message_type: 'text',
-          body_text: bodyText,
-          payload_json: null,
-          created_at: ts,
-          updated_at: ts,
-          deleted_at: null,
-          sync_status: 'synced',
-        }),
-        createdAt: ts,
-      });
+      await recordSyncChanges(
+        { id: 'system', username: 'system', role: 'system' },
+        [
+          {
+            tableName: SyncTableName.ChatMessages,
+            rowId: msgId,
+            op: 'upsert',
+            payload: {
+              id: msgId,
+              sender_user_id: employeeId,
+              sender_username: login,
+              recipient_user_id: superadminId,
+              message_type: 'text',
+              body_text: bodyText,
+              payload_json: null,
+              created_at: ts,
+              updated_at: ts,
+              deleted_at: null,
+              sync_status: 'synced',
+            },
+            ts,
+          },
+        ],
+      );
     }
 
     const role = normalizeRole(login, 'pending');

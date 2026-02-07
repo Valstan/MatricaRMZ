@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { LedgerStore, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
+import { LedgerStore, type LedgerSignedTx, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
 import { generateLedgerKeyPair } from '@matricarmz/ledger';
 import { SyncTableName } from '@matricarmz/shared';
 import { sql } from 'drizzle-orm';
@@ -264,7 +264,9 @@ export function getLedgerStore(): LedgerStore {
   return store;
 }
 
-export function signAndAppend(payloads: LedgerTxPayload[]): { applied: number; lastSeq: number; blockHeight: number } {
+export function signAndAppendDetailed(
+  payloads: LedgerTxPayload[],
+): { applied: number; lastSeq: number; blockHeight: number; signed: LedgerSignedTx[] } {
   const ledger = getLedgerStore();
   const ledgerDir = resolveLedgerDir();
   const keys = loadOrCreateServerKeys(ledgerDir);
@@ -273,7 +275,12 @@ export function signAndAppend(payloads: LedgerTxPayload[]): { applied: number; l
   const signed = ledger.signTxs(encryptedPayloads, keys.privateKeyPem, keys.publicKeyPem);
   const block = ledger.appendBlock(signed);
   const lastSeq = signed.at(-1)?.seq ?? ledger.loadIndex().lastSeq;
-  return { applied: signed.length, lastSeq, blockHeight: block.height };
+  return { applied: signed.length, lastSeq, blockHeight: block.height, signed };
+}
+
+export function signAndAppend(payloads: LedgerTxPayload[]): { applied: number; lastSeq: number; blockHeight: number } {
+  const result = signAndAppendDetailed(payloads);
+  return { applied: result.applied, lastSeq: result.lastSeq, blockHeight: result.blockHeight };
 }
 
 export function listChangesSince(

@@ -15,6 +15,16 @@
 
 ---
 
+## 1.2) Legacy `/sync/*` больше не используется
+
+Синхронизация работает **только через ledger**:
+- `POST /ledger/tx/submit` — push
+- `GET /ledger/state/changes` — pull
+
+`/sync/push` и `/sync/pull` возвращают `410 Gone` и не должны использоваться.
+
+---
+
 ## 1.1) Логин (Electron) падает `login HTTP 404` (nginx 404)
 
 ### Симптом

@@ -15,7 +15,7 @@ import {
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 
 import { applyPushBatch } from './applyPushBatch.js';
-import { signAndAppend } from '../../ledger/ledgerService.js';
+import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
 
 type LedgerTxInput = {
   type: 'upsert' | 'delete' | 'grant' | 'revoke' | 'presence' | 'chat';
@@ -94,36 +94,65 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
   }
 
   const upserts = Array.from(grouped.entries()).map(([table, rows]) => ({ table, rows }));
-  const collected: Array<{ table: SyncTableName; rowId: string; op: 'upsert' | 'delete'; payloadJson: string }> = [];
-  const dbResult = await applyPushBatch(
-    { client_id: actor.id || actor.username || 'unknown', upserts },
-    actor,
-    { collectChanges: collected },
+
+  const payloads: LedgerTxPayload[] = upserts.flatMap((pack) =>
+    (pack.rows as Record<string, unknown>[]).map((row) => {
+      const op = (row as any)?.deleted_at ? 'delete' : 'upsert';
+      const tsValue = Number((row as any)?.updated_at ?? ts);
+      return {
+        type: op,
+        table: pack.table as LedgerTableName,
+        row,
+        row_id: String((row as any)?.id ?? ''),
+        actor: { userId: actor.id, username: actor.username, role: actor.role ?? 'user' },
+        ts: Number.isFinite(tsValue) ? tsValue : ts,
+      };
+    }),
   );
 
-  if (!collected.length) {
-    return { dbApplied: dbResult.applied, ledgerApplied: 0, lastSeq: 0, blockHeight: 0, appliedRows: [] };
+  if (payloads.length === 0) {
+    return { dbApplied: 0, ledgerApplied: 0, lastSeq: 0, blockHeight: 0, appliedRows: [] };
   }
 
-  const payloads: LedgerTxPayload[] = collected.map((ch) => {
-    const payload = JSON.parse(ch.payloadJson) as Record<string, unknown>;
-    const tsValue = Number((payload as any)?.updated_at ?? ts);
-    return {
-      type: ch.op === 'delete' ? 'delete' : 'upsert',
-      table: ch.table as LedgerTableName,
-      row: payload,
-      row_id: ch.rowId,
-      actor: { userId: actor.id, username: actor.username, role: actor.role ?? 'user' },
-      ts: Number.isFinite(tsValue) ? tsValue : ts,
-    };
-  });
+  const ledgerResult = signAndAppendDetailed(payloads);
+  const seqByKey = new Map<string, number>();
+  for (const tx of ledgerResult.signed) {
+    const rowId = String((tx.row as any)?.id ?? tx.row_id ?? '');
+    if (!rowId) continue;
+    const key = `${String(tx.table)}:${rowId}`;
+    const prev = seqByKey.get(key) ?? 0;
+    const next = Number(tx.seq ?? 0);
+    if (next > prev) seqByKey.set(key, next);
+  }
 
-  const ledgerResult = signAndAppend(payloads);
+  const upsertsWithSeq = upserts.map((pack) => ({
+    table: pack.table,
+    rows: (pack.rows as Record<string, unknown>[]).map((row) => {
+      const rowId = String((row as any)?.id ?? '');
+      const key = `${String(pack.table)}:${rowId}`;
+      const seq = seqByKey.get(key);
+      if (!seq) return row;
+      return { ...row, last_server_seq: seq };
+    }),
+  }));
+
+  const dbResult = await applyPushBatch(
+    { client_id: actor.id || actor.username || 'unknown', upserts: upsertsWithSeq },
+    actor,
+    { skipChangeLog: true },
+  );
+
+  const appliedRows = ledgerResult.signed.map((tx) => ({
+    table: tx.table as unknown as SyncTableName,
+    rowId: String((tx.row as any)?.id ?? tx.row_id ?? ''),
+    op: tx.type === 'delete' ? 'delete' : 'upsert',
+  }));
+
   return {
     dbApplied: dbResult.applied,
     ledgerApplied: ledgerResult.applied,
     lastSeq: ledgerResult.lastSeq,
     blockHeight: ledgerResult.blockHeight,
-    appliedRows: collected.map((row) => ({ table: row.table, rowId: row.rowId, op: row.op })),
+    appliedRows,
   };
 }

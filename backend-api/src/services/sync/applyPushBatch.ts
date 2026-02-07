@@ -51,7 +51,7 @@ function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'u
 
 type SyncActor = { id: string; username: string; role?: string };
 
-type AppliedSyncChange = {
+export type AppliedSyncChange = {
   table: SyncTableName;
   rowId: string;
   op: 'upsert' | 'delete';
@@ -60,6 +60,7 @@ type AppliedSyncChange = {
 
 type ApplyPushOptions = {
   collectChanges?: AppliedSyncChange[];
+  skipChangeLog?: boolean;
 };
 
 function safeActor(a: SyncActor): SyncActor {
@@ -303,20 +304,30 @@ export async function applyPushBatch(
 
     async function insertChangeLogAndUpdateSeq(table: any, tableName: SyncTableName, rows: any[]) {
       if (rows.length === 0) return;
-      const inserted = await tx
-        .insert(changeLog)
-        .values(
-          rows.map((r) => ({
-            tableName,
-            rowId: r.id as any,
-            op: normalizeOpFromRow(r),
-            payloadJson: JSON.stringify(r),
-            createdAt: appliedAt,
-          })),
-        )
-        .returning({ rowId: changeLog.rowId, serverSeq: changeLog.serverSeq });
-      const pairs = inserted.map((r) => ({ rowId: String(r.rowId), serverSeq: Number(r.serverSeq) }));
-      await applyLastServerSeq(table, pairs);
+      if (!opts?.skipChangeLog) {
+        const inserted = await tx
+          .insert(changeLog)
+          .values(
+            rows.map((r) => ({
+              tableName,
+              rowId: r.id as any,
+              op: normalizeOpFromRow(r),
+              payloadJson: JSON.stringify(r),
+              createdAt: appliedAt,
+            })),
+          )
+          .returning({ rowId: changeLog.rowId, serverSeq: changeLog.serverSeq });
+        const pairs = inserted.map((r) => ({ rowId: String(r.rowId), serverSeq: Number(r.serverSeq) }));
+        await applyLastServerSeq(table, pairs);
+      } else {
+        const pairs = rows
+          .map((r) => ({
+            rowId: String(r.id),
+            serverSeq: Number(r.last_server_seq ?? r.lastServerSeq ?? NaN),
+          }))
+          .filter((p) => Number.isFinite(p.serverSeq));
+        if (pairs.length > 0) await applyLastServerSeq(table, pairs);
+      }
       if (collected) {
         for (const r of rows) {
           collected.push({

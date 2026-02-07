@@ -2,10 +2,9 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { changeLog, attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
 import { SyncTableName, attributeValueRowSchema, entityRowSchema } from '@matricarmz/shared';
-import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
-import { signAndAppend } from '../ledger/ledgerService.js';
+import { recordSyncChanges } from './sync/syncChangeService.js';
 
 const SUPERADMIN_LOGIN = 'valstan';
 
@@ -78,23 +77,18 @@ async function insertChange(tableName: SyncTableName, rowId: string, payload: un
   if (tableName === SyncTableName.AttributeValues && !attributeValueRowSchema.safeParse(payload).success) {
     throw new Error(`sync_invalid_row: ${SyncTableName.AttributeValues}`);
   }
-  await db.insert(changeLog).values({
-    tableName,
-    rowId: rowId as any,
-    op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
-    payloadJson: JSON.stringify(payload),
-    createdAt: nowMs(),
-  });
-  const ts = Number((payload as any)?.updated_at ?? Date.now());
-  const tx: LedgerTxPayload = {
-    type: (payload as any)?.deleted_at ? 'delete' : 'upsert',
-    table: tableName as unknown as LedgerTableName,
-    row: payload as Record<string, unknown>,
-    row_id: rowId,
-    actor: { userId: 'system', username: 'system', role: 'system' },
-    ts: Number.isFinite(ts) ? ts : Date.now(),
-  };
-  signAndAppend([tx]);
+  await recordSyncChanges(
+    { id: 'system', username: 'system', role: 'system' },
+    [
+      {
+        tableName,
+        rowId,
+        op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
+        payload: payload as Record<string, unknown>,
+        ts: Number((payload as any)?.updated_at ?? Date.now()),
+      },
+    ],
+  );
 }
 
 function safeJsonParse(value: string | null): unknown {

@@ -80,8 +80,10 @@
 - Сервер: `backend-api/src/services/sync/*`
 - Клиент: `electron-app/src/main/services/syncService.ts`
 - Таблицы синка: `shared/src/sync/tables.ts`
-- Sync state на сервере: `backend-api/src/database/schema.ts` (`sync_state`, `change_log`)
+- Sync state на сервере: `backend-api/src/database/schema.ts` (`sync_state`)
 - Sync state на клиенте: `electron-app/src/main/database/schema.ts`
+- Канал синхронизации: **ledger-only** (`POST /ledger/tx/submit`, `GET /ledger/state/changes`)
+- Legacy `GET/POST /sync/*` отключены (410) — используйте ledger endpoints
 - Модель: полная репликация доменных данных + приватность чата (chat_messages/chat_reads фильтруются по участникам)
 - Админ-ресинк сотрудников: `POST /admin/users/sync-snapshot`
 
