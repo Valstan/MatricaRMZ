@@ -99,7 +99,7 @@ function attributeValuePayload(row: {
   };
 }
 
-function opFromPayload(payload: SyncRowPayload) {
+function opFromPayload(payload: SyncRowPayload): 'delete' | 'upsert' {
   return (payload as any)?.deleted_at ? 'delete' : 'upsert';
 }
 
@@ -212,8 +212,7 @@ async function emitSnapshotAllRows<T>(
     const rows = await db.select().from(sourceTable).orderBy(asc(sourceTable.id)).limit(BATCH_SIZE).offset(offset);
     if (rows.length === 0) break;
     const payloads = rows.map((r: T) => payloadFn(r));
-    await insertChangeLog(tableName, rows as any[], payloads);
-    total += await appendLedgerSnapshot(tableName, rows as any[], payloads);
+    total += await emitLedgerSnapshot(tableName, rows as any[], payloads);
     offset += rows.length;
     if (rows.length < BATCH_SIZE) break;
   }
