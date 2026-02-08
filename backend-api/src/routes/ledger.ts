@@ -1,20 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
-import {
-  SyncTableName,
-  attributeDefRowSchema,
-  attributeValueRowSchema,
-  auditLogRowSchema,
-  chatMessageRowSchema,
-  chatReadRowSchema,
-  entityRowSchema,
-  entityTypeRowSchema,
-  noteRowSchema,
-  noteShareRowSchema,
-  operationRowSchema,
-  userPresenceRowSchema,
-} from '@matricarmz/shared';
+import { syncRowSchemaByTable } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
 import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
@@ -24,19 +11,9 @@ import { syncState } from '../database/schema.js';
 
 export const ledgerRouter = Router();
 
-const syncRowSchemas: Record<string, (payload: unknown) => boolean> = {
-  [SyncTableName.EntityTypes]: (payload) => entityTypeRowSchema.safeParse(payload).success,
-  [SyncTableName.Entities]: (payload) => entityRowSchema.safeParse(payload).success,
-  [SyncTableName.AttributeDefs]: (payload) => attributeDefRowSchema.safeParse(payload).success,
-  [SyncTableName.AttributeValues]: (payload) => attributeValueRowSchema.safeParse(payload).success,
-  [SyncTableName.Operations]: (payload) => operationRowSchema.safeParse(payload).success,
-  [SyncTableName.AuditLog]: (payload) => auditLogRowSchema.safeParse(payload).success,
-  [SyncTableName.ChatMessages]: (payload) => chatMessageRowSchema.safeParse(payload).success,
-  [SyncTableName.ChatReads]: (payload) => chatReadRowSchema.safeParse(payload).success,
-  [SyncTableName.Notes]: (payload) => noteRowSchema.safeParse(payload).success,
-  [SyncTableName.NoteShares]: (payload) => noteShareRowSchema.safeParse(payload).success,
-  [SyncTableName.UserPresence]: (payload) => userPresenceRowSchema.safeParse(payload).success,
-};
+const syncRowSchemas: Record<string, (payload: unknown) => boolean> = Object.fromEntries(
+  Object.entries(syncRowSchemaByTable).map(([table, schema]) => [table, (payload: unknown) => schema.safeParse(payload).success]),
+);
 
 const txSchema = z.object({
   type: z.enum(['upsert', 'delete', 'grant', 'revoke', 'presence', 'chat'] satisfies LedgerTxType[] as any),

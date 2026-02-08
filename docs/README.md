@@ -12,22 +12,23 @@
 - `docs/` — справка по разработке/эксплуатации.
 
 ## Быстрый старт (разработка)
-См. [`QUICK_START.md`](QUICK_START.md).
+См. [`start_session.md`](start_session.md).
 
 ## Установка и запуск на VPS (прод)
-См. [`README_SETUP.md`](README_SETUP.md).
+См. [`start_session.md`](start_session.md).
 
 ## Документация
-- **Статус проекта**: [`docs/SESSION_STATUS.md`](docs/SESSION_STATUS.md)
+- **Пути/ENV/логи (справочник)**: [`docs/PATHS.md`](docs/PATHS.md)
+- **Стартовый файл сессии**: [`docs/start_session.md`](docs/start_session.md)
 - **Troubleshooting (sync/деплой)**: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
-- **Roadmap**: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - **Релизы**: [`RELEASE.md`](RELEASE.md)
 - **Секреты/безопасность**: [`SECURITY.md`](SECURITY.md)
 - **Блокчейн‑слой (ledger)**: [`docs/BLOCKCHAIN.md`](docs/BLOCKCHAIN.md)
+- **Архив (редко нужно)**: [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REQUIREMENTS_EXTRACTED.md`](docs/REQUIREMENTS_EXTRACTED.md)
 
 ## Ключевые принципы
 - **Секреты** (`.env`, токены, пароли) **не храним в репозитории** — см. [`SECURITY.md`](SECURITY.md).
-- Клиент хранит данные локально в SQLite и синхронизирует изменения через `/sync/push` и `/sync/pull`.
+- Клиент хранит данные локально в SQLite и синхронизирует изменения через ledger: `POST /ledger/tx/submit` и `GET /ledger/state/changes`.
 - `clientId` клиента должен быть **стабильным** (хранится в локальном `sync_state`), чтобы на сервере не плодились записи `sync_state` и чтобы диагностика была понятной.
 - Релиз клиента фиксируется в ledger (version/fileName/size/SHA256) — без этого клиент не установит обновление.
 

@@ -8,6 +8,7 @@ import { startConsistencyDiagnostics } from './services/diagnosticsConsistencySe
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
+import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
 import { createApp } from './app.js';
 
 const app = createApp();
@@ -33,6 +34,10 @@ async function bootstrap() {
   });
   await ensureBaseMasterdata().catch((e) => {
     logError('base masterdata seed failed', { error: String(e) });
+  });
+  await ensureSyncSchemaGuard().catch((e) => {
+    logError('sync schema guard failed', { error: String(e) });
+    throw e;
   });
 
   startUpdateTorrentService();

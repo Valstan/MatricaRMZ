@@ -1,192 +1,74 @@
-# MatricaRMZ — карта путей и мест хранения
+ # MatricaRMZ — справочник путей
+ 
+Единый источник “где что лежит” и ключевые точки входа.
+Для старта сессии см. `docs/start_session.md`.
+ 
+ ## Репозиторий
+ - Корень: `/home/valstan/MatricaRMZ`
+ - Пакеты: `backend-api/`, `electron-app/`, `shared/`, `docs/`, `scripts/`
+ 
+ ## Backend API
+ - Код: `backend-api/src`
+ - Точка входа: `backend-api/src/index.ts`
+ - Сборка: `backend-api/dist/index.js`
+ - Сервис: `matricarmz-backend.service`
+ - Схема БД: `backend-api/src/database/schema.ts`
+ - Миграции: `backend-api/drizzle/*.sql`
+ - Ledger: `backend-api/ledger/`
+ - Роуты:
+   - auth: `backend-api/src/routes/auth.ts`
+   - ledger: `backend-api/src/routes/ledger.ts`
+   - diagnostics: `backend-api/src/routes/diagnostics.ts`
+   - admin: `backend-api/src/routes/adminUsers.ts`
+   - files: `backend-api/src/routes/files.ts`
+   - logs: `backend-api/src/routes/logs.ts`
+   - chat: `backend-api/src/routes/chat.ts`
+   - sync (legacy, 410): `backend-api/src/routes/sync.ts`
+ 
+ ## Electron клиент
+ - Main: `electron-app/src/main`
+ - Renderer (UI): `electron-app/src/renderer`
+ - Preload: `electron-app/src/preload/index.ts`
+ - Sync: `electron-app/src/main/services/syncService.ts`
+ - Обновления: `electron-app/src/main/services/updateService.ts`
+ - Файлы: `electron-app/src/main/services/fileService.ts`
+ - Логи: `electron-app/src/main/services/logService.ts`
+ - SQLite схема: `electron-app/src/main/database/schema.ts`
+ 
+ ## Shared
+ - Доменные типы: `shared/src/domain/*`
+ - Sync DTO/таблицы: `shared/src/sync/dto.ts`, `shared/src/sync/tables.ts`
+ - IPC контракт: `shared/src/ipc/types.ts`
+ 
+ ## Логи
+ - Клиент локально: `app.getPath('userData')/matricarmz.log`
+ - Клиент → сервер: `backend-api/logs/client-YYYY-MM-DD.log`
+ - Базовая папка логов сервера: `MATRICA_LOGS_DIR` (по умолчанию `backend-api/logs`)
+ 
+ ## Синхронизация (ledger-only)
+ - Push: `POST /ledger/tx/submit`
+ - Pull: `GET /ledger/state/changes?since=...`
+ - Legacy `/sync/*` отключены (410)
 
-Цель: быстрый справочник “где что лежит” для сопровождения, релизов и поддержки.
-Поддерживать актуальность при изменениях структуры и процессов.
-
-## Репозиторий и базовые файлы
-- Репозиторий: `/home/valstan/MatricaRMZ`
-- Клиентская версия: `VERSION` + `electron-app/package.json` (должны совпадать)
-- Backend версия: `backend-api/package.json`
-- Release инструкции: `RELEASE.md`
-- Быстрый старт и setup: `QUICK_START.md`, `README_SETUP.md`
-- Политики безопасности: `SECURITY.md`
-- Release notes/процедуры: `RELEASE.md`
-- Общий status: `docs/SESSION_STATUS.md`
-
-## Монорепо (верхний уровень)
-- `backend-api/` — сервер (PostgreSQL)
-- `electron-app/` — клиент (Electron)
-- `shared/` — общие типы/DTO/enum/IPC
-- `docs/` — документация и справочники
-- `scripts/` — релизные и служебные скрипты
-
-## Backend API (PostgreSQL)
-- Код: `backend-api/src`
-- Точка входа: `backend-api/src/index.ts`
-- Сборка: `backend-api/dist/index.js`
-- systemd сервис: `matricarmz-backend.service`
-- Миграции: `backend-api/drizzle/*.sql`
-- Конфиг миграций: `backend-api/drizzle.config.ts`
-- БД схема: `backend-api/src/database/schema.ts`
-- Ledger (блокчейн‑слой): `backend-api/ledger/`
-- Миграции/seed:
-  - `pnpm --filter @matricarmz/backend-api db:migrate`
-  - `pnpm --filter @matricarmz/backend-api perm:seed`
-- Auth/permissions: `backend-api/src/auth/*`
-- API роуты: `backend-api/src/routes/*`
-- Логи сервера: `backend-api/src/utils/logger.ts`
-
-## Electron клиент
-- Main процесс: `electron-app/src/main`
-- Renderer (UI): `electron-app/src/renderer`
-- Preload: `electron-app/src/preload/index.ts`
-- IPC регистрация: `electron-app/src/main/ipc/registerIpc.ts`
-- Автообновление: `electron-app/src/main/services/updateService.ts`
-- SQLite схема: `electron-app/src/main/database/schema.ts`
-- SQLite миграции: `electron-app/drizzle/*.sql`
-
-## Shared (общие типы)
-- Типы и домены: `shared/src/domain/*`
-- IPC типы: `shared/src/ipc/types.ts`
-- Sync DTO и таблицы: `shared/src/sync/dto.ts`, `shared/src/sync/tables.ts`
-- Экспорт всего: `shared/src/index.ts`
-
-## Логи
-- Клиент локально: `app.getPath('userData')/matricarmz.log`
-  - Пишется из `electron-app/src/main/ipc/registerIpc.ts`
-  - Sync пишет из `electron-app/src/main/services/syncService.ts`
-- Логи обновлятора: `app.getPath('userData')/matricarmz-updater.log`
-  - Пишется из `electron-app/src/main/services/updateService.ts`
-- Клиент → сервер:
-  - Endpoint: `POST /logs/client`
-  - Путь: `backend-api/logs/client-YYYY-MM-DD.log`
-  - Базовая папка: `MATRICA_LOGS_DIR` (по умолчанию `backend-api/logs`)
-  - Код: `backend-api/src/routes/logs.ts`
-- Логирование клиента (буфер + отправка):
-  - `electron-app/src/main/services/logService.ts`
-
-## Файлы и хранилище
-- Серверный модуль: `backend-api/src/routes/files.ts`
-- Yandex.Disk сервис: `backend-api/src/services/yandexDisk.ts`
-- Клиентский upload/download: `electron-app/src/main/services/fileService.ts`
-- Тип ссылки на файл: `shared/src/domain/fileStorage.ts`
-
-## Обновления клиента
-- Проверка/установка при запуске: `electron-app/src/main/services/updateService.ts`
-- IPC обновлений: `electron-app/src/main/ipc/register/update.ts`
-- Release info: `release-info.json` внутри сборки (формируется GitHub Actions)
-
-## Синхронизация данных
-- Сервер: `backend-api/src/services/sync/*`
-- Клиент: `electron-app/src/main/services/syncService.ts`
-- Таблицы синка: `shared/src/sync/tables.ts`
-- Sync state на сервере: `backend-api/src/database/schema.ts` (`sync_state`)
-- Sync state на клиенте: `electron-app/src/main/database/schema.ts`
-- Канал синхронизации: **ledger-only** (`POST /ledger/tx/submit`, `GET /ledger/state/changes`)
-- Legacy `GET/POST /sync/*` отключены (410) — используйте ledger endpoints
-- Модель: полная репликация доменных данных + приватность чата (chat_messages/chat_reads фильтруются по участникам)
-- Админ-ресинк сотрудников: `POST /admin/users/sync-snapshot`
-
-## Основные UI‑модули (Renderer)
-- Корневой UI: `electron-app/src/renderer/src/ui/App.tsx`
-- Навигация: `electron-app/src/renderer/src/ui/layout/Tabs.tsx`
-- Страницы: `electron-app/src/renderer/src/ui/pages/*`
-  - Двигатели: `EnginesPage.tsx`, `EngineDetailsPage.tsx`
-  - Заявки: `SupplyRequestsPage.tsx`, `SupplyRequestDetailsPage.tsx`
-  - Детали: `PartsPage.tsx`, `PartDetailsPage.tsx`
-  - Отчёты: `ReportsPage.tsx`
-  - Админка: `AdminPage.tsx`
-  - Изменения: `ChangesPage.tsx`
-  - Синхронизация: `SyncPage.tsx`
-  - Настройки: `SettingsPage.tsx`
-  - Вход: `AuthPage.tsx`
-
-## Модули backend (routes)
-- Auth: `backend-api/src/routes/auth.ts`
-- Sync: `backend-api/src/routes/sync.ts`
-- Админ пользователи: `backend-api/src/routes/adminUsers.ts`
-- Файлы: `backend-api/src/routes/files.ts`
-- Логи: `backend-api/src/routes/logs.ts`
-- Бэкапы: `backend-api/src/routes/backups.ts`
-- Детали: `backend-api/src/routes/parts.ts`
-- Изменения: `backend-api/src/routes/changes.ts`
-- Чат: `backend-api/src/routes/chat.ts`
-
-## Чат
-- Backend: `backend-api/src/routes/chat.ts`
-- Клиент (service): `electron-app/src/main/services/chatService.ts`
-- UI: `electron-app/src/renderer/src/ui/components/ChatPanel.tsx`
-- Таблицы: `chat_messages`, `chat_reads`, `user_presence`
-
-## Бэкапы
-- Backend nightly: `backend-api/src/scripts/nightlyBackup.ts`
-- Клиент IPC: `electron-app/src/main/ipc/register/backups.ts`
-
-## Релизы и версия
-- Клиент релиз скрипт: `scripts/bump-version.mjs`
-- Backend релиз скрипт: `scripts/bump-backend-version.mjs`
-- Авто‑релиз: `scripts/release-auto.mjs` (`pnpm release:auto`)
-
-## Полезные карты
-- `docs/SESSION_STATUS.md` — статус, проблемы, VPS заметки
-- `docs/REQUIREMENTS_EXTRACTED.md` — вытянутые требования
-- `docs/ROADMAP.md` — roadmap разработки
-
-## IPC (каналы и где регистрируются)
-- Регистрация каналов: `electron-app/src/main/ipc/registerIpc.ts`
-- Подмодули:
-  - `electron-app/src/main/ipc/register/authAndSync.ts`
-  - `electron-app/src/main/ipc/register/enginesOpsAudit.ts`
-  - `electron-app/src/main/ipc/register/parts.ts`
-  - `electron-app/src/main/ipc/register/supplyRequests.ts`
-  - `electron-app/src/main/ipc/register/admin.ts`
-  - `electron-app/src/main/ipc/register/changes.ts`
-  - `electron-app/src/main/ipc/register/files.ts`
-  - `electron-app/src/main/ipc/register/logging.ts`
-  - `electron-app/src/main/ipc/register/update.ts`
-  - `electron-app/src/main/ipc/register/backups.ts`
-  - `electron-app/src/main/ipc/register/chat.ts`
-- Типы IPC (контракт): `shared/src/ipc/types.ts`
-
-## Permissions (права доступа)
-- Backend список прав: `backend-api/src/auth/permissions.ts`
-- UI каталог прав (RU подписи): `shared/src/domain/permissions.ts`
-- UI‑гейт по правам: `electron-app/src/renderer/src/ui/auth/permissions.ts`
-
-## ENV переменные (ключевые)
-- Backend:
-  - `MATRICA_JWT_SECRET` (auth)
-  - `MATRICA_LEDGER_DIR` (путь к блокам/состоянию блокчейна, по умолчанию `backend-api/ledger`)
-  - `MATRICA_LEDGER_DATA_KEY` (base64 ключ для шифрования `meta_json`/`payload_json` в ledger)
-  - `YANDEX_DISK_TOKEN`, `YANDEX_DISK_BASE_PATH` (файлы)
-  - `MATRICA_LOGS_DIR` (логи клиента на сервере)
-  - `AI_AGENT_MODE` (analytics|chat, режим ИИ‑агента)
-  - `AI_REPORT_ENABLED`, `AI_REPORT_TIMES`, `AI_REPORT_TZ` (отчеты ИИ‑агента)
-  - `OLLAMA_DB_RO_USER`, `OLLAMA_DB_RO_PASSWORD` (read‑only БД для ИИ)
-  - `AI_CHAT_LEARNING_ENABLED`, `AI_CHAT_LEARNING_WINDOW_HOURS` (обучение на чатах)
-  - `AI_CHAT_LEARNING_LIMIT`, `AI_CHAT_LEARNING_INTERVAL_MS` (лимит/период)
-  - `OLLAMA_BASE_URL` (Ollama endpoint)
-  - `OLLAMA_MODEL_CHAT` (лёгкая модель для чата)
-  - `OLLAMA_MODEL_ANALYTICS` (глубокая модель для аналитики)
-  - `OLLAMA_MODEL` (fallback, если модель для режима не задана)
-  - `PORT`, `HOST` (http)
-- Client:
-  - `MATRICA_API_URL` (URL backend)
-  - `MATRICA_UPDATE_YANDEX_PUBLIC_KEY`, `MATRICA_UPDATE_YANDEX_BASE_PATH` (auto‑update)
-  - `MATRICA_UPDATE_LAN_PORT` (порт локальной LAN‑раздачи обновлений, 0=авто)
-  - `MATRICA_LEDGER_E2E=1` (включить end‑to‑end шифрование `meta_json`/`payload_json`)
-
-## Артефакты сборки
-- Electron (prod):
-  - `electron-app/dist/main` (main process)
-  - `electron-app/dist/preload`
-  - `dist/renderer` (renderer bundle)
-- Backend:
-  - `backend-api/dist`
-
-## Troubleshooting checklist (куда смотреть)
-- Sync ошибки: `backend-api/logs/client-YYYY-MM-DD.log` + `matricarmz.log` у клиента
-- Ошибки auth: `backend-api/src/auth/*` и `/auth/*` роуты
-- Ошибки обновления клиента: `electron-app/src/main/services/updateService.ts`
-- Ошибки файлов (Yandex): `backend-api/src/routes/files.ts` и `backend-api/src/services/yandexDisk.ts`
-
+## Правило записи в ledger
+- Любые серверные изменения в sync-таблицах идут через ledger (`recordSyncChanges()` или `/ledger/tx/submit`).
+- Нельзя писать в sync-таблицы напрямую (иначе клиент может потерять данные).
+ 
+ ## ENV (ключевые)
+ - Backend:
+   - `MATRICA_JWT_SECRET`
+   - `MATRICA_LEDGER_DIR`
+   - `MATRICA_LEDGER_DATA_KEY`
+   - `MATRICA_LOGS_DIR`
+   - `PORT`, `HOST`
+ - Client:
+   - `MATRICA_API_URL`
+   - `MATRICA_LEDGER_E2E=1` (end‑to‑end шифрование `meta_json`/`payload_json`)
+ - AI/Ollama (если включено):
+   - `OLLAMA_BASE_URL`, `OLLAMA_MODEL_CHAT`, `OLLAMA_MODEL_ANALYTICS`
+ 
+## Полезные документы
+- Старт сессии: `docs/start_session.md`
+ - Troubleshooting: `docs/TROUBLESHOOTING.md`
+ - Релизы/обновления: `docs/RELEASE.md`
+ - Безопасность: `docs/SECURITY.md`

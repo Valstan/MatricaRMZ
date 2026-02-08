@@ -114,6 +114,20 @@ export const userPresenceRowSchema = z.object({
   last_activity_at: z.number().int(),
 });
 
+export const syncRowSchemaByTable = {
+  [SyncTableName.EntityTypes]: entityTypeRowSchema,
+  [SyncTableName.Entities]: entityRowSchema,
+  [SyncTableName.AttributeDefs]: attributeDefRowSchema,
+  [SyncTableName.AttributeValues]: attributeValueRowSchema,
+  [SyncTableName.Operations]: operationRowSchema,
+  [SyncTableName.AuditLog]: auditLogRowSchema,
+  [SyncTableName.ChatMessages]: chatMessageRowSchema,
+  [SyncTableName.ChatReads]: chatReadRowSchema,
+  [SyncTableName.UserPresence]: userPresenceRowSchema,
+  [SyncTableName.Notes]: noteRowSchema,
+  [SyncTableName.NoteShares]: noteShareRowSchema,
+} as const;
+
 export const syncTableUpsertSchema = z.object({
   table: z.nativeEnum(SyncTableName),
   rows: z.array(z.unknown()),

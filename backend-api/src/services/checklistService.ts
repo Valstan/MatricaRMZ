@@ -5,8 +5,9 @@ import type { RepairChecklistPayload, RepairChecklistTemplate } from '@matricarm
 import { SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { changeLog, operations, rowOwners } from '../database/schema.js';
+import { operations, rowOwners } from '../database/schema.js';
 import { getEntityDetails, listEntitiesByType, listEntityTypes } from './adminMasterdataService.js';
+import { recordSyncChanges } from './sync/syncChangeService.js';
 
 type Actor = { id: string; username: string };
 
@@ -190,14 +191,19 @@ function operationPayload(row: {
   };
 }
 
-async function insertChangeLog(rowId: string, payload: unknown) {
-  await db.insert(changeLog).values({
-    tableName: SyncTableName.Operations,
-    rowId: rowId as any,
-    op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
-    payloadJson: JSON.stringify(payload),
-    createdAt: nowMs(),
-  });
+async function insertChangeLog(rowId: string, payload: unknown, actor: Actor) {
+  await recordSyncChanges(
+    { id: actor.id, username: actor.username, role: 'user' },
+    [
+      {
+        tableName: SyncTableName.Operations,
+        rowId,
+        op: normalizeOpFromDeletedAt((payload as any)?.deleted_at ?? null),
+        payload: payload as Record<string, unknown>,
+        ts: nowMs(),
+      },
+    ],
+  );
 }
 
 async function ensureOwner(tableName: SyncTableName, rowId: string, actor: Actor) {
@@ -311,7 +317,7 @@ export async function saveRepairChecklistForEngine(args: {
         deletedAt: row[0].deletedAt == null ? null : Number(row[0].deletedAt),
         syncStatus: 'synced',
       });
-      await insertChangeLog(opId, payload);
+      await insertChangeLog(opId, payload, args.actor);
       return { ok: true as const, operationId: opId };
     }
 
@@ -352,7 +358,7 @@ export async function saveRepairChecklistForEngine(args: {
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await insertChangeLog(newId, payload);
+    await insertChangeLog(newId, payload, args.actor);
     await ensureOwner(SyncTableName.Operations, newId, args.actor);
     return { ok: true as const, operationId: newId };
   } catch (e) {

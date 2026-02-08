@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
-import { SyncTableName, attributeValueRowSchema, entityRowSchema } from '@matricarmz/shared';
+import { SyncTableName, attributeDefRowSchema, attributeValueRowSchema, entityRowSchema } from '@matricarmz/shared';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
 const SUPERADMIN_LOGIN = 'valstan';
@@ -48,6 +48,36 @@ function entityPayload(row: {
   };
 }
 
+function attributeDefPayload(row: {
+  id: string;
+  entityTypeId: string;
+  code: string;
+  name: string;
+  dataType: string;
+  isRequired: boolean;
+  sortOrder: number;
+  metaJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    entity_type_id: String(row.entityTypeId),
+    code: String(row.code),
+    name: String(row.name),
+    data_type: String(row.dataType),
+    is_required: Boolean(row.isRequired),
+    sort_order: Number(row.sortOrder ?? 0),
+    meta_json: row.metaJson == null ? null : String(row.metaJson),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
 function attributeValuePayload(row: {
   id: string;
   entityId: string;
@@ -71,6 +101,9 @@ function attributeValuePayload(row: {
 }
 
 async function insertChange(tableName: SyncTableName, rowId: string, payload: unknown) {
+  if (tableName === SyncTableName.AttributeDefs && !attributeDefRowSchema.safeParse(payload).success) {
+    throw new Error(`sync_invalid_row: ${SyncTableName.AttributeDefs}`);
+  }
   if (tableName === SyncTableName.Entities && !entityRowSchema.safeParse(payload).success) {
     throw new Error(`sync_invalid_row: ${SyncTableName.Entities}`);
   }
@@ -168,8 +201,21 @@ async function ensureSectionEntity(sectionNameRaw: string): Promise<string | nul
     deletedAt: null,
     syncStatus: 'synced',
   });
+  await insertChange(
+    SyncTableName.Entities,
+    id,
+    entityPayload({
+      id,
+      typeId: sectionTypeId,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    }),
+  );
+  const attrId = randomUUID();
   await db.insert(attributeValues).values({
-    id: randomUUID(),
+    id: attrId,
     entityId: id as any,
     attributeDefId: nameDefId as any,
     valueJson: JSON.stringify(sectionName),
@@ -178,6 +224,20 @@ async function ensureSectionEntity(sectionNameRaw: string): Promise<string | nul
     deletedAt: null,
     syncStatus: 'synced',
   });
+  await insertChange(
+    SyncTableName.AttributeValues,
+    attrId,
+    attributeValuePayload({
+      id: attrId,
+      entityId: id,
+      attributeDefId: nameDefId,
+      valueJson: JSON.stringify(sectionName),
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    }),
+  );
   return id;
 }
 
@@ -314,6 +374,24 @@ export async function ensureEmployeeAuthDefs() {
       deletedAt: null,
       syncStatus: 'synced',
     });
+    await insertChange(
+      SyncTableName.AttributeDefs,
+      id,
+      attributeDefPayload({
+        id,
+        entityTypeId: employeeTypeId,
+        code,
+        name,
+        dataType,
+        isRequired: false,
+        sortOrder: 9900,
+        metaJson: JSON.stringify({ serverOnly: true }),
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      }),
+    );
     byCode[code] = id;
     return id;
   };

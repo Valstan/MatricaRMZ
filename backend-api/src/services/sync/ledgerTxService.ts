@@ -1,17 +1,4 @@
-import {
-  SyncTableName,
-  attributeDefRowSchema,
-  attributeValueRowSchema,
-  auditLogRowSchema,
-  chatMessageRowSchema,
-  chatReadRowSchema,
-  entityRowSchema,
-  entityTypeRowSchema,
-  noteRowSchema,
-  noteShareRowSchema,
-  operationRowSchema,
-  userPresenceRowSchema,
-} from '@matricarmz/shared';
+import { SyncTableName, syncRowSchemaByTable } from '@matricarmz/shared';
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 
 import { applyPushBatch } from './applyPushBatch.js';
@@ -26,19 +13,9 @@ type LedgerTxInput = {
 
 type SyncActor = { id: string; username: string; role?: string };
 
-const syncRowSchemas: Record<string, (payload: unknown) => boolean> = {
-  [SyncTableName.EntityTypes]: (payload) => entityTypeRowSchema.safeParse(payload).success,
-  [SyncTableName.Entities]: (payload) => entityRowSchema.safeParse(payload).success,
-  [SyncTableName.AttributeDefs]: (payload) => attributeDefRowSchema.safeParse(payload).success,
-  [SyncTableName.AttributeValues]: (payload) => attributeValueRowSchema.safeParse(payload).success,
-  [SyncTableName.Operations]: (payload) => operationRowSchema.safeParse(payload).success,
-  [SyncTableName.AuditLog]: (payload) => auditLogRowSchema.safeParse(payload).success,
-  [SyncTableName.ChatMessages]: (payload) => chatMessageRowSchema.safeParse(payload).success,
-  [SyncTableName.ChatReads]: (payload) => chatReadRowSchema.safeParse(payload).success,
-  [SyncTableName.Notes]: (payload) => noteRowSchema.safeParse(payload).success,
-  [SyncTableName.NoteShares]: (payload) => noteShareRowSchema.safeParse(payload).success,
-  [SyncTableName.UserPresence]: (payload) => userPresenceRowSchema.safeParse(payload).success,
-};
+const syncRowSchemas: Record<string, (payload: unknown) => boolean> = Object.fromEntries(
+  Object.entries(syncRowSchemaByTable).map(([table, schema]) => [table, (payload: unknown) => schema.safeParse(payload).success]),
+);
 
 function nowMs() {
   return Date.now();

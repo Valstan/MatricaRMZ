@@ -1,5 +1,7 @@
 import { execSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 function out(cmd) {
@@ -118,7 +120,7 @@ function downloadWindowsInstaller(tag, pattern, destDir, attempts = 3) {
       // eslint-disable-next-line no-console
       console.log(`Downloading Windows installer (attempt ${attempt}/${attempts}): ${pattern} -> ${destDir}`);
       run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir} --skip-existing`);
-      return;
+      return join(destDir, pattern);
     } catch (e) {
       lastError = e;
       // eslint-disable-next-line no-console
@@ -134,7 +136,8 @@ function fetchUpdatesStatus(base) {
   const status = json?.status ?? {};
   const lastError = status?.lastError ?? null;
   const version = status?.latest?.version ?? null;
-  return { lastError, version };
+  const enabled = status?.enabled ?? null;
+  return { lastError, version, enabled };
 }
 
 async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000, pollIntervalMs = 20_000) {
@@ -154,6 +157,12 @@ async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000, pol
   while (Date.now() - started < maxWaitMs) {
     try {
       lastSeen = fetchUpdatesStatus(base);
+      if (lastSeen.enabled === false || lastSeen.lastError === 'updates_dir_not_set') {
+        // updates/status is driven by update-torrent service; skip when disabled
+        // eslint-disable-next-line no-console
+        console.log('updates/status skipped: updates service disabled');
+        return { ok: true, skipped: true };
+      }
       if (!lastSeen.lastError && expectedVersion && String(lastSeen.version) === String(expectedVersion)) {
         // eslint-disable-next-line no-console
         console.log(`updates/status ok: ${expectedVersion}`);
@@ -175,6 +184,54 @@ async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000, pol
     `updates/status not ready (background): expected ${expectedVersion}, got ${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
   );
   return { ok: false, ...lastSeen };
+}
+
+async function computeSha256(filePath) {
+  const hash = createHash('sha256');
+  return await new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on('error', reject);
+    stream.on('data', (buf) => hash.update(buf));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+async function publishLedgerRelease({ version, filePath, fileName }) {
+  const token = String(process.env.MATRICA_LEDGER_RELEASE_TOKEN ?? '').trim();
+  if (!token) {
+    // eslint-disable-next-line no-console
+    console.log('Ledger publish skipped: MATRICA_LEDGER_RELEASE_TOKEN not set');
+    return { ok: false, skipped: true };
+  }
+  const base =
+    String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001')
+      .trim()
+      .replace(/\/+$/, '');
+  const st = await stat(filePath);
+  const sha256 = await computeSha256(filePath);
+  const notes = String(process.env.MATRICA_LEDGER_RELEASE_NOTES ?? `release v${version}`).trim();
+  const payload = {
+    version,
+    notes,
+    fileName,
+    sha256,
+    size: st.size,
+  };
+  const res = await fetch(`${base}/ledger/releases/publish`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Ledger publish failed ${res.status}: ${text}`);
+  }
+  // eslint-disable-next-line no-console
+  console.log(`Ledger release published: v${version} (${fileName})`);
+  return { ok: true };
 }
 
 function hasServerUpdatesSince(ref) {
@@ -271,8 +328,13 @@ async function main() {
       if (assetName) {
         const destDir = '/opt/matricarmz/updates';
         try {
-          downloadWindowsInstaller(tag, assetName, destDir, downloadAttempts);
+          const installerPath = downloadWindowsInstaller(tag, assetName, destDir, downloadAttempts);
           await waitForUpdatesStatus(version, statusWaitMs, statusPollMs);
+          await publishLedgerRelease({
+            version,
+            filePath: installerPath,
+            fileName: assetName,
+          });
         } catch (e) {
           // eslint-disable-next-line no-console
           console.log(`Windows installer download failed: ${String(e)}`);

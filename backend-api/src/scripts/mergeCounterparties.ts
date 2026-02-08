@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, changeLog, entities, entityTypes } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
+import { SyncTableName } from '@matricarmz/shared';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 type EntityRow = {
   id: string;
@@ -112,14 +114,29 @@ function attributeValuePayload(row: AttrValueRow) {
   };
 }
 
+const TABLE_NAME_MAP: Record<string, SyncTableName> = {
+  entity_types: SyncTableName.EntityTypes,
+  entities: SyncTableName.Entities,
+  attribute_defs: SyncTableName.AttributeDefs,
+  attribute_values: SyncTableName.AttributeValues,
+};
+
 async function insertChangeLog(tableName: string, rowId: string, payload: unknown, op: 'upsert' | 'delete' = 'upsert') {
-  await db.insert(changeLog).values({
-    tableName,
-    rowId: rowId as any,
-    op,
-    payloadJson: JSON.stringify(payload),
-    createdAt: nowMs(),
-  });
+  const mapped = TABLE_NAME_MAP[tableName];
+  if (!mapped) {
+    throw new Error(`sync table is not mapped: ${tableName}`);
+  }
+  await recordSyncChanges(
+    { id: 'system', username: 'system', role: 'system' },
+    [
+      {
+        tableName: mapped,
+        rowId,
+        op,
+        payload: payload as Record<string, unknown>,
+      },
+    ],
+  );
 }
 
 async function ensureCustomerDef(

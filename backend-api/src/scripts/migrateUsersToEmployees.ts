@@ -4,8 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { and, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
-import { entities, users } from '../database/schema.js';
-import { ensureEmployeeAuthDefs, getEmployeeAuthByLogin, getEmployeeTypeId, setEmployeeAuth } from '../services/employeeAuthService.js';
+import { users } from '../database/schema.js';
+import {
+  createEmployeeEntity,
+  ensureEmployeeAuthDefs,
+  getEmployeeAuthByLogin,
+  getEmployeeTypeId,
+  setEmployeeAuth,
+} from '../services/employeeAuthService.js';
 import { hashPassword } from '../auth/password.js';
 
 function nowMs() {
@@ -30,10 +36,12 @@ function parseArgs(argv: string[]) {
   return args;
 }
 
-async function ensureEmployeeEntity(employeeTypeId: string) {
+async function ensureEmployeeEntity() {
   const id = randomUUID();
-  const ts = nowMs();
-  await db.insert(entities).values({ id, typeId: employeeTypeId, createdAt: ts, updatedAt: ts, deletedAt: null, syncStatus: 'synced' });
+  const created = await createEmployeeEntity(id, nowMs());
+  if (!created.ok) {
+    throw new Error(created.error);
+  }
   return id;
 }
 
@@ -65,7 +73,7 @@ async function main() {
     const login = String(u.username || '').trim().toLowerCase();
     if (!login) continue;
     const existing = await getEmployeeAuthByLogin(login);
-    const employeeId = existing?.id ?? (await ensureEmployeeEntity(employeeTypeId));
+    const employeeId = existing?.id ?? (await ensureEmployeeEntity());
     await setEmployeeAuth(employeeId, {
       login,
       passwordHash: String(u.passwordHash ?? ''),
@@ -81,7 +89,7 @@ async function main() {
 
   const valstan = await getEmployeeAuthByLogin('valstan');
   if (!valstan) {
-    const employeeId = await ensureEmployeeEntity(employeeTypeId);
+    const employeeId = await ensureEmployeeEntity();
     const passwordHash = valstanPassword ? await hashPassword(valstanPassword) : '';
     await setEmployeeAuth(employeeId, {
       login: 'valstan',

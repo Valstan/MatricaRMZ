@@ -22,6 +22,7 @@
 - `GET /ledger/state/changes` — pull
 
 `/sync/push` и `/sync/pull` возвращают `410 Gone` и не должны использоваться.
+Убедитесь, что nginx проксирует `location ^~ /ledger/`.
 
 ---
 
@@ -75,11 +76,11 @@ Nginx пишет в error log:
 
 ```bash
 curl -sS http://127.0.0.1/health
-curl -sS http://127.0.0.1/sync/pull?since=0
-curl -sS -X POST http://127.0.0.1/sync/push -H 'Content-Type: application/json' --data '{"client_id":"diag","upserts":[]}'
+# ledger эндпоинты могут требовать auth:
+# curl -sS http://127.0.0.1/ledger/state/changes?since=0 -H "Authorization: Bearer <token>"
 ```
 
-Если `push` падает/502 — проблема на стороне backend/БД.
+Если backend падает/502 — проблема на стороне backend/БД или nginx proxy.
 
 ---
 
@@ -102,7 +103,7 @@ curl -sS -i -X POST http://127.0.0.1:3001/auth/login \
 ### Рекомендованный фикс
 - Drizzle schema (`backend-api/src/database/schema.ts`): использовать `bigint(..., { mode: 'number' })` для ms timestamp полей.
 - Миграция: `ALTER TABLE ... ALTER COLUMN ... SET DATA TYPE bigint`
-- Обязательно: ошибки `/sync/*` не должны ронять процесс — нужен `try/catch` или общий error middleware.
+- Обязательно: ошибки `/ledger/*` не должны ронять процесс — нужен `try/catch` или общий error middleware.
 
 ---
 

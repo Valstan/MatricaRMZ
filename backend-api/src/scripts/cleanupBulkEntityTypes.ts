@@ -1,6 +1,8 @@
 import { db } from '../database/db.js';
-import { changeLog, entityTypes } from '../database/schema.js';
+import { entityTypes } from '../database/schema.js';
 import { eq, like, or } from 'drizzle-orm';
+import { SyncTableName } from '@matricarmz/shared';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 function nowMs() {
   return Date.now();
@@ -44,13 +46,18 @@ export async function cleanupBulkEntityTypes(): Promise<{ ok: true; affected: nu
         deleted_at: nextDeletedAt,
         sync_status: 'synced',
       };
-      await db.insert(changeLog).values({
-        tableName: 'entity_types',
-        rowId: r.id,
-        op: 'delete',
-        payloadJson: JSON.stringify(payload),
-        createdAt: ts,
-      });
+      await recordSyncChanges(
+        { id: 'system', username: 'system', role: 'system' },
+        [
+          {
+            tableName: SyncTableName.EntityTypes,
+            rowId: String(r.id),
+            op: 'delete',
+            payload,
+            ts,
+          },
+        ],
+      );
     }
 
     return { ok: true, affected: rows.length };

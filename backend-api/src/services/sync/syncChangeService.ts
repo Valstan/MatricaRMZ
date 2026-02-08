@@ -64,6 +64,29 @@ const SYNC_TABLES: Record<SyncTableName, any> = {
   [SyncTableName.NoteShares]: noteShares,
 };
 
+function guardMode() {
+  const raw = String(process.env.MATRICA_SYNC_GUARD ?? 'warn').toLowerCase();
+  if (raw === 'off' || raw === 'false' || raw === '0') return 'off';
+  if (raw === 'strict' || raw === 'hard') return 'strict';
+  return 'warn';
+}
+
+export function assertSyncMapCoverage() {
+  const mode = guardMode();
+  if (mode === 'off') return;
+  const syncValues = Object.values(SyncTableName);
+  const missingTableMap = syncValues.filter((t) => !TABLE_MAP[t as SyncTableName]);
+  const missingSyncTables = syncValues.filter((t) => !SYNC_TABLES[t as SyncTableName]);
+  const problems = [...missingTableMap, ...missingSyncTables];
+  if (problems.length === 0) return;
+  const msg = `syncChangeService missing mappings for: ${problems.join(', ')}`;
+  // eslint-disable-next-line no-console
+  console.error(msg);
+  if (mode === 'strict') throw new Error(msg);
+}
+
+assertSyncMapCoverage();
+
 function payloadTs(payload: Record<string, unknown>, fallback: number) {
   const value = Number((payload as any)?.updated_at ?? (payload as any)?.created_at ?? fallback);
   return Number.isFinite(value) ? value : fallback;

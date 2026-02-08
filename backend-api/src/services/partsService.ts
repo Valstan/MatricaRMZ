@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
-import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
+import { AttributeDataType, EntityTypeCode, SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { changeRequests, rowOwners, attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
 import type { AuthUser } from '../auth/jwt.js';
-import { SyncTableName } from '@matricarmz/shared';
+import { recordSyncChanges } from './sync/syncChangeService.js';
 
 function nowMs() {
   return Date.now();
@@ -24,6 +24,130 @@ function toValueJson(value: unknown): string | null {
   const json = JSON.stringify(value);
   if (json === undefined) return null;
   return json;
+}
+
+function syncActor(actor?: { id?: string; username?: string; role?: string }) {
+  return {
+    id: String(actor?.id ?? 'system'),
+    username: String(actor?.username ?? 'system'),
+    role: String(actor?.role ?? 'system'),
+  };
+}
+
+function entityTypePayload(row: {
+  id: string;
+  code: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    code: String(row.code),
+    name: String(row.name),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+function entityPayload(row: {
+  id: string;
+  typeId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    type_id: String(row.typeId),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+function attributeDefPayload(row: {
+  id: string;
+  entityTypeId: string;
+  code: string;
+  name: string;
+  dataType: string;
+  isRequired: boolean;
+  sortOrder: number;
+  metaJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    entity_type_id: String(row.entityTypeId),
+    code: String(row.code),
+    name: String(row.name),
+    data_type: String(row.dataType),
+    is_required: Boolean(row.isRequired),
+    sort_order: Number(row.sortOrder ?? 0),
+    meta_json: row.metaJson == null ? null : String(row.metaJson),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+function attributeValuePayload(row: {
+  id: string;
+  entityId: string;
+  attributeDefId: string;
+  valueJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    entity_id: String(row.entityId),
+    attribute_def_id: String(row.attributeDefId),
+    value_json: row.valueJson == null ? null : String(row.valueJson),
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+function auditLogPayload(row: {
+  id: string;
+  actor: string;
+  action: string;
+  entityId: string | null;
+  tableName: string | null;
+  payloadJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+}) {
+  return {
+    id: String(row.id),
+    actor: String(row.actor),
+    action: String(row.action),
+    entity_id: row.entityId ?? null,
+    table_name: row.tableName ?? null,
+    payload_json: row.payloadJson ?? null,
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
 }
 
 function normalizeValueForCompare(valueJson: string | null | undefined): string | null {
@@ -68,8 +192,9 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
   const ts = nowMs();
   async function ensure(code: string, name: string, dataType: string, sortOrder: number, metaJson?: string | null) {
     if (have.has(code)) return;
+    const id = randomUUID();
     await db.insert(attributeDefs).values({
-      id: randomUUID(),
+      id,
       entityTypeId: partTypeId,
       code,
       name,
@@ -82,6 +207,28 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
       deletedAt: null,
       syncStatus: 'synced',
     });
+    await recordSyncChanges(syncActor(), [
+      {
+        tableName: SyncTableName.AttributeDefs,
+        rowId: id,
+        op: 'upsert',
+        payload: attributeDefPayload({
+          id,
+          entityTypeId: partTypeId,
+          code,
+          name,
+          dataType,
+          isRequired: false,
+          sortOrder,
+          metaJson: metaJson ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        }),
+        ts,
+      },
+    ]);
     have.add(code);
   }
 
@@ -124,6 +271,24 @@ async function ensurePartEntityType(): Promise<string> {
     deletedAt: null,
     syncStatus: 'synced',
   });
+
+  await recordSyncChanges(syncActor(), [
+    {
+      tableName: SyncTableName.EntityTypes,
+      rowId: id,
+      op: 'upsert',
+      payload: entityTypePayload({
+        id,
+        code: EntityTypeCode.Part,
+        name: 'Деталь',
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      }),
+      ts,
+    },
+  ]);
 
   await ensurePartAttributeDefs(id);
   return id;
@@ -342,9 +507,32 @@ export async function createPartAttributeDef(args: {
       deletedAt: null,
       syncStatus: 'synced',
     });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AttributeDefs,
+        rowId: id,
+        op: 'upsert',
+        payload: attributeDefPayload({
+          id,
+          entityTypeId: typeId,
+          code,
+          name,
+          dataType,
+          isRequired,
+          sortOrder,
+          metaJson,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        }),
+        ts,
+      },
+    ]);
 
+    const auditId = randomUUID();
     await db.insert(auditLog).values({
-      id: randomUUID(),
+      id: auditId,
       actor: args.actor.username,
       action: 'part.attribute_def.create',
       entityId: null,
@@ -355,6 +543,26 @@ export async function createPartAttributeDef(args: {
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'part.attribute_def.create',
+          entityId: null,
+          tableName: 'attribute_defs',
+          payloadJson: JSON.stringify({ entityTypeCode: EntityTypeCode.Part, entityTypeId: typeId, attributeDefId: id, code, name, dataType }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
 
     await db
       .insert(rowOwners)
@@ -659,6 +867,22 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.Entities,
+        rowId: id,
+        op: 'upsert',
+        payload: entityPayload({
+          id,
+          typeId,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
 
     // Устанавливаем начальные атрибуты если переданы
     if (args.attributes) {
@@ -669,15 +893,22 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
       for (const [code, value] of Object.entries(args.attributes)) {
         const def = attrDefsFull.find((ad) => ad.code === code);
         if (!def) continue;
+        const existing = await db
+          .select({ id: attributeValues.id, createdAt: attributeValues.createdAt })
+          .from(attributeValues)
+          .where(and(eq(attributeValues.entityId, id), eq(attributeValues.attributeDefId, def.id), isNull(attributeValues.deletedAt)))
+          .limit(1);
+        const rowId = existing[0]?.id ? String(existing[0].id) : randomUUID();
+        const createdAt = existing[0]?.createdAt ? Number(existing[0].createdAt) : ts;
 
         await db
           .insert(attributeValues)
           .values({
-            id: randomUUID(),
+            id: rowId,
             entityId: id,
             attributeDefId: def.id,
             valueJson: toValueJson(value),
-            createdAt: ts,
+            createdAt,
             updatedAt: ts,
             deletedAt: null,
             syncStatus: 'pending',
@@ -690,11 +921,30 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
               syncStatus: 'pending',
             },
           });
+        await recordSyncChanges(syncActor(args.actor), [
+          {
+            tableName: SyncTableName.AttributeValues,
+            rowId,
+            op: 'upsert',
+            payload: attributeValuePayload({
+              id: rowId,
+              entityId: id,
+              attributeDefId: String(def.id),
+              valueJson: toValueJson(value),
+              createdAt,
+              updatedAt: ts,
+              deletedAt: null,
+              syncStatus: 'pending',
+            }),
+            ts,
+          },
+        ]);
       }
     }
 
+    const auditId = randomUUID();
     await db.insert(auditLog).values({
-      id: randomUUID(),
+      id: auditId,
       actor: args.actor.username,
       action: 'part.create',
       entityId: id,
@@ -705,6 +955,26 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'part.create',
+          entityId: id,
+          tableName: 'entities',
+          payloadJson: JSON.stringify({ partId: id, attributes: args.attributes }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
 
     await db
       .insert(rowOwners)
@@ -841,10 +1111,11 @@ export async function updatePartAttribute(args: {
       return { ok: true, queued: true, changeRequestId };
     }
 
+    const attrRowId = existingId ?? randomUUID();
     await db
       .insert(attributeValues)
       .values({
-        id: existingId ?? randomUUID(),
+        id: attrRowId,
         entityId: partId,
         attributeDefId: attrDef.id,
         valueJson: JSON.stringify(args.value),
@@ -861,12 +1132,50 @@ export async function updatePartAttribute(args: {
           syncStatus: 'pending',
         },
       });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AttributeValues,
+        rowId: attrRowId,
+        op: 'upsert',
+        payload: attributeValuePayload({
+          id: attrRowId,
+          entityId: partId,
+          attributeDefId: String(attrDef.id),
+          valueJson: JSON.stringify(args.value),
+          createdAt: existingRow ? Number(existingRow.createdAt) : ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
 
     // Обновляем updatedAt у сущности
     await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, partId));
+    const entityRow = await db.select().from(entities).where(eq(entities.id, partId)).limit(1);
+    if (entityRow[0]) {
+      await recordSyncChanges(syncActor(args.actor), [
+        {
+          tableName: SyncTableName.Entities,
+          rowId: partId,
+          op: 'upsert',
+          payload: entityPayload({
+            id: String(entityRow[0].id),
+            typeId: String(entityRow[0].typeId),
+            createdAt: Number(entityRow[0].createdAt),
+            updatedAt: ts,
+            deletedAt: entityRow[0].deletedAt == null ? null : Number(entityRow[0].deletedAt),
+            syncStatus: 'pending',
+          }),
+          ts,
+        },
+      ]);
+    }
 
+    const auditId = randomUUID();
     await db.insert(auditLog).values({
-      id: randomUUID(),
+      id: auditId,
       actor: args.actor.username,
       action: 'part.update_attribute',
       entityId: partId,
@@ -877,6 +1186,26 @@ export async function updatePartAttribute(args: {
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'part.update_attribute',
+          entityId: partId,
+          tableName: 'attribute_values',
+          payloadJson: JSON.stringify({ partId, attributeCode: attrCode, value: args.value }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
 
     return { ok: true };
   } catch (e) {
@@ -946,6 +1275,13 @@ export async function deletePart(args: { partId: string; actor: AuthUser }): Pro
       return { ok: true };
     }
 
+    const entityRow = await db.select().from(entities).where(eq(entities.id, partId)).limit(1);
+    const valueRows = await db
+      .select()
+      .from(attributeValues)
+      .where(and(eq(attributeValues.entityId, partId), isNull(attributeValues.deletedAt)))
+      .limit(50_000);
+
     // Мягкое удаление: помечаем deleted_at
     await db.update(entities).set({ deletedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, partId));
     await db
@@ -953,8 +1289,50 @@ export async function deletePart(args: { partId: string; actor: AuthUser }): Pro
       .set({ deletedAt: ts, syncStatus: 'pending' })
       .where(eq(attributeValues.entityId, partId));
 
+    if (entityRow[0]) {
+      await recordSyncChanges(syncActor(args.actor), [
+        {
+          tableName: SyncTableName.Entities,
+          rowId: partId,
+          op: 'delete',
+          payload: entityPayload({
+            id: String(entityRow[0].id),
+            typeId: String(entityRow[0].typeId),
+            createdAt: Number(entityRow[0].createdAt),
+            updatedAt: ts,
+            deletedAt: ts,
+            syncStatus: 'pending',
+          }),
+          ts,
+        },
+      ]);
+    }
+
+    if (valueRows.length > 0) {
+      await recordSyncChanges(
+        syncActor(args.actor),
+        valueRows.map((row: any) => ({
+          tableName: SyncTableName.AttributeValues,
+          rowId: String(row.id),
+          op: 'delete' as const,
+          payload: attributeValuePayload({
+            id: String(row.id),
+            entityId: String(row.entityId),
+            attributeDefId: String(row.attributeDefId),
+            valueJson: row.valueJson == null ? null : String(row.valueJson),
+            createdAt: Number(row.createdAt),
+            updatedAt: ts,
+            deletedAt: ts,
+            syncStatus: 'pending',
+          }),
+          ts,
+        })),
+      );
+    }
+
+    const auditId = randomUUID();
     await db.insert(auditLog).values({
-      id: randomUUID(),
+      id: auditId,
       actor: args.actor.username,
       action: 'part.delete',
       entityId: partId,
@@ -965,6 +1343,26 @@ export async function deletePart(args: { partId: string; actor: AuthUser }): Pro
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'part.delete',
+          entityId: partId,
+          tableName: 'entities',
+          payloadJson: JSON.stringify({ partId }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
 
     return { ok: true };
   } catch (e) {
