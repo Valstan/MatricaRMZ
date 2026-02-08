@@ -58,6 +58,8 @@ export function ChatPanel(props: {
   canExport: boolean;
   canAdminViewAll: boolean;
   onHide: () => void;
+  onToggleSide: () => void;
+  onSendLink: () => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
@@ -87,6 +89,8 @@ export function ChatPanel(props: {
 
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
+  const isPrivate = !!privateWith;
+  const collapseIcon = props.chatSide === 'left' ? '⟨' : '⟩';
 
   const byUserUnread = useMemo(() => {
     if (!unread || (unread as any).ok !== true) return {};
@@ -106,10 +110,10 @@ export function ChatPanel(props: {
     const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
     return base.filter((u) => u.isActive && u.online);
   }, [users, isPending]);
-  const otherUsers = useMemo(() => {
+  const availableUsers = useMemo(() => {
     const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
-    return base.filter((u) => u.isActive && !u.online);
-  }, [users, isPending]);
+    return base.filter((u) => u.isActive && u.id !== props.meUserId);
+  }, [users, isPending, props.meUserId]);
 
   useEffect(() => {
     props.onChatContextChange?.({ selectedUserId, adminMode });
@@ -226,7 +230,7 @@ export function ChatPanel(props: {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onResize);
     };
-  }, [othersOpen, otherUsers.length, props.chatSide]);
+  }, [othersOpen, availableUsers.length, props.chatSide]);
 
   useEffect(() => {
     if (!othersOpen) return;
@@ -366,13 +370,16 @@ export function ChatPanel(props: {
             {adminMode ? 'Обычный режим' : 'Админ режим'}
           </Button>
         )}
+        <Button variant="ghost" onClick={props.onSendLink} title="Отправить ссылку на текущий раздел">
+          Отправить ссылку
+        </Button>
         {!adminMode && (
           <div>
             <Button ref={othersButtonRef} variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
               Другие
             </Button>
             {othersOpen &&
-              otherUsers.length > 0 &&
+              availableUsers.length > 0 &&
               createPortal(
                 <div
                   ref={othersMenuRef}
@@ -392,7 +399,7 @@ export function ChatPanel(props: {
                     padding: 8,
                   }}
                 >
-                  {otherUsers.map((u) => {
+                  {availableUsers.map((u) => {
                     const uUnread = byUserUnread[u.id] ?? 0;
                     const label = `${u.chatDisplayName || u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
                     const roleStyle = roleStyles(u.role);
@@ -417,9 +424,9 @@ export function ChatPanel(props: {
                           alignItems: 'center',
                           gap: 8,
                         }}
-                        title="Оффлайн"
+                        title={u.online ? 'Онлайн' : 'Оффлайн'}
                       >
-                        {dot('var(--danger)')}
+                        {dot(u.online ? 'var(--success)' : 'var(--danger)')}
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
                       </button>
                     );
@@ -429,8 +436,11 @@ export function ChatPanel(props: {
               )}
           </div>
         )}
-        <Button variant="ghost" onClick={props.onHide}>
-          Скрыть Чат
+        <Button variant="ghost" onClick={props.onToggleSide} title="Переместить чат слева/справа">
+          ⇄
+        </Button>
+        <Button variant="ghost" onClick={props.onHide} title="Свернуть чат" style={{ minWidth: 28, paddingInline: 8 }}>
+          {collapseIcon}
         </Button>
       </div>
 
@@ -519,12 +529,29 @@ export function ChatPanel(props: {
           </div>
         )}
         <div style={{ color: theme.colors.muted, fontSize: 12 }}>
-          {modeLabel}
-          {privateWith ? `: ${privateWith.chatDisplayName || privateWith.username}` : ''}
+          {isPrivate ? (
+            <span style={{ fontWeight: 900, color: '#c2410c' }}>
+              Приватный чат с {privateWith?.chatDisplayName || privateWith?.username}
+            </span>
+          ) : (
+            <>
+              {modeLabel}
+              {privateWith ? `: ${privateWith.chatDisplayName || privateWith.username}` : ''}
+            </>
+          )}
         </div>
       </div>
 
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 10 }}>
+      <div
+        style={{
+          flex: '1 1 auto',
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: 10,
+          background: isPrivate ? '#fff7ed' : '#ffffff',
+        }}
+      >
         {messages.length === 0 && <div style={{ color: theme.colors.muted }}>Сообщений пока нет.</div>}
         {messages.map((m) => {
           const mine = m.senderUserId === props.meUserId;

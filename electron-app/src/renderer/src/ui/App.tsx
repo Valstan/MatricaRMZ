@@ -505,6 +505,17 @@ export function App() {
     await window.matrica.settings.uiSet({ userId, tabsLayout: next }).catch(() => {});
   }
 
+  async function persistChatSide(next: 'left' | 'right') {
+    setUiPrefs((prev) => ({ ...prev, chatSide: next }));
+    const userId = authStatus.user?.id;
+    if (!userId) return;
+    await window.matrica.settings.uiSet({ userId, chatSide: next }).catch(() => {});
+  }
+
+  function openSendLinkDialog() {
+    setSendLinkDialog({ open: true, title: 'Ссылка на раздел' });
+  }
+
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -1168,29 +1179,6 @@ export function App() {
         }
         right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-          {authStatus.loggedIn && canChat && !chatOpen && (
-            <Button
-              variant="ghost"
-              onClick={() => setChatOpen(true)}
-              title="Открыть окно чата"
-            >
-              Открыть Чат
-              {chatUnreadTotal > 0 ? (
-                <span style={{ marginLeft: 6, color: 'var(--danger)', fontWeight: 900 }}>
-                  {chatUnreadTotal}
-                </span>
-              ) : null}
-            </Button>
-          )}
-          {authStatus.loggedIn && canChat && (
-            <Button
-              variant="ghost"
-              onClick={() => setSendLinkDialog({ open: true, title: 'Ссылка на раздел' })}
-              title="Отправить ссылку на текущий раздел"
-            >
-              Отправить ссылку
-            </Button>
-          )}
           {authStatus.loggedIn && caps.canUseSync && !viewMode && (
             <Button
               variant="ghost"
@@ -1206,6 +1194,7 @@ export function App() {
       >
         {renderFullSyncModal()}
         {renderFatalModal()}
+      <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
           <div
@@ -1227,6 +1216,8 @@ export function App() {
               viewMode={viewMode}
               chatSide="left"
               onHide={() => setChatOpen(false)}
+              onToggleSide={() => void persistChatSide('right')}
+              onSendLink={openSendLinkDialog}
               onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
@@ -1667,6 +1658,8 @@ export function App() {
               viewMode={viewMode}
               chatSide="right"
               onHide={() => setChatOpen(false)}
+              onToggleSide={() => void persistChatSide('left')}
+              onSendLink={openSendLinkDialog}
               onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
@@ -1674,6 +1667,26 @@ export function App() {
             />
           </div>
         )}
+      </div>
+      {authStatus.loggedIn && canChat && !chatOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 5,
+            left: uiPrefs.chatSide === 'left' ? 0 : 'auto',
+            right: uiPrefs.chatSide === 'right' ? 0 : 'auto',
+          }}
+        >
+          <Button variant="primary" onClick={() => setChatOpen(true)} title="Открыть окно чата">
+            Открыть чат
+            {chatUnreadTotal > 0 ? (
+              <span style={{ marginLeft: 6, color: '#fff', fontWeight: 900 }}>{chatUnreadTotal}</span>
+            ) : null}
+          </Button>
+        </div>
+      )}
       </div>
 
       {sendLinkDialog.open && (
