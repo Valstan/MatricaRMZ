@@ -14,7 +14,7 @@ function guardMode() {
 
 function handleMismatch(message: string, tables: string[]) {
   const mode = guardMode();
-  logError(message, { tables, mode }, { critical: true });
+  logError(message, { tables, mode });
   if (mode === 'strict') {
     throw new Error(message);
   }
@@ -27,8 +27,8 @@ export async function ensureSyncSchemaGuard() {
     return;
   }
 
-  const syncTables = new Set(Object.values(SyncTableName));
-  const ledgerTables = new Set(Object.values(LedgerTableName));
+  const syncTables = new Set<string>(Object.values(SyncTableName) as string[]);
+  const ledgerTables = new Set<string>(Object.values(LedgerTableName) as string[]);
 
   const notInLedger = Array.from(syncTables).filter((t) => !ledgerTables.has(t));
   if (notInLedger.length > 0) {
