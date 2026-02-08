@@ -69,6 +69,17 @@ async function getEntityTypeIdByCode(db: BetterSQLite3Database, code: string): P
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
+async function getDefsByType(db: BetterSQLite3Database, entityTypeId: string) {
+  const defs = await db
+    .select()
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, entityTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const byCode: Record<string, string> = {};
+  for (const d of defs as any[]) byCode[String(d.code)] = String(d.id);
+  return { defs, byCode };
+}
+
 async function getAttributeDefIdByCode(db: BetterSQLite3Database, entityTypeId: string, code: string): Promise<string | null> {
   const rows = await db
     .select({ id: attributeDefs.id })
@@ -605,6 +616,69 @@ export async function getToolsScope(
   if (!scope?.userId) return { ok: false as const, error: 'missing user session' };
   const departmentId = await getUserDepartmentId(db, scope.userId).catch(() => null);
   return { ok: true as const, departmentId: departmentId ?? null };
+}
+
+export async function listEmployeesForTools(
+  db: BetterSQLite3Database,
+  departmentId?: string | null,
+): Promise<{ ok: true; employees: Array<{ id: string; label: string; departmentId: string | null }> } | { ok: false; error: string }> {
+  try {
+    const employeeTypeId = await getEntityTypeIdByCode(db, 'employee');
+    if (!employeeTypeId) return { ok: true as const, employees: [] };
+    const rows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, employeeTypeId), isNull(entities.deletedAt)))
+      .limit(50_000);
+    const ids = rows.map((r) => String(r.id));
+    if (ids.length === 0) return { ok: true as const, employees: [] };
+
+    const { byCode } = await getDefsByType(db, employeeTypeId);
+    const defIds = [
+      byCode.full_name,
+      byCode.last_name,
+      byCode.first_name,
+      byCode.middle_name,
+      byCode.department_id,
+      byCode.employment_status,
+    ].filter(Boolean) as string[];
+    const vals =
+      defIds.length === 0
+        ? []
+        : await db
+            .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+            .from(attributeValues)
+            .where(and(inArray(attributeValues.entityId, ids), inArray(attributeValues.attributeDefId, defIds), isNull(attributeValues.deletedAt)))
+            .limit(200_000);
+
+    const byEntity: Record<string, Record<string, unknown>> = {};
+    for (const v of vals as any[]) {
+      const entityId = String(v.entityId);
+      const defId = String(v.attributeDefId);
+      if (!byEntity[entityId]) byEntity[entityId] = {};
+      byEntity[entityId][defId] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
+    }
+
+    const out: Array<{ id: string; label: string; departmentId: string | null }> = [];
+    for (const row of rows as any[]) {
+      const entityId = String(row.id);
+      const rec = byEntity[entityId] ?? {};
+      const fullName = String(rec[byCode.full_name] ?? '').trim();
+      const last = String(rec[byCode.last_name] ?? '').trim();
+      const first = String(rec[byCode.first_name] ?? '').trim();
+      const middle = String(rec[byCode.middle_name] ?? '').trim();
+      const computed = [last, first, middle].filter(Boolean).join(' ').trim();
+      const depId = rec[byCode.department_id] ? String(rec[byCode.department_id]) : null;
+      const employmentStatus = String(rec[byCode.employment_status] ?? '').trim().toLowerCase();
+      if (employmentStatus && employmentStatus.includes('уволен')) continue;
+      if (departmentId && depId !== departmentId) continue;
+      out.push({ id: entityId, label: fullName || computed || entityId, departmentId: depId ?? null });
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    return { ok: true as const, employees: out };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
 }
 
 export async function addToolMovement(

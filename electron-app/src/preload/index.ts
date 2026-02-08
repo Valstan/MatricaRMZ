@@ -206,6 +206,9 @@ contextBridge.exposeInMainWorld('matrica', {
       list: async () => ipcRenderer.invoke('tools:catalog:list'),
       create: async (args: { name: string }) => ipcRenderer.invoke('tools:catalog:create', args),
     },
+    employees: {
+      list: async (args?: { departmentId?: string | null }) => ipcRenderer.invoke('tools:employees:list', args),
+    },
   },
   parts: {
     list: async (args?: { q?: string; limit?: number }) => ipcRenderer.invoke('parts:list', args),

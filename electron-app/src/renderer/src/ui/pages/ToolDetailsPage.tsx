@@ -145,7 +145,7 @@ export function ToolDetailsPage(props: {
     const [propsRes, catalogRes, employeesRes, typeRes, scopeRes] = await Promise.all([
       window.matrica.tools.properties.list().catch(() => null),
       window.matrica.tools.catalog.list().catch(() => null),
-      window.matrica.employees.list().catch(() => null),
+      window.matrica.tools.employees.list({ departmentId: departmentId || null }).catch(() => null),
       window.matrica.admin.entityTypes.list().catch(() => null),
       window.matrica.tools.scope().catch(() => null),
     ]);
@@ -162,7 +162,7 @@ export function ToolDetailsPage(props: {
       setEmployeeOptionsAll(
         list.map((e: any) => ({
           id: String(e.id),
-          label: String(e.fullName ?? e.displayName ?? e.name ?? e.id),
+          label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id),
           departmentId: e.departmentId ? String(e.departmentId) : null,
         })),
       );
@@ -191,9 +191,25 @@ export function ToolDetailsPage(props: {
 
   useEffect(() => {
     const dept = departmentId || currentDepartmentId || null;
-    const filtered = dept ? employeeOptionsAll.filter((e) => e.departmentId === dept) : employeeOptionsAll;
-    setEmployeeOptions(filtered.map((e) => ({ id: e.id, label: e.label })));
-  }, [employeeOptionsAll, departmentId, currentDepartmentId]);
+    void window.matrica.tools.employees.list({ departmentId: dept }).then((r: any) => {
+      if (!r?.ok) return;
+      const list = (r as any).employees ?? [];
+      setEmployeeOptionsAll(
+        list.map((e: any) => ({
+          id: String(e.id),
+          label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id),
+          departmentId: e.departmentId ? String(e.departmentId) : null,
+        })),
+      );
+      setEmployeeOptions(list.map((e: any) => ({ id: String(e.id), label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id) })));
+    });
+  }, [departmentId, currentDepartmentId]);
+
+  useEffect(() => {
+    if (employeeOptions.length > 0) return;
+    const filtered = employeeOptionsAll.map((e) => ({ id: e.id, label: e.label }));
+    setEmployeeOptions(filtered);
+  }, [employeeOptionsAll]);
 
   async function saveAttribute(code: string, value: unknown) {
     if (!props.canEdit) return;

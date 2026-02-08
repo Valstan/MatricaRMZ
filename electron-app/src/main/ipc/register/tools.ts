@@ -13,6 +13,7 @@ import {
   exportToolCardPdf,
   getTool,
   getToolProperty,
+  listEmployeesForTools,
   getToolsScope,
   listToolCatalog,
   listToolMovements,
@@ -171,5 +172,11 @@ export function registerToolsIpc(ctx: IpcContext) {
     const scope = await getScope();
     if (!scope) return { ok: false as const, error: 'missing user session' };
     return getToolsScope(ctx.dataDb(), scope);
+  });
+
+  ipcMain.handle('tools:employees:list', async (_e, args?: { departmentId?: string | null }) => {
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as any;
+    return listEmployeesForTools(ctx.dataDb(), args?.departmentId ?? null);
   });
 }
