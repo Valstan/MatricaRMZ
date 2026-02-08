@@ -18,6 +18,8 @@ export const EntityTypeCode = {
   Store: 'store',
   EngineNode: 'engine_node',
   LinkFieldRule: 'link_field_rule',
+  Tool: 'tool',
+  ToolProperty: 'tool_property',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];
@@ -46,6 +48,7 @@ export const OperationTypeCode = {
   Shipment: 'shipment', // отгрузка
   CustomerDelivery: 'customer_delivery', // подтверждение доставки/претензии
   SupplyRequest: 'supply_request', // заявки в снабжение
+  ToolMovement: 'tool_movement', // движение инструмента
 } as const;
 
 export type OperationTypeCode = (typeof OperationTypeCode)[keyof typeof OperationTypeCode];

@@ -1,0 +1,514 @@
+import React, { useEffect, useMemo, useState } from 'react';
+
+import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
+import { SearchSelect } from '../components/SearchSelect.js';
+import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+
+type Option = { id: string; label: string };
+
+type ToolPropertyRow = { propertyId: string };
+
+type MovementRow = {
+  id: string;
+  movementAt: number;
+  mode: 'received' | 'returned';
+  employeeId?: string | null;
+  confirmed: boolean;
+  confirmedById?: string | null;
+  comment?: string | null;
+};
+
+function toInputDate(ms: number | null) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fromInputDate(v: string): number | null {
+  if (!v) return null;
+  const [y, m, d] = v.split('-').map((x) => Number(x));
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
+}
+
+function fileListHtml(list: unknown) {
+  const items = Array.isArray(list)
+    ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
+    : [];
+  if (items.length === 0) return '<div class="muted">Нет файлов</div>';
+  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
+}
+
+export function ToolDetailsPage(props: {
+  toolId: string;
+  canEdit: boolean;
+  canViewFiles: boolean;
+  canUploadFiles: boolean;
+  onBack: () => void;
+}) {
+  const [status, setStatus] = useState<string>('');
+  const [toolNumber, setToolNumber] = useState('');
+  const [name, setName] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [description, setDescription] = useState('');
+  const [departmentId, setDepartmentId] = useState<string>('');
+  const [receivedAt, setReceivedAt] = useState('');
+  const [retiredAt, setRetiredAt] = useState('');
+  const [retireReason, setRetireReason] = useState('');
+  const [photos, setPhotos] = useState<unknown>([]);
+  const [properties, setProperties] = useState<ToolPropertyRow[]>([]);
+  const [movements, setMovements] = useState<MovementRow[]>([]);
+
+  const [propertyOptions, setPropertyOptions] = useState<Option[]>([]);
+  const [propertyMeta, setPropertyMeta] = useState<Map<string, { params?: string }>>(new Map());
+  const [employeeOptions, setEmployeeOptions] = useState<Option[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<Option[]>([]);
+
+  const [newMoveDate, setNewMoveDate] = useState<string>('');
+  const [newMoveMode, setNewMoveMode] = useState<'received' | 'returned'>('received');
+  const [newMoveEmployeeId, setNewMoveEmployeeId] = useState<string>('');
+  const [newMoveConfirmed, setNewMoveConfirmed] = useState<boolean>(false);
+  const [newMoveConfirmedById, setNewMoveConfirmedById] = useState<string>('');
+  const [newMoveComment, setNewMoveComment] = useState<string>('');
+
+  const employeeLabelById = useMemo(() => new Map(employeeOptions.map((o) => [o.id, o.label])), [employeeOptions]);
+  const departmentLabelById = useMemo(() => new Map(departmentOptions.map((o) => [o.id, o.label])), [departmentOptions]);
+
+  async function refresh() {
+    try {
+      setStatus('Загрузка...');
+      const r = await window.matrica.tools.get(props.toolId);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      const attrs = (r as any).tool?.attributes ?? {};
+      setToolNumber(String(attrs.tool_number ?? ''));
+      setName(String(attrs.name ?? ''));
+      setSerialNumber(String(attrs.serial_number ?? ''));
+      setDescription(String(attrs.description ?? ''));
+      setDepartmentId(attrs.department_id ? String(attrs.department_id) : '');
+      const receivedMs = attrs.received_at ? Number(attrs.received_at) : null;
+      const retiredMs = attrs.retired_at ? Number(attrs.retired_at) : null;
+      setReceivedAt(toInputDate(receivedMs));
+      setRetiredAt(toInputDate(retiredMs));
+      setRetireReason(String(attrs.retire_reason ?? ''));
+      setPhotos(attrs.photos ?? []);
+      const propsList = Array.isArray(attrs.properties) ? attrs.properties : [];
+      const normalized: ToolPropertyRow[] = propsList
+        .map((p: any) => (p && typeof p === 'object' ? { propertyId: String(p.propertyId ?? '') } : null))
+        .filter(Boolean) as ToolPropertyRow[];
+      setProperties(normalized);
+      setStatus('');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function refreshMovements() {
+    try {
+      const r = await window.matrica.tools.movements.list(props.toolId);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      setMovements((r as any).movements ?? []);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function loadOptions() {
+    const [propsRes, employeesRes, typeRes] = await Promise.all([
+      window.matrica.tools.properties.list().catch(() => null),
+      window.matrica.employees.list().catch(() => null),
+      window.matrica.admin.entityTypes.list().catch(() => null),
+    ]);
+    if (propsRes && (propsRes as any).ok) {
+      const list = (propsRes as any).items ?? [];
+      setPropertyOptions(list.map((p: any) => ({ id: String(p.id), label: String(p.name ?? '(без названия)') })));
+      const map = new Map<string, { params?: string }>();
+      for (const p of list) map.set(String(p.id), { params: p.params ? String(p.params) : '' });
+      setPropertyMeta(map);
+    }
+    if (employeesRes && (employeesRes as any).ok) {
+      setEmployeeOptions((employeesRes as any).employees.map((e: any) => ({ id: String(e.id), label: String(e.fullName ?? e.name ?? e.id) })));
+    }
+    if (typeRes) {
+      const types = (typeRes as any) ?? [];
+      const departmentType = types.find((t: any) => String(t.code) === 'department');
+      if (departmentType?.id) {
+        const deps = await window.matrica.admin.entities.listByEntityType(String(departmentType.id));
+        const list = (deps as any) ?? [];
+        setDepartmentOptions(
+          list.map((d: any) => ({ id: String(d.id), label: String(d.displayName ?? d.name ?? d.id) })),
+        );
+      }
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    void refreshMovements();
+    void loadOptions();
+  }, [props.toolId]);
+
+  async function saveAttribute(code: string, value: unknown) {
+    if (!props.canEdit) return;
+    const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code, value });
+    if (!r.ok) setStatus(`Ошибка: ${r.error}`);
+    else setStatus('');
+  }
+
+  async function updateProperties(next: ToolPropertyRow[]) {
+    setProperties(next);
+    await saveAttribute('properties', next);
+  }
+
+  async function addMovement() {
+    const movementAt = fromInputDate(newMoveDate) ?? Date.now();
+    const r = await window.matrica.tools.movements.add({
+      toolId: props.toolId,
+      movementAt,
+      mode: newMoveMode,
+      employeeId: newMoveEmployeeId || null,
+      confirmed: newMoveConfirmed,
+      confirmedById: newMoveConfirmed ? newMoveConfirmedById || null : null,
+      comment: newMoveComment.trim() || null,
+    });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    setNewMoveDate('');
+    setNewMoveMode('received');
+    setNewMoveEmployeeId('');
+    setNewMoveConfirmed(false);
+    setNewMoveConfirmedById('');
+    setNewMoveComment('');
+    await refreshMovements();
+  }
+
+  function printToolCard() {
+    const mainRows: Array<[string, string]> = [
+      ['Табельный номер', toolNumber],
+      ['Наименование', name],
+      ['Серийный номер', serialNumber],
+      ['Описание', description],
+      ['Подразделение', departmentLabelById.get(departmentId) ?? departmentId ?? '—'],
+      ['Дата поступления', receivedAt || '—'],
+      ['Дата снятия', retiredAt || '—'],
+      ['Причина снятия', retireReason || '—'],
+    ];
+    const propRows: Array<[string, string]> = properties.map((p) => {
+      const label = propertyOptions.find((o) => o.id === p.propertyId)?.label ?? p.propertyId;
+      const params = propertyMeta.get(p.propertyId)?.params ?? '—';
+      return [label || '—', params || '—'];
+    });
+    const movRows: Array<[string, string]> = movements.map((m) => {
+      const who = m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—';
+      const confirmedBy = m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—';
+      return [
+        new Date(m.movementAt).toLocaleDateString('ru-RU'),
+        `${m.mode === 'returned' ? 'Вернул' : 'Получил'}; сотрудник: ${who}; подтверждение: ${
+          m.confirmed ? `да (${confirmedBy})` : 'нет'
+        }; комментарий: ${m.comment ?? ''}`,
+      ];
+    });
+    openPrintPreview({
+      title: 'Карточка инструмента',
+      subtitle: name ? `Наименование: ${name}` : undefined,
+      sections: [
+        { id: 'main', title: 'Основные данные', html: keyValueTable(mainRows) },
+        { id: 'props', title: 'Свойства инструмента', html: propRows.length ? keyValueTable(propRows) : '<div class="muted">Нет данных</div>' },
+        { id: 'moves', title: 'Движение инструмента', html: movRows.length ? keyValueTable(movRows) : '<div class="muted">Нет данных</div>' },
+        { id: 'files', title: 'Фото', html: fileListHtml(photos) },
+      ],
+    });
+  }
+
+  async function exportPdf() {
+    setStatus('Генерация PDF...');
+    const r = await window.matrica.tools.exportPdf(props.toolId).catch(() => null);
+    if (!r || !(r as any).ok) {
+      setStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось создать PDF'}`);
+      return;
+    }
+    const contentBase64 = (r as any).contentBase64;
+    const fileName = (r as any).fileName;
+    const mime = (r as any).mime;
+    const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus('Готово.');
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Button variant="ghost" onClick={props.onBack}>
+          Назад
+        </Button>
+        <strong>Карточка инструмента</strong>
+        <span style={{ flex: 1 }} />
+        <Button tone="info" onClick={printToolCard}>
+          Распечатать карточку
+        </Button>
+        <Button tone="neutral" onClick={() => void exportPdf()}>
+          Экспорт в PDF
+        </Button>
+      </div>
+
+      {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+
+      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Табельный номер</div>
+          <Input
+            value={toolNumber}
+            onChange={(e) => setToolNumber(e.target.value)}
+            onBlur={() => void saveAttribute('tool_number', toolNumber.trim())}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Наименование</div>
+          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void saveAttribute('name', name.trim())} disabled={!props.canEdit} />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Серийный номер</div>
+          <Input
+            value={serialNumber}
+            onChange={(e) => setSerialNumber(e.target.value)}
+            onBlur={() => void saveAttribute('serial_number', serialNumber.trim())}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Описание</div>
+          <Input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={() => void saveAttribute('description', description.trim())}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Подразделение</div>
+          <SearchSelect
+            value={departmentId}
+            options={departmentOptions}
+            placeholder="Выберите подразделение"
+            disabled={!props.canEdit}
+            onChange={(next) => {
+              setDepartmentId(next);
+              void saveAttribute('department_id', next || null);
+            }}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Дата поступления</div>
+          <Input
+            type="date"
+            value={receivedAt}
+            onChange={(e) => setReceivedAt(e.target.value)}
+            onBlur={() => void saveAttribute('received_at', fromInputDate(receivedAt))}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Дата снятия</div>
+          <Input
+            type="date"
+            value={retiredAt}
+            onChange={(e) => setRetiredAt(e.target.value)}
+            onBlur={() => void saveAttribute('retired_at', fromInputDate(retiredAt))}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Причина снятия</div>
+          <Input
+            value={retireReason}
+            onChange={(e) => setRetireReason(e.target.value)}
+            onBlur={() => void saveAttribute('retire_reason', retireReason.trim())}
+            disabled={!props.canEdit}
+          />
+        </div>
+      </div>
+
+      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <strong>Свойства инструмента</strong>
+          <span style={{ flex: 1 }} />
+          {props.canEdit && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                const next = [...properties, { propertyId: '' }];
+                void updateProperties(next);
+              }}
+            >
+              Добавить свойство
+            </Button>
+          )}
+        </div>
+        {properties.length === 0 && <div style={{ color: '#6b7280' }}>Нет свойств.</div>}
+        {properties.map((row, idx) => {
+          const params = row.propertyId ? propertyMeta.get(row.propertyId)?.params ?? '' : '';
+          return (
+            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr 80px', gap: 8, padding: '4px 6px' }}>
+              <div>Свойство</div>
+              <SearchSelect
+                value={row.propertyId}
+                options={propertyOptions}
+                placeholder="Выберите свойство"
+                disabled={!props.canEdit}
+                onChange={(next) => {
+                  const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next } : p));
+                  void updateProperties(nextRows);
+                }}
+              />
+              <Input value={params} disabled />
+              {props.canEdit ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const nextRows = properties.filter((_p, i) => i !== idx);
+                    void updateProperties(nextRows);
+                  }}
+                  style={{ color: '#b91c1c' }}
+                >
+                  Удалить
+                </Button>
+              ) : (
+                <div />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
+        <strong>Движение инструмента</strong>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+          <div>Дата</div>
+          <Input type="date" value={newMoveDate} onChange={(e) => setNewMoveDate(e.target.value)} disabled={!props.canEdit} />
+          <select
+            value={newMoveMode}
+            onChange={(e) => setNewMoveMode(e.target.value as 'received' | 'returned')}
+            disabled={!props.canEdit}
+            style={{ height: 32 }}
+          >
+            <option value="received">Получил</option>
+            <option value="returned">Вернул</option>
+          </select>
+          <SearchSelect
+            value={newMoveEmployeeId}
+            options={employeeOptions}
+            placeholder="Сотрудник"
+            disabled={!props.canEdit}
+            onChange={(next) => setNewMoveEmployeeId(next)}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => setNewMoveConfirmed(e.target.checked)} disabled={!props.canEdit} />
+            Подтверждено
+          </label>
+          <SearchSelect
+            value={newMoveConfirmedById}
+            options={employeeOptions}
+            placeholder="Заведующий"
+            disabled={!props.canEdit || !newMoveConfirmed}
+            onChange={(next) => setNewMoveConfirmedById(next)}
+          />
+          <Input
+            value={newMoveComment}
+            onChange={(e) => setNewMoveComment(e.target.value)}
+            placeholder="Комментарий"
+            disabled={!props.canEdit}
+          />
+        </div>
+        {props.canEdit && (
+          <div>
+            <Button tone="success" onClick={() => void addMovement()}>
+              Добавить движение
+            </Button>
+          </div>
+        )}
+
+        <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden', marginTop: 6 }}>
+          <table className="list-table">
+            <thead>
+              <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Дата</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Режим</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Сотрудник</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Подтверждение</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Комментарий</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                    Нет движений
+                  </td>
+                </tr>
+              )}
+              {movements.map((m) => (
+                <tr key={m.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>
+                    {m.movementAt ? new Date(m.movementAt).toLocaleDateString('ru-RU') : '—'}
+                  </td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{m.mode === 'returned' ? 'Вернул' : 'Получил'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                    {m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—'}
+                  </td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                    {m.confirmed ? `Да (${m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—'})` : 'Нет'}
+                  </td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{m.comment || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <AttachmentsPanel
+        title="Фото инструмента"
+        value={photos}
+        canView={props.canViewFiles}
+        canUpload={props.canUploadFiles && props.canEdit}
+        scope={{ ownerType: 'tool', ownerId: props.toolId, category: 'photos' }}
+        onChange={async (next) => {
+          setPhotos(next);
+          const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code: 'photos', value: next });
+          if (!r.ok) return { ok: false as const, error: r.error };
+          return { ok: true as const };
+        }}
+      />
+    </div>
+  );
+}

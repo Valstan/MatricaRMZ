@@ -36,6 +36,50 @@ export type EntityDetails = {
   attributes: Record<string, unknown>;
 };
 
+export type ToolListItem = {
+  id: string;
+  toolNumber?: string;
+  name?: string;
+  serialNumber?: string;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  receivedAt?: number | null;
+  retiredAt?: number | null;
+  updatedAt: number;
+  createdAt: number;
+};
+
+export type ToolDetails = {
+  id: string;
+  typeId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  syncStatus: string;
+  attributes: Record<string, unknown>;
+};
+
+export type ToolPropertyListItem = {
+  id: string;
+  name?: string;
+  params?: string;
+  updatedAt: number;
+  createdAt: number;
+};
+
+export type ToolMovementItem = {
+  id: string;
+  toolId: string;
+  movementAt: number;
+  mode: 'received' | 'returned';
+  employeeId?: string | null;
+  confirmed: boolean;
+  confirmedById?: string | null;
+  comment?: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type EmployeeListItem = {
   id: string;
   displayName?: string;
@@ -223,6 +267,10 @@ export type ChatDeepLinkPayload = {
     | 'request'
     | 'parts'
     | 'part'
+    | 'tools'
+    | 'tool'
+    | 'tool_properties'
+    | 'tool_property'
     | 'employees'
     | 'employee'
     | 'reports'
@@ -235,6 +283,8 @@ export type ChatDeepLinkPayload = {
   engineBrandId?: string | null;
   requestId?: string | null;
   partId?: string | null;
+  toolId?: string | null;
+  toolPropertyId?: string | null;
   contractId?: string | null;
   employeeId?: string | null;
   productId?: string | null;

@@ -20,6 +20,10 @@ import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
 import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
 import { PartsPage } from './pages/PartsPage.js';
 import { PartDetailsPage } from './pages/PartDetailsPage.js';
+import { ToolsPage } from './pages/ToolsPage.js';
+import { ToolDetailsPage } from './pages/ToolDetailsPage.js';
+import { ToolPropertiesPage } from './pages/ToolPropertiesPage.js';
+import { ToolPropertyDetailsPage } from './pages/ToolPropertyDetailsPage.js';
 import { EmployeesPage } from './pages/EmployeesPage.js';
 import { EmployeeDetailsPage } from './pages/EmployeeDetailsPage.js';
 import { ProductsPage } from './pages/ProductsPage.js';
@@ -66,6 +70,8 @@ export function App() {
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  const [selectedToolPropertyId, setSelectedToolPropertyId] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
@@ -396,6 +402,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
+    ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
@@ -409,7 +416,18 @@ export function App() {
   const visibleTabsKey = visibleTabs.join('|');
   const userTab: Exclude<
     TabId,
-    'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand' | 'product' | 'service' | 'counterparty'
+    | 'engine'
+    | 'request'
+    | 'part'
+    | 'tool'
+    | 'tool_properties'
+    | 'tool_property'
+    | 'employee'
+    | 'contract'
+    | 'engine_brand'
+    | 'product'
+    | 'service'
+    | 'counterparty'
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
 
@@ -487,6 +505,9 @@ export function App() {
       tab === 'engine_brand' ||
       tab === 'request' ||
       tab === 'part' ||
+      tab === 'tool' ||
+      tab === 'tool_properties' ||
+      tab === 'tool_property' ||
       tab === 'employee' ||
       tab === 'contract' ||
       tab === 'counterparty' ||
@@ -588,6 +609,16 @@ export function App() {
     setTab('part');
   }
 
+  async function openTool(id: string) {
+    setSelectedToolId(id);
+    setTab('tool');
+  }
+
+  async function openToolProperty(id: string) {
+    setSelectedToolPropertyId(id);
+    setTab('tool_property');
+  }
+
   async function openEmployee(id: string) {
     setSelectedEmployeeId(id);
     setTab('employee');
@@ -613,6 +644,7 @@ export function App() {
     const engineId = link?.engineId ? String(link.engineId) : null;
     const requestId = link?.requestId ? String(link.requestId) : null;
     const partId = link?.partId ? String(link.partId) : null;
+    const toolId = link?.toolId ? String(link.toolId) : null;
     const contractId = link?.contractId ? String(link.contractId) : null;
     const employeeId = link?.employeeId ? String(link.employeeId) : null;
     const engineBrandId = link?.engineBrandId ? String(link.engineBrandId) : null;
@@ -631,6 +663,10 @@ export function App() {
     }
     if (partId) {
       await openPart(partId);
+      return;
+    }
+    if (toolId) {
+      await openTool(toolId);
       return;
     }
     if (contractId) {
@@ -681,6 +717,10 @@ export function App() {
       request: 'Карточка заявки',
       parts: 'Детали',
       part: 'Карточка детали',
+      tools: 'Инструменты',
+      tool: 'Карточка инструмента',
+      tool_properties: 'Свойства инструментов',
+      tool_property: 'Карточка свойства инструмента',
       products: 'Товары',
       product: 'Карточка товара',
       services: 'Услуги',
@@ -698,6 +738,8 @@ export function App() {
       engine_brand: 'Марки двигателей',
       request: 'Заявки',
       part: 'Детали',
+      tool: 'Инструменты',
+      tool_property: 'Свойства инструментов',
       contract: 'Контракты',
       counterparty: 'Контрагенты',
       employee: 'Сотрудники',
@@ -719,6 +761,8 @@ export function App() {
     if (tab === 'engine_brand' && selectedEngineBrandId) crumbs.push(`ID ${shortId(selectedEngineBrandId)}`);
     if (tab === 'request' && selectedRequestId) crumbs.push(`ID ${shortId(selectedRequestId)}`);
     if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
+    if (tab === 'tool' && selectedToolId) crumbs.push(`ID ${shortId(selectedToolId)}`);
+    if (tab === 'tool_property' && selectedToolPropertyId) crumbs.push(`ID ${shortId(selectedToolPropertyId)}`);
     if (tab === 'contract' && selectedContractId) crumbs.push(`ID ${shortId(selectedContractId)}`);
     if (tab === 'counterparty' && selectedCounterpartyId) crumbs.push(`ID ${shortId(selectedCounterpartyId)}`);
     if (tab === 'employee' && selectedEmployeeId) crumbs.push(`ID ${shortId(selectedEmployeeId)}`);
@@ -740,6 +784,10 @@ export function App() {
               ? selectedRequestId ?? null
               : tab === 'part'
                 ? selectedPartId ?? null
+                : tab === 'tool'
+                  ? selectedToolId ?? null
+                  : tab === 'tool_property'
+                    ? selectedToolPropertyId ?? null
                 : tab === 'contract'
                   ? selectedContractId ?? null
                   : tab === 'employee'
@@ -760,6 +808,10 @@ export function App() {
               ? 'supply_request'
               : tab === 'part'
                 ? 'part'
+                : tab === 'tool'
+                  ? 'tool'
+                  : tab === 'tool_property'
+                    ? 'tool_property'
                 : tab === 'contract'
                   ? 'contract'
                   : tab === 'employee'
@@ -779,6 +831,8 @@ export function App() {
       selectedEngineBrandId,
       selectedRequestId,
       selectedPartId,
+      selectedToolId,
+      selectedToolPropertyId,
       selectedContractId,
       selectedEmployeeId,
       selectedProductId,
@@ -796,6 +850,8 @@ export function App() {
       engineBrandId: tab === 'engine_brand' ? selectedEngineBrandId ?? null : null,
       requestId: tab === 'request' ? selectedRequestId ?? null : null,
       partId: tab === 'part' ? selectedPartId ?? null : null,
+      toolId: tab === 'tool' ? selectedToolId ?? null : null,
+      toolPropertyId: tab === 'tool_property' ? selectedToolPropertyId ?? null : null,
       contractId: tab === 'contract' ? selectedContractId ?? null : null,
       employeeId: tab === 'employee' ? selectedEmployeeId ?? null : null,
       productId: tab === 'product' ? selectedProductId ?? null : null,
@@ -809,6 +865,8 @@ export function App() {
       selectedEngineBrandId,
       selectedRequestId,
       selectedPartId,
+      selectedToolId,
+      selectedToolPropertyId,
       selectedContractId,
       selectedEmployeeId,
       selectedProductId,
@@ -1435,6 +1493,23 @@ export function App() {
           />
         )}
 
+        {tab === 'tools' && (
+          <ToolsPage
+            onOpen={openTool}
+            onOpenProperties={() => setTab('tool_properties')}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+          />
+        )}
+
+        {tab === 'tool_properties' && (
+          <ToolPropertiesPage
+            onOpen={openToolProperty}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+          />
+        )}
+
         {tab === 'employees' && (
           <EmployeesPage
             onOpen={async (id) => {
@@ -1476,6 +1551,32 @@ export function App() {
             onClose={() => {
               setSelectedPartId(null);
               setTab('parts');
+            }}
+          />
+        )}
+
+        {tab === 'tool' && selectedToolId && (
+          <ToolDetailsPage
+            key={selectedToolId}
+            toolId={selectedToolId}
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            onBack={() => {
+              setSelectedToolId(null);
+              setTab('tools');
+            }}
+          />
+        )}
+
+        {tab === 'tool_property' && selectedToolPropertyId && (
+          <ToolPropertyDetailsPage
+            key={selectedToolPropertyId}
+            id={selectedToolPropertyId}
+            canEdit={caps.canEditMasterData}
+            onBack={() => {
+              setSelectedToolPropertyId(null);
+              setTab('tool_properties');
             }}
           />
         )}

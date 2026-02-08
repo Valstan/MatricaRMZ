@@ -44,7 +44,18 @@ export function tabAccent(tab: string): AccentKey {
   if (tab === 'reports') return 'reports';
   if (tab === 'requests' || tab === 'request') return 'requests';
   if (tab === 'employees' || tab === 'employee') return 'employees';
-  if (tab === 'admin' || tab === 'masterdata' || tab === 'products' || tab === 'product' || tab === 'services' || tab === 'service')
+  if (
+    tab === 'admin' ||
+    tab === 'masterdata' ||
+    tab === 'products' ||
+    tab === 'product' ||
+    tab === 'services' ||
+    tab === 'service' ||
+    tab === 'tools' ||
+    tab === 'tool' ||
+    tab === 'tool_properties' ||
+    tab === 'tool_property'
+  )
     return 'admin';
   if (tab === 'audit') return 'audit';
   if (tab === 'changes') return 'changes';

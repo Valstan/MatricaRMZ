@@ -174,6 +174,33 @@ contextBridge.exposeInMainWorld('matrica', {
     delete: async (id: string) => ipcRenderer.invoke('supplyRequests:delete', id),
     transition: async (args: { id: string; action: string; note?: string | null }) => ipcRenderer.invoke('supplyRequests:transition', args),
   },
+  tools: {
+    list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),
+    get: async (id: string) => ipcRenderer.invoke('tools:get', id),
+    create: async () => ipcRenderer.invoke('tools:create'),
+    setAttr: async (args: { toolId: string; code: string; value: unknown }) => ipcRenderer.invoke('tools:setAttr', args),
+    delete: async (id: string) => ipcRenderer.invoke('tools:delete', id),
+    exportPdf: async (toolId: string) => ipcRenderer.invoke('tools:exportPdf', toolId),
+    movements: {
+      list: async (toolId: string) => ipcRenderer.invoke('tools:movements:list', toolId),
+      add: async (args: {
+        toolId: string;
+        movementAt: number;
+        mode: 'received' | 'returned';
+        employeeId?: string | null;
+        confirmed?: boolean;
+        confirmedById?: string | null;
+        comment?: string | null;
+      }) => ipcRenderer.invoke('tools:movements:add', args),
+    },
+    properties: {
+      list: async () => ipcRenderer.invoke('tools:properties:list'),
+      get: async (id: string) => ipcRenderer.invoke('tools:properties:get', id),
+      create: async () => ipcRenderer.invoke('tools:properties:create'),
+      setAttr: async (args: { id: string; code: string; value: unknown }) => ipcRenderer.invoke('tools:properties:setAttr', args),
+      delete: async (id: string) => ipcRenderer.invoke('tools:properties:delete', id),
+    },
+  },
   parts: {
     list: async (args?: { q?: string; limit?: number }) => ipcRenderer.invoke('parts:list', args),
     get: async (partId: string) => ipcRenderer.invoke('parts:get', partId),

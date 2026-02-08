@@ -20,6 +20,10 @@ export type TabId =
   | 'request'
   | 'parts'
   | 'part'
+  | 'tools'
+  | 'tool'
+  | 'tool_properties'
+  | 'tool_property'
   | 'employees'
   | 'employee'
   | 'changes'
@@ -33,7 +37,18 @@ export type TabId =
 
 export type MenuTabId = Exclude<
   TabId,
-  'engine' | 'request' | 'part' | 'employee' | 'contract' | 'engine_brand' | 'product' | 'service' | 'counterparty'
+  | 'engine'
+  | 'request'
+  | 'part'
+  | 'employee'
+  | 'contract'
+  | 'engine_brand'
+  | 'product'
+  | 'service'
+  | 'counterparty'
+  | 'tool'
+  | 'tool_property'
+  | 'tool_properties'
 >;
 export type TabsLayoutPrefs = {
   order?: MenuTabId[];
@@ -103,6 +118,7 @@ export function Tabs(props: {
     counterparties: 'Контрагенты',
     requests: 'Заявки',
     parts: 'Детали',
+    tools: 'Инструменты',
     products: 'Товары',
     services: 'Услуги',
     employees: 'Сотрудники',
