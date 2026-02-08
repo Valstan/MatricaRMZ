@@ -90,6 +90,7 @@ export function ToolDetailsPage(props: {
   const [newMoveConfirmed, setNewMoveConfirmed] = useState<boolean>(false);
   const [newMoveConfirmedById, setNewMoveConfirmedById] = useState<string>('');
   const [newMoveComment, setNewMoveComment] = useState<string>('');
+  const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
 
   const employeeLabelById = useMemo(() => new Map(employeeOptions.map((o) => [o.id, o.label])), [employeeOptions]);
   const departmentLabelById = useMemo(() => new Map(departmentOptions.map((o) => [o.id, o.label])), [departmentOptions]);
@@ -236,6 +237,10 @@ export function ToolDetailsPage(props: {
   }, [properties.map((p) => p.propertyId).join('|')]);
 
   async function addMovement() {
+    if (editingMovementId) {
+      await updateMovement();
+      return;
+    }
     const movementAt = fromInputDate(newMoveDate) ?? Date.now();
     const r = await window.matrica.tools.movements.add({
       toolId: props.toolId,
@@ -256,6 +261,62 @@ export function ToolDetailsPage(props: {
     setNewMoveConfirmed(false);
     setNewMoveConfirmedById('');
     setNewMoveComment('');
+    await refreshMovements();
+  }
+
+  async function updateMovement() {
+    if (!editingMovementId) return;
+    const movementAt = fromInputDate(newMoveDate) ?? Date.now();
+    const r = await window.matrica.tools.movements.update({
+      id: editingMovementId,
+      toolId: props.toolId,
+      movementAt,
+      mode: newMoveMode,
+      employeeId: newMoveEmployeeId || null,
+      confirmed: newMoveConfirmed,
+      confirmedById: newMoveConfirmed ? newMoveConfirmedById || null : null,
+      comment: newMoveComment.trim() || null,
+    });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    setEditingMovementId(null);
+    setNewMoveDate('');
+    setNewMoveMode('received');
+    setNewMoveEmployeeId('');
+    setNewMoveConfirmed(false);
+    setNewMoveConfirmedById('');
+    setNewMoveComment('');
+    await refreshMovements();
+  }
+
+  function startEditMovement(m: MovementRow) {
+    setEditingMovementId(m.id);
+    setNewMoveDate(toInputDate(m.movementAt));
+    setNewMoveMode(m.mode);
+    setNewMoveEmployeeId(m.employeeId ?? '');
+    setNewMoveConfirmed(m.confirmed);
+    setNewMoveConfirmedById(m.confirmedById ?? '');
+    setNewMoveComment(m.comment ?? '');
+  }
+
+  async function deleteMovement(m: MovementRow) {
+    if (!confirm('Удалить движение инструмента?')) return;
+    const r = await window.matrica.tools.movements.delete({ id: m.id, toolId: props.toolId });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    if (editingMovementId === m.id) {
+      setEditingMovementId(null);
+      setNewMoveDate('');
+      setNewMoveMode('received');
+      setNewMoveEmployeeId('');
+      setNewMoveConfirmed(false);
+      setNewMoveConfirmedById('');
+      setNewMoveComment('');
+    }
     await refreshMovements();
   }
 
@@ -565,9 +626,27 @@ export function ToolDetailsPage(props: {
         </div>
         {props.canEdit && (
           <div>
-            <Button tone="success" onClick={() => void addMovement()}>
-              Добавить движение
-            </Button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Button tone="success" onClick={() => void addMovement()}>
+                {editingMovementId ? 'Сохранить движение' : 'Добавить движение'}
+              </Button>
+              {editingMovementId && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setEditingMovementId(null);
+                    setNewMoveDate('');
+                    setNewMoveMode('received');
+                    setNewMoveEmployeeId('');
+                    setNewMoveConfirmed(false);
+                    setNewMoveConfirmedById('');
+                    setNewMoveComment('');
+                  }}
+                >
+                  Отмена
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -591,7 +670,18 @@ export function ToolDetailsPage(props: {
                 </tr>
               )}
               {movements.map((m) => (
-                <tr key={m.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <tr
+                  key={m.id}
+                  style={{
+                    borderBottom: '1px solid #f3f4f6',
+                    cursor: props.canEdit ? 'pointer' : 'default',
+                    background: editingMovementId === m.id ? 'var(--card-row-drag-bg)' : undefined,
+                  }}
+                  onClick={() => {
+                    if (!props.canEdit) return;
+                    startEditMovement(m);
+                  }}
+                >
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>
                     {m.movementAt ? new Date(m.movementAt).toLocaleDateString('ru-RU') : '—'}
                   </td>
@@ -602,7 +692,23 @@ export function ToolDetailsPage(props: {
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
                     {m.confirmed ? `Да (${m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—'})` : 'Нет'}
                   </td>
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{m.comment || '—'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ flex: 1 }}>{m.comment || '—'}</span>
+                      {props.canEdit && (
+                        <Button
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteMovement(m);
+                          }}
+                          style={{ color: '#b91c1c' }}
+                        >
+                          Удалить
+                        </Button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

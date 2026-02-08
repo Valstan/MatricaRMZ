@@ -724,6 +724,63 @@ export async function addToolMovement(
   return { ok: true as const };
 }
 
+export async function updateToolMovement(
+  db: BetterSQLite3Database,
+  args: {
+    id: string;
+    toolId: string;
+    movementAt: number;
+    mode: 'received' | 'returned';
+    employeeId?: string | null;
+    confirmed?: boolean;
+    confirmedById?: string | null;
+    comment?: string | null;
+    actor: string;
+    scope?: { userId: string; role: string };
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const access = await ensureToolAccess(db, args.toolId, args.scope, 'edit');
+  if (!access.ok) return access;
+  const ts = nowMs();
+  const payload = {
+    toolId: args.toolId,
+    movementAt: args.movementAt,
+    mode: args.mode,
+    employeeId: args.employeeId ?? null,
+    confirmed: args.confirmed === true,
+    confirmedById: args.confirmedById ?? null,
+    comment: args.comment ?? null,
+  };
+  await db
+    .update(operations)
+    .set({
+      operationType: TOOL_MOVEMENT_TYPE,
+      status: args.mode,
+      note: args.comment ?? null,
+      performedAt: args.movementAt,
+      performedBy: args.actor?.trim() ? args.actor.trim() : 'local',
+      metaJson: JSON.stringify(payload),
+      updatedAt: ts,
+      syncStatus: 'pending',
+    })
+    .where(and(eq(operations.id, args.id), eq(operations.engineEntityId, args.toolId), eq(operations.operationType, TOOL_MOVEMENT_TYPE)));
+  return { ok: true as const };
+}
+
+export async function deleteToolMovement(
+  db: BetterSQLite3Database,
+  args: { id: string; toolId: string; scope?: { userId: string; role: string } },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const access = await ensureToolAccess(db, args.toolId, args.scope, 'edit');
+  if (!access.ok) return access;
+  const ts = nowMs();
+  await db
+    .update(operations)
+    .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
+    .where(and(eq(operations.id, args.id), eq(operations.engineEntityId, args.toolId), eq(operations.operationType, TOOL_MOVEMENT_TYPE)));
+  return { ok: true as const };
+}
+
 function fileListHtml(list: unknown) {
   const items = Array.isArray(list)
     ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')

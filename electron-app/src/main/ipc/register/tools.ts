@@ -8,6 +8,7 @@ import {
   createToolCatalogItem,
   createTool,
   createToolProperty,
+  deleteToolMovement,
   deleteTool,
   deleteToolProperty,
   exportToolCardPdf,
@@ -17,6 +18,7 @@ import {
   getToolsScope,
   listToolCatalog,
   listToolMovements,
+  updateToolMovement,
   listToolPropertyValueHints,
   listToolProperties,
   listTools,
@@ -105,6 +107,40 @@ export function registerToolsIpc(ctx: IpcContext) {
       return addToolMovement(ctx.dataDb(), { ...args, actor, scope });
     },
   );
+
+  ipcMain.handle(
+    'tools:movements:update',
+    async (
+      _e,
+      args: {
+        id: string;
+        toolId: string;
+        movementAt: number;
+        mode: 'received' | 'returned';
+        employeeId?: string | null;
+        confirmed?: boolean;
+        confirmedById?: string | null;
+        comment?: string | null;
+      },
+    ) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+      if (!gate.ok) return gate as any;
+      const scope = await getScope();
+      if (!scope) return { ok: false as const, error: 'missing user session' };
+      const actor = await ctx.currentActor();
+      return updateToolMovement(ctx.dataDb(), { ...args, actor, scope });
+    },
+  );
+
+  ipcMain.handle('tools:movements:delete', async (_e, args: { id: string; toolId: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+    if (!gate.ok) return gate as any;
+    const scope = await getScope();
+    if (!scope) return { ok: false as const, error: 'missing user session' };
+    return deleteToolMovement(ctx.dataDb(), { ...args, scope });
+  });
 
   ipcMain.handle('tools:exportPdf', async (_e, toolId: string) => {
     const gate = await requirePermOrResult(ctx, 'masterdata.view');

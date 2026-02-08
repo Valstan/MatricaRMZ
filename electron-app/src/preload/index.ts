@@ -193,6 +193,17 @@ contextBridge.exposeInMainWorld('matrica', {
         confirmedById?: string | null;
         comment?: string | null;
       }) => ipcRenderer.invoke('tools:movements:add', args),
+      update: async (args: {
+        id: string;
+        toolId: string;
+        movementAt: number;
+        mode: 'received' | 'returned';
+        employeeId?: string | null;
+        confirmed?: boolean;
+        confirmedById?: string | null;
+        comment?: string | null;
+      }) => ipcRenderer.invoke('tools:movements:update', args),
+      delete: async (args: { id: string; toolId: string }) => ipcRenderer.invoke('tools:movements:delete', args),
     },
     properties: {
       list: async () => ipcRenderer.invoke('tools:properties:list'),
