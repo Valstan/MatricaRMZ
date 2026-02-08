@@ -511,15 +511,15 @@ export function NotesPage(props: {
           renderItem={(item, itemProps, _dragHandleProps, state) => (
             <div
               {...itemProps}
+              className="card-row"
               style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr',
-                gap: 10,
+                gap: 8,
                 alignItems: 'start',
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-                background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                padding: '4px 6px',
+                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
               }}
             >
               {renderNote(item)}

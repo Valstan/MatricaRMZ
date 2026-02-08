@@ -46,6 +46,43 @@ body {
   --button-ghost-text: #0b1220;
   --button-ghost-shadow: 0 6px 12px rgba(15, 23, 42, 0.07);
 
+  --list-row-bg: #f8fafc;
+  --list-row-bg-alt: #eef2f7;
+  --list-row-bg-hover: #e2e8f0;
+  --list-row-border: rgba(15, 23, 42, 0.14);
+  --list-row-text: #0b1220;
+  --list-row-padding-y: 6px;
+  --list-row-padding-x: 10px;
+  --list-row-green-bg: #ecfdf3;
+  --list-row-green-alt: #dcfce7;
+  --list-row-green-hover: #bbf7d0;
+
+  --card-panel-bg: #eff6ff;
+  --card-panel-border: rgba(37, 99, 235, 0.28);
+  --card-row-bg: #e0f2fe;
+  --card-row-bg-hover: #dbeafe;
+  --card-row-border: rgba(37, 99, 235, 0.25);
+  --card-row-gap: 6px;
+  --card-row-padding-y: 6px;
+  --card-row-padding-x: 8px;
+  --card-row-drag-bg: rgba(59, 130, 246, 0.12);
+
+  --tone-success-bg: linear-gradient(135deg, #16a34a 0%, #22c55e 110%);
+  --tone-success-border: #15803d;
+  --tone-success-text: #ffffff;
+  --tone-info-bg: linear-gradient(135deg, #0ea5e9 0%, #2563eb 110%);
+  --tone-info-border: #1d4ed8;
+  --tone-info-text: #ffffff;
+  --tone-warn-bg: linear-gradient(135deg, #f59e0b 0%, #f97316 110%);
+  --tone-warn-border: #c2410c;
+  --tone-warn-text: #111827;
+  --tone-danger-bg: linear-gradient(135deg, #ef4444 0%, #b91c1c 110%);
+  --tone-danger-border: #991b1b;
+  --tone-danger-text: #ffffff;
+  --tone-neutral-bg: linear-gradient(135deg, #e2e8f0 0%, #cbd5f5 110%);
+  --tone-neutral-border: #94a3b8;
+  --tone-neutral-text: #0b1220;
+
   --chat-mine-bg: #ecfeff;
   --chat-mine-border: #a5f3fc;
   --chat-other-bg: #f8fafc;
@@ -95,6 +132,38 @@ body {
   --button-ghost-border: rgba(148, 163, 184, 0.35);
   --button-ghost-text: #e2e8f0;
   --button-ghost-shadow: 0 8px 14px rgba(2, 6, 23, 0.4);
+
+  --list-row-bg: rgba(30, 41, 59, 0.72);
+  --list-row-bg-alt: rgba(30, 41, 59, 0.88);
+  --list-row-bg-hover: rgba(56, 189, 248, 0.2);
+  --list-row-border: rgba(148, 163, 184, 0.28);
+  --list-row-text: #e2e8f0;
+  --list-row-green-bg: rgba(22, 163, 74, 0.22);
+  --list-row-green-alt: rgba(22, 163, 74, 0.32);
+  --list-row-green-hover: rgba(34, 197, 94, 0.35);
+
+  --card-panel-bg: rgba(30, 58, 138, 0.22);
+  --card-panel-border: rgba(96, 165, 250, 0.4);
+  --card-row-bg: rgba(14, 116, 144, 0.22);
+  --card-row-bg-hover: rgba(14, 116, 144, 0.32);
+  --card-row-border: rgba(56, 189, 248, 0.3);
+  --card-row-drag-bg: rgba(56, 189, 248, 0.25);
+
+  --tone-success-bg: linear-gradient(135deg, #16a34a 0%, #22c55e 120%);
+  --tone-success-border: #22c55e;
+  --tone-success-text: #f8fafc;
+  --tone-info-bg: linear-gradient(135deg, #0ea5e9 0%, #1d4ed8 120%);
+  --tone-info-border: #3b82f6;
+  --tone-info-text: #f8fafc;
+  --tone-warn-bg: linear-gradient(135deg, #f59e0b 0%, #ea580c 120%);
+  --tone-warn-border: #f59e0b;
+  --tone-warn-text: #0b1220;
+  --tone-danger-bg: linear-gradient(135deg, #ef4444 0%, #b91c1c 120%);
+  --tone-danger-border: #ef4444;
+  --tone-danger-text: #f8fafc;
+  --tone-neutral-bg: linear-gradient(135deg, #1f2937 0%, #111827 120%);
+  --tone-neutral-border: #475569;
+  --tone-neutral-text: #e2e8f0;
 
   --chat-mine-bg: rgba(14, 116, 144, 0.22);
   --chat-mine-border: rgba(56, 189, 248, 0.35);
@@ -147,6 +216,86 @@ samp {
 /* Tables: crisper look by default */
 table {
   font-variant-numeric: tabular-nums;
+}
+
+table.list-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.list-table tbody tr {
+  background: var(--list-row-bg);
+  color: var(--list-row-text);
+}
+
+table.list-table tbody tr:nth-child(even) {
+  background: var(--list-row-bg-alt);
+}
+
+table.list-table tbody tr:hover {
+  background: var(--list-row-bg-hover);
+}
+
+table.list-table th {
+  padding: 7px var(--list-row-padding-x) !important;
+}
+
+table.list-table td {
+  padding: var(--list-row-padding-y) var(--list-row-padding-x) !important;
+  border-bottom: 1px solid var(--list-row-border);
+}
+
+table.list-table.list-table--catalog {
+  --list-row-bg: var(--list-row-green-bg);
+  --list-row-bg-alt: var(--list-row-green-alt);
+  --list-row-bg-hover: var(--list-row-green-hover);
+}
+
+.list-panel {
+  --list-row-bg: var(--list-row-bg);
+  --list-row-bg-alt: var(--list-row-bg-alt);
+  --list-row-bg-hover: var(--list-row-bg-hover);
+  --list-row-border: var(--list-row-border);
+}
+
+.list-panel--catalog {
+  --list-row-bg: var(--list-row-green-bg);
+  --list-row-bg-alt: var(--list-row-green-alt);
+  --list-row-bg-hover: var(--list-row-green-hover);
+}
+
+.list-row {
+  background: var(--list-row-bg);
+  border-bottom: 1px solid var(--list-row-border);
+  padding: var(--list-row-padding-y) var(--list-row-padding-x);
+}
+
+.list-row:nth-child(even) {
+  background: var(--list-row-bg-alt);
+}
+
+.list-row:hover {
+  background: var(--list-row-bg-hover);
+}
+
+.card-panel {
+  background: var(--card-panel-bg);
+  border: 1px solid var(--card-panel-border);
+}
+
+.card-row-list {
+  display: grid;
+  gap: var(--card-row-gap);
+}
+
+.card-row {
+  background: var(--card-row-bg);
+  border: 1px solid var(--card-row-border);
+  padding: var(--card-row-padding-y) var(--card-row-padding-x);
+}
+
+.card-row:hover {
+  background: var(--card-row-bg-hover);
 }
 
 @keyframes chatBlink {

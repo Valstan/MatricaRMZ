@@ -486,22 +486,22 @@ export function SimpleMasterdataDetailsPage(props: {
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
           </Button>
         )}
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
             Удалить
           </Button>
         )}
-        <Button variant="ghost" onClick={() => void load()}>
+        <Button variant="ghost" tone="neutral" onClick={() => void load()}>
           Обновить
         </Button>
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+      <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -517,15 +517,15 @@ export function SimpleMasterdataDetailsPage(props: {
           renderItem={(field, itemProps, _dragHandleProps, state) => (
             <div
               {...itemProps}
+              className="card-row"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(160px, 200px) 1fr',
-                gap: 10,
+                gap: 8,
                 alignItems: 'center',
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-                background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                padding: '4px 6px',
+                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
               }}
             >
               <div

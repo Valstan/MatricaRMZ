@@ -736,15 +736,15 @@ export function PartDetailsPage(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
           </Button>
         )}
-        <Button variant="ghost" onClick={printPartCard}>
+        <Button variant="ghost" tone="info" onClick={printPartCard}>
           Распечатать
         </Button>
         {props.canDelete && (
-          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
             Удалить
           </Button>
         )}
@@ -755,12 +755,12 @@ export function PartDetailsPage(props: {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         {/* Core */}
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+        <div className="card-panel" style={{ borderRadius: 12, padding: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <strong>Основное</strong>
             <span style={{ flex: 1 }} />
             {props.canEdit && (
-              <Button variant="ghost" onClick={() => void saveCore()}>
+              <Button variant="ghost" tone="success" onClick={() => void saveCore()}>
                 Сохранить
               </Button>
             )}
@@ -781,15 +781,15 @@ export function PartDetailsPage(props: {
             renderItem={(field, itemProps, _dragHandleProps, state) => (
               <div
                 {...itemProps}
+                className="card-row"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'minmax(140px, 180px) 1fr',
-                  gap: 10,
+                  gap: 8,
                   alignItems: 'center',
-                  padding: '6px 8px',
-                  borderRadius: 8,
-                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-                  background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                  padding: '4px 6px',
+                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                  background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                 }}
               >
                 <div
@@ -808,7 +808,7 @@ export function PartDetailsPage(props: {
         </div>
 
         {/* Meta / placeholders for next steps */}
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+        <div className="card-panel" style={{ borderRadius: 12, padding: 16 }}>
           <strong>Карточка</strong>
           <div style={{ marginTop: 10, color: '#6b7280', fontSize: 13 }}>
             <div>
@@ -828,7 +828,7 @@ export function PartDetailsPage(props: {
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ color: '#6b7280', fontSize: 13 }}>Марки двигателя</div>
                 <span style={{ flex: 1 }} />
-                <Button variant="ghost" onClick={() => void loadEngineBrands()}>
+                <Button variant="ghost" tone="neutral" onClick={() => void loadEngineBrands()}>
                   Обновить
                 </Button>
               </div>

@@ -186,7 +186,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   function renderTable(items: Row[]) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="list-table">
           {tableHeader}
           <tbody>
             {items.length === 0 && (

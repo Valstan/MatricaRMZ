@@ -21,7 +21,7 @@ export function DraggableFieldList<T>(props: {
   const { items, getKey, renderItem } = props;
 
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
+    <div className="card-row-list" style={{ display: 'grid', gap: 6 }}>
       {items.map((item) => {
         const itemProps: DragItemProps = {};
         const dragHandleProps: DragHandleProps = {

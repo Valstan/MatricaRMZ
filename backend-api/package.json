@@ -15,6 +15,7 @@
     "user:create": "tsx src/scripts/createUser.ts",
     "users:migrate": "tsx src/scripts/migrateUsersToEmployees.ts",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
+    "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
     "sync:backfill-change-log": "tsx src/scripts/backfillChangeLog.ts",
     "sync:emit-snapshot": "tsx src/scripts/emitSyncSnapshot.ts",
     "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",

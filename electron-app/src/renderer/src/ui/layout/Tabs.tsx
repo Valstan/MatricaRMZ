@@ -190,10 +190,10 @@ export function Tabs(props: {
                 border: '2px dashed #dc2626',
                 background: `linear-gradient(135deg, ${acc.bg} 0%, ${acc.border} 120%)`,
                 color: acc.text,
-                boxShadow: '0 12px 22px rgba(0,0,0,0.15)',
-                fontWeight: 700,
-                fontSize: 15,
-                transform: 'scale(1.03)',
+                boxShadow: '0 14px 24px rgba(0,0,0,0.18)',
+                fontWeight: 800,
+                fontSize: 16,
+                transform: 'scale(1.06)',
               }
             : {
                 border: `1px solid ${acc.border}`,

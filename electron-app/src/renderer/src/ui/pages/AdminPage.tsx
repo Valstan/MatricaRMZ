@@ -787,7 +787,7 @@ export function MasterdataPage(props: {
             {!selectedTypeId ? (
               <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите справочник</div>
             ) : (
-              <div style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+              <div className="list-panel list-panel--catalog" style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                 <div style={{ maxHeight: 260, overflowY: 'auto' }}>
                   {filteredEntities.map((e) => {
                     const active = e.id === selectedEntityId;
@@ -796,14 +796,14 @@ export function MasterdataPage(props: {
                       <div
                         key={e.id}
                         onClick={() => setSelectedEntityId(e.id)}
+                        className="list-row"
                         style={{
-                          padding: '10px 12px',
                           cursor: 'pointer',
-                          borderBottom: '1px solid #f3f4f6',
-                          background: active ? '#ecfeff' : '#fff',
+                          borderLeft: active ? '3px solid #22c55e' : '3px solid transparent',
+                          background: active ? 'var(--list-row-green-hover)' : undefined,
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 10,
+                          gap: 8,
                         }}
                       >
                         <div>
@@ -833,7 +833,13 @@ export function MasterdataPage(props: {
           </div>
 
           {selectedEntity ? (
-            <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+            <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <div style={{ fontWeight: 800, color: 'var(--text)' }}>Карточка записи</div>
+                <div style={{ color: '#64748b', fontSize: 12 }}>
+                  {selectedType?.name ? `Справочник: ${selectedType.name}` : ''}
+                </div>
+              </div>
               <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
                 {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
               </div>
@@ -1170,7 +1176,7 @@ export function MasterdataPage(props: {
                     </div>
 
                     <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <table className="list-table list-table--catalog">
                         <thead>
                           <tr style={{ background: 'linear-gradient(135deg, #f97316 0%, #ea580c 120%)', color: '#fff' }}>
                             <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Тип</th>
@@ -1292,7 +1298,7 @@ export function MasterdataPage(props: {
                     />
                   )}
                   <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table className="list-table list-table--catalog">
                       <thead>
                         <tr style={{ background: 'linear-gradient(135deg, #db2777 0%, #9d174d 120%)', color: '#fff' }}>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Код</th>

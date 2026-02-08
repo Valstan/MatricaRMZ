@@ -249,23 +249,23 @@ export function EngineBrandDetailsPage(props: {
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
           </Button>
         )}
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
             Удалить
           </Button>
         )}
-        <Button variant="ghost" onClick={() => void loadBrand()}>
+        <Button variant="ghost" tone="neutral" onClick={() => void loadBrand()}>
           Обновить
         </Button>
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 200px) 1fr', gap: 10 }}>
+        <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 200px) 1fr', gap: 8 }}>
           <div style={{ color: '#6b7280' }}>Название</div>
           <Input
             value={name}
@@ -295,7 +295,7 @@ export function EngineBrandDetailsPage(props: {
         </div>
       </div>
 
-      <div style={{ marginTop: 14, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+      <div className="card-panel" style={{ marginTop: 14, borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <div style={{ fontWeight: 600 }}>Детали для марки</div>
           <div style={{ flex: 1 }} />

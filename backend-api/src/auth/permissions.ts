@@ -22,6 +22,8 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   if (r !== 'admin' && r !== 'superadmin') {
     all[PermissionCode.AdminUsersManage] = false;
     all[PermissionCode.ClientsManage] = false;
+    all[PermissionCode.ChatAdminView] = false;
+    all[PermissionCode.ChatExport] = false;
   }
   return all;
 }
@@ -61,6 +63,13 @@ export async function getEffectivePermissionsForUser(userId: string): Promise<Re
   // Политика безопасности: `admin.users.manage` доступен только admin/superadmin.
   if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.AdminUsersManage] = false;
   if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.ClientsManage] = false;
+  if (role !== 'admin' && role !== 'superadmin') {
+    base[PermissionCode.ChatAdminView] = false;
+    base[PermissionCode.ChatExport] = false;
+  } else {
+    base[PermissionCode.ChatAdminView] = true;
+    base[PermissionCode.ChatExport] = true;
+  }
 
   return base;
 }

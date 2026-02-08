@@ -524,6 +524,25 @@ adminUsersRouter.put('/users/:id/permissions', async (req, res) => {
         return res.status(400).json({ ok: false, error: 'admin.users.manage is allowed only for role=admin' });
       }
     }
+    // policy: chat admin permissions only for admin/superadmin
+    if (Object.prototype.hasOwnProperty.call(parsed.data.set, PermissionCode.ChatAdminView)) {
+      const next = parsed.data.set[PermissionCode.ChatAdminView];
+      if ((targetRole === 'admin' || targetRole === 'superadmin') && next === false) {
+        return res.status(400).json({ ok: false, error: 'chat.admin.view is required for admin roles' });
+      }
+      if (targetRole !== 'admin' && targetRole !== 'superadmin' && next === true) {
+        return res.status(400).json({ ok: false, error: 'chat.admin.view is allowed only for role=admin' });
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(parsed.data.set, PermissionCode.ChatExport)) {
+      const next = parsed.data.set[PermissionCode.ChatExport];
+      if ((targetRole === 'admin' || targetRole === 'superadmin') && next === false) {
+        return res.status(400).json({ ok: false, error: 'chat.export is required for admin roles' });
+      }
+      if (targetRole !== 'admin' && targetRole !== 'superadmin' && next === true) {
+        return res.status(400).json({ ok: false, error: 'chat.export is allowed only for role=admin' });
+      }
+    }
 
     if (actorRole === 'admin' && targetRole !== 'user') {
       return res.status(403).json({ ok: false, error: 'admin can manage only users' });

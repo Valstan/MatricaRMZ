@@ -669,7 +669,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                   </div>
 
                   <div style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table className="list-table">
                       <thead>
                         <tr style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 120%)', color: '#fff' }}>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>perm</th>

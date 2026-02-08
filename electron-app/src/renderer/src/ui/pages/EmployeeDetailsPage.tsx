@@ -975,21 +975,22 @@ export function EmployeeDetailsPage(props: {
         {departmentLabel && <span style={{ color: '#6b7280' }}>• {departmentLabel}</span>}
         <span style={{ flex: 1 }} />
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
           </Button>
         )}
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
             {meRole === 'superadmin' ? 'Удалить' : 'Запросить удаление'}
           </Button>
         )}
-        <Button variant="ghost" onClick={printEmployeeCard}>
+        <Button variant="ghost" tone="info" onClick={printEmployeeCard}>
           Распечатать
         </Button>
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+      <div className="card-panel" style={{ borderRadius: 12, padding: 12, maxWidth: 900 }}>
       <DraggableFieldList
         items={mainFields}
         getKey={(f) => f.code}
@@ -1005,16 +1006,16 @@ export function EmployeeDetailsPage(props: {
         renderItem={(field, itemProps, _dragHandleProps, state) => (
           <div
             {...itemProps}
+            className="card-row"
             style={{
               display: 'grid',
               gridTemplateColumns: '220px 1fr',
-              gap: 10,
+              gap: 8,
               alignItems: 'center',
               maxWidth: 820,
-              padding: '6px 8px',
-              borderRadius: 8,
-              border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-              background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+              padding: '4px 6px',
+              border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+              background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
             }}
           >
             <div style={{ color: '#6b7280' }}>{field.label}</div>
@@ -1022,6 +1023,7 @@ export function EmployeeDetailsPage(props: {
           </div>
         )}
       />
+      </div>
 
       <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1128,16 +1130,16 @@ export function EmployeeDetailsPage(props: {
               renderItem={(def, itemProps, _dragHandleProps, state) => (
                 <div
                   {...itemProps}
+                  className="card-row"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '200px 1fr',
-                    gap: 10,
+                    gap: 8,
                     alignItems: 'center',
                     maxWidth: 820,
-                    padding: '6px 8px',
-                    borderRadius: 8,
-                    border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-                    background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                    padding: '4px 6px',
+                    border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                    background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                   }}
                 >
                   <div style={{ color: '#6b7280' }}>{def.name}</div>

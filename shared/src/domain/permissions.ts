@@ -133,8 +133,8 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.PartsFilesDelete, group: 'Детали', titleRu: 'Удаление файлов у деталей' },
 
   { code: PermissionCode.ChatUse, group: 'Чат', titleRu: 'Использование чата' },
-  { code: PermissionCode.ChatExport, group: 'Чат', titleRu: 'Экспорт сообщений чата (админ)' },
-  { code: PermissionCode.ChatAdminView, group: 'Чат', titleRu: 'Просмотр всех чатов (включая приватные, админ)' },
+  { code: PermissionCode.ChatExport, group: 'Чат', titleRu: 'Экспорт сообщений чата (админ)', adminOnly: true },
+  { code: PermissionCode.ChatAdminView, group: 'Чат', titleRu: 'Просмотр всех чатов (включая приватные, админ)', adminOnly: true },
 ];
 
 export const PERM_META_BY_CODE: Record<string, PermissionMeta> = Object.fromEntries(

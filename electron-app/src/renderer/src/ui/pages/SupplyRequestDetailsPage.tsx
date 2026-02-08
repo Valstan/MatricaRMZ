@@ -565,17 +565,18 @@ export function SupplyRequestDetailsPage(props: {
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         {props.canEdit && (
-          <Button variant="ghost" onClick={() => void saveAllAndClose()}>
+          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
           </Button>
         )}
-        <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
+        <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
           Удалить
         </Button>
         {props.canPrint && (
           <>
             <Button
               variant="ghost"
+              tone="info"
               onClick={() => {
                 printSupplyRequest(payload, departmentLabel, 'short', orderedPrintRows);
               }}
@@ -584,6 +585,7 @@ export function SupplyRequestDetailsPage(props: {
             </Button>
             <Button
               variant="ghost"
+              tone="info"
               onClick={() => {
                 printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows);
               }}
@@ -594,12 +596,12 @@ export function SupplyRequestDetailsPage(props: {
         )}
         <div style={{ flex: 1 }} />
         {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
-        <Button variant="ghost" onClick={() => void load()}>
+        <Button variant="ghost" tone="neutral" onClick={() => void load()}>
           Обновить
         </Button>
       </div>
 
-      <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+      <div className="card-panel" style={{ marginTop: 12, borderRadius: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -615,15 +617,15 @@ export function SupplyRequestDetailsPage(props: {
           renderItem={(field, itemProps, _dragHandleProps, state) => (
             <div
               {...itemProps}
+              className="card-row"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(150px, 200px) 1fr',
-                gap: 10,
+                gap: 8,
                 alignItems: 'center',
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-                background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                padding: '4px 6px',
+                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
               }}
             >
               <div style={{ color: '#6b7280' }}>{field.label}</div>

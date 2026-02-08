@@ -1,8 +1,21 @@
 import React from 'react';
 
-export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' }) {
+type ButtonTone = 'success' | 'info' | 'warn' | 'danger' | 'neutral';
+
+export function Button(
+  props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost'; tone?: ButtonTone },
+) {
   const variant = props.variant ?? 'primary';
   const disabled = props.disabled === true;
+  const tone = props.tone;
+  const toneStyle: React.CSSProperties | null = tone
+    ? {
+        background: `var(--tone-${tone}-bg)`,
+        border: `1px solid var(--tone-${tone}-border)`,
+        color: `var(--tone-${tone}-text)`,
+        boxShadow: disabled ? 'none' : 'var(--button-primary-shadow)',
+      }
+    : null;
   const style: React.CSSProperties =
     variant === 'primary'
       ? {
@@ -32,7 +45,7 @@ export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { 
           opacity: disabled ? 0.55 : 1,
         };
 
-  return <button {...props} style={{ ...style, ...(props.style ?? {}) }} />;
+  return <button {...props} style={{ ...style, ...(toneStyle ?? {}), ...(props.style ?? {}) }} />;
 }
 
 

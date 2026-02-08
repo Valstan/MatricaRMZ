@@ -154,7 +154,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
       {msg && <div style={{ marginTop: 10, color: msg.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{msg}</div>}
 
       <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="list-table">
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #16a34a 0%, #15803d 120%)', color: '#fff' }}>
               <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Раздел</th>

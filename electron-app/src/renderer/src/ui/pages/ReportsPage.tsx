@@ -706,7 +706,7 @@ export function ReportsPage(props: { canExport: boolean }) {
             )}
           </div>
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="list-table">
               <thead>
                 <tr style={{ background: '#f8fafc' }}>
                   <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Контракт</th>
@@ -851,7 +851,7 @@ export function ReportsPage(props: { canExport: boolean }) {
             <div key={t.name} style={{ marginBottom: 14 }}>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>{t.label}</div>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table className="list-table">
                   <thead>
                     <tr>
                       {t.columns.map((c) => (
