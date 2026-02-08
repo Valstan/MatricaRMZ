@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { ToolCatalogItem, ToolDetails, ToolListItem, ToolMovementItem, ToolPropertyListItem } from '@matricarmz/shared';
@@ -326,6 +326,204 @@ export async function listTools(
     return { ok: true as const, tools: out };
   } catch (e) {
     return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function buildToolsReport(
+  db: BetterSQLite3Database,
+  args: {
+    scope?: { userId: string; role: string };
+    startMs?: number | null;
+    endMs?: number | null;
+    nameQuery?: string | null;
+    propertyId?: string | null;
+    propertyValue?: string | null;
+    location?: 'store' | 'in_use' | 'unknown' | null;
+  },
+): Promise<
+  | {
+      ok: true;
+      rows: Array<{
+        toolId: string;
+        toolNumber?: string;
+        name?: string;
+        serialNumber?: string;
+        departmentId?: string | null;
+        departmentName?: string | null;
+        lastMovementAt?: number | null;
+        lastMovementMode?: 'received' | 'returned' | null;
+        location: 'store' | 'in_use' | 'unknown';
+      }>;
+      totals: { total: number; store: number; inUse: number; unknown: number };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const toolTypeId = await getToolTypeId(db);
+    if (!toolTypeId) {
+      return { ok: true, rows: [], totals: { total: 0, store: 0, inUse: 0, unknown: 0 } };
+    }
+    const rows = await db
+      .select()
+      .from(entities)
+      .where(and(eq(entities.typeId, toolTypeId), isNull(entities.deletedAt)))
+      .orderBy(desc(entities.updatedAt))
+      .limit(20_000);
+
+    const defIds = {
+      toolNumber: await getAttributeDefIdByCode(db, toolTypeId, 'tool_number'),
+      name: await getAttributeDefIdByCode(db, toolTypeId, 'name'),
+      serial: await getAttributeDefIdByCode(db, toolTypeId, 'serial_number'),
+      department: await getAttributeDefIdByCode(db, toolTypeId, 'department_id'),
+      properties: await getAttributeDefIdByCode(db, toolTypeId, 'properties'),
+    };
+    const defIdList = Object.values(defIds).filter(Boolean) as string[];
+    const ids = rows.map((r) => String(r.id));
+    const values =
+      ids.length && defIdList.length
+        ? await db
+            .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+            .from(attributeValues)
+            .where(and(inArray(attributeValues.entityId, ids), inArray(attributeValues.attributeDefId, defIdList), isNull(attributeValues.deletedAt)))
+            .limit(200_000)
+        : [];
+
+    const byEntity: Record<string, Record<string, unknown>> = {};
+    for (const v of values as any[]) {
+      const entityId = String(v.entityId);
+      const defId = String(v.attributeDefId);
+      if (!byEntity[entityId]) byEntity[entityId] = {};
+      byEntity[entityId][defId] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
+    }
+
+    const viewAll = args.scope?.role ? canViewAllDepartments(args.scope.role) : false;
+    const userDept = !viewAll && args.scope?.userId ? await getUserDepartmentId(db, args.scope.userId).catch(() => null) : null;
+
+    const filteredIds: string[] = [];
+    for (const row of rows as any[]) {
+      const entityId = String(row.id);
+      const rec = byEntity[entityId] ?? {};
+      const name = defIds.name ? rec[defIds.name] : null;
+      const departmentId = defIds.department ? rec[defIds.department] : null;
+
+      if (!viewAll) {
+        if (!userDept || !departmentId || String(departmentId) !== userDept) continue;
+      }
+
+      if (args.nameQuery) {
+        const q = String(args.nameQuery).toLowerCase().trim();
+        const hay = `${name ?? ''}`.toLowerCase();
+        if (!hay.includes(q)) continue;
+      }
+
+      if (args.propertyId) {
+        const propsRaw = defIds.properties ? rec[defIds.properties] : null;
+        const propsArr = Array.isArray(propsRaw) ? propsRaw : [];
+        const match = propsArr.find((p: any) => String(p?.propertyId ?? '') === String(args.propertyId));
+        if (!match) continue;
+        if (args.propertyValue) {
+          const val = String(match?.value ?? '').toLowerCase();
+          if (!val.includes(String(args.propertyValue).toLowerCase())) continue;
+        }
+      }
+
+      filteredIds.push(entityId);
+    }
+
+    if (filteredIds.length === 0) {
+      return { ok: true, rows: [], totals: { total: 0, store: 0, inUse: 0, unknown: 0 } };
+    }
+
+    const startMs = args.startMs ?? null;
+    const endMs = args.endMs ?? null;
+    const movementRows = await db
+      .select()
+      .from(operations)
+      .where(
+        and(
+          inArray(operations.engineEntityId, filteredIds),
+          eq(operations.operationType, TOOL_MOVEMENT_TYPE),
+          isNull(operations.deletedAt),
+          ...(startMs ? [gte(operations.performedAt, startMs)] : []),
+          ...(endMs ? [lte(operations.performedAt, endMs)] : []),
+        ),
+      )
+      .orderBy(desc(operations.performedAt))
+      .limit(200_000);
+
+    const lastByTool = new Map<string, { at: number; mode: 'received' | 'returned' }>();
+    for (const r of movementRows as any[]) {
+      const toolId = String(r.engineEntityId);
+      if (lastByTool.has(toolId)) continue;
+      const parsed = r.metaJson ? (safeJsonParse(String(r.metaJson)) as any) : null;
+      const mode = parsed?.mode === 'returned' ? 'returned' : 'received';
+      const at = Number(parsed?.movementAt ?? r.performedAt ?? r.createdAt);
+      lastByTool.set(toolId, { at, mode });
+    }
+
+    const departmentIds: string[] = [];
+    if (defIds.department) {
+      for (const id of filteredIds) {
+        const val = (byEntity[id] ?? {})[defIds.department];
+        if (val) departmentIds.push(String(val));
+      }
+    }
+    const departmentNames = await getDepartmentNamesById(db, departmentIds);
+
+    const out: Array<{
+      toolId: string;
+      toolNumber?: string;
+      name?: string;
+      serialNumber?: string;
+      departmentId?: string | null;
+      departmentName?: string | null;
+      lastMovementAt?: number | null;
+      lastMovementMode?: 'received' | 'returned' | null;
+      location: 'store' | 'in_use' | 'unknown';
+    }> = [];
+
+    for (const toolId of filteredIds) {
+      const rec = byEntity[toolId] ?? {};
+      const toolNumber = defIds.toolNumber ? rec[defIds.toolNumber] : null;
+      const name = defIds.name ? rec[defIds.name] : null;
+      const serialNumber = defIds.serial ? rec[defIds.serial] : null;
+      const departmentId = defIds.department ? rec[defIds.department] : null;
+      const last = lastByTool.get(toolId) ?? null;
+      const location: 'store' | 'in_use' | 'unknown' = last ? (last.mode === 'returned' ? 'store' : 'in_use') : 'unknown';
+
+      if (args.location && args.location !== location) continue;
+
+      if (startMs || endMs) {
+        if (!last) continue;
+      }
+
+      out.push({
+        toolId,
+        toolNumber: toolNumber ? String(toolNumber) : undefined,
+        name: name ? String(name) : undefined,
+        serialNumber: serialNumber ? String(serialNumber) : undefined,
+        departmentId: departmentId ? String(departmentId) : null,
+        departmentName: departmentId ? departmentNames[String(departmentId)] ?? null : null,
+        lastMovementAt: last ? last.at : null,
+        lastMovementMode: last ? last.mode : null,
+        location,
+      });
+    }
+
+    const totals = out.reduce(
+      (acc, r) => {
+        acc.total += 1;
+        if (r.location === 'store') acc.store += 1;
+        else if (r.location === 'in_use') acc.inUse += 1;
+        else acc.unknown += 1;
+        return acc;
+      },
+      { total: 0, store: 0, inUse: 0, unknown: 0 },
+    );
+
+    return { ok: true, rows: out, totals };
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
 }
 

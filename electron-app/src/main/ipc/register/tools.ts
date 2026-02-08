@@ -8,6 +8,7 @@ import {
   createToolCatalogItem,
   createTool,
   createToolProperty,
+  buildToolsReport,
   deleteToolMovement,
   deleteTool,
   deleteToolProperty,
@@ -215,4 +216,25 @@ export function registerToolsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as any;
     return listEmployeesForTools(ctx.dataDb(), args?.departmentId ?? null);
   });
+
+  ipcMain.handle(
+    'tools:report',
+    async (
+      _e,
+      args: {
+        startMs?: number | null;
+        endMs?: number | null;
+        nameQuery?: string | null;
+        propertyId?: string | null;
+        propertyValue?: string | null;
+        location?: 'store' | 'in_use' | 'unknown' | null;
+      },
+    ) => {
+      const gate = await requirePermOrResult(ctx, 'masterdata.view');
+      if (!gate.ok) return gate as any;
+      const scope = await getScope();
+      if (!scope) return { ok: false as const, error: 'missing user session' };
+      return buildToolsReport(ctx.dataDb(), { ...args, scope });
+    },
+  );
 }

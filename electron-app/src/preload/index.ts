@@ -220,6 +220,14 @@ contextBridge.exposeInMainWorld('matrica', {
     employees: {
       list: async (args?: { departmentId?: string | null }) => ipcRenderer.invoke('tools:employees:list', args),
     },
+    report: async (args: {
+      startMs?: number | null;
+      endMs?: number | null;
+      nameQuery?: string | null;
+      propertyId?: string | null;
+      propertyValue?: string | null;
+      location?: 'store' | 'in_use' | 'unknown' | null;
+    }) => ipcRenderer.invoke('tools:report', args),
   },
   parts: {
     list: async (args?: { q?: string; limit?: number }) => ipcRenderer.invoke('parts:list', args),
