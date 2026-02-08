@@ -600,6 +600,11 @@ export function SupplyRequestDetailsPage(props: {
           Обновить
         </Button>
       </div>
+      {payload ? (
+        <div style={{ marginTop: 6, color: '#64748b', fontSize: 12 }}>
+          Подразделение: <span style={{ color: '#0f172a', fontWeight: 700 }}>{departmentLabel || payload.departmentId || '-'}</span>
+        </div>
+      ) : null}
 
       <div className="card-panel" style={{ marginTop: 12, borderRadius: 12, padding: 12 }}>
         <DraggableFieldList
