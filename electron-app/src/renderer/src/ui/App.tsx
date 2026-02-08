@@ -1132,37 +1132,50 @@ export function App() {
   }
 
   const headerStatus = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, overflow: 'hidden', justifyContent: 'flex-end' }}>
       {showUpdateBanner ? (
-        <>
+        <div
+          style={{
+            position: 'relative',
+            height: 16,
+            flex: '1 1 360px',
+            minWidth: 220,
+            maxWidth: 520,
+            background: 'rgba(148, 163, 184, 0.35)',
+            overflow: 'hidden',
+          }}
+        >
           <div
             style={{
-              position: 'relative',
-              height: 16,
-              minWidth: 120,
-              maxWidth: 200,
-              flex: '0 1 200px',
-              background: 'rgba(148, 163, 184, 0.35)',
+              position: 'absolute',
+              inset: 0,
+              width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
+              background: '#2563eb',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '0 8px',
+              fontSize: 11,
+              color: '#0b1220',
+              textShadow: '0 1px 2px rgba(255,255,255,0.65)',
+              whiteSpace: 'nowrap',
               overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
-                background: '#2563eb',
-              }}
-            />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {updateBannerText}
             {updateStatus?.version ? ` v${String(updateStatus.version)}` : ''}
           </div>
-        </>
+        </div>
       ) : null}
       {postLoginSyncMsg ? (
-        <div style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 520 }}>
           {postLoginSyncMsg}
         </div>
       ) : null}

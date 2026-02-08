@@ -39,7 +39,7 @@ export function Page(props: {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', padding: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: '0 1 42%', minWidth: 180 }}>
             <h1
               style={{
                 margin: 0,
@@ -56,7 +56,7 @@ export function Page(props: {
               {props.title}
             </h1>
           </div>
-          {props.center ? <div style={{ flex: '0 1 auto', minWidth: 0 }}>{props.center}</div> : null}
+          {props.center ? <div style={{ flex: '1 1 auto', minWidth: 0 }}>{props.center}</div> : null}
           {props.right}
         </div>
         {props.topBanner ? <div style={{ marginTop: 8 }}>{props.topBanner}</div> : null}
