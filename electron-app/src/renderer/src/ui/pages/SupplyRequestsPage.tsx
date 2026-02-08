@@ -12,6 +12,7 @@ type Row = {
   status: string;
   title: string;
   departmentId: string;
+  departmentName?: string | null;
   workshopId: string | null;
   sectionId: string | null;
   updatedAt: number;
@@ -132,7 +133,7 @@ export function SupplyRequestsPage(props: {
                     void props.onOpen(r.id);
                   }}
                 >
-                  {r.departmentId || '-'}
+                  {r.departmentName || r.departmentId || '-'}
                 </td>
                 {props.canDelete && (
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} onClick={(ev) => ev.stopPropagation()}>

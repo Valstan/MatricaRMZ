@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { SupplyRequestPayload, SupplyRequestStatus } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
 
-import { auditLog, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, auditLog, entityTypes, operations } from '../database/schema.js';
 
 // Важно: engine_entity_id в sync контракте — UUID. Для заявок используем фиксированный UUID “контейнера”.
 const SUPPLY_REQUESTS_CONTAINER_ID = SystemIds.SupplyRequestsContainerEntityId;
@@ -30,6 +30,72 @@ function normalizeSearch(s: string): string {
     .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
     .replaceAll(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeRole(role: string | null | undefined) {
+  return String(role ?? '').trim().toLowerCase();
+}
+
+function canViewAllDepartments(role: string) {
+  const r = normalizeRole(role);
+  return r === 'admin' || r === 'superadmin';
+}
+
+function canEditAllDepartments(role: string) {
+  return normalizeRole(role) === 'superadmin';
+}
+
+async function getEntityTypeIdByCode(db: BetterSQLite3Database, code: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, code), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function getAttributeDefIdByCode(db: BetterSQLite3Database, entityTypeId: string, code: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, entityTypeId), eq(attributeDefs.code, code), isNull(attributeDefs.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function getUserDepartmentId(db: BetterSQLite3Database, userId: string): Promise<string | null> {
+  const employeeTypeId = await getEntityTypeIdByCode(db, 'employee');
+  if (!employeeTypeId) return null;
+  const defId = await getAttributeDefIdByCode(db, employeeTypeId, 'department_id');
+  if (!defId) return null;
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, userId), eq(attributeValues.attributeDefId, defId), isNull(attributeValues.deletedAt)))
+    .limit(1);
+  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : '';
+  if (!raw) return null;
+  const parsed = safeJsonParse(raw);
+  return typeof parsed === 'string' && parsed.trim() ? parsed.trim() : null;
+}
+
+async function getDepartmentNamesById(db: BetterSQLite3Database, ids: string[]): Promise<Record<string, string>> {
+  const unique = Array.from(new Set(ids.map((id) => String(id)).filter(Boolean)));
+  if (unique.length === 0) return {};
+  const departmentTypeId = await getEntityTypeIdByCode(db, 'department');
+  if (!departmentTypeId) return {};
+  const nameDefId = await getAttributeDefIdByCode(db, departmentTypeId, 'name');
+  if (!nameDefId) return {};
+  const rows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(inArray(attributeValues.entityId, unique), eq(attributeValues.attributeDefId, nameDefId), isNull(attributeValues.deletedAt)))
+    .limit(20_000);
+  return rows.reduce<Record<string, string>>((acc, r) => {
+    const val = r.valueJson ? safeJsonParse(String(r.valueJson)) : null;
+    if (val != null && val !== '') acc[String(r.entityId)] = String(val);
+    return acc;
+  }, {});
 }
 
 function monthKeyFromMs(ts: number): string {
@@ -58,6 +124,7 @@ async function audit(db: BetterSQLite3Database, actor: string, action: string, p
 export async function listSupplyRequests(
   db: BetterSQLite3Database,
   args?: { q?: string; month?: string },
+  scope?: { userId: string; role: string },
 ): Promise<
   | {
       ok: true;
@@ -68,6 +135,7 @@ export async function listSupplyRequests(
         status: SupplyRequestStatus;
         title: string;
         departmentId: string;
+        departmentName: string | null;
         workshopId: string | null;
         sectionId: string | null;
         updatedAt: number;
@@ -93,11 +161,19 @@ export async function listSupplyRequests(
     const month = args?.month ? String(args.month).trim() : '';
 
     const out: any[] = [];
+    const viewAll = scope?.role ? canViewAllDepartments(scope.role) : false;
+    const userDepartmentId =
+      !viewAll && scope?.userId ? await getUserDepartmentId(db, scope.userId).catch(() => null) : null;
     for (const r of rows as any[]) {
       const raw = r.metaJson ? String(r.metaJson) : '';
       if (!raw) continue;
       const parsed = safeJsonParse(raw) as any;
       if (!parsed || typeof parsed !== 'object' || parsed.kind !== 'supply_request') continue;
+
+      const departmentId = String(parsed.departmentId ?? '');
+      if (!viewAll) {
+        if (!userDepartmentId || !departmentId || departmentId !== userDepartmentId) continue;
+      }
 
       const compiledAt = Number(parsed.compiledAt ?? r.performedAt ?? r.createdAt);
       const mKey = Number.isFinite(compiledAt) ? monthKeyFromMs(compiledAt) : '';
@@ -124,20 +200,27 @@ export async function listSupplyRequests(
         compiledAt: Number.isFinite(compiledAt) ? compiledAt : Number(r.createdAt),
         status: String(parsed.status ?? r.status ?? 'draft') as SupplyRequestStatus,
         title,
-        departmentId: String(parsed.departmentId ?? ''),
+        departmentId,
         workshopId: parsed.workshopId ? String(parsed.workshopId) : null,
         sectionId: parsed.sectionId ? String(parsed.sectionId) : null,
         updatedAt: Number(r.updatedAt),
       });
     }
 
+    const departmentNames = await getDepartmentNamesById(
+      db,
+      out.map((r) => String(r.departmentId ?? '')).filter(Boolean),
+    );
+    for (const row of out) {
+      row.departmentName = row.departmentId ? departmentNames[row.departmentId] ?? null : null;
+    }
     return { ok: true as const, requests: out };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
 }
 
-export async function getSupplyRequest(
+async function getSupplyRequestRaw(
   db: BetterSQLite3Database,
   id: string,
 ): Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }> {
@@ -162,6 +245,22 @@ export async function getSupplyRequest(
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
+}
+
+export async function getSupplyRequest(
+  db: BetterSQLite3Database,
+  id: string,
+  scope?: { userId: string; role: string },
+): Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }> {
+  const res = await getSupplyRequestRaw(db, id);
+  if (!res.ok) return res;
+  const viewAll = scope?.role ? canViewAllDepartments(scope.role) : false;
+  if (viewAll) return res;
+  const userDepartmentId = scope?.userId ? await getUserDepartmentId(db, scope.userId).catch(() => null) : null;
+  if (!userDepartmentId || String(res.payload.departmentId ?? '') !== userDepartmentId) {
+    return { ok: false as const, error: 'permission denied: supply_requests.view' };
+  }
+  return res;
 }
 
 async function nextRequestNumber(db: BetterSQLite3Database, compiledAt: number): Promise<string> {
@@ -203,11 +302,16 @@ async function nextRequestNumber(db: BetterSQLite3Database, compiledAt: number):
 export async function createSupplyRequest(
   db: BetterSQLite3Database,
   actor: string,
+  scope?: { userId: string; role: string },
 ): Promise<{ ok: true; id: string; payload: SupplyRequestPayload } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
     const id = randomUUID();
     const requestNumber = await nextRequestNumber(db, ts);
+    const userDepartmentId = scope?.userId ? await getUserDepartmentId(db, scope.userId).catch(() => null) : null;
+    if (!canEditAllDepartments(scope?.role ?? '') && !userDepartmentId) {
+      return { ok: false as const, error: 'Не задано подразделение в профиле пользователя' };
+    }
 
     const payload: SupplyRequestPayload = {
       kind: 'supply_request',
@@ -219,7 +323,7 @@ export async function createSupplyRequest(
       fulfilledAt: null,
       title: '',
       status: 'draft',
-      departmentId: '',
+      departmentId: userDepartmentId ?? '',
       workshopId: null,
       sectionId: null,
       items: [],
@@ -251,32 +355,30 @@ export async function createSupplyRequest(
   }
 }
 
-export async function deleteSupplyRequest(db: BetterSQLite3Database, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function deleteSupplyRequest(
+  db: BetterSQLite3Database,
+  args: { id: string; actor: string; scope?: { userId: string; role: string } },
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
-    const rows = await db
-      .select()
-      .from(operations)
-      .where(
-        and(
-          eq(operations.id, id),
-          eq(operations.engineEntityId, SUPPLY_REQUESTS_CONTAINER_ID),
-          eq(operations.operationType, SUPPLY_REQUESTS_OPERATION_TYPE),
-          isNull(operations.deletedAt),
-        ),
-      )
-      .limit(1);
-    if (!rows[0]) return { ok: false, error: 'Заявка не найдена' };
+    const res = await getSupplyRequestRaw(db, args.id);
+    if (!res.ok) return res;
+    const parsed = res.payload;
+    const actor = args.actor?.trim() ? args.actor.trim() : 'local';
 
-    const parsed = safeJsonParse(String((rows as any[])[0]?.metaJson ?? '')) as any;
-    const actor = String((rows as any[])[0]?.performedBy ?? '').trim() || 'local';
+    if (!canEditAllDepartments(args.scope?.role ?? '')) {
+      const userDepartmentId = args.scope?.userId ? await getUserDepartmentId(db, args.scope.userId).catch(() => null) : null;
+      if (!userDepartmentId || String(parsed.departmentId ?? '') !== userDepartmentId) {
+        return { ok: false as const, error: 'permission denied: supply_requests.edit' };
+      }
+    }
 
     await db
       .update(operations)
       .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
-      .where(eq(operations.id, id));
+      .where(eq(operations.id, args.id));
 
-    await audit(db, actor, 'supply_request.delete', parsed && typeof parsed === 'object' ? parsed : { operationId: id });
+    await audit(db, actor, 'supply_request.delete', parsed && typeof parsed === 'object' ? parsed : { operationId: args.id });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -285,9 +387,20 @@ export async function deleteSupplyRequest(db: BetterSQLite3Database, id: string)
 
 export async function updateSupplyRequest(
   db: BetterSQLite3Database,
-  args: { id: string; payload: SupplyRequestPayload; actor: string },
+  args: { id: string; payload: SupplyRequestPayload; actor: string; scope?: { userId: string; role: string } },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
+    const cur = await getSupplyRequestRaw(db, args.id);
+    if (!cur.ok) return cur;
+    if (!canEditAllDepartments(args.scope?.role ?? '')) {
+      const userDepartmentId = args.scope?.userId ? await getUserDepartmentId(db, args.scope.userId).catch(() => null) : null;
+      const currentDepartmentId = String(cur.payload.departmentId ?? '');
+      const nextDepartmentId = String(args.payload.departmentId ?? '');
+      if (!userDepartmentId || currentDepartmentId !== userDepartmentId || nextDepartmentId !== userDepartmentId) {
+        return { ok: false as const, error: 'permission denied: supply_requests.edit' };
+      }
+    }
+
     const ts = nowMs();
     const note = args.payload.title?.trim()
       ? `Заявка ${args.payload.requestNumber}: ${args.payload.title.trim()}`
@@ -328,12 +441,25 @@ export async function updateSupplyRequest(
 
 export async function transitionSupplyRequest(
   db: BetterSQLite3Database,
-  args: { id: string; action: 'sign' | 'director_approve' | 'accept' | 'fulfill_full' | 'fulfill_partial'; actor: string; note?: string | null },
+  args: {
+    id: string;
+    action: 'sign' | 'director_approve' | 'accept' | 'fulfill_full' | 'fulfill_partial';
+    actor: string;
+    note?: string | null;
+    scope?: { userId: string; role: string };
+  },
 ): Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }> {
   try {
-    const cur = await getSupplyRequest(db, args.id);
+    const cur = await getSupplyRequestRaw(db, args.id);
     if (!cur.ok) return cur;
     const ts = nowMs();
+    if (!canEditAllDepartments(args.scope?.role ?? '')) {
+      const userDepartmentId = args.scope?.userId ? await getUserDepartmentId(db, args.scope.userId).catch(() => null) : null;
+      const currentDepartmentId = String(cur.payload.departmentId ?? '');
+      if (!userDepartmentId || currentDepartmentId !== userDepartmentId) {
+        return { ok: false as const, error: 'permission denied: supply_requests.edit' };
+      }
+    }
 
     const p = { ...cur.payload };
     const auditTrail = [...(p.auditTrail ?? [])];
@@ -384,7 +510,7 @@ export async function transitionSupplyRequest(
 
     p.auditTrail = auditTrail;
 
-    const upd = await updateSupplyRequest(db, { id: args.id, payload: p, actor: args.actor });
+    const upd = await updateSupplyRequest(db, { id: args.id, payload: p, actor: args.actor, scope: args.scope });
     if (!upd.ok) return upd;
     await audit(db, args.actor, 'supply_request.transition', {
       operationId: args.id,
