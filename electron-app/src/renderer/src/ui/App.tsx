@@ -1131,21 +1131,19 @@ export function App() {
     );
   }
 
-  return (
-    <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
-      <Page
-        title={pageTitle}
-        uiTheme={resolvedTheme}
-        topBanner={
-          showUpdateBanner ? (
+  const headerStatus = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, overflow: 'hidden' }}>
+      {showUpdateBanner ? (
+        <>
           <div
             style={{
               position: 'relative',
-              height: 24,
-              borderRadius: 999,
-              background: '#e2e8f0',
+              height: 16,
+              minWidth: 120,
+              maxWidth: 200,
+              flex: '0 1 200px',
+              background: 'rgba(148, 163, 184, 0.35)',
               overflow: 'hidden',
-              border: '1px solid rgba(37, 99, 235, 0.35)',
             }}
           >
             <div
@@ -1156,27 +1154,36 @@ export function App() {
                 background: '#2563eb',
               }}
             />
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '0 12px',
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: 12,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-              }}
-            >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{updateBannerText}</span>
-              <span style={{ marginLeft: 12 }}>{updateStatus.version ? `v${String(updateStatus.version)}` : ''}</span>
-            </div>
           </div>
-          ) : null
-        }
+          <div style={{ fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {updateBannerText}
+            {updateStatus?.version ? ` v${String(updateStatus.version)}` : ''}
+          </div>
+        </>
+      ) : null}
+      {postLoginSyncMsg ? (
+        <div style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {postLoginSyncMsg}
+        </div>
+      ) : null}
+    </div>
+  );
+  const edgeSide = uiPrefs.chatSide;
+  const edgeButtonStyle: React.CSSProperties = {
+    writingMode: 'vertical-rl',
+    textOrientation: 'mixed',
+    padding: '6px 4px',
+    minWidth: 26,
+    fontSize: 11,
+    fontWeight: 700,
+  };
+
+  return (
+    <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
+      <Page
+        title={pageTitle}
+        uiTheme={resolvedTheme}
+        center={headerStatus}
         right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
           {authStatus.loggedIn && caps.canUseSync && !viewMode && (
@@ -1273,19 +1280,6 @@ export function App() {
           </div>
 
           <div style={{ marginTop: 14, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-            {postLoginSyncMsg && (
-              <div
-                style={{
-                  marginBottom: 12,
-                  padding: 10,
-                  borderRadius: 12,
-                  background: 'rgba(14, 116, 144, 0.16)',
-                  color: 'var(--text)',
-                }}
-              >
-                {postLoginSyncMsg}
-              </div>
-            )}
             {!authStatus.loggedIn && tab !== 'auth' && (
               <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
             )}
@@ -1668,23 +1662,37 @@ export function App() {
           </div>
         )}
       </div>
-      {authStatus.loggedIn && canChat && !chatOpen && (
+      {authStatus.loggedIn && canChat && (
         <div
           style={{
             position: 'absolute',
             top: '50%',
             transform: 'translateY(-50%)',
-            zIndex: 5,
-            left: uiPrefs.chatSide === 'left' ? 0 : 'auto',
-            right: uiPrefs.chatSide === 'right' ? 0 : 'auto',
+            zIndex: 6,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            left: edgeSide === 'left' ? 0 : 'auto',
+            right: edgeSide === 'right' ? 0 : 'auto',
           }}
         >
-          <Button variant="primary" onClick={() => setChatOpen(true)} title="Открыть окно чата">
-            Открыть чат
-            {chatUnreadTotal > 0 ? (
-              <span style={{ marginLeft: 6, color: '#fff', fontWeight: 900 }}>{chatUnreadTotal}</span>
-            ) : null}
+          <Button
+            variant="ghost"
+            onClick={() => void persistChatSide(edgeSide === 'left' ? 'right' : 'left')}
+            title="Переместить чат"
+            style={edgeButtonStyle}
+          >
+            ⇄
           </Button>
+          {chatOpen ? (
+            <Button variant="ghost" onClick={() => setChatOpen(false)} title="Свернуть чат" style={edgeButtonStyle}>
+              Свернуть чат
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => setChatOpen(true)} title="Открыть чат" style={edgeButtonStyle}>
+              {`Открыть чат${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ''}`}
+            </Button>
+          )}
         </div>
       )}
       </div>

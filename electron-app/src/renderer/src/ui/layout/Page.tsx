@@ -4,6 +4,7 @@ import { theme } from '../theme.js';
 
 export function Page(props: {
   title: string;
+  center?: React.ReactNode;
   right?: React.ReactNode;
   topBanner?: React.ReactNode;
   children: React.ReactNode;
@@ -18,7 +19,7 @@ export function Page(props: {
       style={{
         height: '100vh',
         background: gradient,
-        padding: 10,
+        padding: 0,
         boxSizing: 'border-box',
       }}
     >
@@ -27,17 +28,17 @@ export function Page(props: {
           fontFamily: 'system-ui',
           width: '100%',
           height: '100%',
-          border: `1px solid ${theme.colors.border}`,
+          border: 'none',
           background: theme.colors.surface,
-          boxShadow: '0 18px 46px rgba(0,0,0,0.22)',
-          padding: 10,
+          boxShadow: 'none',
+          padding: 0,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', padding: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1
               style={{
@@ -55,10 +56,11 @@ export function Page(props: {
               {props.title}
             </h1>
           </div>
+          {props.center ? <div style={{ flex: '0 1 auto', minWidth: 0 }}>{props.center}</div> : null}
           {props.right}
         </div>
         {props.topBanner ? <div style={{ marginTop: 8 }}>{props.topBanner}</div> : null}
-        <div style={{ marginTop: 10, flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>{props.children}</div>
+        <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>{props.children}</div>
       </div>
     </div>
   );

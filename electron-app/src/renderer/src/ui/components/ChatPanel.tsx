@@ -90,7 +90,6 @@ export function ChatPanel(props: {
   const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
   const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
   const isPrivate = !!privateWith;
-  const collapseIcon = props.chatSide === 'left' ? '⟨' : '⟩';
 
   const byUserUnread = useMemo(() => {
     if (!unread || (unread as any).ok !== true) return {};
@@ -436,12 +435,6 @@ export function ChatPanel(props: {
               )}
           </div>
         )}
-        <Button variant="ghost" onClick={props.onToggleSide} title="Переместить чат слева/справа">
-          ⇄
-        </Button>
-        <Button variant="ghost" onClick={props.onHide} title="Свернуть чат" style={{ minWidth: 28, paddingInline: 8 }}>
-          {collapseIcon}
-        </Button>
       </div>
 
       <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
