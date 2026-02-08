@@ -67,7 +67,7 @@ export type ConsistencyClientReport = {
   diffs: ConsistencyDiff[];
 };
 
-const ENTITY_TYPE_CODES = ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee', 'tool', 'tool_property'];
+const ENTITY_TYPE_CODES = ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee', 'tool', 'tool_property', 'tool_catalog'];
 const LABEL_KEYS = ['name', 'number', 'engine_number', 'full_name'];
 
 function nowMs() {

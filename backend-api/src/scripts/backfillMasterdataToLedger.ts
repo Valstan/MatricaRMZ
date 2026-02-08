@@ -12,7 +12,7 @@ import { getSuperadminUserId } from '../services/employeeAuthService.js';
 
 type LedgerRow = Record<string, any>;
 
-const CODES = ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee', 'tool', 'tool_property'];
+const CODES = ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee', 'tool', 'tool_property', 'tool_catalog'];
 
 function nowMs() {
   return Date.now();

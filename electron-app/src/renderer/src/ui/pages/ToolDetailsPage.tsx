@@ -3,12 +3,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type Option = { id: string; label: string };
+type EmployeeOption = Option & { departmentId: string | null };
 
-type ToolPropertyRow = { propertyId: string };
+type ToolPropertyRow = { propertyId: string; value?: string };
 
 type MovementRow = {
   id: string;
@@ -63,6 +65,7 @@ export function ToolDetailsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [toolNumber, setToolNumber] = useState('');
   const [name, setName] = useState('');
+  const [toolCatalogId, setToolCatalogId] = useState<string>('');
   const [serialNumber, setSerialNumber] = useState('');
   const [description, setDescription] = useState('');
   const [departmentId, setDepartmentId] = useState<string>('');
@@ -74,9 +77,12 @@ export function ToolDetailsPage(props: {
   const [movements, setMovements] = useState<MovementRow[]>([]);
 
   const [propertyOptions, setPropertyOptions] = useState<Option[]>([]);
-  const [propertyMeta, setPropertyMeta] = useState<Map<string, { params?: string }>>(new Map());
+  const [propertyValueHints, setPropertyValueHints] = useState<Record<string, string[]>>({});
+  const [toolCatalogOptions, setToolCatalogOptions] = useState<Option[]>([]);
+  const [employeeOptionsAll, setEmployeeOptionsAll] = useState<EmployeeOption[]>([]);
   const [employeeOptions, setEmployeeOptions] = useState<Option[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<Option[]>([]);
+  const [currentDepartmentId, setCurrentDepartmentId] = useState<string | null>(null);
 
   const [newMoveDate, setNewMoveDate] = useState<string>('');
   const [newMoveMode, setNewMoveMode] = useState<'received' | 'returned'>('received');
@@ -99,6 +105,7 @@ export function ToolDetailsPage(props: {
       const attrs = (r as any).tool?.attributes ?? {};
       setToolNumber(String(attrs.tool_number ?? ''));
       setName(String(attrs.name ?? ''));
+      setToolCatalogId(attrs.tool_catalog_id ? String(attrs.tool_catalog_id) : '');
       setSerialNumber(String(attrs.serial_number ?? ''));
       setDescription(String(attrs.description ?? ''));
       setDepartmentId(attrs.department_id ? String(attrs.department_id) : '');
@@ -110,7 +117,9 @@ export function ToolDetailsPage(props: {
       setPhotos(attrs.photos ?? []);
       const propsList = Array.isArray(attrs.properties) ? attrs.properties : [];
       const normalized: ToolPropertyRow[] = propsList
-        .map((p: any) => (p && typeof p === 'object' ? { propertyId: String(p.propertyId ?? '') } : null))
+        .map((p: any) =>
+          p && typeof p === 'object' ? { propertyId: String(p.propertyId ?? ''), value: p.value != null ? String(p.value) : '' } : null,
+        )
         .filter(Boolean) as ToolPropertyRow[];
       setProperties(normalized);
       setStatus('');
@@ -133,20 +142,33 @@ export function ToolDetailsPage(props: {
   }
 
   async function loadOptions() {
-    const [propsRes, employeesRes, typeRes] = await Promise.all([
+    const [propsRes, catalogRes, employeesRes, typeRes, scopeRes] = await Promise.all([
       window.matrica.tools.properties.list().catch(() => null),
+      window.matrica.tools.catalog.list().catch(() => null),
       window.matrica.employees.list().catch(() => null),
       window.matrica.admin.entityTypes.list().catch(() => null),
+      window.matrica.tools.scope().catch(() => null),
     ]);
     if (propsRes && (propsRes as any).ok) {
       const list = (propsRes as any).items ?? [];
       setPropertyOptions(list.map((p: any) => ({ id: String(p.id), label: String(p.name ?? '(без названия)') })));
-      const map = new Map<string, { params?: string }>();
-      for (const p of list) map.set(String(p.id), { params: p.params ? String(p.params) : '' });
-      setPropertyMeta(map);
+    }
+    if (catalogRes && (catalogRes as any).ok) {
+      const list = (catalogRes as any).items ?? [];
+      setToolCatalogOptions(list.map((p: any) => ({ id: String(p.id), label: String(p.name ?? '(без названия)') })));
     }
     if (employeesRes && (employeesRes as any).ok) {
-      setEmployeeOptions((employeesRes as any).employees.map((e: any) => ({ id: String(e.id), label: String(e.fullName ?? e.name ?? e.id) })));
+      const list = (employeesRes as any).employees ?? [];
+      setEmployeeOptionsAll(
+        list.map((e: any) => ({
+          id: String(e.id),
+          label: String(e.fullName ?? e.displayName ?? e.name ?? e.id),
+          departmentId: e.departmentId ? String(e.departmentId) : null,
+        })),
+      );
+    }
+    if (scopeRes && (scopeRes as any).ok) {
+      setCurrentDepartmentId((scopeRes as any).departmentId ?? null);
     }
     if (typeRes) {
       const types = (typeRes as any) ?? [];
@@ -167,6 +189,12 @@ export function ToolDetailsPage(props: {
     void loadOptions();
   }, [props.toolId]);
 
+  useEffect(() => {
+    const dept = departmentId || currentDepartmentId || null;
+    const filtered = dept ? employeeOptionsAll.filter((e) => e.departmentId === dept) : employeeOptionsAll;
+    setEmployeeOptions(filtered.map((e) => ({ id: e.id, label: e.label })));
+  }, [employeeOptionsAll, departmentId, currentDepartmentId]);
+
   async function saveAttribute(code: string, value: unknown) {
     if (!props.canEdit) return;
     const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code, value });
@@ -178,6 +206,18 @@ export function ToolDetailsPage(props: {
     setProperties(next);
     await saveAttribute('properties', next);
   }
+
+  async function ensureValueHints(propertyId: string) {
+    if (!propertyId || propertyValueHints[propertyId]) return;
+    const r = await window.matrica.tools.properties.valueHints(propertyId).catch(() => null);
+    if (!r || !(r as any).ok) return;
+    setPropertyValueHints((prev) => ({ ...prev, [propertyId]: (r as any).values ?? [] }));
+  }
+
+  useEffect(() => {
+    const ids = Array.from(new Set(properties.map((p) => p.propertyId).filter(Boolean)));
+    ids.forEach((id) => void ensureValueHints(id));
+  }, [properties.map((p) => p.propertyId).join('|')]);
 
   async function addMovement() {
     const movementAt = fromInputDate(newMoveDate) ?? Date.now();
@@ -216,8 +256,8 @@ export function ToolDetailsPage(props: {
     ];
     const propRows: Array<[string, string]> = properties.map((p) => {
       const label = propertyOptions.find((o) => o.id === p.propertyId)?.label ?? p.propertyId;
-      const params = propertyMeta.get(p.propertyId)?.params ?? '—';
-      return [label || '—', params || '—'];
+      const val = p.value?.trim() || '—';
+      return [label || '—', val];
     });
     const movRows: Array<[string, string]> = movements.map((m) => {
       const who = m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—';
@@ -292,7 +332,34 @@ export function ToolDetailsPage(props: {
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
           <div>Наименование</div>
-          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void saveAttribute('name', name.trim())} disabled={!props.canEdit} />
+          <SearchSelectWithCreate
+            value={toolCatalogId || null}
+            options={toolCatalogOptions}
+            disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel="+Добавить инструмент"
+            onChange={(next) => {
+              const label = toolCatalogOptions.find((o) => o.id === next)?.label ?? '';
+              setToolCatalogId(next ?? '');
+              if (label) setName(label);
+              void saveAttribute('tool_catalog_id', next || null);
+              if (label) void saveAttribute('name', label);
+            }}
+            onCreate={async (label) => {
+              const r = await window.matrica.tools.catalog.create({ name: label.trim() });
+              if (!r.ok) {
+                setStatus(`Ошибка: ${r.error}`);
+                return null;
+              }
+              const id = (r as any).id as string;
+              setToolCatalogOptions((prev) => [...prev, { id, label }]);
+              setToolCatalogId(id);
+              setName(label);
+              void saveAttribute('tool_catalog_id', id);
+              void saveAttribute('name', label);
+              return id;
+            }}
+          />
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
           <div>Серийный номер</div>
@@ -364,7 +431,7 @@ export function ToolDetailsPage(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                const next = [...properties, { propertyId: '' }];
+                const next = [...properties, { propertyId: '', value: '' }];
                 void updateProperties(next);
               }}
             >
@@ -374,21 +441,52 @@ export function ToolDetailsPage(props: {
         </div>
         {properties.length === 0 && <div style={{ color: '#6b7280' }}>Нет свойств.</div>}
         {properties.map((row, idx) => {
-          const params = row.propertyId ? propertyMeta.get(row.propertyId)?.params ?? '' : '';
+          const hints = row.propertyId ? propertyValueHints[row.propertyId] ?? [] : [];
           return (
             <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr 80px', gap: 8, padding: '4px 6px' }}>
               <div>Свойство</div>
-              <SearchSelect
+              <SearchSelectWithCreate
                 value={row.propertyId}
                 options={propertyOptions}
-                placeholder="Выберите свойство"
                 disabled={!props.canEdit}
+                canCreate={props.canEdit}
+                createLabel="+Добавить новое свойство"
                 onChange={(next) => {
-                  const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next } : p));
+                  const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next, value: p.value ?? '' } : p));
                   void updateProperties(nextRows);
+                  if (next) void ensureValueHints(next);
+                }}
+                onCreate={async (label) => {
+                  const r = await window.matrica.tools.properties.create();
+                  if (!r.ok) {
+                    setStatus(`Ошибка: ${r.error}`);
+                    return null;
+                  }
+                  const id = (r as any).id as string;
+                  await window.matrica.tools.properties.setAttr({ id, code: 'name', value: label.trim() });
+                  setPropertyOptions((prev) => [...prev, { id, label }]);
+                  return id;
                 }}
               />
-              <Input value={params} disabled />
+              <div>
+                <Input
+                  list={row.propertyId ? `tool-prop-values-${row.propertyId}-${idx}` : undefined}
+                  value={row.value ?? ''}
+                  onChange={(e) => {
+                    const nextRows = properties.map((p, i) => (i === idx ? { ...p, value: e.target.value } : p));
+                    void updateProperties(nextRows);
+                  }}
+                  disabled={!props.canEdit}
+                  placeholder="Значение свойства"
+                />
+                {row.propertyId && hints.length > 0 && (
+                  <datalist id={`tool-prop-values-${row.propertyId}-${idx}`}>
+                    {hints.map((h) => (
+                      <option key={h} value={h} />
+                    ))}
+                  </datalist>
+                )}
+              </div>
               {props.canEdit ? (
                 <Button
                   variant="ghost"

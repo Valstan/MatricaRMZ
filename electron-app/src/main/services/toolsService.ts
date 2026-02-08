@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { ToolDetails, ToolListItem, ToolMovementItem, ToolPropertyListItem } from '@matricarmz/shared';
+import type { ToolCatalogItem, ToolDetails, ToolListItem, ToolMovementItem, ToolPropertyListItem } from '@matricarmz/shared';
 import { createEntity, getEntityDetails, setEntityAttribute, softDeleteEntity } from './entityService.js';
 import { BrowserWindow } from 'electron';
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 
 const TOOL_TYPE_CODE = 'tool';
 const TOOL_PROPERTY_TYPE_CODE = 'tool_property';
+const TOOL_CATALOG_TYPE_CODE = 'tool_catalog';
 const TOOL_MOVEMENT_TYPE = 'tool_movement';
 
 function nowMs() {
@@ -139,6 +140,46 @@ async function getToolTypeId(db: BetterSQLite3Database) {
 
 async function getToolPropertyTypeId(db: BetterSQLite3Database) {
   return getEntityTypeIdByCode(db, TOOL_PROPERTY_TYPE_CODE);
+}
+
+async function getToolCatalogTypeId(db: BetterSQLite3Database) {
+  return getEntityTypeIdByCode(db, TOOL_CATALOG_TYPE_CODE);
+}
+
+async function listVisibleToolIdsByScope(db: BetterSQLite3Database, scope?: { userId: string; role: string }) {
+  const toolTypeId = await getToolTypeId(db);
+  if (!toolTypeId) return [];
+  if (scope?.role && canViewAllDepartments(scope.role)) {
+    const rows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, toolTypeId), isNull(entities.deletedAt)))
+      .limit(50_000);
+    return rows.map((r) => String(r.id));
+  }
+  const userDept = scope?.userId ? await getUserDepartmentId(db, scope.userId).catch(() => null) : null;
+  if (!userDept) return [];
+  const deptDefId = await getAttributeDefIdByCode(db, toolTypeId, 'department_id');
+  if (!deptDefId) return [];
+  const rawIds = await db
+    .select({ entityId: attributeValues.entityId })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.attributeDefId, deptDefId),
+        eq(attributeValues.valueJson, JSON.stringify(userDept)),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(50_000);
+  const candidateIds = rawIds.map((r) => String(r.entityId));
+  if (candidateIds.length === 0) return [];
+  const rows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, toolTypeId), inArray(entities.id, candidateIds), isNull(entities.deletedAt)))
+    .limit(50_000);
+  return rows.map((r) => String(r.id));
 }
 
 async function ensureToolAccess(
@@ -387,6 +428,63 @@ export async function listToolProperties(db: BetterSQLite3Database): Promise<{ o
   }
 }
 
+export async function listToolCatalog(db: BetterSQLite3Database): Promise<{ ok: true; items: ToolCatalogItem[] } | { ok: false; error: string }> {
+  try {
+    const typeId = await getToolCatalogTypeId(db);
+    if (!typeId) return { ok: true as const, items: [] };
+    const rows = await db
+      .select()
+      .from(entities)
+      .where(and(eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+      .orderBy(desc(entities.updatedAt))
+      .limit(5000);
+    const nameDefId = await getAttributeDefIdByCode(db, typeId, 'name');
+    const defIds = [nameDefId].filter(Boolean) as string[];
+    const ids = rows.map((r) => String(r.id));
+    const vals =
+      ids.length && defIds.length
+        ? await db
+            .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+            .from(attributeValues)
+            .where(and(inArray(attributeValues.entityId, ids), inArray(attributeValues.attributeDefId, defIds), isNull(attributeValues.deletedAt)))
+            .limit(200_000)
+        : [];
+    const byEntity: Record<string, Record<string, unknown>> = {};
+    for (const v of vals as any[]) {
+      const entityId = String(v.entityId);
+      const defId = String(v.attributeDefId);
+      if (!byEntity[entityId]) byEntity[entityId] = {};
+      byEntity[entityId][defId] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
+    }
+    const out: ToolCatalogItem[] = rows.map((r: any) => {
+      const rec = byEntity[String(r.id)] ?? {};
+      const name = nameDefId ? rec[nameDefId] : null;
+      return {
+        id: String(r.id),
+        name: name ? String(name) : undefined,
+        updatedAt: Number(r.updatedAt ?? 0),
+        createdAt: Number(r.createdAt ?? 0),
+      };
+    });
+    return { ok: true as const, items: out };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function createToolCatalogItem(db: BetterSQLite3Database, name: string) {
+  try {
+    const typeId = await getToolCatalogTypeId(db);
+    if (!typeId) return { ok: false as const, error: 'tool_catalog type not found' };
+    const created = await createEntity(db, typeId);
+    if (!created.ok) return created as any;
+    await setEntityAttribute(db, created.id, 'name', name);
+    return { ok: true as const, id: created.id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function getToolProperty(
   db: BetterSQLite3Database,
   id: string,
@@ -455,6 +553,58 @@ export async function listToolMovements(
     });
   }
   return { ok: true as const, movements: out };
+}
+
+export async function listToolPropertyValueHints(
+  db: BetterSQLite3Database,
+  args: { propertyId: string; scope?: { userId: string; role: string } },
+): Promise<{ ok: true; values: string[] } | { ok: false; error: string }> {
+  try {
+    const toolTypeId = await getToolTypeId(db);
+    if (!toolTypeId) return { ok: true as const, values: [] };
+    const propsDefId = await getAttributeDefIdByCode(db, toolTypeId, 'properties');
+    if (!propsDefId) return { ok: true as const, values: [] };
+    const visibleIds = await listVisibleToolIdsByScope(db, args.scope);
+    if (visibleIds.length === 0) return { ok: true as const, values: [] };
+    const rows = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .where(
+        and(
+          inArray(attributeValues.entityId, visibleIds),
+          eq(attributeValues.attributeDefId, propsDefId),
+          isNull(attributeValues.deletedAt),
+        ),
+      )
+      .limit(200_000);
+    const values = new Map<string, number>();
+    for (const r of rows as any[]) {
+      const parsed = safeJsonParse(r.valueJson ? String(r.valueJson) : null);
+      if (!Array.isArray(parsed)) continue;
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object') continue;
+        if (String((item as any).propertyId ?? '') !== args.propertyId) continue;
+        const raw = String((item as any).value ?? '').trim();
+        if (!raw) continue;
+        values.set(raw, (values.get(raw) ?? 0) + 1);
+      }
+    }
+    const out = Array.from(values.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'))
+      .map(([val]) => val);
+    return { ok: true as const, values: out };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function getToolsScope(
+  db: BetterSQLite3Database,
+  scope?: { userId: string; role: string },
+): Promise<{ ok: true; departmentId: string | null } | { ok: false; error: string }> {
+  if (!scope?.userId) return { ok: false as const, error: 'missing user session' };
+  const departmentId = await getUserDepartmentId(db, scope.userId).catch(() => null);
+  return { ok: true as const, departmentId: departmentId ?? null };
 }
 
 export async function addToolMovement(
@@ -577,10 +727,9 @@ export async function exportToolCardPdf(
   const deptNameMap = await getDepartmentNamesById(db, deptId ? [deptId] : []);
   const deptName = deptId ? deptNameMap[deptId] ?? deptId : '';
   const propertiesRaw = Array.isArray(attrs.properties) ? attrs.properties : [];
-  const propIds = propertiesRaw
-    .map((p: any) => (p && typeof p === 'object' ? p.propertyId : null))
-    .filter(Boolean)
-    .map((id: any) => String(id));
+  const propItems = propertiesRaw
+    .map((p: any) => (p && typeof p === 'object' ? { propertyId: String(p.propertyId ?? ''), value: p.value } : null))
+    .filter((p: any) => p && p.propertyId);
   const propList = await listToolProperties(db);
   const propMap = new Map<string, { name?: string; params?: string }>();
   if (propList.ok) {
@@ -610,9 +759,9 @@ export async function exportToolCardPdf(
     ['Дата снятия', attrs.retired_at ? new Date(Number(attrs.retired_at)).toLocaleDateString('ru-RU') : '—'],
     ['Причина снятия', String(attrs.retire_reason ?? '')],
   ];
-  const propertiesRows = propIds.map((id) => {
-    const p = propMap.get(id);
-    return [p?.name ?? id, p?.params ?? '—'];
+  const propertiesRows = propItems.map((p: any) => {
+    const meta = propMap.get(p.propertyId);
+    return [meta?.name ?? p.propertyId, p.value != null && String(p.value).trim() ? String(p.value) : '—'];
   });
   const movementsRows = movements.ok
     ? movements.movements.map((m) => {

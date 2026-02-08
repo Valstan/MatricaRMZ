@@ -20,6 +20,7 @@ export const EntityTypeCode = {
   LinkFieldRule: 'link_field_rule',
   Tool: 'tool',
   ToolProperty: 'tool_property',
+  ToolCatalog: 'tool_catalog',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];

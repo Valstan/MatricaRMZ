@@ -154,6 +154,7 @@ export async function ensureBaseMasterdata() {
     const categoryTypeId = await ensureEntityType(actor, EntityTypeCode.Category, 'Категории');
     const toolTypeId = await ensureEntityType(actor, EntityTypeCode.Tool, 'Инструменты');
     const toolPropertyTypeId = await ensureEntityType(actor, EntityTypeCode.ToolProperty, 'Свойства инструментов');
+    const toolCatalogTypeId = await ensureEntityType(actor, EntityTypeCode.ToolCatalog, 'Справочник инструментов');
 
     const unitNameDefId = await ensureAttrDefIfType(actor, unitTypeId, 'name', 'Название', AttributeDataType.Text, 10);
     const storeNameDefId = await ensureAttrDefIfType(actor, storeTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
@@ -177,6 +178,7 @@ export async function ensureBaseMasterdata() {
 
     await ensureAttrDefIfType(actor, toolPropertyTypeId, 'name', 'Наименование свойства', AttributeDataType.Text, 10);
     await ensureAttrDefIfType(actor, toolPropertyTypeId, 'params', 'Параметры свойства', AttributeDataType.Text, 20);
+    await ensureAttrDefIfType(actor, toolCatalogTypeId, 'name', 'Наименование инструмента', AttributeDataType.Text, 10);
 
     await ensureAttrDefIfType(actor, employeeTypeId, 'last_name', 'Фамилия', AttributeDataType.Text, 10);
     await ensureAttrDefIfType(actor, employeeTypeId, 'first_name', 'Имя', AttributeDataType.Text, 20);
@@ -228,6 +230,17 @@ export async function ensureBaseMasterdata() {
     await ensureAttrDefIfType(actor, toolTypeId, 'name', 'Наименование инструмента', AttributeDataType.Text, 20);
     await ensureAttrDefIfType(actor, toolTypeId, 'serial_number', 'Серийный номер', AttributeDataType.Text, 30);
     await ensureAttrDefIfType(actor, toolTypeId, 'description', 'Описание инструмента', AttributeDataType.Text, 40);
+    if (toolTypeId && toolCatalogTypeId) {
+      await ensureAttrDefIfType(
+        actor,
+        toolTypeId,
+        'tool_catalog_id',
+        'Справочник инструмента',
+        AttributeDataType.Link,
+        45,
+        JSON.stringify({ linkTargetTypeCode: EntityTypeCode.ToolCatalog }),
+      );
+    }
     if (toolTypeId && departmentTypeId) {
       await ensureAttrDefIfType(
         actor,

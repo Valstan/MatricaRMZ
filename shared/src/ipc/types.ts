@@ -67,6 +67,13 @@ export type ToolPropertyListItem = {
   createdAt: number;
 };
 
+export type ToolCatalogItem = {
+  id: string;
+  name?: string;
+  updatedAt: number;
+  createdAt: number;
+};
+
 export type ToolMovementItem = {
   id: string;
   toolId: string;

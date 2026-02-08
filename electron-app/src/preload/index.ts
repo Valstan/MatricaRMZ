@@ -181,6 +181,7 @@ contextBridge.exposeInMainWorld('matrica', {
     setAttr: async (args: { toolId: string; code: string; value: unknown }) => ipcRenderer.invoke('tools:setAttr', args),
     delete: async (id: string) => ipcRenderer.invoke('tools:delete', id),
     exportPdf: async (toolId: string) => ipcRenderer.invoke('tools:exportPdf', toolId),
+    scope: async () => ipcRenderer.invoke('tools:scope'),
     movements: {
       list: async (toolId: string) => ipcRenderer.invoke('tools:movements:list', toolId),
       add: async (args: {
@@ -199,6 +200,11 @@ contextBridge.exposeInMainWorld('matrica', {
       create: async () => ipcRenderer.invoke('tools:properties:create'),
       setAttr: async (args: { id: string; code: string; value: unknown }) => ipcRenderer.invoke('tools:properties:setAttr', args),
       delete: async (id: string) => ipcRenderer.invoke('tools:properties:delete', id),
+      valueHints: async (propertyId: string) => ipcRenderer.invoke('tools:properties:valueHints', propertyId),
+    },
+    catalog: {
+      list: async () => ipcRenderer.invoke('tools:catalog:list'),
+      create: async (args: { name: string }) => ipcRenderer.invoke('tools:catalog:create', args),
     },
   },
   parts: {
