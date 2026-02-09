@@ -17,6 +17,30 @@ function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
 }
 
+function toInputDate(ms: number | null | undefined): string {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fromInputDate(v: string): number | null {
+  if (!v) return null;
+  const [y, m, d] = v.split('-').map((x) => Number(x));
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatDateLabel(v: string): string {
+  const ms = fromInputDate(v);
+  if (!ms) return '';
+  return new Date(ms).toLocaleDateString('ru-RU');
+}
+
 function keyValueTable(rows: Array<[string, string]>) {
   const body = rows
     .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
@@ -37,6 +61,7 @@ function printEngineReport(
   context?: {
     engineNumber?: string;
     engineBrand?: string;
+    arrivalDate?: string;
     customer?: string;
     contract?: string;
   },
@@ -49,6 +74,7 @@ function printEngineReport(
       : [
           ['Номер двигателя', String(context?.engineNumber ?? attrs.engine_number ?? '')],
           ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
+          ['Дата прихода', String(context?.arrivalDate ?? formatDateLabel(toInputDate(attrs.arrival_date as number | null | undefined)) ?? '')],
           ['Контрагент', String(context?.customer ?? attrs.customer_id ?? '')],
           ['Контракт', String(context?.contract ?? attrs.contract_id ?? '')],
         ];
@@ -82,6 +108,9 @@ export function EngineDetailsPage(props: {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
   const [engineBrandId, setEngineBrandId] = useState(String(props.engine.attributes?.engine_brand_id ?? ''));
+  const [arrivalDate, setArrivalDate] = useState(
+    toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
+  );
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
@@ -103,6 +132,7 @@ export function EngineDetailsPage(props: {
   const initialSnapshot = useRef<{
     engineNumber: string;
     engineBrand: string;
+    arrivalDate: string;
   } | null>(null);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
@@ -110,6 +140,7 @@ export function EngineDetailsPage(props: {
     setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
     setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
     setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
+    setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
   }, [props.engineId, props.engine.updatedAt]);
@@ -137,6 +168,7 @@ export function EngineDetailsPage(props: {
     initialSnapshot.current = {
       engineNumber: String(props.engine.attributes?.engine_number ?? ''),
       engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
+      arrivalDate: toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
     };
     sessionHadChanges.current = false;
   }, [props.engineId]);
@@ -162,6 +194,7 @@ export function EngineDetailsPage(props: {
       await saveAttr('engine_number', engineNumber);
       await saveAttr('engine_brand_id', engineBrandId || null);
       await saveAttr('engine_brand', brandLabel || null);
+      await saveAttr('arrival_date', fromInputDate(arrivalDate));
       await saveAttr('customer_id', customerId || null);
       await saveAttr('contract_id', contractId || null);
     }
@@ -196,6 +229,7 @@ export function EngineDetailsPage(props: {
       };
       push('Номер', base?.engineNumber ?? '', String(engineNumber ?? ''));
       push('Марка', base?.engineBrand ?? '', String(engineBrand ?? ''));
+      push('Дата прихода', base?.arrivalDate ?? '', String(arrivalDate ?? ''));
       if (!fieldsChanged.length) return;
       await window.matrica.audit.add({
         action: 'ui.engine.edit_done',
@@ -275,6 +309,7 @@ export function EngineDetailsPage(props: {
         sortOrder: 20,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }),
       },
+      { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 25 },
       {
         code: 'customer_id',
         name: 'Контрагент',
@@ -372,6 +407,21 @@ export function EngineDetailsPage(props: {
         </div>
       ),
     },
+    {
+      code: 'arrival_date',
+      defaultOrder: 25,
+      label: 'Дата прихода',
+      value: arrivalDate,
+      render: (
+        <Input
+          type="date"
+          value={arrivalDate}
+          disabled={!props.canEditEngines}
+          onChange={(e) => setArrivalDate(e.target.value)}
+          onBlur={() => void saveAttr('arrival_date', fromInputDate(arrivalDate))}
+        />
+      ),
+    },
     props.canViewMasterData
       ? {
           code: 'customer_id',
@@ -450,6 +500,7 @@ export function EngineDetailsPage(props: {
                 {
                   engineNumber,
                   engineBrand,
+                  arrivalDate,
                   customer: pickLabel('customer_id', customerId),
                   contract: pickLabel('contract_id', contractId),
                 },
@@ -506,6 +557,7 @@ export function EngineDetailsPage(props: {
               setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
               setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
               setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
+              setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
             }}

@@ -352,8 +352,8 @@ export const clientSettings = pgTable('client_settings', {
 
   updatesEnabled: boolean('updates_enabled').notNull().default(true),
   torrentEnabled: boolean('torrent_enabled').notNull().default(true),
-  loggingEnabled: boolean('logging_enabled').notNull().default(false),
-  loggingMode: text('logging_mode').notNull().default('prod'),
+  loggingEnabled: boolean('logging_enabled').notNull().default(true),
+  loggingMode: text('logging_mode').notNull().default('dev'),
 
   syncRequestId: text('sync_request_id'),
   syncRequestType: text('sync_request_type'),

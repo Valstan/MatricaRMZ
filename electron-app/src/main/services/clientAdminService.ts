@@ -71,9 +71,9 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 export async function getCachedClientSettings(db: BetterSQLite3Database): Promise<RemoteClientSettings> {
   const updatesEnabled = await settingsGetBoolean(db, SettingsKey.UpdatesEnabled, true);
   const torrentEnabled = await settingsGetBoolean(db, SettingsKey.TorrentEnabled, true);
-  const loggingEnabled = await settingsGetBoolean(db, SettingsKey.LoggingEnabled, false);
+  const loggingEnabled = await settingsGetBoolean(db, SettingsKey.LoggingEnabled, true);
   const rawMode = await settingsGetString(db, SettingsKey.LoggingMode);
-  const loggingMode = rawMode === 'dev' ? 'dev' : 'prod';
+  const loggingMode = rawMode ? (rawMode === 'dev' ? 'dev' : 'prod') : 'dev';
   return { updatesEnabled, torrentEnabled, loggingEnabled, loggingMode };
 }
 

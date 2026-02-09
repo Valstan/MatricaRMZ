@@ -3,6 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { AuthLoginResult, AuthStatus, AuthUserInfo, AuthLogoutResult } from '@matricarmz/shared';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
+import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
 
 type StoredSession = {
   enc: boolean;
@@ -139,6 +140,8 @@ export async function authLogin(
     };
     const stored = encryptJson(JSON.stringify(payload));
     await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
+    await logMessageSetEnabled(db, true, args.apiBaseUrl);
+    await logMessageSetMode(db, 'dev');
     return {
       ok: true,
       accessToken: payload.accessToken,
@@ -209,6 +212,8 @@ export async function authRegister(
     };
     const stored = encryptJson(JSON.stringify(payload));
     await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
+    await logMessageSetEnabled(db, true, args.apiBaseUrl);
+    await logMessageSetMode(db, 'dev');
     return {
       ok: true,
       accessToken: payload.accessToken,

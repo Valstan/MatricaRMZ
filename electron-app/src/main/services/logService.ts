@@ -22,9 +22,9 @@ let currentApiBaseUrl: string | null = null;
 
 async function getLoggingEnabled(db: BetterSQLite3Database): Promise<boolean> {
   try {
-    return await settingsGetBoolean(db, SettingsKey.LoggingEnabled, false);
+    return await settingsGetBoolean(db, SettingsKey.LoggingEnabled, true);
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -34,7 +34,7 @@ async function getLoggingMode(db: BetterSQLite3Database): Promise<LoggingMode> {
     const v = String(raw ?? '').trim().toLowerCase();
     return v === 'dev' ? 'dev' : 'prod';
   } catch {
-    return 'prod';
+    return 'dev';
   }
 }
 

@@ -21,7 +21,8 @@
     "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",
     "ledger:import": "tsx src/scripts/ledgerImport.ts",
     "backup:nightly": "tsx src/scripts/nightlyBackup.ts",
-    "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts"
+    "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts",
+    "clients:enable-logging": "tsx src/scripts/enableClientLogging.ts"
   },
   "dependencies": {
     "@matricarmz/ledger": "workspace:*",

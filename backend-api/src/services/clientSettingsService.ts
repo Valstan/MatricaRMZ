@@ -16,8 +16,8 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
   return {
     updatesEnabled: true,
     torrentEnabled: true,
-    loggingEnabled: false,
-    loggingMode: 'prod',
+    loggingEnabled: true,
+    loggingMode: 'dev',
     syncRequestId: null,
     syncRequestType: null,
     syncRequestAt: null,

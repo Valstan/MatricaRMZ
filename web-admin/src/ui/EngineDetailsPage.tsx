@@ -19,10 +19,35 @@ import {
 
 type LinkOpt = { id: string; label: string };
 
+function toInputDate(ms: number | null | undefined): string {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fromInputDate(v: string): number | null {
+  if (!v) return null;
+  const [y, m, d] = v.split('-').map((x) => Number(x));
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatDateLabel(v: string): string {
+  const ms = fromInputDate(v);
+  if (!ms) return '';
+  return new Date(ms).toLocaleDateString('ru-RU');
+}
+
 const REQUIRED_DEFS = [
   { code: 'engine_number', name: 'Номер двигателя', dataType: 'text' },
   { code: 'engine_brand', name: 'Марка двигателя', dataType: 'text' },
   { code: 'engine_brand_id', name: 'Марка двигателя (ссылка)', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }) },
+  { code: 'arrival_date', name: 'Дата прихода', dataType: 'date' },
   { code: 'customer_id', name: 'Заказчик', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }) },
   { code: 'contract_id', name: 'Контракт', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }) },
   { code: 'attachments', name: 'Вложения', dataType: 'json' },
@@ -97,6 +122,7 @@ export function EngineDetailsPage(props: {
   const [engineNumber, setEngineNumber] = useState('');
   const [engineBrand, setEngineBrand] = useState('');
   const [engineBrandId, setEngineBrandId] = useState('');
+  const [arrivalDate, setArrivalDate] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [contractId, setContractId] = useState('');
   const [attachments, setAttachments] = useState<unknown>(null);
@@ -171,6 +197,7 @@ export function EngineDetailsPage(props: {
       setEngineNumber(String(attrs.engine_number ?? ''));
       setEngineBrand(String(attrs.engine_brand ?? ''));
       setEngineBrandId(String(attrs.engine_brand_id ?? ''));
+      setArrivalDate(toInputDate(attrs.arrival_date as number | null | undefined));
       setCustomerId(String(attrs.customer_id ?? ''));
       setContractId(String(attrs.contract_id ?? ''));
       setAttachments(attrs.attachments ?? null);
@@ -204,6 +231,7 @@ export function EngineDetailsPage(props: {
       await saveAttr('engine_number', engineNumber);
       await saveAttr('engine_brand_id', engineBrandId || null);
       await saveAttr('engine_brand', engineBrand || null);
+      await saveAttr('arrival_date', fromInputDate(arrivalDate));
       await saveAttr('customer_id', customerId || null);
       await saveAttr('contract_id', contractId || null);
       await saveAttr('attachments', attachments);
@@ -274,6 +302,7 @@ export function EngineDetailsPage(props: {
                   html: keyValueTable([
                     ['Номер двигателя', String(engineNumber ?? '')],
                     ['Марка двигателя', String(engineBrand ?? '')],
+                    ['Дата прихода', formatDateLabel(arrivalDate)],
                     ['Заказчик', (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId ?? ''],
                     ['Контракт', (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId ?? ''],
                   ]),
@@ -340,6 +369,15 @@ export function EngineDetailsPage(props: {
             />
             {(linkLists.engine_brand ?? []).length === 0 && <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>}
           </div>
+
+          <div style={{ color: '#6b7280' }}>Дата прихода</div>
+          <Input
+            type="date"
+            value={arrivalDate}
+            disabled={!props.canEditEngines}
+            onChange={(e) => setArrivalDate(e.target.value)}
+            onBlur={() => void saveAttr('arrival_date', fromInputDate(arrivalDate))}
+          />
 
           <div style={{ color: '#6b7280' }}>Заказчик</div>
           <SearchSelect

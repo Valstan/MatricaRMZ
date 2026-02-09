@@ -1361,12 +1361,16 @@ export function App() {
             onRefresh={refreshEngines}
             onOpen={openEngine}
             onCreate={async () => {
-              const r = await window.matrica.engines.create();
-              await window.matrica.engines.setAttr(r.id, 'engine_number', '');
-              await window.matrica.engines.setAttr(r.id, 'engine_brand', '');
-                    await refreshEngines();
-              await openEngine(r.id);
-                  }}
+              try {
+                const r = await window.matrica.engines.create();
+                await refreshEngines();
+                await openEngine(r.id);
+              } catch (e) {
+                const message = String(e ?? '');
+                setPostLoginSyncMsg(`Ошибка создания двигателя: ${message}`);
+                setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+              }
+            }}
             canCreate={caps.canEditEngines}
             canDelete={caps.canEditEngines}
           />
