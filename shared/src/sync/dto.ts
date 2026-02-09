@@ -78,7 +78,7 @@ export const chatMessageRowSchema = z.object({
   sender_user_id: z.string().uuid(),
   sender_username: z.string().min(1),
   recipient_user_id: z.string().uuid().nullable().optional(), // null => общий чат
-  message_type: z.enum(['text', 'file', 'deep_link']),
+  message_type: z.enum(['text', 'file', 'deep_link', 'text_notify']),
   body_text: z.string().nullable().optional(),
   payload_json: z.string().nullable().optional(), // JSON-строка (FileRef / deep-link payload)
 });

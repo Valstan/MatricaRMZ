@@ -8,6 +8,7 @@ import {
   chatList,
   chatMarkRead,
   chatSendDeepLink,
+  chatSendTextEverywhere,
   chatSendFile,
   chatSendText,
   chatUnreadCount,
@@ -30,6 +31,11 @@ export function registerChatIpc(ctx: IpcContext) {
   ipcMain.handle('chat:sendText', async (_e, args: { recipientUserId?: string | null; text: string }) => {
     if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
     return await chatSendText(ctx.sysDb, args);
+  });
+
+  ipcMain.handle('chat:sendTextEverywhere', async (_e, args: { recipientUserId?: string | null; text: string }) => {
+    if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
+    return await chatSendTextEverywhere(ctx.sysDb, args);
   });
 
   ipcMain.handle('chat:sendFile', async (_e, args: { recipientUserId?: string | null; path: string }) => {

@@ -18,6 +18,8 @@ import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
 import { logWarn } from '../../utils/logger.js';
+import { listEmployeesAuth } from '../employeeAuthService.js';
+import { formatTelegramMessage, sendTelegramMessage } from '../telegramBotService.js';
 import {
   attributeDefs,
   attributeValues,
@@ -63,6 +65,12 @@ type ApplyPushOptions = {
   skipChangeLog?: boolean;
 };
 
+type TelegramNotification = {
+  senderUserId: string;
+  recipientUserId: string | null;
+  bodyText: string;
+};
+
 function safeActor(a: SyncActor): SyncActor {
   return {
     id: String(a?.id ?? ''),
@@ -87,6 +95,7 @@ export async function applyPushBatch(
   const actorRole = String(actor.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const collected = opts.collectChanges ?? null;
+  const telegramNotifications: TelegramNotification[] = [];
 
   function parseRows<T>(
     table: SyncTableName,
@@ -118,7 +127,7 @@ export async function applyPushBatch(
     return parsed;
   }
 
-  return await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // Обновляем/создаем sync_state строку (последнее время push).
     await tx
       .insert(syncState)
@@ -975,6 +984,18 @@ export async function applyPushBatch(
             });
           await insertChangeLogAndUpdateSeq(chatMessages, SyncTableName.ChatMessages, allowed);
           applied += allowed.length;
+
+          for (const r of allowed) {
+            if (existingMap.get(String(r.id))) continue;
+            if (r.message_type !== 'text_notify') continue;
+            const bodyText = String(r.body_text ?? '').trim();
+            if (!bodyText) continue;
+            telegramNotifications.push({
+              senderUserId: String(r.sender_user_id),
+              recipientUserId: r.recipient_user_id ? String(r.recipient_user_id) : null,
+              bodyText,
+            });
+          }
         }
       }
     }
@@ -1206,6 +1227,58 @@ export async function applyPushBatch(
 
     return { applied, ...(collected ? { changes: collected } : {}) };
   });
+
+  if (telegramNotifications.length > 0) {
+    void (async () => {
+      const list = await listEmployeesAuth().catch((e) => ({ ok: false as const, error: String(e) }));
+      if (!list.ok) {
+        logWarn('telegram notify: failed to load users', { error: list.error });
+        return;
+      }
+      const users = list.rows;
+      const byId = new Map<string, (typeof users)[number]>();
+      for (const u of users) byId.set(String(u.id), u);
+
+      for (const n of telegramNotifications) {
+        const sender = byId.get(n.senderUserId);
+        const senderName =
+          String(sender?.fullName ?? '').trim() ||
+          String(sender?.chatDisplayName ?? '').trim() ||
+          String(sender?.login ?? '').trim() ||
+          'Пользователь';
+        const text = formatTelegramMessage(n.bodyText, senderName);
+
+        if (n.recipientUserId) {
+          const recipient = byId.get(n.recipientUserId);
+          if (!recipient || recipient.accessEnabled !== true) continue;
+          if (!recipient.telegramLogin) continue;
+          const res = await sendTelegramMessage({ toLogin: recipient.telegramLogin, text });
+          if (!res.ok) {
+            logWarn('telegram notify failed', {
+              recipientId: n.recipientUserId,
+              error: res.error,
+            });
+          }
+          continue;
+        }
+
+        for (const recipient of users) {
+          if (String(recipient.id) === n.senderUserId) continue;
+          if (recipient.accessEnabled !== true) continue;
+          if (!recipient.telegramLogin) continue;
+          const res = await sendTelegramMessage({ toLogin: recipient.telegramLogin, text });
+          if (!res.ok) {
+            logWarn('telegram notify failed', {
+              recipientId: recipient.id,
+              error: res.error,
+            });
+          }
+        }
+      }
+    })();
+  }
+
+  return result;
 }
 
 

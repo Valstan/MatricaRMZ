@@ -20,7 +20,14 @@ contextBridge.exposeInMainWorld('matrica', {
     logout: async (args: { refreshToken?: string }) => ipcRenderer.invoke('auth:logout', args),
     changePassword: async (args: { currentPassword: string; newPassword: string }) => ipcRenderer.invoke('auth:changePassword', args),
     profileGet: async () => ipcRenderer.invoke('auth:profileGet'),
-    profileUpdate: async (args: { fullName?: string | null; position?: string | null; sectionName?: string | null }) =>
+    profileUpdate: async (args: {
+      fullName?: string | null;
+      position?: string | null;
+      sectionName?: string | null;
+      chatDisplayName?: string | null;
+      telegramLogin?: string | null;
+      maxLogin?: string | null;
+    }) =>
       ipcRenderer.invoke('auth:profileUpdate', args),
   },
   presence: {
@@ -280,6 +287,8 @@ contextBridge.exposeInMainWorld('matrica', {
     list: async (args: { mode: 'global' | 'private'; withUserId?: string | null; limit?: number }) => ipcRenderer.invoke('chat:list', args),
     adminListPair: async (args: { userAId: string; userBId: string; limit?: number }) => ipcRenderer.invoke('chat:adminListPair', args),
     sendText: async (args: { recipientUserId?: string | null; text: string }) => ipcRenderer.invoke('chat:sendText', args),
+    sendTextEverywhere: async (args: { recipientUserId?: string | null; text: string }) =>
+      ipcRenderer.invoke('chat:sendTextEverywhere', args),
     sendFile: async (args: { recipientUserId?: string | null; path: string }) => ipcRenderer.invoke('chat:sendFile', args),
     sendDeepLink: async (args: { recipientUserId?: string | null; link: unknown }) => ipcRenderer.invoke('chat:sendDeepLink', args),
     markRead: async (args: { messageIds: string[] }) => ipcRenderer.invoke('chat:markRead', args),

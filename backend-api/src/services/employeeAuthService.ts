@@ -15,6 +15,8 @@ const AUTH_CODES = {
   accessEnabled: 'access_enabled',
   fullName: 'full_name',
   chatDisplayName: 'chat_display_name',
+  telegramLogin: 'telegram_login',
+  maxLogin: 'max_login',
   loggingEnabled: 'logging_enabled',
   loggingMode: 'logging_mode',
   deleteRequestedAt: 'delete_requested_at',
@@ -410,6 +412,64 @@ export async function ensureEmployeeAuthDefs() {
   return { ok: true as const, employeeTypeId, defs: byCode };
 }
 
+async function ensureEmployeeProfileDefs() {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const byCode: Record<string, string> = {};
+  for (const d of defs as any[]) byCode[String(d.code)] = String(d.id);
+
+  const ts = nowMs();
+  const ensure = async (code: string, name: string, dataType: string) => {
+    if (byCode[code]) return byCode[code];
+    const id = randomUUID();
+    await db.insert(attributeDefs).values({
+      id,
+      entityTypeId: employeeTypeId,
+      code,
+      name,
+      dataType,
+      isRequired: false,
+      sortOrder: 9850,
+      metaJson: null,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+    await insertChange(
+      SyncTableName.AttributeDefs,
+      id,
+      attributeDefPayload({
+        id,
+        entityTypeId: employeeTypeId,
+        code,
+        name,
+        dataType,
+        isRequired: false,
+        sortOrder: 9850,
+        metaJson: null,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      }),
+    );
+    byCode[code] = id;
+    return id;
+  };
+
+  await ensure(AUTH_CODES.telegramLogin, 'Telegram логин', 'text');
+  await ensure(AUTH_CODES.maxLogin, 'MAX логин', 'text');
+
+  return { ok: true as const, employeeTypeId, defs: byCode };
+}
+
 export async function getEmployeeAuthDefIds() {
   const ensured = await ensureEmployeeAuthDefs();
   if (!ensured.ok) return null;
@@ -431,6 +491,15 @@ export async function getEmployeeAuthDefIds() {
     deleteRequestedByIdDefId,
     deleteRequestedByUsernameDefId,
   };
+}
+
+async function getEmployeeMessengerDefIds() {
+  const ensured = await ensureEmployeeProfileDefs();
+  if (!ensured.ok) return null;
+  const telegramLoginDefId = ensured.defs[AUTH_CODES.telegramLogin];
+  const maxLoginDefId = ensured.defs[AUTH_CODES.maxLogin];
+  if (!telegramLoginDefId || !maxLoginDefId) return null;
+  return { telegramLoginDefId, maxLoginDefId };
 }
 
 export async function getEmployeeFullNameDefId() {
@@ -518,6 +587,7 @@ export async function listEmployeesAuth() {
   if (!defs) return { ok: false as const, error: 'employee type not found' };
   const fullNameDefId = await getEmployeeFullNameDefId();
   const chatDisplayDefId = await getEmployeeChatDisplayNameDefId();
+  const messengerDefs = await getEmployeeMessengerDefIds();
 
   const rows = await db
     .select({ id: entities.id })
@@ -528,9 +598,16 @@ export async function listEmployeesAuth() {
   const ids = rows.map((r) => String(r.id));
   if (ids.length === 0) return { ok: true as const, rows: [] };
 
-  const defIds = [defs.loginDefId, defs.passwordDefId, defs.roleDefId, defs.accessDefId, fullNameDefId, chatDisplayDefId].filter(
-    Boolean,
-  ) as string[];
+  const defIds = [
+    defs.loginDefId,
+    defs.passwordDefId,
+    defs.roleDefId,
+    defs.accessDefId,
+    fullNameDefId,
+    chatDisplayDefId,
+    messengerDefs?.telegramLoginDefId,
+    messengerDefs?.maxLoginDefId,
+  ].filter(Boolean) as string[];
   const deleteDefIds = [defs.deleteRequestedAtDefId, defs.deleteRequestedByIdDefId, defs.deleteRequestedByUsernameDefId].filter(
     Boolean,
   ) as string[];
@@ -564,6 +641,8 @@ export async function listEmployeesAuth() {
       const accessEnabled = rec[defs.accessDefId] === true;
       const fullName = fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '';
       const chatDisplayName = chatDisplayDefId ? String(rec[chatDisplayDefId] ?? '').trim() : '';
+      const telegramLogin = messengerDefs?.telegramLoginDefId ? String(rec[messengerDefs.telegramLoginDefId] ?? '').trim() : '';
+      const maxLogin = messengerDefs?.maxLoginDefId ? String(rec[messengerDefs.maxLoginDefId] ?? '').trim() : '';
       const deleteRequestedAtRaw = defs.deleteRequestedAtDefId ? rec[defs.deleteRequestedAtDefId] : null;
       const deleteRequestedAt =
         typeof deleteRequestedAtRaw === 'number' ? deleteRequestedAtRaw : deleteRequestedAtRaw != null ? Number(deleteRequestedAtRaw) : null;
@@ -577,6 +656,8 @@ export async function listEmployeesAuth() {
         accessEnabled,
         fullName,
         chatDisplayName,
+        telegramLogin,
+        maxLogin,
         deleteRequestedAt: Number.isFinite(deleteRequestedAt as number) ? (deleteRequestedAt as number) : null,
         deleteRequestedById: deleteRequestedById || null,
         deleteRequestedByUsername: deleteRequestedByUsername || null,
@@ -758,7 +839,15 @@ export async function getEmployeeProfileById(employeeId: string) {
   const chatDisplayDefId = await getEmployeeChatDisplayNameDefId();
   const roleDefId = await getEmployeeAttrDefId('role');
   const sectionDefId = await getEmployeeAttrDefId('section_id');
-  const defIds = [fullNameDefId, chatDisplayDefId, roleDefId, sectionDefId].filter(Boolean) as string[];
+  const messengerDefs = await getEmployeeMessengerDefIds();
+  const defIds = [
+    fullNameDefId,
+    chatDisplayDefId,
+    roleDefId,
+    sectionDefId,
+    messengerDefs?.telegramLoginDefId,
+    messengerDefs?.maxLoginDefId,
+  ].filter(Boolean) as string[];
 
   const vals =
     defIds.length === 0
@@ -776,6 +865,8 @@ export async function getEmployeeProfileById(employeeId: string) {
 
   const fullName = fullNameDefId ? String(byDefId[fullNameDefId] ?? '').trim() : '';
   const chatDisplayName = chatDisplayDefId ? String(byDefId[chatDisplayDefId] ?? '').trim() : '';
+  const telegramLogin = messengerDefs?.telegramLoginDefId ? String(byDefId[messengerDefs.telegramLoginDefId] ?? '').trim() : '';
+  const maxLogin = messengerDefs?.maxLoginDefId ? String(byDefId[messengerDefs.maxLoginDefId] ?? '').trim() : '';
   const position = roleDefId ? String(byDefId[roleDefId] ?? '').trim() : '';
   const sectionId = sectionDefId ? String(byDefId[sectionDefId] ?? '').trim() : '';
   const sectionName = sectionId ? await getSectionNameById(sectionId) : null;
@@ -786,6 +877,8 @@ export async function getEmployeeProfileById(employeeId: string) {
     role: normalizeRole(auth.login, auth.systemRole),
     fullName,
     chatDisplayName,
+    telegramLogin,
+    maxLogin,
     position,
     sectionId: sectionId || null,
     sectionName,
@@ -794,7 +887,14 @@ export async function getEmployeeProfileById(employeeId: string) {
 
 export async function setEmployeeProfile(
   employeeId: string,
-  args: { fullName?: string | null; position?: string | null; sectionName?: string | null; chatDisplayName?: string | null },
+  args: {
+    fullName?: string | null;
+    position?: string | null;
+    sectionName?: string | null;
+    chatDisplayName?: string | null;
+    telegramLogin?: string | null;
+    maxLogin?: string | null;
+  },
 ) {
   if (args.fullName !== undefined) {
     const r = await setEmployeeFullName(employeeId, args.fullName);
@@ -803,6 +903,16 @@ export async function setEmployeeProfile(
   if (args.chatDisplayName !== undefined) {
     const r = await setEmployeeChatDisplayName(employeeId, args.chatDisplayName);
     if (!r.ok) return r;
+  }
+  if (args.telegramLogin !== undefined) {
+    const defs = await getEmployeeMessengerDefIds();
+    if (!defs) return { ok: false as const, error: 'telegram_login def not found' };
+    await upsertAttrValue(employeeId, defs.telegramLoginDefId, args.telegramLogin ? String(args.telegramLogin).trim() : null);
+  }
+  if (args.maxLogin !== undefined) {
+    const defs = await getEmployeeMessengerDefIds();
+    if (!defs) return { ok: false as const, error: 'max_login def not found' };
+    await upsertAttrValue(employeeId, defs.maxLoginDefId, args.maxLogin ? String(args.maxLogin).trim() : null);
   }
   if (args.position !== undefined) {
     const roleDefId = await getEmployeeAttrDefId('role');

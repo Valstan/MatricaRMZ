@@ -257,6 +257,8 @@ export type AuthProfile = {
   role: string;
   fullName: string;
   chatDisplayName?: string | null;
+  telegramLogin?: string | null;
+  maxLogin?: string | null;
   position: string;
   sectionId: string | null;
   sectionName: string | null;
@@ -268,7 +270,7 @@ export type AuthStatus = {
   permissions: Record<string, boolean> | null;
 };
 
-export type ChatMessageType = 'text' | 'file' | 'deep_link';
+export type ChatMessageType = 'text' | 'file' | 'deep_link' | 'text_notify';
 
 export type ChatDeepLinkPayload = {
   kind: 'app_link';
@@ -507,6 +509,8 @@ export type MatricaApi = {
       position?: string | null;
       sectionName?: string | null;
       chatDisplayName?: string | null;
+      telegramLogin?: string | null;
+      maxLogin?: string | null;
     }) => Promise<{ ok: true; profile: AuthProfile } | { ok: false; error: string }>;
   };
   presence: {
@@ -881,6 +885,7 @@ export type MatricaApi = {
     // Admin-only: list private dialog between any two users.
     adminListPair: (args: { userAId: string; userBId: string; limit?: number }) => Promise<ChatListResult>;
     sendText: (args: { recipientUserId?: string | null; text: string }) => Promise<ChatSendResult>;
+    sendTextEverywhere: (args: { recipientUserId?: string | null; text: string }) => Promise<ChatSendResult>;
     sendFile: (args: { recipientUserId?: string | null; path: string }) => Promise<ChatSendResult>;
     sendDeepLink: (args: { recipientUserId?: string | null; link: ChatDeepLinkPayload }) => Promise<ChatSendResult>;
     markRead: (args: { messageIds: string[] }) => Promise<{ ok: true; marked: number } | { ok: false; error: string }>;

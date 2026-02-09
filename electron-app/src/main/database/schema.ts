@@ -131,7 +131,7 @@ export const chatMessages = sqliteTable(
     senderUserId: text('sender_user_id').notNull(), // uuid
     senderUsername: text('sender_username').notNull(),
     recipientUserId: text('recipient_user_id'), // uuid | null (общий чат)
-    messageType: text('message_type').notNull(), // text/file/deep_link
+    messageType: text('message_type').notNull(), // text/file/deep_link/text_notify
     bodyText: text('body_text'),
     payloadJson: text('payload_json'),
     createdAt: integer('created_at').notNull(),

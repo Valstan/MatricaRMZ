@@ -337,7 +337,15 @@ export async function authProfileGet(
 
 export async function authProfileUpdate(
   db: BetterSQLite3Database,
-  args: { apiBaseUrl: string; fullName?: string | null; position?: string | null; sectionName?: string | null; chatDisplayName?: string | null },
+  args: {
+    apiBaseUrl: string;
+    fullName?: string | null;
+    position?: string | null;
+    sectionName?: string | null;
+    chatDisplayName?: string | null;
+    telegramLogin?: string | null;
+    maxLogin?: string | null;
+  },
 ): Promise<{ ok: true; profile: any } | { ok: false; error: string }> {
   try {
     const session = await getSession(db).catch(() => null);
@@ -350,6 +358,8 @@ export async function authProfileUpdate(
         ...(args.chatDisplayName !== undefined ? { chatDisplayName: args.chatDisplayName } : {}),
         ...(args.position !== undefined ? { position: args.position } : {}),
         ...(args.sectionName !== undefined ? { sectionName: args.sectionName } : {}),
+        ...(args.telegramLogin !== undefined ? { telegramLogin: args.telegramLogin } : {}),
+        ...(args.maxLogin !== undefined ? { maxLogin: args.maxLogin } : {}),
       }),
     });
     if (!r.ok) {

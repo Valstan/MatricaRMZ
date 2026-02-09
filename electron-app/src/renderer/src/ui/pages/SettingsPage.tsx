@@ -14,6 +14,9 @@ export function SettingsPage(props: {
   const [loading, setLoading] = useState<boolean>(true);
   const [authUser, setAuthUser] = useState<{ id: string; username: string; role: string } | null>(null);
   const [profileUser, setProfileUser] = useState<{ login: string; role: string } | null>(null);
+  const [telegramLogin, setTelegramLogin] = useState<string>('');
+  const [maxLogin, setMaxLogin] = useState<string>('');
+  const [messengerStatus, setMessengerStatus] = useState<string>('');
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [pwCurrent, setPwCurrent] = useState<string>('');
@@ -71,8 +74,12 @@ export function SettingsPage(props: {
             login: String(profile.login ?? auth.user?.username ?? ''),
             role: String(profile.role ?? auth.user?.role ?? ''),
           });
+          setTelegramLogin(String(profile.telegramLogin ?? '').trim());
+          setMaxLogin(String(profile.maxLogin ?? '').trim());
         } else if (auth.user) {
           setProfileUser({ login: String(auth.user.username ?? ''), role: String(auth.user.role ?? '') });
+          setTelegramLogin('');
+          setMaxLogin('');
         }
       }
     } finally {
@@ -255,6 +262,29 @@ export function SettingsPage(props: {
     props.onLogout();
   }
 
+  async function handleSaveMessengers() {
+    try {
+      setMessengerStatus('Сохранение...');
+      const r = await window.matrica.auth.profileUpdate({
+        telegramLogin: telegramLogin.trim() || null,
+        maxLogin: maxLogin.trim() || null,
+      });
+      if (r.ok) {
+        setMessengerStatus('Мессенджеры обновлены.');
+        const profile = (r as any).profile ?? null;
+        if (profile) {
+          setTelegramLogin(String(profile.telegramLogin ?? '').trim());
+          setMaxLogin(String(profile.maxLogin ?? '').trim());
+        }
+        setTimeout(() => setMessengerStatus(''), 2000);
+      } else {
+        setMessengerStatus(`Ошибка: ${formatError((r as any).error)}`);
+      }
+    } catch (e) {
+      setMessengerStatus(`Ошибка: ${formatError(e)}`);
+    }
+  }
+
   if (loading) {
     return <div style={{ padding: 20, color: 'var(--muted)' }}>Загрузка настроек...</div>;
   }
@@ -273,6 +303,26 @@ export function SettingsPage(props: {
           <div style={{ fontWeight: 700 }}>{profileUser?.login ?? authUser?.username ?? '—'}</div>
           <div style={{ color: 'var(--muted)' }}>Роль</div>
           <div style={{ fontWeight: 700 }}>{profileUser?.role ?? authUser?.role ?? '—'}</div>
+          <div style={{ color: 'var(--muted)' }}>Telegram</div>
+          <input
+            value={telegramLogin}
+            onChange={(e) => setTelegramLogin(e.target.value)}
+            placeholder="@username"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
+          />
+          <div style={{ color: 'var(--muted)' }}>MAX</div>
+          <input
+            value={maxLogin}
+            onChange={(e) => setMaxLogin(e.target.value)}
+            placeholder="логин"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <Button variant="ghost" onClick={() => void handleSaveMessengers()}>
+            Сохранить мессенджеры
+          </Button>
+          {messengerStatus && <span style={{ color: 'var(--muted)' }}>{messengerStatus}</span>}
         </div>
       </div>
 

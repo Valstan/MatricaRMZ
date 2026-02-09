@@ -164,7 +164,7 @@ async function insertMessage(db: BetterSQLite3Database, msg: {
   senderUserId: string;
   senderUsername: string;
   recipientUserId: string | null;
-  messageType: 'text' | 'file' | 'deep_link';
+  messageType: 'text' | 'file' | 'deep_link' | 'text_notify';
   bodyText: string | null;
   payloadJson: string | null;
   createdAt: number;
@@ -190,6 +190,37 @@ export async function chatSendText(db: BetterSQLite3Database, args: { recipientU
       senderUsername: me.username,
       recipientUserId,
       messageType: 'text',
+      bodyText: text,
+      payloadJson: null,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function chatSendTextEverywhere(
+  db: BetterSQLite3Database,
+  args: { recipientUserId?: string | null; text: string },
+): Promise<ChatSendResult> {
+  try {
+    const me = await currentUser(db);
+    if (!me) return { ok: false, error: 'auth required' };
+
+    const text = String(args.text ?? '').trim();
+    if (!text) return { ok: false, error: 'empty message' };
+    const recipientUserId = args.recipientUserId ? String(args.recipientUserId) : null;
+
+    const ts = nowMs();
+    const id = randomUUID();
+    await insertMessage(db, {
+      id,
+      senderUserId: me.id,
+      senderUsername: me.username,
+      recipientUserId,
+      messageType: 'text_notify',
       bodyText: text,
       payloadJson: null,
       createdAt: ts,

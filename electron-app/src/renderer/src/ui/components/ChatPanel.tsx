@@ -306,7 +306,7 @@ export function ChatPanel(props: {
     if (!msg) return;
     const title = noteDialog.title.trim() || 'Заметка из чата';
     const body: any[] = [];
-    if (msg.messageType === 'text') {
+    if (msg.messageType === 'text' || msg.messageType === 'text_notify') {
       body.push({ id: crypto.randomUUID(), kind: 'text', text: msg.bodyText || '' });
     }
     if (msg.messageType === 'deep_link') {
@@ -332,6 +332,17 @@ export function ChatPanel(props: {
     if (adminMode) return;
     setText('');
     const r = await window.matrica.chat.sendText({ recipientUserId: selectedUserId, text: t });
+    if ((r as any)?.ok && !props.viewMode) void window.matrica.sync.run().catch(() => {});
+    await refreshMessages();
+    await refreshUnread();
+  }
+
+  async function sendTextEverywhere() {
+    const t = text.trim();
+    if (!t) return;
+    if (adminMode) return;
+    setText('');
+    const r = await window.matrica.chat.sendTextEverywhere({ recipientUserId: selectedUserId, text: t });
     if ((r as any)?.ok && !props.viewMode) void window.matrica.sync.run().catch(() => {});
     await refreshMessages();
     await refreshUnread();
@@ -652,7 +663,7 @@ export function ChatPanel(props: {
                     textDecoration: isClickable ? 'underline' : 'none',
                   }}
                 >
-                  {m.messageType === 'text' && (m.bodyText || '')}
+                  {(m.messageType === 'text' || m.messageType === 'text_notify') && (m.bodyText || '')}
                   {m.messageType === 'file' && (m.bodyText || 'Файл')}
                   {m.messageType === 'deep_link' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -719,6 +730,9 @@ export function ChatPanel(props: {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Button onClick={() => void sendText()} disabled={adminMode || !text.trim()}>
             Отправить
+          </Button>
+          <Button variant="ghost" onClick={() => void sendTextEverywhere()} disabled={adminMode || !text.trim()}>
+            Отправить везде
           </Button>
           <Button variant="ghost" onClick={() => void sendFile()} disabled={adminMode}>
             Файл…
