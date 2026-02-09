@@ -5,6 +5,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { EntityTypeCode } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
+import { listEntitiesByType } from './entityService.js';
 import type { EngineDetails, EngineListItem } from '@matricarmz/shared';
 
 function nowMs() {
@@ -25,6 +26,18 @@ async function getEngineAttrDefs(db: BetterSQLite3Database): Promise<Record<stri
   return byCode;
 }
 
+async function getEntityTypeIdByCode(db: BetterSQLite3Database, code: string): Promise<string | null> {
+  const rows = await db.select().from(entityTypes).where(eq(entityTypes.code, code)).limit(1);
+  return rows[0]?.id ?? null;
+}
+
+async function getDisplayNameMap(db: BetterSQLite3Database, typeCode: string): Promise<Map<string, string>> {
+  const typeId = await getEntityTypeIdByCode(db, typeCode);
+  if (!typeId) return new Map();
+  const items = await listEntitiesByType(db, typeId);
+  return new Map(items.map((item) => [String(item.id), String(item.displayName ?? item.id)]));
+}
+
 export async function listEngines(db: BetterSQLite3Database): Promise<EngineListItem[]> {
   const engineTypeId = await getEngineTypeId(db);
   const engines = await db
@@ -36,12 +49,26 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const defs = await getEngineAttrDefs(db);
   const numberDefId = defs['engine_number'];
   const brandDefId = defs['engine_brand'];
+  const brandIdDefId = defs['engine_brand_id'];
+  const customerIdDefId = defs['customer_id'];
+  const contractIdDefId = defs['contract_id'];
+  const arrivalDateDefId = defs['arrival_date'];
+  const shippingDateDefId = defs['shipping_date'];
+  const scrapDefId = defs['is_scrap'];
 
-  // На MVP: вытягиваем два ключевых атрибута.
+  const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
+  const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
+
   const result: EngineListItem[] = [];
   for (const e of engines) {
     let engineNumber: string | undefined;
     let engineBrand: string | undefined;
+    let engineBrandId: string | undefined;
+    let customerId: string | undefined;
+    let contractId: string | undefined;
+    let arrivalDate: number | null | undefined;
+    let shippingDate: number | null | undefined;
+    let isScrap: boolean | undefined;
 
     if (numberDefId) {
       const v = await db
@@ -59,11 +86,71 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
         .limit(1);
       engineBrand = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
     }
+    if (brandIdDefId) {
+      const v = await db
+        .select()
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, brandIdDefId)))
+        .limit(1);
+      engineBrandId = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+    }
+    if (customerIdDefId) {
+      const v = await db
+        .select()
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, customerIdDefId)))
+        .limit(1);
+      customerId = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+    }
+    if (contractIdDefId) {
+      const v = await db
+        .select()
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, contractIdDefId)))
+        .limit(1);
+      contractId = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+    }
+    if (arrivalDateDefId) {
+      const v = await db
+        .select()
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, arrivalDateDefId)))
+        .limit(1);
+      const raw = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
+      arrivalDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+    }
+    if (shippingDateDefId) {
+      const v = await db
+        .select()
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, shippingDateDefId)))
+        .limit(1);
+      const raw = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
+      shippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+    }
+    if (scrapDefId) {
+      const v = await db
+        .select()
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, scrapDefId)))
+        .limit(1);
+      const raw = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
+      isScrap = raw === true || raw === 'true' || raw === 1;
+    }
 
     result.push({
       id: e.id,
       engineNumber,
       engineBrand,
+      engineBrandId,
+      customerId,
+      customerName: customerId ? customerNameById.get(customerId) : undefined,
+      contractId,
+      contractName: contractId ? contractNameById.get(contractId) : undefined,
+      arrivalDate: arrivalDate ?? null,
+      shippingDate: shippingDate ?? null,
+      isScrap: isScrap === true,
+      createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,
     });

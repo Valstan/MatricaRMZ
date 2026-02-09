@@ -111,6 +111,10 @@ export function EngineDetailsPage(props: {
   const [arrivalDate, setArrivalDate] = useState(
     toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
   );
+  const [shippingDate, setShippingDate] = useState(
+    toInputDate(props.engine.attributes?.shipping_date as number | null | undefined),
+  );
+  const [isScrap, setIsScrap] = useState(Boolean(props.engine.attributes?.is_scrap));
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
@@ -133,6 +137,8 @@ export function EngineDetailsPage(props: {
     engineNumber: string;
     engineBrand: string;
     arrivalDate: string;
+    shippingDate: string;
+    isScrap: string;
   } | null>(null);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
@@ -141,6 +147,8 @@ export function EngineDetailsPage(props: {
     setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
     setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
     setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
+    setShippingDate(toInputDate(props.engine.attributes?.shipping_date as number | null | undefined));
+    setIsScrap(Boolean(props.engine.attributes?.is_scrap));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
   }, [props.engineId, props.engine.updatedAt]);
@@ -169,6 +177,8 @@ export function EngineDetailsPage(props: {
       engineNumber: String(props.engine.attributes?.engine_number ?? ''),
       engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
       arrivalDate: toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
+      shippingDate: toInputDate(props.engine.attributes?.shipping_date as number | null | undefined),
+      isScrap: String(Boolean(props.engine.attributes?.is_scrap)),
     };
     sessionHadChanges.current = false;
   }, [props.engineId]);
@@ -195,6 +205,8 @@ export function EngineDetailsPage(props: {
       await saveAttr('engine_brand_id', engineBrandId || null);
       await saveAttr('engine_brand', brandLabel || null);
       await saveAttr('arrival_date', fromInputDate(arrivalDate));
+      await saveAttr('shipping_date', fromInputDate(shippingDate));
+      await saveAttr('is_scrap', isScrap === true);
       await saveAttr('customer_id', customerId || null);
       await saveAttr('contract_id', contractId || null);
     }
@@ -230,6 +242,8 @@ export function EngineDetailsPage(props: {
       push('Номер', base?.engineNumber ?? '', String(engineNumber ?? ''));
       push('Марка', base?.engineBrand ?? '', String(engineBrand ?? ''));
       push('Дата прихода', base?.arrivalDate ?? '', String(arrivalDate ?? ''));
+      push('Дата отгрузки', base?.shippingDate ?? '', String(shippingDate ?? ''));
+      push('Утиль', base?.isScrap ?? '', String(isScrap));
       if (!fieldsChanged.length) return;
       await window.matrica.audit.add({
         action: 'ui.engine.edit_done',
@@ -310,6 +324,8 @@ export function EngineDetailsPage(props: {
         metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }),
       },
       { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 25 },
+      { code: 'shipping_date', name: 'Дата отгрузки', dataType: 'date', sortOrder: 26 },
+      { code: 'is_scrap', name: 'Утиль (неремонтнопригоден)', dataType: 'boolean', sortOrder: 27 },
       {
         code: 'customer_id',
         name: 'Контрагент',
@@ -420,6 +436,42 @@ export function EngineDetailsPage(props: {
           onChange={(e) => setArrivalDate(e.target.value)}
           onBlur={() => void saveAttr('arrival_date', fromInputDate(arrivalDate))}
         />
+      ),
+    },
+    {
+      code: 'shipping_date',
+      defaultOrder: 26,
+      label: 'Дата отгрузки',
+      value: shippingDate,
+      render: (
+        <Input
+          type="date"
+          value={shippingDate}
+          disabled={!props.canEditEngines}
+          onChange={(e) => setShippingDate(e.target.value)}
+          onBlur={() => void saveAttr('shipping_date', fromInputDate(shippingDate))}
+        />
+      ),
+    },
+    {
+      code: 'is_scrap',
+      defaultOrder: 27,
+      label: 'Неремонтнопригоден / утиль',
+      value: isScrap ? 'да' : 'нет',
+      render: (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={isScrap}
+            disabled={!props.canEditEngines}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setIsScrap(next);
+              void saveAttr('is_scrap', next);
+            }}
+          />
+          <span>{isScrap ? 'Да' : 'Нет'}</span>
+        </label>
       ),
     },
     props.canViewMasterData
@@ -558,6 +610,8 @@ export function EngineDetailsPage(props: {
               setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
               setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
               setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
+              setShippingDate(toInputDate(props.engine.attributes?.shipping_date as number | null | undefined));
+              setIsScrap(Boolean(props.engine.attributes?.is_scrap));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
             }}

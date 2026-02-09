@@ -4,6 +4,15 @@ export type EngineListItem = {
   id: string;
   engineNumber?: string;
   engineBrand?: string;
+  engineBrandId?: string;
+  customerId?: string;
+  customerName?: string;
+  contractId?: string;
+  contractName?: string;
+  arrivalDate?: number | null;
+  shippingDate?: number | null;
+  isScrap?: boolean;
+  createdAt?: number;
   updatedAt: number;
   syncStatus: string;
 };

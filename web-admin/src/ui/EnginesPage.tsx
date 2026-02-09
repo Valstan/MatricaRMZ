@@ -18,6 +18,11 @@ type Row = {
   id: string;
   engineNumber: string;
   engineBrand: string;
+  customerName: string;
+  arrivalDate: number | null;
+  shippingDate: number | null;
+  isScrap: boolean;
+  contractId: string;
   updatedAt: number;
   syncStatus: string;
 };
@@ -26,10 +31,19 @@ const REQUIRED_DEFS = [
   { code: 'engine_number', name: 'Номер двигателя', dataType: 'text' },
   { code: 'engine_brand', name: 'Марка двигателя', dataType: 'text' },
   { code: 'engine_brand_id', name: 'Марка двигателя (ссылка)', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }) },
+  { code: 'arrival_date', name: 'Дата прихода', dataType: 'date' },
+  { code: 'shipping_date', name: 'Дата отгрузки', dataType: 'date' },
+  { code: 'is_scrap', name: 'Утиль (неремонтнопригоден)', dataType: 'boolean' },
   { code: 'customer_id', name: 'Заказчик', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }) },
   { code: 'contract_id', name: 'Контракт', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }) },
   { code: 'attachments', name: 'Вложения', dataType: 'json' },
 ];
+
+function toDateLabel(ms: number | null) {
+  if (!ms) return '';
+  const dt = new Date(ms);
+  return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('ru-RU');
+}
 
 function normalize(s: string) {
   return String(s || '')
@@ -104,6 +118,30 @@ export function EnginesPage(props: {
         setStatus(`Ошибка: ${listRes?.error ?? 'list failed'}`);
         return;
       }
+      const typesRes = await listEntityTypes();
+      const types = typesRes?.ok ? (typesRes.rows ?? []) : [];
+      const customerTypeId = types.find((t: any) => String(t.code) === 'customer')?.id ?? null;
+      const contractTypeId = types.find((t: any) => String(t.code) === 'contract')?.id ?? null;
+      const customerMap = new Map<string, string>();
+      const contractMap = new Map<string, string>();
+      if (customerTypeId) {
+        const c = await listEntities(String(customerTypeId));
+        if (c?.ok) {
+          (c.rows ?? []).forEach((row: any) => {
+            const label = row.displayName ? String(row.displayName) : String(row.id);
+            customerMap.set(String(row.id), label);
+          });
+        }
+      }
+      if (contractTypeId) {
+        const c = await listEntities(String(contractTypeId));
+        if (c?.ok) {
+          (c.rows ?? []).forEach((row: any) => {
+            const label = row.displayName ? String(row.displayName) : String(row.id);
+            contractMap.set(String(row.id), label);
+          });
+        }
+      }
       const list = listRes.rows ?? [];
       if (!list.length) {
         setRows([]);
@@ -115,10 +153,17 @@ export function EnginesPage(props: {
           try {
             const d = await getEntity(String(row.id));
             const attrs = (d as any)?.entity?.attributes ?? {};
+            const customerId = attrs.customer_id == null ? '' : String(attrs.customer_id);
+            const contractId = attrs.contract_id == null ? '' : String(attrs.contract_id);
             return {
               id: String(row.id),
               engineNumber: attrs.engine_number == null ? '' : String(attrs.engine_number),
               engineBrand: attrs.engine_brand == null ? '' : String(attrs.engine_brand),
+              customerName: customerId ? customerMap.get(customerId) ?? customerId : '',
+              arrivalDate: typeof attrs.arrival_date === 'number' ? Number(attrs.arrival_date) : null,
+              shippingDate: typeof attrs.shipping_date === 'number' ? Number(attrs.shipping_date) : null,
+              isScrap: Boolean(attrs.is_scrap),
+              contractId,
               updatedAt: Number(row.updatedAt ?? 0),
               syncStatus: String(row.syncStatus ?? ''),
             };
@@ -127,6 +172,11 @@ export function EnginesPage(props: {
               id: String(row.id),
               engineNumber: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
               engineBrand: '',
+              customerName: '',
+              arrivalDate: null,
+              shippingDate: null,
+              isScrap: false,
+              contractId: '',
               updatedAt: Number(row.updatedAt ?? 0),
               syncStatus: String(row.syncStatus ?? ''),
             };
@@ -161,7 +211,12 @@ export function EnginesPage(props: {
   const filtered = useMemo(() => {
     const q = normalize(query);
     if (!q) return rows;
-    return rows.filter((r) => normalize(r.engineNumber).includes(q) || normalize(r.engineBrand).includes(q));
+    return rows.filter(
+      (r) =>
+        normalize(r.engineNumber).includes(q) ||
+        normalize(r.engineBrand).includes(q) ||
+        normalize(r.customerName).includes(q),
+    );
   }, [rows, query]);
 
   const sorted = useMemo(() => {
@@ -223,16 +278,24 @@ export function EnginesPage(props: {
             <tr style={{ background: '#f9fafb' }}>
               <th style={{ textAlign: 'left', padding: 8 }}>Номер</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Марка</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Синхр.</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Контрагент</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Дата прихода</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Дата отгрузки</th>
               {props.canEditMasterData && <th style={{ textAlign: 'left', padding: 8, width: 120 }}>Действия</th>}
             </tr>
           </thead>
           <tbody>
             {sorted.map((row) => (
-              <tr key={row.id} onClick={() => setSelectedId(row.id)} style={{ cursor: 'pointer' }}>
+              <tr
+                key={row.id}
+                onClick={() => setSelectedId(row.id)}
+                style={{ cursor: 'pointer', background: row.isScrap ? 'rgba(239, 68, 68, 0.18)' : undefined }}
+              >
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineNumber || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineBrand || '-'}</td>
-                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.syncStatus || '-'}</td>
+                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.customerName || '-'}</td>
+                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{toDateLabel(row.arrivalDate) || '-'}</td>
+                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{toDateLabel(row.shippingDate) || '-'}</td>
                 {props.canEditMasterData && (
                   <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }} onClick={(e) => e.stopPropagation()}>
                     <Button
@@ -264,7 +327,7 @@ export function EnginesPage(props: {
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={props.canEditMasterData ? 4 : 3} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={props.canEditMasterData ? 6 : 5} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>

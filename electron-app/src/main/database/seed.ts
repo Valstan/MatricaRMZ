@@ -125,6 +125,8 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(engineTypeId, 'engine_number', 'Номер двигателя', AttributeDataType.Text, 10);
   await ensureAttrDef(engineTypeId, 'engine_brand', 'Марка двигателя', AttributeDataType.Text, 20);
   await ensureAttrDef(engineTypeId, 'arrival_date', 'Дата прихода', AttributeDataType.Date, 25);
+  await ensureAttrDef(engineTypeId, 'shipping_date', 'Дата отгрузки', AttributeDataType.Date, 26);
+  await ensureAttrDef(engineTypeId, 'is_scrap', 'Утиль (неремонтнопригоден)', AttributeDataType.Boolean, 27);
   await ensureAttrDef(
     engineTypeId,
     'engine_brand_id',

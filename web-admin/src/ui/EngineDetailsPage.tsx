@@ -48,6 +48,8 @@ const REQUIRED_DEFS = [
   { code: 'engine_brand', name: 'Марка двигателя', dataType: 'text' },
   { code: 'engine_brand_id', name: 'Марка двигателя (ссылка)', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }) },
   { code: 'arrival_date', name: 'Дата прихода', dataType: 'date' },
+  { code: 'shipping_date', name: 'Дата отгрузки', dataType: 'date' },
+  { code: 'is_scrap', name: 'Утиль (неремонтнопригоден)', dataType: 'boolean' },
   { code: 'customer_id', name: 'Заказчик', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }) },
   { code: 'contract_id', name: 'Контракт', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }) },
   { code: 'attachments', name: 'Вложения', dataType: 'json' },
@@ -123,6 +125,8 @@ export function EngineDetailsPage(props: {
   const [engineBrand, setEngineBrand] = useState('');
   const [engineBrandId, setEngineBrandId] = useState('');
   const [arrivalDate, setArrivalDate] = useState('');
+  const [shippingDate, setShippingDate] = useState('');
+  const [isScrap, setIsScrap] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [contractId, setContractId] = useState('');
   const [attachments, setAttachments] = useState<unknown>(null);
@@ -198,6 +202,8 @@ export function EngineDetailsPage(props: {
       setEngineBrand(String(attrs.engine_brand ?? ''));
       setEngineBrandId(String(attrs.engine_brand_id ?? ''));
       setArrivalDate(toInputDate(attrs.arrival_date as number | null | undefined));
+      setShippingDate(toInputDate(attrs.shipping_date as number | null | undefined));
+      setIsScrap(Boolean(attrs.is_scrap));
       setCustomerId(String(attrs.customer_id ?? ''));
       setContractId(String(attrs.contract_id ?? ''));
       setAttachments(attrs.attachments ?? null);
@@ -232,6 +238,8 @@ export function EngineDetailsPage(props: {
       await saveAttr('engine_brand_id', engineBrandId || null);
       await saveAttr('engine_brand', engineBrand || null);
       await saveAttr('arrival_date', fromInputDate(arrivalDate));
+      await saveAttr('shipping_date', fromInputDate(shippingDate));
+      await saveAttr('is_scrap', isScrap === true);
       await saveAttr('customer_id', customerId || null);
       await saveAttr('contract_id', contractId || null);
       await saveAttr('attachments', attachments);
@@ -303,6 +311,8 @@ export function EngineDetailsPage(props: {
                     ['Номер двигателя', String(engineNumber ?? '')],
                     ['Марка двигателя', String(engineBrand ?? '')],
                     ['Дата прихода', formatDateLabel(arrivalDate)],
+                    ['Дата отгрузки', formatDateLabel(shippingDate)],
+                    ['Утиль', isScrap ? 'Да' : 'Нет'],
                     ['Заказчик', (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId ?? ''],
                     ['Контракт', (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId ?? ''],
                   ]),
@@ -378,6 +388,30 @@ export function EngineDetailsPage(props: {
             onChange={(e) => setArrivalDate(e.target.value)}
             onBlur={() => void saveAttr('arrival_date', fromInputDate(arrivalDate))}
           />
+
+          <div style={{ color: '#6b7280' }}>Дата отгрузки</div>
+          <Input
+            type="date"
+            value={shippingDate}
+            disabled={!props.canEditEngines}
+            onChange={(e) => setShippingDate(e.target.value)}
+            onBlur={() => void saveAttr('shipping_date', fromInputDate(shippingDate))}
+          />
+
+          <div style={{ color: '#6b7280' }}>Неремонтнопригоден / утиль</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={isScrap}
+              disabled={!props.canEditEngines}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setIsScrap(next);
+                void saveAttr('is_scrap', next);
+              }}
+            />
+            <span>{isScrap ? 'Да' : 'Нет'}</span>
+          </label>
 
           <div style={{ color: '#6b7280' }}>Заказчик</div>
           <SearchSelect
