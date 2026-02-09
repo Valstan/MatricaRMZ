@@ -40,7 +40,6 @@ export function EnginesPage(props: {
   onOpen: (id: string) => Promise<void>;
   onCreate: () => Promise<void>;
   canCreate: boolean;
-  canDelete: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [showReport, setShowReport] = useState(false);
@@ -54,6 +53,8 @@ export function EnginesPage(props: {
   const [brandIds, setBrandIds] = useState<string[]>([]);
   const [scrapFilter, setScrapFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [onSiteFilter, setOnSiteFilter] = useState<'all' | 'yes' | 'no'>('all');
+  const [sortKey, setSortKey] = useState<'engineNumber' | 'engineBrand' | 'customerName' | 'arrivalDate' | 'shippingDate'>('arrivalDate');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
 
@@ -118,17 +119,81 @@ export function EnginesPage(props: {
     onSiteFilter,
   ]);
 
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir('asc');
+  }
+
+  function sortArrow(key: typeof sortKey) {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? '▲' : '▼';
+  }
+
+  const sorted = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const byText = (a: string, b: string) => a.localeCompare(b, 'ru') * dir;
+    const byDate = (a?: number | null, b?: number | null) => {
+      const av = a ?? -1;
+      const bv = b ?? -1;
+      return (av - bv) * dir;
+    };
+    const items = [...filtered];
+    items.sort((a, b) => {
+      switch (sortKey) {
+        case 'engineNumber':
+          return byText(String(a.engineNumber ?? ''), String(b.engineNumber ?? ''));
+        case 'engineBrand':
+          return byText(String(a.engineBrand ?? ''), String(b.engineBrand ?? ''));
+        case 'customerName':
+          return byText(String(a.customerName ?? ''), String(b.customerName ?? ''));
+        case 'arrivalDate':
+          return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
+        case 'shippingDate':
+          return byDate(a.shippingDate ?? null, b.shippingDate ?? null);
+        default:
+          return 0;
+      }
+    });
+    return items;
+  }, [filtered, sortDir, sortKey]);
+
   const tableHeader = (
     <thead>
       <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Номер</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Марка</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Контрагент</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата прихода</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата отгрузки</th>
-        {props.canDelete && (
-          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 100 }}>Действия</th>
-        )}
+        <th
+          style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+          onClick={() => toggleSort('engineNumber')}
+        >
+          Номер {sortArrow('engineNumber')}
+        </th>
+        <th
+          style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+          onClick={() => toggleSort('engineBrand')}
+        >
+          Марка {sortArrow('engineBrand')}
+        </th>
+        <th
+          style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+          onClick={() => toggleSort('customerName')}
+        >
+          Контрагент {sortArrow('customerName')}
+        </th>
+        <th
+          style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+          onClick={() => toggleSort('arrivalDate')}
+        >
+          Дата прихода {sortArrow('arrivalDate')}
+        </th>
+        <th
+          style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+          onClick={() => toggleSort('shippingDate')}
+        >
+          Дата отгрузки {sortArrow('shippingDate')}
+        </th>
       </tr>
     </thead>
   );
@@ -181,30 +246,11 @@ export function EnginesPage(props: {
                 >
                   {toDateLabel(e.shippingDate) || '-'}
                 </td>
-                {props.canDelete && (
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, width: 100 }} onClick={(ev) => ev.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      onClick={async () => {
-                        if (!confirm('Удалить двигатель?')) return;
-                        const r = await window.matrica.engines.delete(e.id);
-                        if (!r.ok) {
-                          alert(`Ошибка удаления: ${r.error}`);
-                          return;
-                        }
-                        void props.onRefresh();
-                      }}
-                      style={{ color: '#b91c1c' }}
-                    >
-                      Удалить
-                    </Button>
-                  </td>
-                )}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={props.canDelete ? 6 : 5}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={5}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -361,7 +407,7 @@ export function EnginesPage(props: {
 
       <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList
-          items={filtered}
+          items={sorted}
           enabled={twoCol}
           renderColumn={(items) => renderTable(items)}
         />

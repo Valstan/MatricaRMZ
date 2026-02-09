@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { EngineDetailsPage } from './EngineDetailsPage.js';
 import {
@@ -11,7 +10,6 @@ import {
   listEntityTypes,
   upsertAttributeDef,
   upsertEntityType,
-  softDeleteEntity,
 } from '../api/masterdata.js';
 
 type Row = {
@@ -69,6 +67,8 @@ export function EnginesPage(props: {
   const [query, setQuery] = useState<string>('');
   const [engineTypeId, setEngineTypeId] = useState<string>('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<'engineNumber' | 'engineBrand' | 'customerName' | 'arrivalDate' | 'shippingDate'>('arrivalDate');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   async function ensureEngineSchema() {
     const typesRes = await listEntityTypes();
@@ -219,9 +219,47 @@ export function EnginesPage(props: {
     );
   }, [rows, query]);
 
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir('asc');
+  }
+
+  function sortArrow(key: typeof sortKey) {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? '▲' : '▼';
+  }
+
   const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [filtered]);
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const byText = (a: string, b: string) => a.localeCompare(b, 'ru') * dir;
+    const byDate = (a?: number | null, b?: number | null) => {
+      const av = a ?? -1;
+      const bv = b ?? -1;
+      return (av - bv) * dir;
+    };
+    const items = [...filtered];
+    items.sort((a, b) => {
+      switch (sortKey) {
+        case 'engineNumber':
+          return byText(String(a.engineNumber ?? ''), String(b.engineNumber ?? ''));
+        case 'engineBrand':
+          return byText(String(a.engineBrand ?? ''), String(b.engineBrand ?? ''));
+        case 'customerName':
+          return byText(String(a.customerName ?? ''), String(b.customerName ?? ''));
+        case 'arrivalDate':
+          return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
+        case 'shippingDate':
+          return byDate(a.shippingDate ?? null, b.shippingDate ?? null);
+        default:
+          return 0;
+      }
+    });
+    return items;
+  }, [filtered, sortDir, sortKey]);
 
   if (selectedId) {
     return (
@@ -244,7 +282,8 @@ export function EnginesPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canEditEngines && (
-          <Button
+          <button
+            type="button"
             onClick={async () => {
               if (!engineTypeId) return;
               setStatus('Создание двигателя…');
@@ -257,16 +296,35 @@ export function EnginesPage(props: {
               await loadEngines();
               setSelectedId(String(r.id));
             }}
+            style={{
+              padding: '7px 10px',
+              borderRadius: 10,
+              border: '1px solid var(--button-border)',
+              background: 'var(--button-bg)',
+              color: 'var(--button-text)',
+              cursor: 'pointer',
+            }}
           >
             Добавить двигатель
-          </Button>
+          </button>
         )}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру или марке…" />
         </div>
-        <Button variant="ghost" onClick={() => void loadEngines()}>
+        <button
+          type="button"
+          onClick={() => void loadEngines()}
+          style={{
+            padding: '7px 10px',
+            borderRadius: 10,
+            border: '1px solid var(--button-ghost-border)',
+            background: 'var(--button-ghost-bg)',
+            color: 'var(--button-ghost-text)',
+            cursor: 'pointer',
+          }}
+        >
           Обновить
-        </Button>
+        </button>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
@@ -276,12 +334,36 @@ export function EnginesPage(props: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f9fafb' }}>
-              <th style={{ textAlign: 'left', padding: 8 }}>Номер</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Марка</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Контрагент</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Дата прихода</th>
-              <th style={{ textAlign: 'left', padding: 8 }}>Дата отгрузки</th>
-              {props.canEditMasterData && <th style={{ textAlign: 'left', padding: 8, width: 120 }}>Действия</th>}
+              <th
+                style={{ textAlign: 'left', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+                onClick={() => toggleSort('engineNumber')}
+              >
+                Номер {sortArrow('engineNumber')}
+              </th>
+              <th
+                style={{ textAlign: 'left', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+                onClick={() => toggleSort('engineBrand')}
+              >
+                Марка {sortArrow('engineBrand')}
+              </th>
+              <th
+                style={{ textAlign: 'left', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+                onClick={() => toggleSort('customerName')}
+              >
+                Контрагент {sortArrow('customerName')}
+              </th>
+              <th
+                style={{ textAlign: 'left', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+                onClick={() => toggleSort('arrivalDate')}
+              >
+                Дата прихода {sortArrow('arrivalDate')}
+              </th>
+              <th
+                style={{ textAlign: 'left', padding: 8, position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer' }}
+                onClick={() => toggleSort('shippingDate')}
+              >
+                Дата отгрузки {sortArrow('shippingDate')}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -296,38 +378,11 @@ export function EnginesPage(props: {
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.customerName || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{toDateLabel(row.arrivalDate) || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{toDateLabel(row.shippingDate) || '-'}</td>
-                {props.canEditMasterData && (
-                  <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }} onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      onClick={async () => {
-                        if (!confirm('Удалить двигатель?')) return;
-                        try {
-                          setStatus('Удаление…');
-                          const r = await softDeleteEntity(row.id);
-                          if (!r?.ok) {
-                            setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
-                            return;
-                          }
-                          setStatus('Удалено');
-                          setTimeout(() => setStatus(''), 900);
-                          await loadEngines();
-                          if (selectedId === row.id) setSelectedId(null);
-                        } catch (err) {
-                          setStatus(`Ошибка: ${String(err)}`);
-                        }
-                      }}
-                      style={{ color: '#b91c1c' }}
-                    >
-                      Удалить
-                    </Button>
-                  </td>
-                )}
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={props.canEditMasterData ? 6 : 5} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={5} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>

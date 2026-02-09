@@ -1372,7 +1372,6 @@ export function App() {
               }
             }}
             canCreate={caps.canEditEngines}
-            canDelete={caps.canEditEngines}
           />
         )}
 
