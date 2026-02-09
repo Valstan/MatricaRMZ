@@ -36,7 +36,8 @@ describe('telegramBotService', () => {
     expect(res.ok).toBe(true);
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, opts] = fetchMock.mock.calls[0];
+    const calls = (fetchMock as any).mock?.calls ?? [];
+    const opts = (calls[0]?.[1] ?? null) as any;
     const body = JSON.parse(String(opts?.body ?? '{}'));
     expect(body.chat_id).toBe('@user123');
     expect(body.text).toBe('hello');
