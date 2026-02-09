@@ -9,12 +9,12 @@ type Row = {
   id: string;
   displayName?: string;
   updatedAt: number;
+  partsCount?: number | null;
 };
 
 export function EngineBrandsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
-  canDelete: boolean;
   canViewMasterData: boolean;
 }) {
   const [query, setQuery] = useState<string>('');
@@ -42,8 +42,30 @@ export function EngineBrandsPage(props: {
     try {
       setStatus('Загрузка…');
       const list = await window.matrica.admin.entities.listByEntityType(typeId);
-      setRows(list as any);
+      const nextRows = (list as any[]).map((row) => ({
+        id: String(row.id),
+        displayName: row.displayName ? String(row.displayName) : undefined,
+        updatedAt: Number(row.updatedAt ?? 0),
+        partsCount: null,
+      }));
+      setRows(nextRows);
       setStatus('');
+      try {
+        const counts = await Promise.all(
+          nextRows.map(async (row) => {
+            const r = await window.matrica.parts.list({ engineBrandId: row.id, limit: 5000 }).catch((e) => ({
+              ok: false as const,
+              error: String(e),
+            }));
+            if (!r.ok) return { id: row.id, count: null };
+            return { id: row.id, count: Array.isArray((r as any).parts) ? (r as any).parts.length : null };
+          }),
+        );
+        const countMap = new Map(counts.map((c) => [c.id, c.count]));
+        setRows((prev) => prev.map((row) => ({ ...row, partsCount: countMap.get(row.id) ?? row.partsCount ?? null })));
+      } catch {
+        // ignore parts count errors
+      }
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -63,7 +85,7 @@ export function EngineBrandsPage(props: {
     return () => {
       if (queryTimer.current) window.clearTimeout(queryTimer.current);
     };
-  }, [query, typeId]);
+  }, [typeId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -77,11 +99,12 @@ export function EngineBrandsPage(props: {
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Название</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Обновлено</th>
-        {props.canDelete && (
-          <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
-        )}
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>
+          Наименование марки двигателя
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>
+          Количество деталей
+        </th>
       </tr>
     </thead>
   );
@@ -95,7 +118,7 @@ export function EngineBrandsPage(props: {
             {items.length === 0 && (
               <tr>
                 <td
-                  colSpan={props.canDelete ? 3 : 2}
+                  colSpan={2}
                   style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}
                 >
                   {rows.length === 0 ? 'Нет марок' : 'Не найдено'}
@@ -116,35 +139,8 @@ export function EngineBrandsPage(props: {
               >
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без названия)'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
-                  {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
+                  {row.partsCount == null ? '—' : row.partsCount}
                 </td>
-                {props.canDelete && (
-                  <td style={{ padding: '10px 12px' }}>
-                    <Button
-                      variant="ghost"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!confirm('Удалить марку двигателя?')) return;
-                        try {
-                          setStatus('Удаление…');
-                          const r = await window.matrica.admin.entities.softDelete(row.id);
-                          if (!r.ok) {
-                            setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                            return;
-                          }
-                          setStatus('Удалено');
-                          setTimeout(() => setStatus(''), 900);
-                          await refresh();
-                        } catch (err) {
-                          setStatus(`Ошибка: ${String(err)}`);
-                        }
-                      }}
-                      style={{ color: '#b91c1c' }}
-                    >
-                      Удалить
-                    </Button>
-                  </td>
-                )}
               </tr>
             ))}
           </tbody>

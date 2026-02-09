@@ -1379,7 +1379,6 @@ export function App() {
           <EngineBrandsPage
             onOpen={openEngineBrand}
             canCreate={caps.canEditMasterData}
-            canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
         )}
