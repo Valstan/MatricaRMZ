@@ -76,7 +76,6 @@ contextBridge.exposeInMainWorld('matrica', {
       brandIds?: string[];
       includePurchases?: boolean;
     }) => ipcRenderer.invoke('reports:defectSupplyPreview', args),
-      ipcRenderer.invoke('reports:defectSupplyPreview', args),
     defectSupplyPdf: async (args: {
       startMs?: number;
       endMs: number;
