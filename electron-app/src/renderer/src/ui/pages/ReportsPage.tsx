@@ -120,6 +120,9 @@ export function ReportsPage(props: { canExport: boolean }) {
   const [defectEndDate, setDefectEndDate] = useState<string>(() => toInputDate(Date.now()));
   const [contractOptions, setContractOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedContracts, setSelectedContracts] = useState<string[]>([]);
+  const [brandOptions, setBrandOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
+  const [includePurchases, setIncludePurchases] = useState<boolean>(false);
   const [defectStatus, setDefectStatus] = useState<string>('');
   const [defectPreview, setDefectPreview] = useState<{
     rows: any[];
@@ -200,6 +203,35 @@ export function ReportsPage(props: { canExport: boolean }) {
       } catch {
         if (!alive) return;
         setContractOptions([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const types = await window.matrica.admin.entityTypes.list();
+        if (!alive) return;
+        const brandType = (types as any[]).find((t) => String(t.code) === 'engine_brand') ?? null;
+        if (!brandType?.id) {
+          setBrandOptions([]);
+          return;
+        }
+        const rows = await window.matrica.admin.entities.listByEntityType(String(brandType.id));
+        if (!alive) return;
+        const opts = (rows as any[]).map((r) => ({
+          id: String(r.id),
+          label: String(r.displayName ?? r.id),
+        }));
+        opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setBrandOptions(opts);
+      } catch {
+        if (!alive) return;
+        setBrandOptions([]);
       }
     })();
     return () => {
@@ -349,7 +381,13 @@ export function ReportsPage(props: { canExport: boolean }) {
     }
     setDefectStatus('Формирование отчёта...');
     const r = await window.matrica.reports
-      .defectSupplyPreview({ startMs: startMs ?? undefined, endMs, contractIds: selectedContracts })
+      .defectSupplyPreview({
+        startMs: startMs ?? undefined,
+        endMs,
+        contractIds: selectedContracts,
+        brandIds: selectedBrands,
+        includePurchases,
+      })
       .catch(() => null);
     if (!r || !(r as any).ok) {
       setDefectPreview(null);
@@ -375,7 +413,14 @@ export function ReportsPage(props: { canExport: boolean }) {
     setDefectStatus('Генерация PDF...');
     const labels = contractOptions.filter((o) => selectedContracts.includes(o.id)).map((o) => o.label);
     const r = await window.matrica.reports
-      .defectSupplyPdf({ startMs: startMs ?? undefined, endMs, contractIds: selectedContracts, contractLabels: labels })
+      .defectSupplyPdf({
+        startMs: startMs ?? undefined,
+        endMs,
+        contractIds: selectedContracts,
+        contractLabels: labels,
+        brandIds: selectedBrands,
+        includePurchases,
+      })
       .catch(() => null);
     if (!r || !(r as any).ok) {
       setDefectStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось создать PDF'}`);
@@ -396,7 +441,14 @@ export function ReportsPage(props: { canExport: boolean }) {
     setDefectStatus('Отправка на печать...');
     const labels = contractOptions.filter((o) => selectedContracts.includes(o.id)).map((o) => o.label);
     const r = await window.matrica.reports
-      .defectSupplyPrint({ startMs: startMs ?? undefined, endMs, contractIds: selectedContracts, contractLabels: labels })
+      .defectSupplyPrint({
+        startMs: startMs ?? undefined,
+        endMs,
+        contractIds: selectedContracts,
+        contractLabels: labels,
+        brandIds: selectedBrands,
+        includePurchases,
+      })
       .catch(() => null);
     if (!r || !(r as any).ok) {
       setDefectStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось печатать'}`);
@@ -674,6 +726,23 @@ export function ReportsPage(props: { canExport: boolean }) {
             placeholder="Все контракты"
           />
         </div>
+        <div style={{ minWidth: 260, flex: 1 }}>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Марки двигателей</div>
+          <MultiSearchSelect
+            values={selectedBrands}
+            options={brandOptions}
+            onChange={setSelectedBrands}
+            placeholder="Все марки"
+          />
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#334155' }}>
+          <input
+            type="checkbox"
+            checked={includePurchases}
+            onChange={(e) => setIncludePurchases(e.target.checked)}
+          />
+          Учитывать приход закупленных деталей
+        </label>
         <div style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => void runDefectPreview()}>
           Предпросмотр

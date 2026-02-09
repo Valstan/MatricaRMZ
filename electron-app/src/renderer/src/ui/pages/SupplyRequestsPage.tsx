@@ -9,6 +9,8 @@ type Row = {
   id: string;
   requestNumber: string;
   compiledAt: number;
+  sentAt?: number | null;
+  arrivedAt?: number | null;
   status: string;
   title: string;
   departmentId: string;
@@ -16,6 +18,7 @@ type Row = {
   workshopId: string | null;
   sectionId: string | null;
   updatedAt: number;
+  isIncomplete?: boolean;
 };
 
 function statusLabel(s: string): string {
@@ -76,10 +79,10 @@ export function SupplyRequestsPage(props: {
     <thead>
       <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Номер</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата создания</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата отправки</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата поступления</th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Статус</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Описание</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Подразделение</th>
         {props.canDelete && (
           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 100 }}>Действия</th>
         )}
@@ -94,7 +97,7 @@ export function SupplyRequestsPage(props: {
           {tableHeader}
           <tbody>
             {items.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} style={{ background: r.isIncomplete ? 'rgba(239, 68, 68, 0.18)' : undefined }}>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
                   onClick={() => {
@@ -117,23 +120,23 @@ export function SupplyRequestsPage(props: {
                     void props.onOpen(r.id);
                   }}
                 >
+                  {r.sentAt ? new Date(r.sentAt).toLocaleDateString('ru-RU') : '-'}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {r.arrivedAt ? new Date(r.arrivedAt).toLocaleDateString('ru-RU') : '-'}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
                   {statusLabel(r.status)}
-                </td>
-                <td
-                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
-                  onClick={() => {
-                    void props.onOpen(r.id);
-                  }}
-                >
-                  {r.title || '-'}
-                </td>
-                <td
-                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
-                  onClick={() => {
-                    void props.onOpen(r.id);
-                  }}
-                >
-                  {r.departmentName || r.departmentId || '-'}
                 </td>
                 {props.canDelete && (
                   <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} onClick={(ev) => ev.stopPropagation()}>
@@ -183,7 +186,7 @@ export function SupplyRequestsPage(props: {
               await props.onOpen(r.id);
             }}
           >
-            Создать заявку
+            Создать закупку
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>

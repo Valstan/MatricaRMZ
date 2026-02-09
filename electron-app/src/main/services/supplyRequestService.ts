@@ -132,6 +132,8 @@ export async function listSupplyRequests(
         id: string;
         requestNumber: string;
         compiledAt: number;
+        sentAt?: number | null;
+        arrivedAt?: number | null;
         status: SupplyRequestStatus;
         title: string;
         departmentId: string;
@@ -139,6 +141,7 @@ export async function listSupplyRequests(
         workshopId: string | null;
         sectionId: string | null;
         updatedAt: number;
+        isIncomplete?: boolean;
       }[];
     }
   | { ok: false; error: string }
@@ -194,16 +197,27 @@ export async function listSupplyRequests(
         : '';
       if (qNorm && !hay.includes(qNorm)) continue;
 
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      const isIncomplete = items.some((it: any) => {
+        const ordered = Number(it?.qty) || 0;
+        const deliveries = Array.isArray(it?.deliveries) ? it.deliveries : [];
+        const delivered = deliveries.reduce((acc: number, d: any) => acc + (Number(d?.qty) || 0), 0);
+        return ordered > delivered;
+      });
+
       out.push({
         id: String(r.id),
         requestNumber,
         compiledAt: Number.isFinite(compiledAt) ? compiledAt : Number(r.createdAt),
+        sentAt: parsed.sentAt != null ? Number(parsed.sentAt) : null,
+        arrivedAt: parsed.arrivedAt != null ? Number(parsed.arrivedAt) : null,
         status: String(parsed.status ?? r.status ?? 'draft') as SupplyRequestStatus,
         title,
         departmentId,
         workshopId: parsed.workshopId ? String(parsed.workshopId) : null,
         sectionId: parsed.sectionId ? String(parsed.sectionId) : null,
         updatedAt: Number(r.updatedAt),
+        isIncomplete,
       });
     }
 
@@ -319,7 +333,9 @@ export async function createSupplyRequest(
       operationId: id,
       requestNumber,
       compiledAt: ts,
+      sentAt: null,
       acceptedAt: null,
+      arrivedAt: null,
       fulfilledAt: null,
       title: '',
       status: 'draft',

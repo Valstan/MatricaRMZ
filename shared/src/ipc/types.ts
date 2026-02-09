@@ -550,7 +550,13 @@ export type MatricaApi = {
     periodStagesByLinkCsv: (args: { startMs?: number; endMs: number; linkAttrCode: string }) => Promise<
       { ok: true; csv: string } | { ok: false; error: string }
     >;
-    defectSupplyPreview: (args: { startMs?: number; endMs: number; contractIds?: string[] }) => Promise<
+    defectSupplyPreview: (args: {
+      startMs?: number;
+      endMs: number;
+      contractIds?: string[];
+      brandIds?: string[];
+      includePurchases?: boolean;
+    }) => Promise<
       | {
           ok: true;
           rows: Array<{ contractId: string; contractLabel: string; partName: string; partNumber: string; scrapQty: number; missingQty: number }>;
@@ -559,11 +565,25 @@ export type MatricaApi = {
         }
       | { ok: false; error: string }
     >;
-    defectSupplyPdf: (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => Promise<
+    defectSupplyPdf: (args: {
+      startMs?: number;
+      endMs: number;
+      contractIds?: string[];
+      contractLabels: string[];
+      brandIds?: string[];
+      includePurchases?: boolean;
+    }) => Promise<
       | { ok: true; contentBase64: string; fileName: string; mime: string }
       | { ok: false; error: string }
     >;
-    defectSupplyPrint: (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => Promise<
+    defectSupplyPrint: (args: {
+      startMs?: number;
+      endMs: number;
+      contractIds?: string[];
+      contractLabels: string[];
+      brandIds?: string[];
+      includePurchases?: boolean;
+    }) => Promise<
       | { ok: true }
       | { ok: false; error: string }
     >;

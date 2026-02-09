@@ -493,7 +493,7 @@ export function SupplyRequestDetailsPage(props: {
       {
         code: 'request_number',
         defaultOrder: 10,
-        label: 'Номер заявки',
+        label: 'Номер закупки',
         value: payload.requestNumber,
         render: <div style={{ fontWeight: 700 }}>{payload.requestNumber}</div>,
       },
@@ -516,6 +516,34 @@ export function SupplyRequestDetailsPage(props: {
         ),
       },
       {
+        code: 'sent_at',
+        defaultOrder: 25,
+        label: 'Дата отправки заявки',
+        value: toInputDate(payload.sentAt ?? null),
+        render: (
+          <Input
+            type="date"
+            value={toInputDate(payload.sentAt ?? null)}
+            disabled={!props.canEdit}
+            onChange={(e) => scheduleSave({ ...payload, sentAt: fromInputDate(e.target.value) })}
+          />
+        ),
+      },
+      {
+        code: 'arrived_at',
+        defaultOrder: 26,
+        label: 'Дата поступления деталей на завод',
+        value: toInputDate(payload.arrivedAt ?? null),
+        render: (
+          <Input
+            type="date"
+            value={toInputDate(payload.arrivedAt ?? null)}
+            disabled={!props.canEdit}
+            onChange={(e) => scheduleSave({ ...payload, arrivedAt: fromInputDate(e.target.value) })}
+          />
+        ),
+      },
+      {
         code: 'status',
         defaultOrder: 30,
         label: 'Статус',
@@ -525,7 +553,7 @@ export function SupplyRequestDetailsPage(props: {
       {
         code: 'title',
         defaultOrder: 40,
-        label: 'Описание',
+        label: 'Описание заявки',
         value: payload.title ?? '',
         render: (
           <Input
@@ -718,10 +746,12 @@ export function SupplyRequestDetailsPage(props: {
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <h2 style={{ margin: '8px 0' }}>Список товаров</h2>
+        <h2 style={{ margin: '8px 0' }}>Список деталей</h2>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ flex: 1, color: '#6b7280' }}>Позиции заявки: наименование, количество, единица, примечание, фактические поставки.</div>
+          <div style={{ flex: 1, color: '#6b7280' }}>
+            Позиции заявки: наименование, заказано, пришло фактически, недовезли.
+          </div>
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
@@ -731,11 +761,11 @@ export function SupplyRequestDetailsPage(props: {
                 <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6, width: 34 }} />
                 <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>№</th>
                 <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Наименование</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Кол-во</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Заказано</th>
                 <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Ед.</th>
                 <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Примечание</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Привезено</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Осталось</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Пришло фактически</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Недовезли</th>
                 <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }} />
               </tr>
             </thead>
@@ -911,7 +941,25 @@ export function SupplyRequestDetailsPage(props: {
                           style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 86 }}>{delivered}</td>
+                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
+                        <Input
+                          type="number"
+                          step={1}
+                          inputMode="numeric"
+                          value={String(delivered)}
+                          disabled={!props.canEdit}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            const qty = Number.isFinite(n) ? n : 0;
+                            const items = [...(payload.items ?? [])];
+                            const cur = items[idx];
+                            const deliveredAt = payload.arrivedAt ?? Date.now();
+                            items[idx] = { ...cur, deliveries: qty > 0 ? [{ deliveredAt, qty, note: '' }] : [] };
+                            scheduleSave({ ...payload, items });
+                          }}
+                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                        />
+                      </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 86 }}>{remaining}</td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 210 }}>
                         <div style={{ display: 'flex', gap: 8 }}>

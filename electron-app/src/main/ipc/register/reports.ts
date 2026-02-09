@@ -33,7 +33,10 @@ export function registerReportsIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'reports:defectSupplyPreview',
-    async (_e, args: { startMs?: number; endMs: number; contractIds?: string[] }) => {
+    async (
+      _e,
+      args: { startMs?: number; endMs: number; contractIds?: string[]; brandIds?: string[]; includePurchases?: boolean },
+    ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
       return buildDefectSupplyReport(ctx.dataDb(), args);
@@ -42,7 +45,17 @@ export function registerReportsIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'reports:defectSupplyPdf',
-    async (_e, args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => {
+    async (
+      _e,
+      args: {
+        startMs?: number;
+        endMs: number;
+        contractIds?: string[];
+        contractLabels: string[];
+        brandIds?: string[];
+        includePurchases?: boolean;
+      },
+    ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
       return exportDefectSupplyReportPdf(ctx.dataDb(), args);
@@ -51,7 +64,17 @@ export function registerReportsIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'reports:defectSupplyPrint',
-    async (_e, args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) => {
+    async (
+      _e,
+      args: {
+        startMs?: number;
+        endMs: number;
+        contractIds?: string[];
+        contractLabels: string[];
+        brandIds?: string[];
+        includePurchases?: boolean;
+      },
+    ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
       return printDefectSupplyReport(ctx.dataDb(), args);

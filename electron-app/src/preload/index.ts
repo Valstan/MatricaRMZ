@@ -69,11 +69,31 @@ contextBridge.exposeInMainWorld('matrica', {
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),
-    defectSupplyPreview: async (args: { startMs?: number; endMs: number; contractIds?: string[] }) =>
+    defectSupplyPreview: async (args: {
+      startMs?: number;
+      endMs: number;
+      contractIds?: string[];
+      brandIds?: string[];
+      includePurchases?: boolean;
+    }) => ipcRenderer.invoke('reports:defectSupplyPreview', args),
       ipcRenderer.invoke('reports:defectSupplyPreview', args),
-    defectSupplyPdf: async (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) =>
+    defectSupplyPdf: async (args: {
+      startMs?: number;
+      endMs: number;
+      contractIds?: string[];
+      contractLabels: string[];
+      brandIds?: string[];
+      includePurchases?: boolean;
+    }) =>
       ipcRenderer.invoke('reports:defectSupplyPdf', args),
-    defectSupplyPrint: async (args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] }) =>
+    defectSupplyPrint: async (args: {
+      startMs?: number;
+      endMs: number;
+      contractIds?: string[];
+      contractLabels: string[];
+      brandIds?: string[];
+      includePurchases?: boolean;
+    }) =>
       ipcRenderer.invoke('reports:defectSupplyPrint', args),
   },
   reportsBuilder: {

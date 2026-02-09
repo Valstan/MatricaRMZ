@@ -1,4 +1,4 @@
-import { and, gte, inArray, isNull, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { BrowserWindow } from 'electron';
 
@@ -155,21 +155,26 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
 
 export async function buildDefectSupplyReport(
   db: BetterSQLite3Database,
-  args: { startMs?: number; endMs: number; contractIds?: string[] },
+  args: { startMs?: number; endMs: number; contractIds?: string[]; brandIds?: string[]; includePurchases?: boolean },
 ): Promise<Ok<DefectSupplyReportResult> | Err> {
   try {
     const endMs = Number(args.endMs);
     if (!Number.isFinite(endMs) || endMs <= 0) return { ok: false, error: 'Некорректная дата endMs' };
     const startMs = args.startMs != null ? Number(args.startMs) : null;
     const contractFilter = Array.isArray(args.contractIds) ? args.contractIds.map(String).filter(Boolean) : [];
+    const brandFilter = Array.isArray(args.brandIds) ? args.brandIds.map(String).filter(Boolean) : [];
+    const includePurchases = args.includePurchases === true;
 
     const defs = await db.select().from(attributeDefs).where(isNull(attributeDefs.deletedAt)).limit(50_000);
     const defByCode = new Map<string, { id: string; code: string }>();
     for (const d of defs as any[]) defByCode.set(String(d.code), { id: String(d.id), code: String(d.code) });
     const contractDefId = defByCode.get('contract_id')?.id ?? '';
+    const brandIdDefId = defByCode.get('engine_brand_id')?.id ?? '';
+    const brandNameDefId = defByCode.get('engine_brand')?.id ?? '';
 
     const values = await db.select().from(attributeValues).where(isNull(attributeValues.deletedAt)).limit(200_000);
     const engineContractId = new Map<string, string>();
+    const engineBrandValue = new Map<string, string>();
     const contractIds = new Set<string>();
     if (contractDefId) {
       for (const v of values as any[]) {
@@ -180,6 +185,16 @@ export async function buildDefectSupplyReport(
         const contractId = raw.trim();
         engineContractId.set(engineId, contractId);
         contractIds.add(contractId);
+      }
+    }
+    if (brandIdDefId || brandNameDefId) {
+      for (const v of values as any[]) {
+        const defId = String(v.attributeDefId);
+        if (defId !== brandIdDefId && defId !== brandNameDefId) continue;
+        const raw = safeJsonParse(String(v.valueJson ?? ''));
+        if (raw == null || raw === '') continue;
+        const engineId = String(v.entityId);
+        if (!engineBrandValue.has(engineId)) engineBrandValue.set(engineId, String(raw));
       }
     }
 
@@ -205,17 +220,18 @@ export async function buildDefectSupplyReport(
 
     const ops = await db.select().from(operations).where(and(...opWhere)).limit(200_000);
     const rowsMap = new Map<string, DefectSupplyReportRow>();
-    let totalScrap = 0;
-    let totalMissing = 0;
 
-  const contractTotals = new Map<string, { scrapQty: number; missingQty: number }>();
-  for (const op of ops as any[]) {
+    for (const op of ops as any[]) {
       const ts = Number(op.performedAt ?? op.createdAt ?? 0);
       if (startMs != null && Number.isFinite(startMs) && ts < startMs) continue;
       if (ts > endMs) continue;
       const engineId = String(op.engineEntityId ?? '');
       const contractId = engineContractId.get(engineId) ?? '';
       if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
+      if (brandFilter.length > 0) {
+        const brandValue = engineBrandValue.get(engineId) ?? '';
+        if (!brandValue || (!brandFilter.includes(brandValue) && !brandFilter.includes(String(brandValue)))) continue;
+      }
       const contractLabelText = contractId ? contractLabel.get(contractId) ?? contractId : '(не указан)';
       const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
       if (!payload || payload.kind !== 'repair_checklist' || !payload.answers) continue;
@@ -241,12 +257,7 @@ export async function buildDefectSupplyReport(
               missingQty: 0,
             } as DefectSupplyReportRow);
           existing.scrapQty += scrapQty;
-          totalScrap += scrapQty;
           rowsMap.set(key, existing);
-          const contractKey = contractLabelText;
-          const ct = contractTotals.get(contractKey) ?? { scrapQty: 0, missingQty: 0 };
-          ct.scrapQty += scrapQty;
-          contractTotals.set(contractKey, ct);
         }
       }
       if (op.operationType === 'completeness') {
@@ -270,13 +281,46 @@ export async function buildDefectSupplyReport(
               missingQty: 0,
             } as DefectSupplyReportRow);
           existing.missingQty += 1;
-          totalMissing += 1;
           rowsMap.set(key, existing);
-          const contractKey = contractLabelText;
-          const ct = contractTotals.get(contractKey) ?? { scrapQty: 0, missingQty: 0 };
-          ct.missingQty += 1;
-          contractTotals.set(contractKey, ct);
         }
+      }
+    }
+
+    if (includePurchases) {
+      const purchaseByName = new Map<string, number>();
+      const purchaseOps = await db
+        .select()
+        .from(operations)
+        .where(and(isNull(operations.deletedAt), eq(operations.operationType, 'supply_request')))
+        .limit(50_000);
+      for (const op of purchaseOps as any[]) {
+        const raw = op.metaJson ? String(op.metaJson) : '';
+        const parsed = safeJsonParse(raw) as any;
+        if (!parsed || parsed.kind !== 'supply_request') continue;
+        const items = Array.isArray(parsed.items) ? parsed.items : [];
+        for (const it of items) {
+          const partName = normalizeText((it as any)?.name, '');
+          if (!partName) continue;
+          const deliveries = Array.isArray((it as any)?.deliveries) ? (it as any).deliveries : [];
+          const delivered = deliveries.reduce((acc: number, d: any) => acc + (Number(d?.qty) || 0), 0);
+          if (delivered <= 0) continue;
+          const key = partName.toLowerCase();
+          purchaseByName.set(key, (purchaseByName.get(key) ?? 0) + delivered);
+        }
+      }
+
+      for (const row of rowsMap.values()) {
+        const key = row.partName.toLowerCase();
+        const available = purchaseByName.get(key) ?? 0;
+        if (available <= 0) continue;
+        const need = row.missingQty + row.scrapQty;
+        if (need <= 0) continue;
+        const apply = Math.min(available, need);
+        const fromMissing = Math.min(row.missingQty, apply);
+        row.missingQty -= fromMissing;
+        const left = apply - fromMissing;
+        if (left > 0) row.scrapQty = Math.max(0, row.scrapQty - left);
+        purchaseByName.set(key, available - apply);
       }
     }
 
@@ -287,7 +331,17 @@ export async function buildDefectSupplyReport(
       if (p !== 0) return p;
       return a.partNumber.localeCompare(b.partNumber, 'ru');
     });
-
+    const contractTotals = new Map<string, { scrapQty: number; missingQty: number }>();
+    let totalScrap = 0;
+    let totalMissing = 0;
+    for (const row of rows) {
+      totalScrap += row.scrapQty;
+      totalMissing += row.missingQty;
+      const ct = contractTotals.get(row.contractLabel) ?? { scrapQty: 0, missingQty: 0 };
+      ct.scrapQty += row.scrapQty;
+      ct.missingQty += row.missingQty;
+      contractTotals.set(row.contractLabel, ct);
+    }
     const totalsByContract = Array.from(contractTotals.entries())
       .map(([contractLabel, totals]) => ({ contractLabel, ...totals }))
       .sort((a, b) => a.contractLabel.localeCompare(b.contractLabel, 'ru'));
@@ -299,7 +353,14 @@ export async function buildDefectSupplyReport(
 
 export async function exportDefectSupplyReportPdf(
   db: BetterSQLite3Database,
-  args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] },
+  args: {
+    startMs?: number;
+    endMs: number;
+    contractIds?: string[];
+    contractLabels: string[];
+    brandIds?: string[];
+    includePurchases?: boolean;
+  },
 ): Promise<Ok<{ contentBase64: string; fileName: string; mime: string }> | Err> {
   const base = await buildDefectSupplyReport(db, args);
   if (!base.ok) return base;
@@ -320,7 +381,14 @@ export async function exportDefectSupplyReportPdf(
 
 export async function printDefectSupplyReport(
   db: BetterSQLite3Database,
-  args: { startMs?: number; endMs: number; contractIds?: string[]; contractLabels: string[] },
+  args: {
+    startMs?: number;
+    endMs: number;
+    contractIds?: string[];
+    contractLabels: string[];
+    brandIds?: string[];
+    includePurchases?: boolean;
+  },
 ): Promise<Ok<{}> | Err> {
   const base = await buildDefectSupplyReport(db, args);
   if (!base.ok) return base;

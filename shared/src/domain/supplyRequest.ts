@@ -47,7 +47,9 @@ export type SupplyRequestPayload = {
 
   // header
   compiledAt: number; // дата составления
+  sentAt?: number | null; // дата отправки заявки
   acceptedAt?: number | null; // дата принятия снабжением
+  arrivedAt?: number | null; // дата поступления деталей на завод
   fulfilledAt?: number | null; // дата исполнения
 
   title: string;
