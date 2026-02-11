@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
@@ -325,6 +326,28 @@ export function PartDetailsPage(props: {
       setCustomerOptions([]);
       setCustomerStatus(`Ошибка: ${String(e)}`);
     }
+  }
+
+  async function createMasterDataEntity(typeCode: string, label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const clean = String(label ?? '').trim();
+    if (!clean) return null;
+    let typeId = entityTypes.find((t) => t.code === typeCode)?.id ?? '';
+    if (!typeId) {
+      const types = await window.matrica.admin.entityTypes.list().catch(() => []);
+      typeId = (types as any[]).find((t) => String(t.code) === typeCode)?.id ?? '';
+    }
+    if (!typeId) {
+      setStatus(`Ошибка: не найден тип справочника "${typeCode}"`);
+      return null;
+    }
+    const created = await window.matrica.admin.entities.create(String(typeId));
+    if (!created?.ok || !created?.id) return null;
+    if (typeCode === 'contract') await window.matrica.admin.entities.setAttr(created.id, 'number', clean);
+    else await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
+    if (typeCode === 'customer') await loadCustomers();
+    if (typeCode === 'contract') await loadContracts();
+    return created.id;
   }
 
   async function loadLinkRules() {
@@ -712,17 +735,29 @@ export function PartDetailsPage(props: {
         value: supplier || '',
         render: (
           <div style={{ display: 'grid', gap: 6 }}>
-            <SearchSelect
+            <SearchSelectWithCreate
               value={supplierId}
               options={customerOptions}
               placeholder="Выберите поставщика"
               disabled={!props.canEdit}
+              canCreate={props.canEdit}
+              createLabel="Новый поставщик"
               onChange={(next) => {
                 setSupplierId(next);
                 const label = customerOptions.find((c) => c.id === next)?.label ?? '';
                 setSupplier(label);
                 void saveAttribute('supplier_id', next || null);
                 void saveAttribute('supplier', label || supplier);
+              }}
+              onCreate={async (label) => {
+                const id = await createMasterDataEntity('customer', label);
+                if (!id) return null;
+                const clean = label.trim();
+                setSupplierId(id);
+                setSupplier(clean);
+                void saveAttribute('supplier_id', id);
+                void saveAttribute('supplier', clean);
+                return id;
               }}
             />
             {customerStatus && (
@@ -737,14 +772,23 @@ export function PartDetailsPage(props: {
         label: 'Контракт',
         value: contractOptions.find((c) => c.id === contractId)?.label ?? (contractId || ''),
         render: (
-          <SearchSelect
+          <SearchSelectWithCreate
             value={contractId || null}
             options={contractOptions}
             placeholder="Выберите контракт"
             disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel="Новый контракт"
             onChange={(next) => {
               setContractId(next ?? '');
               void saveAttribute('contract_id', next || null);
+            }}
+            onCreate={async (label) => {
+              const id = await createMasterDataEntity('contract', label);
+              if (!id) return null;
+              setContractId(id);
+              void saveAttribute('contract_id', id);
+              return id;
             }}
           />
         ),

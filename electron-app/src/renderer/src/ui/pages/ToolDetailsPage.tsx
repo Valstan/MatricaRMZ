@@ -225,6 +225,26 @@ export function ToolDetailsPage(props: {
     await saveAttribute('properties', next);
   }
 
+  async function createDepartment(label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const types = await window.matrica.admin.entityTypes.list().catch(() => []);
+    const departmentTypeId = (types as any[]).find((t) => String(t.code) === 'department')?.id;
+    if (!departmentTypeId) {
+      setStatus('Ошибка: не найден справочник подразделений');
+      return null;
+    }
+    const created = await window.matrica.admin.entities.create(String(departmentTypeId));
+    if (!created.ok || !created.id) {
+      setStatus(`Ошибка: ${created.error ?? 'не удалось создать подразделение'}`);
+      return null;
+    }
+    await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
+    setDepartmentOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return created.id;
+  }
+
   async function ensureValueHints(propertyId: string) {
     if (!propertyId || propertyValueHints[propertyId]) return;
     const r = await window.matrica.tools.properties.valueHints(propertyId).catch(() => null);
@@ -459,14 +479,23 @@ export function ToolDetailsPage(props: {
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
           <div>Подразделение</div>
-          <SearchSelect
+          <SearchSelectWithCreate
             value={departmentId}
             options={departmentOptions}
             placeholder="Выберите подразделение"
             disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel="Новое подразделение"
             onChange={(next) => {
               setDepartmentId(next);
               void saveAttribute('department_id', next || null);
+            }}
+            onCreate={async (label) => {
+              const id = await createDepartment(label);
+              if (!id) return null;
+              setDepartmentId(id);
+              void saveAttribute('department_id', id);
+              return id;
             }}
           />
         </div>

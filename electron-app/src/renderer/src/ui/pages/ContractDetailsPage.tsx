@@ -3,7 +3,6 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import {
   parseContractSections,
@@ -195,7 +194,7 @@ function SectionBlock(props: {
   const primarySection = isPrimary ? (section as ContractPrimarySection) : null;
 
   return (
-    <div className="card-panel" style={{ borderRadius: 12, padding: 16 }}>
+    <div className="card-panel" style={{ borderRadius: 12, padding: 16, minWidth: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
         <strong>{title}</strong>
         <span style={{ flex: 1 }} />
@@ -206,9 +205,9 @@ function SectionBlock(props: {
         )}
       </div>
 
-      <div style={{ display: 'grid', gap: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-          <div>
+      <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, minWidth: 0 }}>
+          <div style={{ minWidth: 0 }}>
             <label style={{ fontSize: 12, color: '#6b7280' }}>Номер</label>
             <Input
               value={section.number}
@@ -217,7 +216,7 @@ function SectionBlock(props: {
               style={{ width: '100%' }}
             />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <label style={{ fontSize: 12, color: '#6b7280' }}>Дата заключения</label>
             <Input
               type="date"
@@ -227,7 +226,7 @@ function SectionBlock(props: {
               style={{ width: '100%' }}
             />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <label style={{ fontSize: 12, color: '#6b7280' }}>Дата исполнения</label>
             <Input
               type="date"
@@ -248,7 +247,7 @@ function SectionBlock(props: {
                   style={{ width: '100%' }}
                 />
               </div>
-              <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
                 <label style={{ fontSize: 12, color: '#6b7280' }}>Контрагент</label>
                 <SearchSelectWithCreate
                   value={primarySection.customerId ?? null}
@@ -278,12 +277,12 @@ function SectionBlock(props: {
             )}
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Марка</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Кол-во</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Цена</th>
+                  <th style={{ width: 92, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Кол-во</th>
+                  <th style={{ width: 110, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Цена</th>
                   <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Сумма</th>
                   {canEdit && <th style={{ width: 40 }} />}
                 </tr>
@@ -295,19 +294,21 @@ function SectionBlock(props: {
                     <tr key={idx}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
                         {canEdit ? (
-                          <SearchSelectWithCreate
-                            value={row.engineBrandId || null}
-                            options={engineBrandOptions}
-                            disabled={!canEdit}
-                            canCreate={canEditMasterData}
-                            createLabel="Новая марка"
-                            onChange={(id) => updateEngineBrand(idx, { engineBrandId: id ?? '' })}
-                            onCreate={async (l) => {
-                              const id = await createMasterDataItem('engine_brand', l);
-                              if (id) updateEngineBrand(idx, { engineBrandId: id });
-                              return id;
-                            }}
-                          />
+                          <div style={{ minWidth: 0 }}>
+                            <SearchSelectWithCreate
+                              value={row.engineBrandId || null}
+                              options={engineBrandOptions}
+                              disabled={!canEdit}
+                              canCreate={canEditMasterData}
+                              createLabel="Новая марка"
+                              onChange={(id) => updateEngineBrand(idx, { engineBrandId: id ?? '' })}
+                              onCreate={async (l) => {
+                                const id = await createMasterDataItem('engine_brand', l);
+                                if (id) updateEngineBrand(idx, { engineBrandId: id });
+                                return id;
+                              }}
+                            />
+                          </div>
                         ) : (
                           label
                         )}
@@ -367,12 +368,12 @@ function SectionBlock(props: {
             )}
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Деталь</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Кол-во</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Цена</th>
+                  <th style={{ width: 92, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Кол-во</th>
+                  <th style={{ width: 110, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Цена</th>
                   <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Сумма</th>
                   {canEdit && <th style={{ width: 40 }} />}
                 </tr>
@@ -384,12 +385,21 @@ function SectionBlock(props: {
                     <tr key={idx}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
                         {canEdit ? (
-                          <SearchSelect
-                            value={row.partId || null}
-                            options={partOptions}
-                            disabled={!canEdit}
-                            onChange={(id) => updatePart(idx, { partId: id ?? '' })}
-                          />
+                          <div style={{ minWidth: 0 }}>
+                            <SearchSelectWithCreate
+                              value={row.partId || null}
+                              options={partOptions}
+                              disabled={!canEdit}
+                              canCreate={props.canEditMasterData}
+                              createLabel="Новая деталь"
+                              onChange={(id) => updatePart(idx, { partId: id ?? '' })}
+                              onCreate={async (label) => {
+                                const id = await createMasterDataItem('part', label);
+                                if (id) updatePart(idx, { partId: id });
+                                return id;
+                              }}
+                            />
+                          </div>
                         ) : (
                           label
                         )}
@@ -569,6 +579,12 @@ export function ContractDetailsPage(props: {
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
+    if (typeCode === 'part') {
+      const created = await window.matrica.parts.create({ attributes: { name: label } });
+      if (!created?.ok || !created?.part?.id) return null;
+      await loadParts();
+      return created.part.id;
+    }
     const typeId = entityTypes.find((t) => String(t.code) === typeCode)?.id ?? null;
     if (!typeId) return null;
     const created = await window.matrica.admin.entities.create(typeId);
@@ -693,8 +709,8 @@ export function ContractDetailsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
+        <div style={{ margin: 0, flex: '1 1 320px', minWidth: 0, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         {props.canEditMasterData && (
           <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
@@ -715,7 +731,7 @@ export function ContractDetailsPage(props: {
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, minWidth: 0, width: '100%', maxWidth: 1400 }}>
           <SectionBlock
             title="Первичный контракт"
             section={sections.primary}
@@ -750,7 +766,7 @@ export function ContractDetailsPage(props: {
           ))}
 
           {props.canEdit && (
-            <div className="card-panel" style={{ borderRadius: 12, padding: 16, alignSelf: 'start' }}>
+            <div className="card-panel" style={{ borderRadius: 12, padding: 16, alignSelf: 'start', minWidth: 0 }}>
               <Button variant="outline" tone="neutral" onClick={addAddon} style={{ width: '100%' }}>
                 + Добавить ДС
               </Button>

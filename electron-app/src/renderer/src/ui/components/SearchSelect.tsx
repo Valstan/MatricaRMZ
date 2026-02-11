@@ -16,6 +16,7 @@ export function SearchSelect(props: {
   const disabled = props.disabled === true;
   const dropdown = useSuggestionDropdown(props.options);
   const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(() => {
@@ -27,6 +28,7 @@ export function SearchSelect(props: {
     dropdown.closeDropdown();
     dropdown.setQuery(selected?.label ?? '');
     setCreateBusy(false);
+    setCreateError('');
   }
 
   function pickByIndex(idx: number) {
@@ -57,9 +59,13 @@ export function SearchSelect(props: {
     const label = dropdown.query.trim();
     if (!label) return;
     setCreateBusy(true);
+    setCreateError('');
     const id = await props.onCreate(label).catch(() => null);
     setCreateBusy(false);
-    if (!id) return;
+    if (!id) {
+      setCreateError('Не удалось создать элемент');
+      return;
+    }
     props.onChange(id);
     dropdown.setQuery(label);
     close();
@@ -107,7 +113,11 @@ export function SearchSelect(props: {
             } else if (e.key === 'Enter') {
               if (!dropdown.open) return;
               e.preventDefault();
-              if (dropdown.activeIdx >= 0) pickByIndex(dropdown.activeIdx);
+              if (e.ctrlKey && props.onCreate && dropdown.query.trim()) {
+                void submitCreate();
+              } else if (dropdown.activeIdx >= 0) {
+                pickByIndex(dropdown.activeIdx);
+              }
             } else if (e.key === 'Escape') {
               e.preventDefault();
               close();
@@ -221,8 +231,9 @@ export function SearchSelect(props: {
                         cursor: createBusy ? 'default' : 'pointer',
                       }}
                     >
-                      {createBusy ? 'Создание…' : '+Создать и Вставить'}
+                      {createBusy ? 'Создание…' : '+Создать и Вставить (Ctrl+Enter)'}
                     </button>
+                    {createError ? <div style={{ marginTop: 6, fontSize: 12, color: 'var(--danger)' }}>{createError}</div> : null}
                     {props.createLabel && <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>{props.createLabel}</div>}
                   </div>
                 )}

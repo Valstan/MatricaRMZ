@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
@@ -370,6 +371,25 @@ export function EmployeeDetailsPage(props: {
     }
     setStatus('Сохранено');
     setTimeout(() => setStatus(''), 1200);
+  }
+
+  async function createDepartment(label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const departmentType = entityTypes.find((t) => t.code === 'department');
+    if (!departmentType) {
+      setDepartmentsStatus('Ошибка: тип "department" не найден');
+      return null;
+    }
+    const created = await window.matrica.admin.entities.create(String(departmentType.id));
+    if (!created.ok || !created.id) {
+      setDepartmentsStatus(`Ошибка: ${created.error ?? 'не удалось создать подразделение'}`);
+      return null;
+    }
+    await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
+    await loadDepartments();
+    return created.id;
   }
 
   async function saveAllAndClose() {
@@ -917,14 +937,23 @@ export function EmployeeDetailsPage(props: {
         label: 'Подразделение',
         value: departmentLabel || '',
         render: (
-          <SearchSelect
+          <SearchSelectWithCreate
             value={departmentId}
             options={departmentOptions}
             disabled={!props.canEdit}
             placeholder={departmentsStatus || 'Выберите подразделение'}
+            canCreate={props.canEdit}
+            createLabel="Новое подразделение"
             onChange={(next) => {
               setDepartmentId(next);
               void saveAttr('department_id', next || null);
+            }}
+            onCreate={async (label) => {
+              const id = await createDepartment(label);
+              if (!id) return null;
+              setDepartmentId(id);
+              void saveAttr('department_id', id);
+              return id;
             }}
           />
         ),

@@ -53,6 +53,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   visible: boolean;
   context: AiAgentContext;
   lastEvent: AiAgentEvent | null;
+  recentEvents?: AiAgentEvent[];
   onClose: () => void;
 }>((props, ref) => {
   const [text, setText] = useState('');
@@ -94,6 +95,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       message: msg,
       context: props.context,
       lastEvent: props.lastEvent,
+      recentEvents: props.recentEvents ?? [],
     })) as AiAgentAssistResponse;
     setLoading(false);
     if (!res || !res.ok) {

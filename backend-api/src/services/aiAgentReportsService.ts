@@ -90,6 +90,12 @@ type ReportStats = {
   errors: number;
   timeouts: number;
   emptyMessages: number;
+  ragFacts: number;
+  chatAssists: number;
+  analyticsAssists: number;
+  slowReplies: number;
+  totalLatencyMs: number;
+  latencySamples: number[];
   tabs: Map<string, number>;
   eventTypes: Map<string, number>;
   fieldDurations: Map<string, { total: number; count: number }>;
@@ -104,6 +110,12 @@ function initStats(): ReportStats {
     errors: 0,
     timeouts: 0,
     emptyMessages: 0,
+    ragFacts: 0,
+    chatAssists: 0,
+    analyticsAssists: 0,
+    slowReplies: 0,
+    totalLatencyMs: 0,
+    latencySamples: [],
     tabs: new Map(),
     eventTypes: new Map(),
     fieldDurations: new Map(),
@@ -149,7 +161,7 @@ function parseSnapshotPayload(raw: string | null) {
 }
 
 async function loadSnapshots(range: ReportRange) {
-  const scopes = ['ai_agent_event', 'ai_agent_assist', 'ai_agent_assist_error'];
+  const scopes = ['ai_agent_event', 'ai_agent_assist', 'ai_agent_assist_error', 'ai_agent_metrics', 'ai_agent_rag_fact'];
   const res = await pool.query(
     `select scope, payload_json, created_at
        from diagnostics_snapshots
@@ -192,6 +204,9 @@ function buildStats(rows: Array<{ scope: string; payload_json: string | null }>)
       inc(stats.tabs, tab);
       const msg = String(payload.message ?? '');
       if (msg.trim().length < 3) stats.emptyMessages += 1;
+      const mode = String(payload.mode ?? '');
+      if (mode === 'chat') stats.chatAssists += 1;
+      if (mode === 'analytics') stats.analyticsAssists += 1;
       continue;
     }
 
@@ -201,8 +216,34 @@ function buildStats(rows: Array<{ scope: string; payload_json: string | null }>)
       if (err.includes('timeout')) stats.timeouts += 1;
       continue;
     }
+
+    if (row.scope === 'ai_agent_metrics') {
+      const mode = String(payload.mode ?? '');
+      const totalMs = Number(payload.timings?.totalMs ?? NaN);
+      if (mode === 'chat') stats.chatAssists += 1;
+      if (mode === 'analytics') stats.analyticsAssists += 1;
+      if (Number.isFinite(totalMs) && totalMs >= 0) {
+        stats.totalLatencyMs += totalMs;
+        stats.latencySamples.push(totalMs);
+        stats.latencySamples.sort((a, b) => a - b);
+        if (totalMs > 10_000) stats.slowReplies += 1;
+      }
+      if (payload.timeout === true) stats.timeouts += 1;
+      continue;
+    }
+
+    if (row.scope === 'ai_agent_rag_fact') {
+      stats.ragFacts += 1;
+      continue;
+    }
   }
   return stats;
+}
+
+function percentile(sorted: number[], p: number) {
+  if (!sorted.length) return null;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)));
+  return sorted[idx] ?? null;
 }
 
 function buildReportText(range: ReportRange, stats: ReportStats, timeZone: string) {
@@ -210,6 +251,15 @@ function buildReportText(range: ReportRange, stats: ReportStats, timeZone: strin
   lines.push('[AI Agent] Отчет по использованию и качеству');
   lines.push(`Период: ${formatDateTime(range.sinceMs, timeZone)} — ${formatDateTime(range.untilMs, timeZone)}`);
   lines.push(`События: ${stats.events}, сообщения: ${stats.assists}, ошибки: ${stats.errors} (таймауты: ${stats.timeouts})`);
+  lines.push(`Режимы: чат=${stats.chatAssists}, аналитика=${stats.analyticsAssists}, RAG-факты=${stats.ragFacts}`);
+  if (stats.latencySamples.length) {
+    const avg = stats.totalLatencyMs / Math.max(1, stats.latencySamples.length);
+    const p50 = percentile(stats.latencySamples, 0.5);
+    const p95 = percentile(stats.latencySamples, 0.95);
+    lines.push(
+      `Скорость: avg=${avg.toFixed(0)}мс, p50=${p50 ?? 'n/a'}мс, p95=${p95 ?? 'n/a'}мс, медленных(>10с)=${stats.slowReplies}`,
+    );
+  }
   if (stats.emptyMessages > 0) lines.push(`Короткие/пустые запросы: ${stats.emptyMessages}`);
 
   const topTabs = topEntries(stats.tabs, 5);
@@ -246,8 +296,16 @@ function buildReportText(range: ReportRange, stats: ReportStats, timeZone: strin
   if (stats.errors > 0 || slowFields.length > 0 || idleFields.length > 0 || stats.emptyMessages > 0) {
     lines.push('Рекомендации:');
     if (stats.errors > 0) lines.push('- Проверить стабильность Ollama/AI‑агента (есть ошибки/таймауты).');
+    if (stats.latencySamples.length > 0) {
+      const p50 = percentile(stats.latencySamples, 0.5) ?? 0;
+      const p95 = percentile(stats.latencySamples, 0.95) ?? 0;
+      if (p50 > 4000 || p95 > 10_000) {
+        lines.push('- Подкрутить low-latency профиль чата (ограничить контекст, num_predict, тайм-ауты стадий).');
+      }
+    }
     if (slowFields.length > 0 || idleFields.length > 0) lines.push('- Упростить/подсказать заполнение проблемных полей.');
     if (stats.emptyMessages > 0) lines.push('- Добавить подсказку пользователям о формате запроса в чат.');
+    if (stats.ragFacts < 10) lines.push('- Увеличить поток RAG-фактов (контекстные события/успешные ответы) для более персональных подсказок.');
   }
 
   return lines.slice(0, MAX_REPORT_LINES).join('\n');

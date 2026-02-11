@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 
-import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext } from '@matricarmz/shared';
+import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
@@ -37,6 +37,7 @@ import { Input } from './components/Input.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
+import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { theme } from './theme.js';
 
@@ -91,6 +92,8 @@ export function App() {
   const [updateStatus, setUpdateStatus] = useState<any>(null);
   const [aiChatOpen, setAiChatOpen] = useState<boolean>(true);
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
+  const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
+  const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
   const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean }>({
     theme: 'auto',
     chatSide: 'right',
@@ -853,6 +856,15 @@ export function App() {
       engineDetails,
     ],
   );
+
+  useAiAgentTracker({
+    enabled: canAiAgent,
+    context: aiContext,
+    onEvent: (event) => {
+      setAiLastEvent(event);
+      setAiRecentEvents((prev) => [...prev.slice(-11), event]);
+    },
+  });
 
   const currentAppLink = useMemo(
     () => ({
@@ -1970,7 +1982,8 @@ export function App() {
               ref={aiChatRef}
               visible={aiChatOpen}
               context={aiContext}
-              lastEvent={null}
+              lastEvent={aiLastEvent}
+              recentEvents={aiRecentEvents}
               onClose={() => setAiChatOpen(false)}
             />
           ) : (

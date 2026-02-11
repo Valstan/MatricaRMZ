@@ -18,6 +18,8 @@ cd /home/valstan/MatricaRMZ
 pnpm release:auto
 ```
 
+`pnpm release:auto` автоматически подгружает переменные из `backend-api/.env` (если файл существует), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
+
 ### Что делает `pnpm release:auto`
 - Коммитит текущее рабочее дерево (если есть изменения).
 - Синхронизирует версии пакетов с `VERSION` (или увеличивает `RELEASE`, если тег совпадает).

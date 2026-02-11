@@ -67,6 +67,8 @@
    - `MATRICA_LEDGER_E2E=1` (end‑to‑end шифрование `meta_json`/`payload_json`)
  - AI/Ollama (если включено):
    - `OLLAMA_BASE_URL`, `OLLAMA_MODEL_CHAT`, `OLLAMA_MODEL_ANALYTICS`
+   - `OLLAMA_TIMEOUT_CHAT_MS`, `OLLAMA_TIMEOUT_ANALYTICS_MS`
+   - `AI_RAG_ENABLED`, `AI_RAG_TOP_K`, `AI_RAG_LOOKBACK_HOURS`
  
 ## Полезные документы
 - Старт сессии: `docs/start_session.md`

@@ -5,7 +5,6 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { openPrintPreview } from '../utils/printPreview.js';
@@ -361,6 +360,7 @@ export function SupplyRequestDetailsPage(props: {
       department: 'name',
       product: 'name',
       service: 'name',
+      unit: 'name',
     };
     const attr = attrByType[typeCode] ?? 'name';
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
@@ -916,16 +916,29 @@ export function SupplyRequestDetailsPage(props: {
                         />
                       </td>
                       <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 160 }}>
-                        <SearchSelect
+                        <SearchSelectWithCreate
                           value={unitOptions.find((o) => o.label === String(it.unit ?? ''))?.id ?? null}
                           options={unitOptions}
                           disabled={!props.canEdit}
+                          canCreate={props.canEditMasterData}
+                          createLabel="Новая единица"
                           placeholder="Ед. измерения"
                           onChange={(next) => {
                             const label = unitOptions.find((o) => o.id === next)?.label ?? '';
                             const items = [...(payload.items ?? [])];
                             items[idx] = { ...items[idx], unit: label };
                             scheduleSave({ ...payload, items });
+                          }}
+                          onCreate={async (label) => {
+                            const id = await createMasterDataItem('unit', label);
+                            if (!id) return null;
+                            const clean = label.trim();
+                            const nextUnits = [...unitOptions, { id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+                            setUnitOptions(nextUnits);
+                            const items = [...(payload.items ?? [])];
+                            items[idx] = { ...items[idx], unit: clean };
+                            scheduleSave({ ...payload, items });
+                            return id;
                           }}
                         />
                       </td>

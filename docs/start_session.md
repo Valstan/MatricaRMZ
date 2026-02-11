@@ -19,7 +19,8 @@
  ENV (ключевые):
  - Backend: `MATRICA_JWT_SECRET`, `MATRICA_LEDGER_DIR`, `MATRICA_LEDGER_DATA_KEY`, `MATRICA_LOGS_DIR`, `PORT`, `HOST`.
  - Client: `MATRICA_API_URL`, `MATRICA_LEDGER_E2E`.
- - AI/Ollama (если включено): `OLLAMA_BASE_URL`, `OLLAMA_MODEL_CHAT`, `OLLAMA_MODEL_ANALYTICS`.
+- AI/Ollama (если включено): `OLLAMA_BASE_URL`, `OLLAMA_MODEL_CHAT`, `OLLAMA_MODEL_ANALYTICS`, `OLLAMA_TIMEOUT_CHAT_MS`, `OLLAMA_TIMEOUT_ANALYTICS_MS`, `AI_RAG_ENABLED`.
+- Тюнинг профилей AI: `docs/AI_PERFORMANCE_PROFILES.md` (готовые fast/balanced/quality и переключение через `AI_PROFILE`).
  
  Быстрый старт (если нужно):
  - `pnpm install` в корне.
