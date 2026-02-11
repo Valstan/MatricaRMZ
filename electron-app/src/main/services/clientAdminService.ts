@@ -33,6 +33,17 @@ type SyncProgressEvent = {
   estimateMs: number | null;
   etaMs: number | null;
   progress: number | null;
+  stage?: 'prepare' | 'push' | 'pull' | 'apply' | 'ledger' | 'finalize';
+  service?: 'schema' | 'diagnostics' | 'ledger' | 'sync';
+  detail?: string;
+  table?: string;
+  counts?: {
+    total?: number;
+    batch?: number;
+  };
+  breakdown?: {
+    entityTypes?: Record<string, number>;
+  };
   pulled?: number;
   error?: string;
 };

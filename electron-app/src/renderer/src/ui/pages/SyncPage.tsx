@@ -80,7 +80,7 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
         {serverStatus && <div style={{ marginTop: 8, color: serverStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{serverStatus}</div>}
       </div>
       <div style={{ color: '#6b7280', marginBottom: 8 }}>
-        {syncStatus || 'Состояние синхронизации отображается в шапке. Здесь — ручной запуск и обновления.'}
+        {syncStatus || 'Состояние синхронизации отображается в шапке. Здесь — ручной запуск и обновления. Полная пересинхронизация доступна в настройках пользователя.'}
       </div>
       <Button
         onClick={async () => {
@@ -95,27 +95,6 @@ export function SyncPage(props: { onAfterSync?: () => Promise<void> }) {
         }}
       >
         Синхронизировать сейчас
-      </Button>
-      <Button
-        variant="ghost"
-        onClick={async () => {
-          setSyncStatus('Полная синхронизация...');
-          const reset = await window.matrica.sync.reset().catch((e) => ({ ok: false, error: String(e) }));
-          if (!reset.ok) {
-            setSyncStatus(`Ошибка: ${reset.error ?? 'reset failed'}`);
-            return;
-          }
-          const r = await window.matrica.sync.run();
-          setSyncStatus(
-            r.ok ? `OK: push=${r.pushed}, pull=${r.pulled}, cursor=${r.serverCursor}` : `Ошибка: ${r.error ?? 'unknown'}`,
-          );
-          const s = await window.matrica.sync.status().catch(() => null);
-          if (s) setDiag(`state=${s.state}, lastError=${s.lastError ?? '-'}, next=${s.nextAutoSyncInMs ?? '-'}`);
-          await props.onAfterSync?.();
-        }}
-        style={{ marginLeft: 10 }}
-      >
-        Полная синхронизация
       </Button>
       {diag && <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Диагностика: {diag}</div>}
       {/* Обновления выполняются автоматически при запуске клиента. */}

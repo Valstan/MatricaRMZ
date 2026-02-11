@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { EntityTypeCode } from '@matricarmz/shared';
+import { EntityTypeCode, STATUS_CODES, type StatusCode } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
 import { listEntitiesByType } from './entityService.js';
@@ -55,12 +55,62 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const arrivalDateDefId = defs['arrival_date'];
   const shippingDateDefId = defs['shipping_date'];
   const scrapDefId = defs['is_scrap'];
+  const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
 
+  const engineIds = engines.map((e) => e.id);
+  const baseDefIds = [
+    numberDefId,
+    brandDefId,
+    brandIdDefId,
+    customerIdDefId,
+    contractIdDefId,
+    arrivalDateDefId,
+    shippingDateDefId,
+    scrapDefId,
+  ].filter(Boolean) as string[];
+  const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds])];
+
+  const valueRows =
+    engineIds.length > 0 && attrDefIds.length > 0
+      ? await db
+          .select({
+            entityId: attributeValues.entityId,
+            attributeDefId: attributeValues.attributeDefId,
+            valueJson: attributeValues.valueJson,
+          })
+          .from(attributeValues)
+          .where(
+            and(
+              inArray(attributeValues.entityId, engineIds),
+              inArray(attributeValues.attributeDefId, attrDefIds),
+              isNull(attributeValues.deletedAt),
+            ),
+          )
+      : [];
+
+  const valuesByEntity = new Map<string, Map<string, string | null>>();
+  for (const row of valueRows) {
+    const entityId = String(row.entityId);
+    let map = valuesByEntity.get(entityId);
+    if (!map) {
+      map = new Map<string, string | null>();
+      valuesByEntity.set(entityId, map);
+    }
+    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+  }
+
+  const statusDefById: Record<string, string> = {};
+  for (const c of STATUS_CODES) {
+    const id = defs[c];
+    if (id) statusDefById[id] = c;
+  }
+
   const result: EngineListItem[] = [];
   for (const e of engines) {
+    const rowValues = valuesByEntity.get(e.id) ?? new Map<string, string | null>();
     let engineNumber: string | undefined;
     let engineBrand: string | undefined;
     let engineBrandId: string | undefined;
@@ -71,71 +121,51 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     let isScrap: boolean | undefined;
 
     if (numberDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, numberDefId)))
-        .limit(1);
-      engineNumber = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+      const v = rowValues.get(numberDefId);
+      engineNumber = v != null ? safeStringFromJson(v) : undefined;
     }
     if (brandDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, brandDefId)))
-        .limit(1);
-      engineBrand = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+      const v = rowValues.get(brandDefId);
+      engineBrand = v != null ? safeStringFromJson(v) : undefined;
     }
     if (brandIdDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, brandIdDefId)))
-        .limit(1);
-      engineBrandId = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+      const v = rowValues.get(brandIdDefId);
+      engineBrandId = v != null ? safeStringFromJson(v) : undefined;
     }
     if (customerIdDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, customerIdDefId)))
-        .limit(1);
-      customerId = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+      const v = rowValues.get(customerIdDefId);
+      customerId = v != null ? safeStringFromJson(v) : undefined;
     }
     if (contractIdDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, contractIdDefId)))
-        .limit(1);
-      contractId = v[0]?.valueJson ? safeStringFromJson(v[0].valueJson) : undefined;
+      const v = rowValues.get(contractIdDefId);
+      contractId = v != null ? safeStringFromJson(v) : undefined;
     }
     if (arrivalDateDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, arrivalDateDefId)))
-        .limit(1);
-      const raw = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
+      const v = rowValues.get(arrivalDateDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
       arrivalDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
     if (shippingDateDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, shippingDateDefId)))
-        .limit(1);
-      const raw = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
+      const v = rowValues.get(shippingDateDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
       shippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
     if (scrapDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, scrapDefId)))
-        .limit(1);
-      const raw = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
+      const v = rowValues.get(scrapDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
       isScrap = raw === true || raw === 'true' || raw === 1;
+    }
+
+    const statusFlags: Partial<Record<StatusCode, boolean>> = {};
+    if (statusDefIds.length > 0) {
+      for (const statusDefId of statusDefIds) {
+        const code = statusDefById[statusDefId];
+        if (code) {
+          const rawValue = rowValues.get(statusDefId);
+          const raw = rawValue != null ? safeJsonParse(rawValue) : null;
+          statusFlags[code] = raw === true || raw === 'true' || raw === 1;
+        }
+      }
     }
 
     result.push({
@@ -153,6 +183,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,
+      ...(Object.keys(statusFlags).length > 0 && { statusFlags }),
     });
   }
   return result.sort((a, b) => b.updatedAt - a.updatedAt);

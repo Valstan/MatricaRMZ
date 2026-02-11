@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { listClients, updateClient } from '../api/clients.js';
+import { requestClientSync } from '../api/diagnostics.js';
 import { Button } from './components/Button.js';
 
 type ClientRow = {
@@ -34,6 +35,9 @@ export function ClientAdminPage() {
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [query, setQuery] = useState<string>('');
+  const [fullSyncSelection, setFullSyncSelection] = useState<Record<string, boolean>>({});
+  const [fullSyncStatus, setFullSyncStatus] = useState<string>('');
+  const [fullSyncLoading, setFullSyncLoading] = useState<boolean>(false);
 
   function normalize(s: string | null | undefined) {
     return String(s ?? '')
@@ -84,6 +88,34 @@ export function ClientAdminPage() {
     }
   }
 
+  async function requestFullSync(targetIds: string[]) {
+    if (!targetIds.length) {
+      setFullSyncStatus('Выберите клиентов или включите режим "Всех клиентов".');
+      return;
+    }
+    if (
+      !confirm(
+        `Запросить полную синхронизацию для ${targetIds.length} клиент(ов)? Это может занять длительное время на клиенте.`,
+      )
+    )
+      return;
+    setFullSyncLoading(true);
+    setFullSyncStatus('Отправка запросов...');
+    const results = await Promise.all(
+      targetIds.map(async (clientId) => {
+        const r = await requestClientSync(clientId, 'force_full_pull').catch((e) => ({ ok: false, error: String(e) }));
+        return { clientId, ok: !!(r as any)?.ok, error: (r as any)?.error };
+      }),
+    );
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length === 0) {
+      setFullSyncStatus(`Запрос отправлен: ${results.length} клиент(ов).`);
+    } else {
+      setFullSyncStatus(`Ошибки: ${failed.length}/${results.length}. Первые: ${failed.slice(0, 3).map((f) => f.clientId).join(', ')}`);
+    }
+    setFullSyncLoading(false);
+  }
+
   if (loading) {
     return <div className="card">Загрузка…</div>;
   }
@@ -114,6 +146,66 @@ export function ClientAdminPage() {
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
+      </div>
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <h3 style={{ marginTop: 0 }}>Принудительная полная синхронизация на клиенте</h3>
+        <div className="muted" style={{ marginBottom: 10 }}>
+          Используйте только для лечения базы. Клиенты выполнят полную синхронизацию при следующем опросе настроек.
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            variant="ghost"
+            disabled={fullSyncLoading || filtered.length === 0}
+            onClick={() =>
+              setFullSyncSelection((prev) => {
+                const next = { ...prev };
+                for (const row of filtered) next[row.clientId] = true;
+                return next;
+              })
+            }
+          >
+            Выбрать всех
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={fullSyncLoading || Object.keys(fullSyncSelection).length === 0}
+            onClick={() => setFullSyncSelection({})}
+          >
+            Снять всех
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={fullSyncLoading}
+            onClick={() => {
+              const targetIds = Object.entries(fullSyncSelection)
+                .filter(([, v]) => v)
+                .map(([id]) => id);
+              void requestFullSync(targetIds);
+            }}
+          >
+            Запросить полную синхронизацию
+          </Button>
+          {fullSyncStatus && <span className="muted">{fullSyncStatus}</span>}
+        </div>
+        <div style={{ marginTop: 10, maxHeight: 180, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
+          {!filtered.length && <div className="muted">Нет клиентов для выбора.</div>}
+          {filtered.map((row) => (
+            <label key={row.clientId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+              <input
+                type="checkbox"
+                checked={!!fullSyncSelection[row.clientId]}
+                onChange={(e) =>
+                  setFullSyncSelection((prev) => ({ ...prev, [row.clientId]: e.target.checked }))
+                }
+              />
+              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{row.clientId}</span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                {row.lastHostname ?? '—'} · {row.lastIp ?? '—'}
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="card">

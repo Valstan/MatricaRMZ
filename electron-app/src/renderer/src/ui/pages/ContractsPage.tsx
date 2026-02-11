@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { parseContractSections, aggregateProgressByContract, type ProgressLinkedItem } from '@matricarmz/shared';
 
 type Row = {
   id: string;
@@ -11,6 +12,8 @@ type Row = {
   internalNumber: string;
   dateMs: number | null;
   updatedAt: number;
+  daysLeft: number | null;
+  progress: number | null;
 };
 
 function normalize(s: string) {
@@ -46,26 +49,52 @@ export function ContractsPage(props: {
         return;
       }
       setContractTypeId(String(type.id));
-      const list = await window.matrica.admin.entities.listByEntityType(String(type.id));
-      if (!Array.isArray(list) || list.length === 0) {
+      const listRaw = await window.matrica.admin.entities.listByEntityType(String(type.id));
+      if (!Array.isArray(listRaw) || listRaw.length === 0) {
         setRows([]);
         setStatus('');
         return;
       }
+
+      const enginesRes = await window.matrica.engines.list().catch(() => []);
+      const engines: ProgressLinkedItem[] = Array.isArray(enginesRes) ? enginesRes : [];
+      const partsRes = await window.matrica.parts.list({ limit: 5000 }).catch(() => ({ ok: false, parts: [] }));
+      const parts: ProgressLinkedItem[] = partsRes?.ok && partsRes.parts ? partsRes.parts : [];
+
+      const engineAggByContract = aggregateProgressByContract(engines);
+      const partAggByContract = aggregateProgressByContract(parts);
+
       const details = await Promise.all(
-        list.map(async (row: any) => {
+        (listRaw as any[]).map(async (row: any) => {
           try {
             const d = await window.matrica.admin.entities.get(String(row.id));
             const attrs = (d as any).attributes ?? {};
-            const numberRaw = attrs.number ?? row.displayName ?? '';
-            const internalRaw = attrs.internal_number ?? '';
-            const dateMs = typeof attrs.date === 'number' ? Number(attrs.date) : null;
+            const sections = parseContractSections(attrs);
+            const numberRaw = (sections.primary.number || attrs.number) ?? row.displayName ?? '';
+            const internalRaw = (sections.primary.internalNumber || attrs.internal_number) ?? '';
+            const dateMs = sections.primary.signedAt ?? (typeof attrs.date === 'number' ? Number(attrs.date) : null);
+            let maxDueAt: number | null = null;
+            if (sections.primary.dueAt != null) maxDueAt = sections.primary.dueAt;
+            for (const addon of sections.addons) {
+              if (addon.dueAt != null && (maxDueAt == null || addon.dueAt > maxDueAt)) maxDueAt = addon.dueAt;
+            }
+            const daysLeft = maxDueAt != null ? Math.ceil((maxDueAt - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+
+            const contractId = String(row.id);
+            const engineAgg = engineAggByContract[contractId];
+            const partAgg = partAggByContract[contractId];
+            const sumStages = (engineAgg?.sumStages ?? 0) + (partAgg?.sumStages ?? 0);
+            const count = (engineAgg?.count ?? 0) + (partAgg?.count ?? 0);
+            const progress = count > 0 ? sumStages / (count * 100) : null;
+
             return {
               id: String(row.id),
               number: numberRaw == null ? '' : String(numberRaw),
               internalNumber: internalRaw == null ? '' : String(internalRaw),
               dateMs,
               updatedAt: Number(row.updatedAt ?? 0),
+              daysLeft,
+              progress,
             };
           } catch {
             return {
@@ -74,6 +103,8 @@ export function ContractsPage(props: {
               internalNumber: '',
               dateMs: null,
               updatedAt: Number(row.updatedAt ?? 0),
+              daysLeft: null,
+              progress: null,
             };
           }
         }),
@@ -111,61 +142,70 @@ export function ContractsPage(props: {
     </thead>
   );
 
+  function renderContractRow(row: Row) {
+    const h = row.daysLeft != null && row.daysLeft <= 30 && (row.progress == null || row.progress < 0.7);
+    return (
+      <tr
+        key={row.id}
+        style={{
+          borderBottom: '1px solid #f3f4f6',
+          cursor: 'pointer',
+          ...(h && { backgroundColor: 'rgba(254, 202, 202, 0.5)' }),
+        }}
+        onClick={() => void props.onOpen(row.id)}
+        onMouseEnter={(e) => {
+          if (!h) e.currentTarget.style.backgroundColor = '#f9fafb';
+        }}
+        onMouseLeave={(e) => {
+          if (!h) e.currentTarget.style.backgroundColor = 'transparent';
+        }}
+      >
+        <td style={{ padding: '8px 10px' }}>{row.number || '(без номера)'}</td>
+        <td style={{ padding: '8px 10px', color: '#6b7280' }}>{row.internalNumber || '—'}</td>
+        <td style={{ padding: '8px 10px', color: '#6b7280' }}>
+          {row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}
+        </td>
+        <td style={{ padding: '8px 10px', color: '#6b7280' }}>
+          {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
+        </td>
+        <td style={{ padding: '8px 10px' }}>
+          {props.canDelete && (
+            <Button
+              variant="ghost"
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!confirm('Удалить контракт?')) return;
+                try {
+                  setStatus('Удаление…');
+                  const r = await window.matrica.admin.entities.softDelete(row.id);
+                  if (!r.ok) {
+                    setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                    return;
+                  }
+                  setStatus('Удалено');
+                  setTimeout(() => setStatus(''), 900);
+                  await loadContracts();
+                } catch (err) {
+                  setStatus(`Ошибка: ${String(err)}`);
+                }
+              }}
+              style={{ color: '#b91c1c' }}
+            >
+              Удалить
+            </Button>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
   function renderTable(items: Row[]) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
         <table className="list-table">
           {tableHeader}
           <tbody>
-            {items.map((row) => (
-              <tr
-                key={row.id}
-                style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
-                onClick={() => void props.onOpen(row.id)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#f9fafb';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <td style={{ padding: '8px 10px' }}>{row.number || '(без номера)'}</td>
-                <td style={{ padding: '8px 10px', color: '#6b7280' }}>{row.internalNumber || '—'}</td>
-                <td style={{ padding: '8px 10px', color: '#6b7280' }}>
-                  {row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}
-                </td>
-                <td style={{ padding: '8px 10px', color: '#6b7280' }}>
-                  {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
-                </td>
-                <td style={{ padding: '8px 10px' }}>
-                  {props.canDelete && (
-                    <Button
-                      variant="ghost"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!confirm('Удалить контракт?')) return;
-                        try {
-                          setStatus('Удаление…');
-                          const r = await window.matrica.admin.entities.softDelete(row.id);
-                          if (!r.ok) {
-                            setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                            return;
-                          }
-                          setStatus('Удалено');
-                          setTimeout(() => setStatus(''), 900);
-                          await loadContracts();
-                        } catch (err) {
-                          setStatus(`Ошибка: ${String(err)}`);
-                        }
-                      }}
-                      style={{ color: '#b91c1c' }}
-                    >
-                      Удалить
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {items.map((row) => renderContractRow(row))}
             {items.length === 0 && (
               <tr>
                 <td colSpan={5} style={{ padding: 10, color: '#6b7280' }}>

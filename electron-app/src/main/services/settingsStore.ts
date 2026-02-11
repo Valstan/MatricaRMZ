@@ -37,6 +37,7 @@ export const SettingsKey = {
   // UI preferences
   UiTheme: 'ui.theme',
   UiChatSide: 'ui.chatSide',
+  UiEnterAsTab: 'ui.enterAsTab',
   UiTabsLayout: 'ui.tabs.layout',
 
   // Remote admin controls

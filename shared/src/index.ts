@@ -10,6 +10,7 @@ export * from './domain/aiAgent.js';
 export * from './domain/systemIds.js';
 export * from './domain/permissions.js';
 export * from './domain/linkFieldRules.js';
+export * from './domain/contract.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
 export * from './ipc/types.js';

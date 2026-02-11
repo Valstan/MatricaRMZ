@@ -6,6 +6,7 @@ import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '@matric
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
+import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { theme } from '../theme.js';
 
 type NoteDraft = {
@@ -77,6 +78,7 @@ export function NotesPage(props: {
   const [showHidden, setShowHidden] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [now, setNow] = useState(() => nowMs());
+  const uploadFlow = useFileUploadFlow();
 
   async function refresh() {
     const r = await window.matrica.notes.list().catch(() => null);
@@ -258,11 +260,29 @@ export function NotesPage(props: {
     const paths = (picked as any).paths as string[];
     const path = paths?.[0] ? String(paths[0]) : '';
     if (!path) return;
-    const uploaded = await window.matrica.files.upload({ path, scope: { ownerType: 'note', ownerId: noteId, category: 'note-images' } });
-    if (!uploaded || !(uploaded as any).ok) return;
-    const file = (uploaded as any).file as { id: string; name: string; mime?: string | null };
+    const tasks = await uploadFlow.buildTasks([path]);
+    if (!tasks || tasks.length === 0) {
+      uploadFlow.setStatusWithTimeout('Загрузка отменена пользователем', 1500);
+      return;
+    }
+    uploadFlow.setStatus('');
+    const result = await uploadFlow.runUploads(tasks, async (task) => {
+      const uploaded = await window.matrica.files.upload({
+        path: task.path,
+        fileName: task.fileName,
+        scope: { ownerType: 'note', ownerId: noteId, category: 'note-images' },
+      });
+      if (!uploaded.ok) return { ok: false as const, error: uploaded.error };
+      return { ok: true as const, value: uploaded.file };
+    });
+    if (result.failures.length > 0 || result.successes.length === 0) {
+      uploadFlow.setStatusWithTimeout(`Неуспешно: ${result.failures[0]?.error ?? 'неизвестная ошибка'}`, 4500);
+      return;
+    }
+    const file = result.successes[0].value as { id: string; name: string; mime?: string | null };
     const block: NoteBlock = { id: newId(), kind: 'image', fileId: file.id, name: file.name, mime: file.mime ?? undefined };
     updateDraft(noteId, { body: [...draft.body, block] });
+    uploadFlow.setStatusWithTimeout('Успешно: изображение прикреплено', 1400);
   }
 
   function renderNote(note: NoteView) {
@@ -542,9 +562,31 @@ export function NotesPage(props: {
           <span style={{ fontSize: 12, color: theme.colors.muted }}>Показывать скрытые</span>
         </label>
       </div>
+      {uploadFlow.status ? (
+        <div style={{ color: uploadFlow.status.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{uploadFlow.status}</div>
+      ) : null}
+      {uploadFlow.progress.active ? (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+            <span>{uploadFlow.progress.label}</span>
+            <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
+                transition: 'width 0.2s ease',
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {renderNotesSection('Мои заметки', ownedNotes)}
       {renderNotesSection('Полученные заметки', sharedNotes)}
+      {uploadFlow.renameDialog}
     </div>
   );
 }

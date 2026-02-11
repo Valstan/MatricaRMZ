@@ -46,16 +46,18 @@ export type AiAgentSuggestion = {
   actions?: string[];
 };
 
+type ErrorResult = { ok: false; error: string };
+
 export type AiAgentAssistResponse =
   | { ok: true; reply: AiAgentSuggestion }
-  | { ok: false; error: string };
+  | ErrorResult;
 
 export type AiAgentLogRequest = {
   context: AiAgentContext;
   event: AiAgentEvent;
 };
 
-export type AiAgentLogResponse = { ok: true } | { ok: false; error: string };
+export type AiAgentLogResponse = { ok: true } | ErrorResult;
 
 export type AiAgentOllamaHealthRequest = {
   attempts?: number;

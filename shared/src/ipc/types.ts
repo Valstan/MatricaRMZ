@@ -15,6 +15,7 @@ export type EngineListItem = {
   createdAt?: number;
   updatedAt: number;
   syncStatus: string;
+  statusFlags?: Partial<Record<StatusCode, boolean>>;
 };
 
 export type EngineDetails = {
@@ -191,6 +192,17 @@ export type SyncProgressEvent = {
   estimateMs: number | null;
   etaMs: number | null;
   progress: number | null;
+  stage?: 'prepare' | 'push' | 'pull' | 'apply' | 'ledger' | 'finalize';
+  service?: 'schema' | 'diagnostics' | 'ledger' | 'sync';
+  detail?: string;
+  table?: string;
+  counts?: {
+    total?: number;
+    batch?: number;
+  };
+  breakdown?: {
+    entityTypes?: Record<string, number>;
+  };
   pulled?: number;
   error?: string;
 };
@@ -440,6 +452,7 @@ import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTem
 import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
+import type { StatusCode } from '../domain/contract.js';
 import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
@@ -466,16 +479,29 @@ export type MatricaApi = {
     uiGet: (args?: {
       userId?: string;
     }) => Promise<
-      | { ok: true; theme: string; chatSide: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }
+      | {
+          ok: true;
+          theme: string;
+          chatSide: string;
+          enterAsTab?: boolean;
+          tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+        }
       | { ok: false; error: string }
     >;
     uiSet: (args: {
       theme?: string;
       chatSide?: string;
+      enterAsTab?: boolean;
       userId?: string;
       tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
     }) => Promise<
-      | { ok: true; theme: string; chatSide: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }
+      | {
+          ok: true;
+          theme: string;
+          chatSide: string;
+          enterAsTab?: boolean;
+          tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+        }
       | { ok: false; error: string }
     >;
   };
@@ -532,6 +558,7 @@ export type MatricaApi = {
   };
   sync: {
     run: () => Promise<SyncRunResult>;
+    fullPull: () => Promise<SyncRunResult>;
     status: () => Promise<SyncStatus>;
     configGet: () => Promise<{ ok: boolean; apiBaseUrl?: string; error?: string }>;
     configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
@@ -811,6 +838,9 @@ export type MatricaApi = {
             id: string;
             name?: string;
             article?: string;
+            assemblyUnitNumber?: string;
+            contractId?: string;
+            statusFlags?: Partial<Record<StatusCode, boolean>>;
             updatedAt: number;
             createdAt: number;
           }>;
@@ -862,7 +892,7 @@ export type MatricaApi = {
 
   files: {
     // Загружает файл на сервер (сервер сам решает: локально или Яндекс.Диск).
-    upload: (args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<
+    upload: (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<
       { ok: true; file: FileRef } | { ok: false; error: string }
     >;
     // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).

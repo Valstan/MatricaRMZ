@@ -33,10 +33,12 @@ export type PermissionDelegation = {
   revokeNote: string | null;
 };
 
-export type AdminUsersListResponse = { ok: true; users: AdminUserSummary[] } | { ok: false; error: string };
+type ErrorResult = { ok: false; error: string };
+
+export type AdminUsersListResponse = { ok: true; users: AdminUserSummary[] } | ErrorResult;
 
 export type AdminUserPermissionsResponse =
   | ({ ok: true } & AdminUserPermissionsPayload)
-  | { ok: false; error: string };
+  | ErrorResult;
 
-export type AdminDelegationsListResponse = { ok: true; delegations: PermissionDelegation[] } | { ok: false; error: string };
+export type AdminDelegationsListResponse = { ok: true; delegations: PermissionDelegation[] } | ErrorResult;

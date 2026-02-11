@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
-import { Input } from '../components/Input.js';
+import { SuggestInput } from '../components/SuggestInput.js';
 
 export function ToolPropertyDetailsPage(props: {
   id: string;
@@ -11,6 +11,7 @@ export function ToolPropertyDetailsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [params, setParams] = useState<string>('');
+  const [paramHints, setParamHints] = useState<string[]>([]);
 
   async function refresh() {
     try {
@@ -31,6 +32,19 @@ export function ToolPropertyDetailsPage(props: {
 
   useEffect(() => {
     void refresh();
+  }, [props.id]);
+
+  useEffect(() => {
+    void window.matrica.tools.properties.list().then((r: any) => {
+      if (!r?.ok) {
+        setParamHints([]);
+        return;
+      }
+      const values = Array.isArray(r.items)
+        ? r.items.map((x: any) => String(x?.params ?? '').trim()).filter(Boolean)
+        : [];
+      setParamHints(Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, 'ru')));
+    });
   }, [props.id]);
 
   async function saveAttr(code: string, value: unknown) {
@@ -64,9 +78,10 @@ export function ToolPropertyDetailsPage(props: {
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, padding: '4px 6px' }}>
           <div>Параметры свойства</div>
-          <Input
+          <SuggestInput
             value={params}
-            onChange={(e) => setParams(e.target.value)}
+            onChange={setParams}
+            options={paramHints.map((v) => ({ value: v }))}
             onBlur={() => void saveAttr('params', params.trim())}
             placeholder="Например: сталь 45"
             disabled={!props.canEdit}

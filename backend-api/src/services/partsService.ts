@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
-import { AttributeDataType, EntityTypeCode, SyncTableName } from '@matricarmz/shared';
+import { AttributeDataType, EntityTypeCode, SyncTableName, STATUS_CODES, type StatusCode } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { changeRequests, rowOwners, attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
@@ -688,6 +688,49 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           .limit(10_000)
       : [];
 
+    // contract_id and status flags for progress aggregation
+    const contractIdAttr = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'contract_id')))
+      .limit(1);
+    const contractIdDefId = contractIdAttr[0]?.id;
+    const statusDefRows = await db
+      .select({ id: attributeDefs.id, code: attributeDefs.code })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), inArray(attributeDefs.code, [...STATUS_CODES])))
+      .limit(10);
+    const statusDefById = new Map(statusDefRows.map((r) => [r.id, r.code]));
+    const extraDefIds = [...(contractIdDefId ? [contractIdDefId] : []), ...statusDefRows.map((r) => r.id)];
+    const extraRows =
+      extraDefIds.length > 0
+        ? await db
+            .select({
+              entityId: attributeValues.entityId,
+              attributeDefId: attributeValues.attributeDefId,
+              valueJson: attributeValues.valueJson,
+            })
+            .from(attributeValues)
+            .where(and(inArray(attributeValues.attributeDefId, extraDefIds), inArray(attributeValues.entityId, entityIds), isNull(attributeValues.deletedAt)))
+            .limit(50_000)
+        : [];
+    const contractIdByEntity: Record<string, string | null> = {};
+    const statusFlagsByEntity: Record<string, Partial<Record<StatusCode, boolean>>> = {};
+    for (const row of extraRows) {
+      if (row.attributeDefId === contractIdDefId) {
+        const v = row.valueJson ? safeJsonParse(row.valueJson) : null;
+        contractIdByEntity[row.entityId] = typeof v === 'string' && v ? v : null;
+      } else {
+        const code = statusDefById.get(row.attributeDefId);
+        if (code) {
+          const ent = statusFlagsByEntity[row.entityId];
+          const obj = ent ?? {};
+          obj[code as StatusCode] = Boolean(row.valueJson ? safeJsonParse(row.valueJson) : null);
+          statusFlagsByEntity[row.entityId] = obj;
+        }
+      }
+    }
+
     const attrsByEntity: Record<string, { name?: string; article?: string; assemblyUnitNumber?: string }> = {};
     for (const attr of attrRows) {
       if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
@@ -728,6 +771,8 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
 
     const parts = filtered.map((e) => {
       const attrs = attrsByEntity[e.id];
+      const contractId = contractIdByEntity[e.id];
+      const statusFlags = statusFlagsByEntity[e.id];
       return {
         id: e.id,
         ...(attrs?.name && { name: attrs.name }),
@@ -735,6 +780,8 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         ...(attrs?.assemblyUnitNumber && { assemblyUnitNumber: attrs.assemblyUnitNumber }),
         createdAt: Number(e.createdAt),
         updatedAt: Number(e.updatedAt),
+        ...(contractId != null && { contractId }),
+        ...(statusFlags && Object.keys(statusFlags).length > 0 && { statusFlags }),
       };
     });
 

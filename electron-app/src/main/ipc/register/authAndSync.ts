@@ -1,4 +1,4 @@
-import { app, ipcMain, net } from 'electron';
+import { BrowserWindow, app, ipcMain, net } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
 import {
@@ -13,7 +13,7 @@ import {
   authSync,
   presenceMe,
 } from '../../services/authService.js';
-import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { isViewMode } from '../ipcContext.js';
 
@@ -66,6 +66,40 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
     await resetSyncState(ctx.sysDb);
     return { ok: true as const };
+  });
+  ipcMain.handle('sync:fullPull', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
+    const emitSyncProgress = (payload: unknown) => {
+      try {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('sync:progress', payload);
+        });
+      } catch {
+        // ignore
+      }
+    };
+    try {
+      const startedAt = Date.now();
+      const lastDuration = await settingsGetNumber(ctx.sysDb, SettingsKey.LastFullPullDurationMs, 0);
+      const estimateMs = Math.max(60_000, Math.min(15 * 60_000, lastDuration || 180_000));
+      emitSyncProgress({
+        mode: 'force_full_pull',
+        state: 'start',
+        startedAt,
+        elapsedMs: 0,
+        estimateMs,
+        etaMs: estimateMs,
+        progress: 0,
+        stage: 'prepare',
+        detail: 'подготовка синхронизации',
+      });
+      await resetSyncState(ctx.sysDb);
+      return await ctx.mgr.runOnce({
+        fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: emitSyncProgress },
+      });
+    } catch (e) {
+      return { ok: false as const, pushed: 0, pulled: 0, serverCursor: 0, error: String(e) };
+    }
   });
   ipcMain.handle('sync:resetLocalDb', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };

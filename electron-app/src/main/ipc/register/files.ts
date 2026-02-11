@@ -6,7 +6,7 @@ import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcConte
 import { filesDelete, filesDownload, filesDownloadDirGet, filesDownloadDirSet, filesOpen, filesPreviewGet, filesUpload } from '../../services/fileService.js';
 
 export function registerFilesIpc(ctx: IpcContext) {
-  ipcMain.handle('files:upload', async (_e, args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => {
+  ipcMain.handle('files:upload', async (_e, args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'files.upload');
     if (!gate.ok) return gate;

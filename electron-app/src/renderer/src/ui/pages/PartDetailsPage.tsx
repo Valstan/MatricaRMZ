@@ -7,6 +7,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
+import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
@@ -136,6 +137,13 @@ export function PartDetailsPage(props: {
   const [engineBrandOptions, setEngineBrandOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandIds, setEngineBrandIds] = useState<string[]>([]);
   const [engineBrandStatus, setEngineBrandStatus] = useState<string>('');
+  const [contractId, setContractId] = useState<string>('');
+  const [contractOptions, setContractOptions] = useState<LinkOpt[]>([]);
+  const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
+    const out: Partial<Record<StatusCode, boolean>> = {};
+    for (const c of STATUS_CODES) out[c] = false;
+    return out;
+  });
 
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
   const [entityTypes, setEntityTypes] = useState<EntityTypeRow[]>([]);
@@ -275,6 +283,26 @@ export function PartDetailsPage(props: {
     }
   }
 
+  async function loadContracts() {
+    try {
+      const types = await window.matrica.admin.entityTypes.list();
+      const type = (types as any[]).find((t) => String(t.code) === 'contract') ?? null;
+      if (!type?.id) {
+        setContractOptions([]);
+        return;
+      }
+      const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
+      const opts = (rows as any[]).map((r) => ({
+        id: String(r.id),
+        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setContractOptions(opts);
+    } catch {
+      setContractOptions([]);
+    }
+  }
+
   async function loadCustomers() {
     try {
       setCustomerStatus('Загрузка списка поставщиков…');
@@ -404,6 +432,7 @@ export function PartDetailsPage(props: {
 
   useEffect(() => {
     void loadCustomers();
+    void loadContracts();
     void loadLinkRules();
   }, []);
 
@@ -423,6 +452,14 @@ export function PartDetailsPage(props: {
         metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
       },
       { code: 'supplier', name: 'Поставщик (текст)', dataType: 'text', sortOrder: 60 },
+      {
+        code: 'contract_id',
+        name: 'Контракт',
+        dataType: 'link',
+        sortOrder: 65,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
+      },
+      ...STATUS_CODES.map((code, i) => ({ code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 70 + i })),
     ];
     void ensureAttributeDefs(partTypeId, desired, partDefs).then((next) => {
       if (next.length !== partDefs.length) setPartDefs(next);
@@ -444,6 +481,7 @@ export function PartDetailsPage(props: {
     const vSupplier = byCode.supplier?.value;
     const vBrands = byCode.engine_brand_ids?.value;
     const vSupplierId = byCode.supplier_id?.value;
+    const vContractId = byCode.contract_id?.value;
 
     setName(typeof vName === 'string' ? vName : vName == null ? '' : String(vName));
     setArticle(typeof vArticle === 'string' ? vArticle : vArticle == null ? '' : String(vArticle));
@@ -455,6 +493,10 @@ export function PartDetailsPage(props: {
     setSupplier(typeof vSupplier === 'string' ? vSupplier : vSupplier == null ? '' : String(vSupplier));
     setSupplierId(typeof vSupplierId === 'string' ? vSupplierId : vSupplierId == null ? '' : String(vSupplierId));
     setEngineBrandIds(Array.isArray(vBrands) ? vBrands.filter((x): x is string => typeof x === 'string') : []);
+    setContractId(typeof vContractId === 'string' ? vContractId : vContractId == null ? '' : String(vContractId));
+    const flags: Partial<Record<StatusCode, boolean>> = {};
+    for (const c of STATUS_CODES) flags[c] = Boolean(byCode[c]?.value);
+    setStatusFlags(flags);
   }, [part?.id, part?.updatedAt]);
 
   useEffect(() => {
@@ -532,6 +574,8 @@ export function PartDetailsPage(props: {
     await saveAttribute('purchase_date', fromInputDate(purchaseDate));
     await saveAttribute('supplier_id', supplierId || null);
     await saveAttribute('supplier', supplierLabel || supplier);
+    await saveAttribute('contract_id', contractId || null);
+    for (const c of STATUS_CODES) await saveAttribute(c, statusFlags[c] ?? false);
   }
 
   async function saveAllAndClose() {
@@ -575,6 +619,8 @@ export function PartDetailsPage(props: {
     'supplier',
     'supplier_id',
     'engine_brand_ids',
+    'contract_id',
+    ...STATUS_CODES,
   ]);
   // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
   const hiddenFromExtra = new Set(['engine_brand_ids', 'drawings', 'tech_docs', 'attachments']);
@@ -685,6 +731,45 @@ export function PartDetailsPage(props: {
           </div>
         ),
       },
+      {
+        code: 'contract_id',
+        defaultOrder: 65,
+        label: 'Контракт',
+        value: contractOptions.find((c) => c.id === contractId)?.label ?? (contractId || ''),
+        render: (
+          <SearchSelect
+            value={contractId || null}
+            options={contractOptions}
+            placeholder="Выберите контракт"
+            disabled={!props.canEdit}
+            onChange={(next) => {
+              setContractId(next ?? '');
+              void saveAttribute('contract_id', next || null);
+            }}
+          />
+        ),
+      },
+      ...STATUS_CODES.map((code) => ({
+        code,
+        defaultOrder: 70 + STATUS_CODES.indexOf(code),
+        label: STATUS_LABELS[code],
+        value: statusFlags[code] ? 'да' : 'нет',
+        render: (
+          <label key={code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={!!statusFlags[code]}
+              disabled={!props.canEdit}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setStatusFlags((prev) => ({ ...prev, [code]: next }));
+                void saveAttribute(code, next);
+              }}
+            />
+            <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
+          </label>
+        ),
+      })),
     ],
     partDefs,
   );

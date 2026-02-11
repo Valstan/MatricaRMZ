@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('matrica', {
     configGet: async () => ipcRenderer.invoke('sync:config:get'),
     configSet: async (args: { apiBaseUrl: string }) => ipcRenderer.invoke('sync:config:set', args),
     reset: async () => ipcRenderer.invoke('sync:reset'),
+    fullPull: async () => ipcRenderer.invoke('sync:fullPull'),
     resetLocalDb: async () => ipcRenderer.invoke('sync:resetLocalDb'),
     onProgress: (handler: (event: any) => void) => {
       const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
@@ -273,7 +274,8 @@ contextBridge.exposeInMainWorld('matrica', {
     getFiles: async (partId: string) => ipcRenderer.invoke('parts:getFiles', partId),
   },
   files: {
-    upload: async (args: { path: string; scope?: { ownerType: string; ownerId: string; category: string } }) => ipcRenderer.invoke('files:upload', args),
+    upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
+      ipcRenderer.invoke('files:upload', args),
     pick: async () => ipcRenderer.invoke('files:pick'),
     download: async (args: { fileId: string }) => ipcRenderer.invoke('files:download', args),
     open: async (args: { fileId: string }) => ipcRenderer.invoke('files:open', args),
@@ -326,7 +328,7 @@ contextBridge.exposeInMainWorld('matrica', {
   },
   settings: {
     uiGet: async (args?: { userId?: string }) => ipcRenderer.invoke('ui:prefs:get', args),
-    uiSet: async (args: { theme?: string; chatSide?: string; userId?: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }) =>
+    uiSet: async (args: { theme?: string; chatSide?: string; enterAsTab?: boolean; userId?: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }) =>
       ipcRenderer.invoke('ui:prefs:set', args),
   },
   e2eKeys: {

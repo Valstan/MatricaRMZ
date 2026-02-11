@@ -277,7 +277,7 @@ async function uploadPreview(db: BetterSQLite3Database, apiBaseUrl: string, args
 export async function filesUpload(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { path: string; scope?: UploadScope },
+  args: { path: string; fileName?: string; scope?: UploadScope },
 ): Promise<{ ok: true; file: FileRef } | { ok: false; error: string }> {
   try {
     const filePath = String(args.path || '').trim();
@@ -285,7 +285,8 @@ export async function filesUpload(
     const st = await fsp.stat(filePath);
     if (!st.isFile()) return { ok: false, error: 'not a file' };
 
-    const name = safeFilename(basename(filePath));
+    const requestedName = String(args.fileName || '').trim();
+    const name = safeFilename(requestedName || basename(filePath));
     const size = Number(st.size);
     const sha256 = await sha256OfFile(filePath);
 

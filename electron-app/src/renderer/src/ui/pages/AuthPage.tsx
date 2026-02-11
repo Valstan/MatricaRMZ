@@ -4,6 +4,7 @@ import type { AuthStatus } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SuggestInput } from '../components/SuggestInput.js';
 
 function roleStyles(roleRaw: string) {
   const role = String(roleRaw ?? '').toLowerCase();
@@ -207,20 +208,17 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                 <>
                   <div style={{ width: '100%', maxWidth: 360, textAlign: 'center' }}>
                     <div style={{ marginBottom: 6, fontWeight: 700 }}>Логин</div>
-                    <Input
+                    <SuggestInput
                       value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      onChange={setUsername}
+                      options={loginOptions.map((opt) => ({
+                        value: opt.login,
+                        description: opt.fullName ? `${opt.fullName} (${opt.role})` : opt.role,
+                      }))}
                       placeholder="логин"
-                      list="login-options"
                       onFocus={() => void refreshLoginOptions()}
                       style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}` }}
                     />
-                    <datalist id="login-options">
-                      {loginOptions.map((opt) => {
-                        const label = opt.fullName ? `${opt.login} — ${opt.fullName} (${opt.role})` : `${opt.login} (${opt.role})`;
-                        return <option key={opt.login} value={opt.login} label={label} />;
-                      })}
-                    </datalist>
                     {loginOptionsStatus && (
                       <div style={{ marginTop: 6, fontSize: 12, color: palette.hint }}>{loginOptionsStatus}</div>
                     )}

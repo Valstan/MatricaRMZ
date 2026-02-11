@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails } from '@matricarmz/shared';
+import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -118,6 +119,14 @@ export function EngineDetailsPage(props: {
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
+  const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
+    const attrs = props.engine.attributes ?? {};
+    const out: Partial<Record<StatusCode, boolean>> = {};
+    for (const c of STATUS_CODES) {
+      out[c] = Boolean(attrs[c]);
+    }
+    return out;
+  });
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
@@ -151,6 +160,10 @@ export function EngineDetailsPage(props: {
     setIsScrap(Boolean(props.engine.attributes?.is_scrap));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
+    const attrs = props.engine.attributes ?? {};
+    const flags: Partial<Record<StatusCode, boolean>> = {};
+    for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
+    setStatusFlags(flags);
   }, [props.engineId, props.engine.updatedAt]);
 
   useEffect(() => {
@@ -209,6 +222,7 @@ export function EngineDetailsPage(props: {
       await saveAttr('is_scrap', isScrap === true);
       await saveAttr('customer_id', customerId || null);
       await saveAttr('contract_id', contractId || null);
+      for (const c of STATUS_CODES) await saveAttr(c, statusFlags[c] ?? false);
     }
     props.onClose();
   }
@@ -326,6 +340,7 @@ export function EngineDetailsPage(props: {
       { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 25 },
       { code: 'shipping_date', name: 'Дата отгрузки', dataType: 'date', sortOrder: 26 },
       { code: 'is_scrap', name: 'Утиль (неремонтнопригоден)', dataType: 'boolean', sortOrder: 27 },
+      ...STATUS_CODES.map((code, i) => ({ code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 28 + i })),
       {
         code: 'customer_id',
         name: 'Контрагент',
@@ -474,6 +489,27 @@ export function EngineDetailsPage(props: {
         </label>
       ),
     },
+    ...STATUS_CODES.map((code) => ({
+      code,
+      defaultOrder: 28 + STATUS_CODES.indexOf(code),
+      label: STATUS_LABELS[code],
+      value: statusFlags[code] ? 'да' : 'нет',
+      render: (
+        <label key={code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={!!statusFlags[code]}
+            disabled={!props.canEditEngines}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setStatusFlags((prev) => ({ ...prev, [code]: next }));
+              void saveAttr(code, next);
+            }}
+          />
+          <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
+        </label>
+      ),
+    })),
     props.canViewMasterData
       ? {
           code: 'customer_id',

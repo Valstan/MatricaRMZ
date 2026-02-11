@@ -1470,7 +1470,15 @@ async function markAllAttributeDefsPending(db: BetterSQLite3Database) {
   await db.update(attributeDefs).set({ syncStatus: 'pending' });
 }
 
-async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullResponse['changes']) {
+async function applyPulledChanges(
+  db: BetterSQLite3Database,
+  changes: SyncPullResponse['changes'],
+  opts?: {
+    onProgress?: (
+      event: Pick<FullPullProgressEvent, 'stage' | 'detail' | 'table' | 'counts' | 'breakdown' | 'service'>,
+    ) => void;
+  },
+) {
   if (changes.length === 0) return;
   const ts = nowMs();
   const { all: e2eKeys } = getE2eKeys();
@@ -1959,11 +1967,53 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     }
   }
 
+  const emitApply = (table: SyncTableName, count: number, breakdown?: FullPullProgressEvent['breakdown']) => {
+    if (!opts?.onProgress || count <= 0) return;
+    opts.onProgress({
+      stage: 'apply',
+      service: 'sync',
+      table,
+      detail: `строк: ${count}`,
+      counts: { batch: count },
+      breakdown,
+    });
+  };
+
+  const entityTypeCodeById = new Map<string, string>();
+  for (const row of groups.entity_types) {
+    if (row?.id && row?.code) entityTypeCodeById.set(String(row.id), String(row.code));
+  }
+  const ensureEntityTypeCodes = async (ids: string[]) => {
+    const missing = ids.filter((id) => id && !entityTypeCodeById.has(String(id)));
+    if (missing.length === 0) return;
+    const rows = await db
+      .select({ id: entityTypes.id, code: entityTypes.code })
+      .from(entityTypes)
+      .where(inArray(entityTypes.id, missing as any))
+      .limit(50_000);
+    for (const r of rows) {
+      if (r?.id && r?.code) entityTypeCodeById.set(String(r.id), String(r.code));
+    }
+  };
+  const buildEntityTypeBreakdown = (typeIds: string[]) => {
+    const counts = new Map<string, number>();
+    for (const id of typeIds) {
+      const code = entityTypeCodeById.get(String(id));
+      if (!code) continue;
+      counts.set(code, (counts.get(code) ?? 0) + 1);
+    }
+    if (counts.size === 0) return undefined;
+    const obj: Record<string, number> = {};
+    for (const [code, count] of counts.entries()) obj[code] = count;
+    return { entityTypes: obj };
+  };
+
   // IMPORTANT:
   // Drizzle (better-sqlite3) uses async query API. Running it inside better-sqlite3's native transaction
   // callback (which MUST be synchronous) is unsafe.
   // For correctness we apply pulled rows sequentially without wrapping them in a SQLite transaction.
   if (groups.entity_types.length > 0) {
+    emitApply(SyncTableName.EntityTypes, groups.entity_types.length);
     groups.entity_types = groups.entity_types.map((row) => {
       const createdAt = Number.isFinite(Number(row.createdAt ?? NaN)) ? Number(row.createdAt) : Number(row.updatedAt ?? ts);
       const updatedAt = Number.isFinite(Number(row.updatedAt ?? NaN)) ? Number(row.updatedAt) : createdAt;
@@ -1985,6 +2035,8 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       });
   }
   if (groups.entities.length > 0) {
+    await ensureEntityTypeCodes(groups.entities.map((row: any) => String(row.typeId ?? '')));
+    emitApply(SyncTableName.Entities, groups.entities.length, buildEntityTypeBreakdown(groups.entities.map((row: any) => row.typeId)));
     const invalid = groups.entities.filter((row: any) => !row.typeId);
     if (invalid.length > 0) {
       logSync(
@@ -1997,6 +2049,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     }
   }
   if (groups.entities.length > 0) {
+    emitApply(SyncTableName.Entities, groups.entities.length);
     await db
       .insert(entities)
       .values(groups.entities)
@@ -2012,6 +2065,12 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       });
   }
   if (groups.attribute_defs.length > 0) {
+    await ensureEntityTypeCodes(groups.attribute_defs.map((row: any) => String(row.entityTypeId ?? '')));
+    emitApply(
+      SyncTableName.AttributeDefs,
+      groups.attribute_defs.length,
+      buildEntityTypeBreakdown(groups.attribute_defs.map((row: any) => row.entityTypeId)),
+    );
     const invalid = groups.attribute_defs.filter((row: any) => !row.entityTypeId);
     if (invalid.length > 0) {
       logSync(
@@ -2024,6 +2083,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
     }
   }
   if (groups.attribute_defs.length > 0) {
+    emitApply(SyncTableName.AttributeDefs, groups.attribute_defs.length);
     await db
       .insert(attributeDefs)
       .values(groups.attribute_defs)
@@ -2045,6 +2105,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       });
   }
   if (groups.attribute_values.length > 0) {
+    emitApply(SyncTableName.AttributeValues, groups.attribute_values.length);
     await db
       .insert(attributeValues)
       .values(groups.attribute_values)
@@ -2062,6 +2123,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       });
   }
   if (groups.operations.length > 0) {
+    emitApply(SyncTableName.Operations, groups.operations.length);
     await db
       .insert(operations)
       .values(groups.operations)
@@ -2083,6 +2145,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
       });
   }
   if (groups.audit_log.length > 0) {
+    emitApply(SyncTableName.AuditLog, groups.audit_log.length);
     await db
       .insert(auditLog)
       .values(groups.audit_log)
@@ -2103,6 +2166,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   }
 
   if (groups.chat_messages.length > 0) {
+    emitApply(SyncTableName.ChatMessages, groups.chat_messages.length);
     await db
       .insert(chatMessages)
       .values(groups.chat_messages)
@@ -2124,6 +2188,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   }
 
   if (groups.chat_reads.length > 0) {
+    emitApply(SyncTableName.ChatReads, groups.chat_reads.length);
     await db
       .insert(chatReads)
       .values(groups.chat_reads)
@@ -2142,6 +2207,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   }
 
   if (groups.notes.length > 0) {
+    emitApply(SyncTableName.Notes, groups.notes.length);
     await db
       .insert(notes)
       .values(groups.notes)
@@ -2163,6 +2229,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   }
 
   if (groups.note_shares.length > 0) {
+    emitApply(SyncTableName.NoteShares, groups.note_shares.length);
     await db
       .insert(noteShares)
       .values(groups.note_shares)
@@ -2181,6 +2248,7 @@ async function applyPulledChanges(db: BetterSQLite3Database, changes: SyncPullRe
   }
 
   if (groups.user_presence.length > 0) {
+    emitApply(SyncTableName.UserPresence, groups.user_presence.length);
     await db
       .insert(userPresence)
       .values(groups.user_presence)
@@ -2301,6 +2369,17 @@ type FullPullProgressEvent = {
   estimateMs: number | null;
   etaMs: number | null;
   progress: number | null;
+  stage?: 'prepare' | 'push' | 'pull' | 'apply' | 'ledger' | 'finalize';
+  service?: 'schema' | 'diagnostics' | 'ledger' | 'sync';
+  detail?: string;
+  table?: string;
+  counts?: {
+    total?: number;
+    batch?: number;
+  };
+  breakdown?: {
+    entityTypes?: Record<string, number>;
+  };
   pulled?: number;
   error?: string;
 };
@@ -2342,6 +2421,13 @@ export async function runSync(
       ...extra,
     });
   };
+  const emitStage = (
+    stage: FullPullProgressEvent['stage'],
+    detail?: string,
+    extra?: Partial<FullPullProgressEvent> & { service?: FullPullProgressEvent['service'] },
+  ) => {
+    emitFullPull('progress', { stage, detail, ...extra });
+  };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const session = await getSession(db).catch(() => null);
@@ -2355,6 +2441,7 @@ export async function runSync(
         return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'auth required: please login' };
       }
 
+      emitStage('prepare', 'загрузка схемы синхронизации', { service: 'schema' });
       const schema = await fetchSyncSchemaSnapshot(db, currentApiBaseUrl).catch(() => null);
       const compatibility = await ensureClientSchemaCompatible(db, schema ?? null, { log: logSync }).catch((e) => ({
         action: 'rebuild' as const,
@@ -2371,9 +2458,11 @@ export async function runSync(
           error: 'local database rebuilt for schema compatibility; please login again',
         };
       }
+      emitStage('prepare', 'проверка локальной базы', { service: 'schema' });
       await repairLocalSyncTables(db, schema ?? null).catch(() => {});
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
+      emitStage('prepare', 'подготовка синхронизации', { service: 'sync' });
       const pullOnce = async (sinceValue: number) => {
         const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}&client_id=${encodeURIComponent(
           clientId,
@@ -2392,7 +2481,26 @@ export async function runSync(
           throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
         }
         const pullJson = (await pull.json()) as SyncPullResponse;
-        await applyPulledChanges(db, pullJson.changes);
+        if (fullPull) {
+          const counts = new Map<string, number>();
+          for (const ch of pullJson.changes) {
+            const key = String(ch.table ?? '');
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+          }
+          const top = Array.from(counts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4)
+            .map(([table, count]) => `${table}=${count}`);
+          const suffix = counts.size > 4 ? ', ...' : '';
+          const detail =
+            pullJson.changes.length === 0
+              ? 'изменений нет'
+              : `получено ${pullJson.changes.length}${top.length ? ` (${top.join(', ')}${suffix})` : ''}`;
+          emitStage('pull', detail, { counts: { batch: pullJson.changes.length }, service: 'sync' });
+        }
+        await applyPulledChanges(db, pullJson.changes, {
+          onProgress: fullPull ? (info) => emitFullPull('progress', info) : undefined,
+        });
         await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
         await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
         return pullJson;
@@ -2437,6 +2545,12 @@ export async function runSync(
           const summary = pushedPacks.map((p) => `${p.table}=${(p.rows as any[]).length}`).join(', ');
           const total = pushedPacks.reduce((acc, p) => acc + (p.rows as any[]).length, 0);
           logSync(`push pending total=${total} packs=[${summary}]`);
+          if (fullPull) {
+            emitStage('push', `отправка ${total}${summary ? ` (${summary})` : ''}`, {
+              counts: { batch: total },
+              service: 'sync',
+            });
+          }
           const ledgerTxs = pushedPacks.flatMap((pack) => (pack.rows as any[]).map((row) => toLedgerTx(pack.table, row)));
           const pushBody = { txs: ledgerTxs };
           const pushUrl = `${currentApiBaseUrl}/ledger/tx/submit`;
@@ -2609,6 +2723,9 @@ export async function runSync(
           logSync(`push failed but pull will continue: ${pushError}`);
         }
       }
+      if (fullPull && upserts.length === 0) {
+        emitStage('push', 'локальных изменений нет', { counts: { batch: 0 }, service: 'sync' });
+      }
 
       let since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
       // Self-heal: if cursor is advanced but local DB looks empty/corrupted, force a full pull.
@@ -2662,8 +2779,11 @@ export async function runSync(
       logSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
+      if (fullPull) emitStage('finalize', 'отправка диагностики', { service: 'diagnostics' });
       await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
+      if (fullPull) emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger' });
       await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
+      if (fullPull) emitStage('finalize', 'завершение синхронизации', { service: 'sync' });
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});

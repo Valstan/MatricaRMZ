@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { SuggestInput } from '../components/SuggestInput.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type Option = { id: string; label: string };
@@ -546,23 +547,17 @@ export function ToolDetailsPage(props: {
                 }}
               />
               <div>
-                <Input
-                  list={row.propertyId ? `tool-prop-values-${row.propertyId}-${idx}` : undefined}
+                <SuggestInput
                   value={row.value ?? ''}
-                  onChange={(e) => {
-                    const nextRows = properties.map((p, i) => (i === idx ? { ...p, value: e.target.value } : p));
+                  onChange={(nextValue) => {
+                    const nextRows = properties.map((p, i) => (i === idx ? { ...p, value: nextValue } : p));
                     void updateProperties(nextRows);
                   }}
+                  options={hints.map((h) => ({ value: h }))}
                   disabled={!props.canEdit}
                   placeholder="Значение свойства"
+                  onCreate={async (label) => label.trim() || null}
                 />
-                {row.propertyId && hints.length > 0 && (
-                  <datalist id={`tool-prop-values-${row.propertyId}-${idx}`}>
-                    {hints.map((h) => (
-                      <option key={h} value={h} />
-                    ))}
-                  </datalist>
-                )}
               </div>
               {props.canEdit ? (
                 <Button

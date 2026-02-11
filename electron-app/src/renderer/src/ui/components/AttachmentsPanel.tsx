@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 
 function isFileRef(x: any): x is FileRef {
   return x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string';
@@ -70,6 +71,7 @@ export function AttachmentsPanel(props: {
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
 }) {
   const [busy, setBusy] = useState<string>('');
+  const uploadFlow = useFileUploadFlow();
   const [thumbs, setThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const thumbsRef = useRef(thumbs);
 
@@ -108,40 +110,49 @@ export function AttachmentsPanel(props: {
 
   async function addFromPaths(paths: string[]) {
     if (!props.canUpload) return;
-    const unique = Array.from(new Set(paths.map((p) => String(p || '').trim()).filter(Boolean)));
-    if (unique.length === 0) return;
+    const uploads = await uploadFlow.buildTasks(paths);
+    if (!uploads) {
+        setBusy('Загрузка отменена пользователем');
+        setTimeout(() => setBusy(''), 1400);
+        return;
+    }
     setBusy('Загрузка файлов...');
     try {
-      const added: FileRef[] = [];
-      for (const p of unique) {
-        const r = await window.matrica.files.upload({ path: p, ...(props.scope ? { scope: props.scope } : {}) });
-        if (!r.ok) throw new Error(r.error);
-        added.push(r.file);
-      }
+      const uploadResult = await uploadFlow.runUploads<FileRef>(uploads, async (task) => {
+        const r = await window.matrica.files.upload({ path: task.path, fileName: task.fileName, ...(props.scope ? { scope: props.scope } : {}) });
+        return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
+      });
+      if (uploadResult.failures.length > 0) throw new Error(uploadResult.failures[0].error);
+      const added = uploadResult.successes.map((x) => x.value);
       const merged = [...list];
       for (const f of added) {
         if (!merged.find((x) => x.id === f.id)) merged.push(f);
       }
+      uploadFlow.setProgress({ active: true, percent: 98, label: 'Сохранение изменений...' });
       const r = await props.onChange(merged).catch((e) => ({ ok: false as const, error: String(e) }));
+      uploadFlow.setProgress({ active: false, percent: 0, label: '' });
       if (!r) {
-        setBusy('Готово');
+        setBusy(`Успешно: прикреплено файлов — ${added.length}`);
         setTimeout(() => setBusy(''), 700);
         return;
       }
       if (!r.ok) {
-        setBusy(`Ошибка: ${r.error}`);
-        setTimeout(() => setBusy(''), 3000);
+        setBusy(`Неуспешно: ${r.error}`);
+        setTimeout(() => setBusy(''), 4500);
         return;
       }
       if (r.queued) {
-        setBusy('Отправлено на утверждение (см. «Изменения»)');
+        setBusy('Успешно: отправлено на утверждение (см. «Изменения»)');
         setTimeout(() => setBusy(''), 1600);
         return;
       }
-      setBusy('Готово');
-      setTimeout(() => setBusy(''), 700);
+      setBusy(`Успешно: прикреплено файлов — ${added.length}`);
+      setTimeout(() => setBusy(''), 1200);
     } catch (e) {
-      setBusy(`Ошибка: ${String(e)}`);
+      uploadFlow.setProgress({ active: false, percent: 0, label: '' });
+      const reason = e instanceof Error ? e.message : String(e);
+      setBusy(`Неуспешно: ${reason}`);
+      setTimeout(() => setBusy(''), 4500);
     }
   }
 
@@ -169,7 +180,7 @@ export function AttachmentsPanel(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <strong>{props.title ?? 'Вложения'}</strong>
         <span style={{ flex: 1 }} />
-        {busy && <div style={{ color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{busy}</div>}
+        {busy && <div style={{ color: busy.startsWith('Ошибка') || busy.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{busy}</div>}
         {props.canUpload && (
           <>
             <Button
@@ -197,6 +208,24 @@ export function AttachmentsPanel(props: {
           Папка скачивания
         </Button>
       </div>
+      {uploadFlow.progress.active && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+            <span>{uploadFlow.progress.label}</span>
+            <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
+                transition: 'width 0.2s ease',
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -321,6 +350,7 @@ export function AttachmentsPanel(props: {
           </tbody>
         </table>
       </div>
+      {uploadFlow.renameDialog}
     </div>
   );
 }

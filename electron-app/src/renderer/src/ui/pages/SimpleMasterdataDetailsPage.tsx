@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import type { FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
@@ -37,6 +38,7 @@ export function SimpleMasterdataDetailsPage(props: {
   const [storeOptions, setStoreOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [unitTypeId, setUnitTypeId] = useState<string>('');
   const [storeTypeId, setStoreTypeId] = useState<string>('');
+  const uploadFlow = useFileUploadFlow();
 
   async function load() {
     try {
@@ -265,24 +267,72 @@ export function SimpleMasterdataDetailsPage(props: {
             onClick={async () => {
               const pickResult = await window.matrica.files.pick();
               if (!pickResult.ok || !pickResult.paths?.length) return;
-              const added: FileRef[] = [];
-              for (const p of pickResult.paths) {
-                const r = await window.matrica.files.upload({ path: p, scope: { ownerType, ownerId: props.entityId, category: 'photos' } });
-                if (r.ok) added.push(r.file);
+              const uploads = await uploadFlow.buildTasks(pickResult.paths);
+              if (!uploads) {
+                uploadFlow.setStatusWithTimeout('Загрузка отменена пользователем', 1500);
+                return;
               }
-              if (added.length === 0) return;
+              uploadFlow.setStatus('');
+              const uploadResult = await uploadFlow.runUploads<FileRef>(
+                uploads,
+                async (task) => {
+                  const r = await window.matrica.files.upload({
+                    path: task.path,
+                    fileName: task.fileName,
+                    scope: { ownerType, ownerId: props.entityId, category: 'photos' },
+                  });
+                  return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
+                },
+                { continueOnError: true },
+              );
+              const added = uploadResult.successes.map((x) => x.value);
+              const failed = uploadResult.failures.map((f) => `${f.task.fileName}: ${f.error}`);
+              if (added.length === 0) {
+                uploadFlow.setProgress({ active: false, percent: 0, label: '' });
+                uploadFlow.setStatusWithTimeout(`Неуспешно: ${failed[0] ?? 'не удалось загрузить файлы'}`, 4500);
+                return;
+              }
               const merged = [...photos];
               for (const f of added) {
                 if (!merged.find((x) => x.id === f.id)) merged.push(f);
               }
-              await saveFiles('photos', merged, (v) => setPhotos(Array.isArray(v) ? v.filter(isFileRef) : []));
+              uploadFlow.setProgress({ active: true, percent: 98, label: 'Сохранение изменений...' });
+              const saved = await saveFiles('photos', merged, (v) => setPhotos(Array.isArray(v) ? v.filter(isFileRef) : []));
+              uploadFlow.setProgress({ active: false, percent: 0, label: '' });
+              if (!saved.ok) failed.push(`сохранение: ${saved.error}`);
               if (!mainPhotoId && merged[0]) setMainPhotoId(merged[0].id);
+              if (failed.length > 0) {
+                uploadFlow.setStatusWithTimeout(`Неуспешно: ${failed[0]}`, 4500);
+                return;
+              }
+              uploadFlow.setStatusWithTimeout(`Успешно: прикреплено файлов — ${added.length}`, 1400);
             }}
           >
             Добавить фото
           </Button>
         )}
       </div>
+      {uploadFlow.status ? (
+        <div style={{ marginBottom: 8, color: uploadFlow.status.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{uploadFlow.status}</div>
+      ) : null}
+      {uploadFlow.progress.active ? (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+            <span>{uploadFlow.progress.label}</span>
+            <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
+                transition: 'width 0.2s ease',
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
       {activePhoto ? (
         <div style={{ display: 'grid', gap: 8 }}>
           <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e5e7eb', background: '#fff' }}>
@@ -501,50 +551,51 @@ export function SimpleMasterdataDetailsPage(props: {
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-      <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
-        <DraggableFieldList
-          items={mainFields}
-          getKey={(f) => f.code}
-          canDrag={props.canEdit}
-          onReorder={(next) => {
-            if (!entityTypeId) return;
-            void persistFieldOrder(
-              next.map((f) => f.code),
-              defs,
-              { entityTypeId },
-            ).then(() => setDefs([...defs]));
-          }}
-          renderItem={(field, itemProps, _dragHandleProps, state) => (
-            <div
-              {...itemProps}
-              className="card-row"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(160px, 200px) 1fr',
-                gap: 8,
-                alignItems: 'center',
-                padding: '4px 6px',
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
-                background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
-              }}
-            >
+        <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+          <DraggableFieldList
+            items={mainFields}
+            getKey={(f) => f.code}
+            canDrag={props.canEdit}
+            onReorder={(next) => {
+              if (!entityTypeId) return;
+              void persistFieldOrder(
+                next.map((f) => f.code),
+                defs,
+                { entityTypeId },
+              ).then(() => setDefs([...defs]));
+            }}
+            renderItem={(field, itemProps, _dragHandleProps, state) => (
               <div
+                {...itemProps}
+                className="card-row"
                 style={{
-                  color: '#6b7280',
-                  alignSelf: field.code === 'description' ? 'start' : 'center',
-                  paddingTop: field.code === 'description' ? 6 : 0,
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(160px, 200px) 1fr',
+                  gap: 8,
+                  alignItems: 'center',
+                  padding: '4px 6px',
+                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                  background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                 }}
               >
-                {field.label}
+                <div
+                  style={{
+                    color: '#6b7280',
+                    alignSelf: field.code === 'description' ? 'start' : 'center',
+                    paddingTop: field.code === 'description' ? 6 : 0,
+                  }}
+                >
+                  {field.label}
+                </div>
+                {field.render}
               </div>
-              {field.render}
-            </div>
-          )}
-        />
-      </div>
+            )}
+          />
+        </div>
 
-      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+        {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       </div>
+      {uploadFlow.renameDialog}
     </div>
   );
 }

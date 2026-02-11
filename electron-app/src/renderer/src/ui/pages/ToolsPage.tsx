@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { SuggestInput } from '../components/SuggestInput.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 
@@ -48,6 +49,7 @@ export function ToolsPage(props: {
   const [reportPropertyValue, setReportPropertyValue] = useState<string>('');
   const [reportLocation, setReportLocation] = useState<'all' | 'store' | 'in_use' | 'unknown'>('all');
   const [propertyOptions, setPropertyOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [reportPropertyValueHints, setReportPropertyValueHints] = useState<string[]>([]);
   const width = useWindowWidth();
   const twoCol = width >= 1400;
   const queryTimer = useRef<number | null>(null);
@@ -81,6 +83,21 @@ export function ToolsPage(props: {
   }, [reportOpen]);
 
   useEffect(() => {
+    if (!reportOpen || !reportPropertyId) {
+      setReportPropertyValueHints([]);
+      return;
+    }
+    void window.matrica.tools.properties.valueHints(reportPropertyId).then((r: any) => {
+      if (!r?.ok) {
+        setReportPropertyValueHints([]);
+        return;
+      }
+      const values = Array.isArray(r.values) ? r.values.map((v: unknown) => String(v)).filter(Boolean) : [];
+      setReportPropertyValueHints(values);
+    });
+  }, [reportOpen, reportPropertyId]);
+
+  useEffect(() => {
     if (queryTimer.current) {
       window.clearTimeout(queryTimer.current);
     }
@@ -95,6 +112,18 @@ export function ToolsPage(props: {
   const sorted = useMemo(() => {
     return [...rows].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   }, [rows]);
+  const reportNameHints = useMemo(() => {
+    const s = new Set<string>();
+    rows.forEach((r) => {
+      const n = String(r.name ?? '').trim();
+      if (n) s.add(n);
+    });
+    reportRows.forEach((r) => {
+      const n = String(r.name ?? '').trim();
+      if (n) s.add(n);
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'ru'));
+  }, [rows, reportRows]);
 
   function fromInputDate(v: string): number | null {
     if (!v) return null;
@@ -262,7 +291,12 @@ export function ToolsPage(props: {
           </div>
           <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
             <div>Фильтры</div>
-            <Input value={reportName} onChange={(e) => setReportName(e.target.value)} placeholder="Название инструмента" />
+            <SuggestInput
+              value={reportName}
+              onChange={setReportName}
+              options={reportNameHints.map((v) => ({ value: v }))}
+              placeholder="Название инструмента"
+            />
             <select value={reportLocation} onChange={(e) => setReportLocation(e.target.value as any)} style={{ height: 32 }}>
               <option value="all">Все местоположения</option>
               <option value="store">На складе</option>
@@ -276,11 +310,15 @@ export function ToolsPage(props: {
               value={reportPropertyId}
               options={propertyOptions}
               placeholder="Выберите свойство"
-              onChange={(next) => setReportPropertyId(next || '')}
+              onChange={(next) => {
+                setReportPropertyId(next || '');
+                setReportPropertyValue('');
+              }}
             />
-            <Input
+            <SuggestInput
               value={reportPropertyValue}
-              onChange={(e) => setReportPropertyValue(e.target.value)}
+              onChange={setReportPropertyValue}
+              options={reportPropertyValueHints.map((v) => ({ value: v }))}
               placeholder="Значение свойства"
             />
           </div>

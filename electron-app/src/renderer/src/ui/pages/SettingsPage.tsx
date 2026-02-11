@@ -4,8 +4,8 @@ import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 
 export function SettingsPage(props: {
-  uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' };
-  onUiPrefsChange: (prefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }) => void;
+  uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean };
+  onUiPrefsChange: (prefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean }) => void;
   onLogout: () => void;
 }) {
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
@@ -19,6 +19,7 @@ export function SettingsPage(props: {
   const [messengerStatus, setMessengerStatus] = useState<string>('');
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
+  const [enterAsTab, setEnterAsTab] = useState<boolean>(props.uiPrefs.enterAsTab === true);
   const [pwCurrent, setPwCurrent] = useState<string>('');
   const [pwNew, setPwNew] = useState<string>('');
   const [pwRepeat, setPwRepeat] = useState<string>('');
@@ -34,6 +35,7 @@ export function SettingsPage(props: {
   const [e2eLoading, setE2eLoading] = useState<boolean>(false);
   const [updateResetLoading, setUpdateResetLoading] = useState<boolean>(false);
   const [localDbResetLoading, setLocalDbResetLoading] = useState<boolean>(false);
+  const [fullSyncLoading, setFullSyncLoading] = useState<boolean>(false);
 
   function formatError(e: unknown): string {
     if (e == null) return 'unknown error';
@@ -167,6 +169,22 @@ export function SettingsPage(props: {
     }
   }
 
+  async function handleFullSync() {
+    if (!confirm('Запустить полную синхронизацию без сброса базы? Это может занять много времени.')) return;
+    try {
+      setFullSyncLoading(true);
+      setStatus('Полная синхронизация запущена...');
+      const r = await window.matrica.sync.fullPull();
+      if (r.ok) setStatus(`Полная синхронизация завершена: push=${r.pushed}, pull=${r.pulled}.`);
+      else setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+    } catch (e) {
+      setStatus(`Ошибка: ${formatError(e)}`);
+    } finally {
+      setFullSyncLoading(false);
+      setTimeout(() => setStatus(''), 6000);
+    }
+  }
+
   useEffect(() => {
     void loadSettings();
     void refreshBackups();
@@ -181,6 +199,7 @@ export function SettingsPage(props: {
   useEffect(() => {
     setUiTheme(props.uiPrefs.theme);
     setChatSide(props.uiPrefs.chatSide);
+    setEnterAsTab(props.uiPrefs.enterAsTab === true);
   }, [props.uiPrefs]);
 
   async function handleToggleLogging() {
@@ -245,9 +264,9 @@ export function SettingsPage(props: {
   }
 
   async function handleSaveUiPrefs() {
-    const r = await window.matrica.settings.uiSet({ theme: uiTheme, chatSide });
+    const r = await window.matrica.settings.uiSet({ theme: uiTheme, chatSide, enterAsTab });
     if (r && (r as any).ok) {
-      props.onUiPrefsChange({ theme: (r as any).theme, chatSide: (r as any).chatSide });
+      props.onUiPrefsChange({ theme: (r as any).theme, chatSide: (r as any).chatSide, enterAsTab: (r as any).enterAsTab === true });
       setStatus('Настройки интерфейса сохранены.');
       setTimeout(() => setStatus(''), 2000);
     } else {
@@ -349,6 +368,20 @@ export function SettingsPage(props: {
             <Button variant={chatSide === 'left' ? 'primary' : 'ghost'} onClick={() => setChatSide('left')}>
               Слева
             </Button>
+          </div>
+          <div style={{ color: 'var(--muted)' }}>Enter как Tab</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant={enterAsTab ? 'primary' : 'ghost'} onClick={() => setEnterAsTab(true)}>
+                Включено
+              </Button>
+              <Button variant={!enterAsTab ? 'primary' : 'ghost'} onClick={() => setEnterAsTab(false)}>
+                Выключено
+              </Button>
+            </div>
+            <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+              Enter — переход к следующему полю, Shift+Enter — к предыдущему. Для многострочных полей Enter остаётся переносом строки.
+            </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
@@ -453,10 +486,14 @@ export function SettingsPage(props: {
         <h3 style={{ marginTop: 0, marginBottom: 12 }}>Локальная база</h3>
         <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
           Сброс удаляет локальные данные и настройки пользователя. После перезапуска потребуется войти заново и дождаться синхронизации.
+          Полная синхронизация загружает всю базу заново без сброса и может занять много времени.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <Button variant="ghost" disabled={localDbResetLoading} onClick={() => void handleResetLocalDb()}>
             Сбросить локальную базу
+          </Button>
+          <Button variant="ghost" disabled={fullSyncLoading} onClick={() => void handleFullSync()}>
+            Полная синхронизация
           </Button>
         </div>
       </div>

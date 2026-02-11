@@ -37,6 +37,7 @@ import { Input } from './components/Input.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
+import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { theme } from './theme.js';
 
 export function App() {
@@ -50,6 +51,8 @@ export function App() {
     estimateMs: number | null;
     pulled?: number;
     error?: string;
+    activity?: string | null;
+    history?: Array<{ at: number; text: string }>;
   } | null>(null);
   const fullSyncCloseTimer = useRef<number | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
@@ -88,10 +91,12 @@ export function App() {
   const [updateStatus, setUpdateStatus] = useState<any>(null);
   const [aiChatOpen, setAiChatOpen] = useState<boolean>(true);
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
-  const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right' }>({
+  const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean }>({
     theme: 'auto',
     chatSide: 'right',
+    enterAsTab: false,
   });
+  useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
@@ -109,7 +114,7 @@ export function App() {
       .catch(() => {})
       .finally(() => setAuthReady(true));
     void window.matrica.settings.uiGet().then((r: any) => {
-      if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right' });
+      if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right', enterAsTab: r.enterAsTab === true });
     });
   }, []);
 
@@ -117,6 +122,7 @@ export function App() {
     if (!window.matrica?.sync?.onProgress) return;
     const unsubscribe = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
       if (!evt || evt.mode !== 'force_full_pull') return;
+      const activity = formatSyncActivity(evt);
       if (fullSyncCloseTimer.current) {
         window.clearTimeout(fullSyncCloseTimer.current);
         fullSyncCloseTimer.current = null;
@@ -127,6 +133,8 @@ export function App() {
           progress: evt.progress ?? 0,
           etaMs: evt.etaMs ?? null,
           estimateMs: evt.estimateMs ?? null,
+          activity,
+          history: activity ? pushSyncHistory([], activity) : [],
         });
         return;
       }
@@ -137,6 +145,8 @@ export function App() {
           etaMs: evt.etaMs ?? prev?.etaMs ?? null,
           estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
           pulled: evt.pulled ?? prev?.pulled,
+          activity: activity ?? prev?.activity ?? null,
+          history: activity ? pushSyncHistory(prev?.history ?? [], activity) : prev?.history ?? [],
         }));
         return;
       }
@@ -147,6 +157,8 @@ export function App() {
           etaMs: 0,
           estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
           pulled: evt.pulled ?? prev?.pulled,
+          activity: activity ?? prev?.activity ?? null,
+          history: activity ? pushSyncHistory(prev?.history ?? [], activity) : prev?.history ?? [],
         }));
         fullSyncCloseTimer.current = window.setTimeout(() => setFullSyncUi(null), 1500);
         return;
@@ -159,6 +171,8 @@ export function App() {
           estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
           pulled: prev?.pulled,
           error: evt.error ?? 'unknown',
+          activity: activity ?? prev?.activity ?? null,
+          history: activity ? pushSyncHistory(prev?.history ?? [], activity) : prev?.history ?? [],
         }));
       }
     });
@@ -285,7 +299,7 @@ export function App() {
     setAiChatOpen(true);
   }
 
-  // When user changes (logout or login as another user), reset state and force full sync.
+  // When user changes (logout or login as another user), reset state and sync.
   useEffect(() => {
     if (!authReady) return;
     const currentId = authStatus.loggedIn ? authStatus.user?.id ?? null : null;
@@ -295,9 +309,7 @@ export function App() {
     resetUserScopedState();
     if (!currentId) return;
     if (backupMode?.mode === 'backup') return;
-    setPostLoginSyncMsg('Смена пользователя: выполняю полную синхронизацию…');
     void (async () => {
-      await window.matrica.sync.reset().catch(() => {});
       await runSyncNow({ showStatusMessage: true });
     })();
   }, [authReady, authStatus.loggedIn, authStatus.user?.id, backupMode?.mode]);
@@ -1057,6 +1069,92 @@ export function App() {
     return `${min}:${String(sec).padStart(2, '0')}`;
   }
 
+  const syncTableLabels: Record<string, string> = {
+    entity_types: 'Справочники: типы сущностей',
+    entities: 'Данные: сущности',
+    attribute_defs: 'Справочники: поля и атрибуты',
+    attribute_values: 'Данные: значения атрибутов',
+    operations: 'Производство: операции',
+    audit_log: 'Безопасность: аудит',
+    chat_messages: 'Чат: сообщения',
+    chat_reads: 'Чат: прочтения',
+    user_presence: 'Чат: присутствие',
+    notes: 'Заметки',
+    note_shares: 'Заметки: доступы',
+  };
+
+  const syncServiceLabels: Record<string, string> = {
+    schema: 'Сервис: схема и совместимость',
+    diagnostics: 'Сервис: диагностика клиента',
+    ledger: 'Сервис: ledger',
+    sync: 'Сервис: синхронизация',
+  };
+  const entityTypeLabels: Record<string, string> = {
+    engine: 'Двигатели',
+    engine_brand: 'Марки двигателей',
+    customer: 'Заказчики',
+    contract: 'Контракты',
+    work_order: 'Наряды',
+    workshop: 'Цеха',
+    section: 'Участки',
+    department: 'Подразделения',
+    product: 'Товары',
+    service: 'Услуги',
+    category: 'Категории',
+    employee: 'Сотрудники',
+    part: 'Запчасти',
+    unit: 'Единицы измерения',
+    store: 'Склады',
+    engine_node: 'Узлы двигателя',
+    link_field_rule: 'Подсказки link-полей',
+    tool: 'Инструменты',
+    tool_property: 'Свойства инструмента',
+    tool_catalog: 'Каталог инструмента',
+  };
+
+  function formatSyncActivity(evt: SyncProgressEvent): string | null {
+    if (!evt) return null;
+    const stageLabel = evt.stage
+      ? {
+          prepare: 'Подготовка',
+          push: 'Отправка изменений',
+          pull: 'Получение изменений',
+          apply: 'Применение изменений',
+          ledger: 'Синхронизация ledger',
+          finalize: 'Завершение',
+        }[evt.stage] ?? evt.stage
+      : '';
+    const serviceLabel = evt.service ? syncServiceLabels[evt.service] ?? `Сервис: ${evt.service}` : '';
+    const tableLabel = evt.table ? syncTableLabels[String(evt.table)] ?? String(evt.table) : '';
+    let breakdownText = '';
+    if (evt.breakdown?.entityTypes) {
+      const entries = Object.entries(evt.breakdown.entityTypes)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([code, count]) => `${entityTypeLabels[code] ?? code}=${count}`);
+      const suffix = Object.keys(evt.breakdown.entityTypes).length > 6 ? ', ...' : '';
+      if (entries.length > 0) breakdownText = `по типам: ${entries.join(', ')}${suffix}`;
+    }
+    const parts = [stageLabel, serviceLabel, tableLabel, evt.detail, breakdownText].filter(
+      (v) => !!v && String(v).trim().length > 0,
+    ) as string[];
+    if (parts.length === 0) return null;
+    return parts.join(' • ');
+  }
+
+  function pushSyncHistory(prev: Array<{ at: number; text: string }>, text: string) {
+    const now = Date.now();
+    const list = Array.isArray(prev) ? [...prev] : [];
+    const last = list[list.length - 1];
+    if (last && last.text === text) {
+      last.at = now;
+      return list;
+    }
+    list.push({ at: now, text });
+    if (list.length > 6) list.splice(0, list.length - 6);
+    return list;
+  }
+
   function renderFullSyncModal() {
     if (!fullSyncUi?.open) return null;
     const pct = fullSyncUi.progress != null ? Math.max(0, Math.min(100, Math.round(fullSyncUi.progress * 100))) : 0;
@@ -1118,6 +1216,18 @@ export function App() {
               </div>
             </div>
           </div>
+          {fullSyncUi.activity && (
+            <div style={{ marginTop: 10, color: 'var(--muted)', fontSize: 12 }}>
+              Сейчас: {fullSyncUi.activity}
+            </div>
+          )}
+          {fullSyncUi.history && fullSyncUi.history.length > 1 && (
+            <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 12 }}>
+              {fullSyncUi.history.slice().reverse().map((item) => (
+                <div key={`${item.at}-${item.text}`}>• {item.text}</div>
+              ))}
+            </div>
+          )}
           {fullSyncUi.error && (
             <div style={{ marginTop: 10, color: 'var(--danger)' }}>
               Ошибка синхронизации: {fullSyncUi.error}
