@@ -247,4 +247,41 @@ curl -sS http://127.0.0.1:3001/health
 
 После этого на клиенте: “Перекачать с сервера”/“Повторить синхронизацию”.
 
+---
+
+## 10) Full pull падает с `UNIQUE constraint failed: attribute_values.id`
+
+### Симптом
+- Во время полной синхронизации клиент падает на этапе применения изменений:
+  - `SqliteError: UNIQUE constraint failed: attribute_values.id`
+
+### Причина
+- В старых сборках клиента при pull/upsert на `attribute_values` возможен конфликт между
+  `PRIMARY KEY (id)` и уникальной парой `(entity_id, attribute_def_id)` при дрейфе локальных id.
+
+### Решение
+- Обновить клиент до версии с hotfix sync apply (upsert по `id` после remap).
+- Для уже «залипшего» рабочего места:
+  1) в клиенте выполнить “Сброс локальной БД”;
+  2) заново войти и запустить “Полная синхронизация”.
+
+---
+
+## 11) Автоисправление рассинхрона (autoheal) не срабатывает
+
+### Проверка ENV на backend
+- `MATRICA_SYNC_AUTOHEAL_ENABLED=1`
+- `MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS` (например `900000`)
+- `MATRICA_SYNC_DRIFT_THRESHOLD` (например `2`)
+- `MATRICA_SYNC_PULL_ADAPTIVE_ENABLED=1`
+
+### Проверка потока
+- Клиент должен отправлять snapshot в `POST /diagnostics/consistency/report`.
+- Сервер при drift ставит `syncRequestType` в `client_settings` (`force_full_pull_v2`, `reset_sync_state_and_pull`, `deep_repair`).
+- Клиент после выполнения должен отправить ack в `POST /client/settings/sync-request/ack`.
+
+### Если команда не выполняется
+- Проверьте доступность `/client/settings` и `/client/settings/sync-request/ack` через nginx.
+- Проверьте локальный лог клиента `matricarmz.log` по строкам `sync request` и `sync request ack failed`.
+
 

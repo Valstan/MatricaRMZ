@@ -1,8 +1,9 @@
 import type { SyncPullResponse } from '@matricarmz/shared';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import os from 'node:os';
 
 import { db } from '../../database/db.js';
-import { ledgerTxIndex, notes, noteShares } from '../../database/schema.js';
+import { clientSettings, ledgerTxIndex, notes, noteShares } from '../../database/schema.js';
 
 function withServerSeq(payloadJson: string, serverSeq: number): string {
   try {
@@ -19,8 +20,9 @@ export async function pullChangesSince(
   since: number,
   actor: { id: string; role: string },
   limit = 5000,
+  opts?: { clientId?: string | null },
 ): Promise<SyncPullResponse> {
-  const safeLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
+  const requestedLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
   if (since === 0 && typeof (db as any).execute === 'function') {
     // Мягкий backfill для старых инсталляций: индексируем уже существующий change_log.
     await (db as any).execute(sql`
@@ -32,6 +34,34 @@ export async function pullChangesSince(
   }
   const maxSeqRow = await db.select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` }).from(ledgerTxIndex).limit(1);
   const serverLastSeq = Number(maxSeqRow[0]?.max ?? 0);
+  let safeLimit = requestedLimit;
+  if (String(process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED ?? '1').trim() !== '0') {
+    const backlog = Math.max(0, serverLastSeq - Number(since ?? 0));
+    const cores = Math.max(1, Number((os as any).availableParallelism?.() ?? os.cpus()?.length ?? 1));
+    const load = Number(os.loadavg?.()[0] ?? 0);
+    if (backlog >= 100_000) {
+      safeLimit = Math.max(safeLimit, 10_000);
+    } else if (backlog >= 20_000) {
+      safeLimit = Math.max(safeLimit, 7000);
+    }
+    if (load > cores * 1.2) {
+      safeLimit = Math.max(1500, Math.min(safeLimit, Math.floor(safeLimit * 0.5)));
+    }
+    const driftRows = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clientSettings)
+      .where(sql`${clientSettings.syncRequestType} is not null`)
+      .limit(1)
+      .catch(() => [{ count: 0 }]);
+    const driftClients = Number(driftRows?.[0]?.count ?? 0);
+    if (driftClients >= 10) {
+      safeLimit = Math.max(1000, Math.min(safeLimit, 3000));
+    }
+    if (opts?.clientId && backlog > 0 && backlog <= 5000 && driftClients >= 5) {
+      safeLimit = Math.max(500, Math.min(safeLimit, 2000));
+    }
+    safeLimit = Math.max(1, Math.min(20_000, safeLimit));
+  }
   const rows = await db
     .select({
       table: ledgerTxIndex.tableName,

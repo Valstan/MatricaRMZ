@@ -56,7 +56,15 @@ type RemoteSettingsResponse = {
     loggingEnabled?: boolean;
     loggingMode?: 'dev' | 'prod';
     syncRequestId?: string | null;
-    syncRequestType?: 'sync_now' | 'force_full_pull' | null;
+    syncRequestType?:
+      | 'sync_now'
+      | 'force_full_pull'
+      | 'force_full_pull_v2'
+      | 'reset_sync_state_and_pull'
+      | 'deep_repair'
+      | 'entity_diff'
+      | 'delete_local_entity'
+      | null;
     syncRequestAt?: number | null;
     syncRequestPayload?: string | null;
   };
@@ -77,6 +85,26 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
   } finally {
     clearTimeout(t);
   }
+}
+
+async function ackSyncRequest(args: {
+  apiBaseUrl: string;
+  clientId: string;
+  requestId: string;
+  status: 'ok' | 'error';
+  error?: string | null;
+}) {
+  await net.fetch(joinUrl(args.apiBaseUrl, '/client/settings/sync-request/ack'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientId: args.clientId,
+      requestId: args.requestId,
+      status: args.status,
+      error: args.error ?? null,
+      at: Date.now(),
+    }),
+  });
 }
 
 export async function getCachedClientSettings(db: BetterSQLite3Database): Promise<RemoteClientSettings> {
@@ -132,7 +160,6 @@ export async function applyRemoteClientSettings(args: {
     if (syncReqId && syncReqType) {
       const lastApplied = (await settingsGetString(db, SettingsKey.SyncRequestLastId).catch(() => null)) ?? '';
       if (lastApplied !== syncReqId) {
-        await settingsSetString(db, SettingsKey.SyncRequestLastId, syncReqId);
         let payload: any = null;
         if (syncReqPayload) {
           try {
@@ -141,35 +168,61 @@ export async function applyRemoteClientSettings(args: {
             payload = null;
           }
         }
+        let requestStatus: 'ok' | 'error' = 'ok';
+        let requestError: string | null = null;
         let skipDefaultSync = false;
-        if (syncReqType === 'force_full_pull') {
-          args.log?.(`sync request: force_full_pull id=${syncReqId}`);
-          const startedAt = Date.now();
-          const lastDuration = await settingsGetNumber(db, SettingsKey.LastFullPullDurationMs, 0);
-          const estimateMs = Math.max(60_000, Math.min(15 * 60_000, lastDuration || 180_000));
-          args.onSyncProgress?.({
-            mode: 'force_full_pull',
-            state: 'start',
-            startedAt,
-            elapsedMs: 0,
-            estimateMs,
-            etaMs: estimateMs,
-            progress: 0,
-          });
-          await resetSyncState(db);
-          await runSync(db, args.clientId, args.apiBaseUrl, {
-            fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress },
-          }).catch((e) => {
-            args.log?.(`sync request failed: ${String(e)}`);
-          });
-          skipDefaultSync = true;
-        } else if (syncReqType === 'sync_now') {
-          args.log?.(`sync request: sync_now id=${syncReqId}`);
-        } else if (syncReqType === 'entity_diff') {
-          const entityId = payload?.entityId ? String(payload.entityId) : '';
-          if (entityId) {
-            args.log?.(`sync request: entity_diff id=${syncReqId} entityId=${entityId}`);
-            try {
+        try {
+          if (syncReqType === 'force_full_pull' || syncReqType === 'force_full_pull_v2') {
+            args.log?.(`sync request: ${syncReqType} id=${syncReqId}`);
+            const startedAt = Date.now();
+            const lastDuration = await settingsGetNumber(db, SettingsKey.LastFullPullDurationMs, 0);
+            const estimateMs = Math.max(60_000, Math.min(15 * 60_000, lastDuration || 180_000));
+            args.onSyncProgress?.({
+              mode: 'force_full_pull',
+              state: 'start',
+              startedAt,
+              elapsedMs: 0,
+              estimateMs,
+              etaMs: estimateMs,
+              progress: 0,
+            });
+            await resetSyncState(db);
+            const result = await runSync(db, args.clientId, args.apiBaseUrl, {
+              fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress },
+            });
+            if (!result.ok) {
+              requestStatus = 'error';
+              requestError = result.error ?? 'force_full_pull failed';
+            }
+            skipDefaultSync = true;
+          } else if (syncReqType === 'reset_sync_state_and_pull') {
+            args.log?.(`sync request: reset_sync_state_and_pull id=${syncReqId}`);
+            await resetSyncState(db);
+            const result = await runSync(db, args.clientId, args.apiBaseUrl);
+            if (!result.ok) {
+              requestStatus = 'error';
+              requestError = result.error ?? 'reset_sync_state_and_pull failed';
+            }
+            skipDefaultSync = true;
+          } else if (syncReqType === 'deep_repair') {
+            args.log?.(`sync request: deep_repair id=${syncReqId}`);
+            await resetSyncState(db);
+            const startedAt = Date.now();
+            const estimateMs = Math.max(120_000, Math.min(20 * 60_000, (await settingsGetNumber(db, SettingsKey.LastFullPullDurationMs, 0)) || 300_000));
+            const result = await runSync(db, args.clientId, args.apiBaseUrl, {
+              fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress },
+            });
+            if (!result.ok) {
+              requestStatus = 'error';
+              requestError = result.error ?? 'deep_repair failed';
+            }
+            skipDefaultSync = true;
+          } else if (syncReqType === 'sync_now') {
+            args.log?.(`sync request: sync_now id=${syncReqId}`);
+          } else if (syncReqType === 'entity_diff') {
+            const entityId = payload?.entityId ? String(payload.entityId) : '';
+            if (entityId) {
+              args.log?.(`sync request: entity_diff id=${syncReqId} entityId=${entityId}`);
               const entity = await getEntityDetails(db, entityId);
               await httpAuthed(
                 db,
@@ -182,27 +235,39 @@ export async function applyRemoteClientSettings(args: {
                 },
                 { timeoutMs: 20_000 },
               );
-            } catch (e) {
-              args.log?.(`entity_diff failed: ${String(e)}`);
             }
-          }
-        } else if (syncReqType === 'delete_local_entity') {
-          const entityId = payload?.entityId ? String(payload.entityId) : '';
-          if (entityId) {
-            args.log?.(`sync request: delete_local_entity id=${syncReqId} entityId=${entityId}`);
-            try {
+          } else if (syncReqType === 'delete_local_entity') {
+            const entityId = payload?.entityId ? String(payload.entityId) : '';
+            if (entityId) {
+              args.log?.(`sync request: delete_local_entity id=${syncReqId} entityId=${entityId}`);
               await db.delete(attributeValues).where(eq(attributeValues.entityId, entityId as any));
               await db.delete(operations).where(eq(operations.engineEntityId, entityId as any));
               await db.delete(entities).where(eq(entities.id, entityId as any));
-            } catch (e) {
-              args.log?.(`delete_local_entity failed: ${String(e)}`);
             }
           }
+          if (!skipDefaultSync) {
+            const result = await runSync(db, args.clientId, args.apiBaseUrl);
+            if (!result.ok) {
+              requestStatus = 'error';
+              requestError = result.error ?? 'sync request failed';
+            }
+          }
+        } catch (e) {
+          requestStatus = 'error';
+          requestError = String(e);
         }
-        if (!skipDefaultSync) {
-          await runSync(db, args.clientId, args.apiBaseUrl).catch((e) => {
-            args.log?.(`sync request failed: ${String(e)}`);
-          });
+        await ackSyncRequest({
+          apiBaseUrl,
+          clientId,
+          requestId: syncReqId,
+          status: requestStatus,
+          error: requestError,
+        }).catch((e) => {
+          args.log?.(`sync request ack failed: ${String(e)}`);
+        });
+        await settingsSetString(db, SettingsKey.SyncRequestLastId, syncReqId);
+        if (requestStatus === 'error') {
+          args.log?.(`sync request failed type=${syncReqType} id=${syncReqId}: ${requestError ?? 'unknown'}`);
         }
       }
     }

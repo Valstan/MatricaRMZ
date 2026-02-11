@@ -2167,9 +2167,10 @@ async function applyPulledChanges(
       .insert(attributeValues)
       .values(groups.attribute_values)
       .onConflictDoUpdate({
-        target: [attributeValues.entityId, attributeValues.attributeDefId],
+        // Rows are pre-remapped by (entityId, attributeDefId) above, so conflict by id is safer:
+        // it avoids PRIMARY KEY crashes when local id and pair drifted in old clients.
+        target: attributeValues.id,
         set: {
-          id: sql`excluded.id`,
           entityId: sql`excluded.entity_id`,
           attributeDefId: sql`excluded.attribute_def_id`,
           valueJson: sql`excluded.value_json`,
@@ -2295,9 +2296,12 @@ async function applyPulledChanges(
       .insert(noteShares)
       .values(groups.note_shares)
       .onConflictDoUpdate({
-        target: [noteShares.noteId, noteShares.recipientUserId],
+        // Rows are pre-remapped by (noteId, recipientUserId), then upserted by id
+        // to avoid accidental PRIMARY KEY collisions during full-pull replay.
+        target: noteShares.id,
         set: {
-          id: sql`excluded.id`,
+          noteId: sql`excluded.note_id`,
+          recipientUserId: sql`excluded.recipient_user_id`,
           hidden: sql`excluded.hidden`,
           sortOrder: sql`excluded.sort_order`,
           updatedAt: sql`excluded.updated_at`,

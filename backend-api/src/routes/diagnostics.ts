@@ -7,6 +7,7 @@ import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '..
 import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
 import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
+import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
 
 export const diagnosticsRouter = Router();
 
@@ -49,7 +50,8 @@ diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.S
       tables: parsed.data.tables ?? {},
       entityTypes: parsed.data.entityTypes ?? {},
     });
-    return res.json({ ok: true, snapshot });
+    const autoheal = await evaluateAutohealForClient(parsed.data.clientId);
+    return res.json({ ok: true, snapshot, autoheal });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

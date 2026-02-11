@@ -7,6 +7,7 @@ export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
 type ClientSettingsPatch = Partial<Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode'>>;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
+type ClientSyncAck = { requestId: string; status: 'ok' | 'error'; error?: string | null; at?: number };
 
 function nowMs() {
   return Date.now();
@@ -124,4 +125,30 @@ export async function setClientSyncRequest(clientId: string, req: ClientSyncRequ
     .where(eq(clientSettings.clientId, clientId));
   const rows = await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1);
   return rows[0] ?? (await getOrCreateClientSettings(clientId));
+}
+
+export async function acknowledgeClientSyncRequest(clientId: string, ack: ClientSyncAck): Promise<ClientSettingsRow> {
+  await getOrCreateClientSettings(clientId);
+  const row = (await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1))[0] ?? null;
+  if (!row) return await getOrCreateClientSettings(clientId);
+  if (!row.syncRequestId || String(row.syncRequestId) !== String(ack.requestId)) return row;
+  const ts = nowMs();
+  const payload = {
+    ackAt: Number(ack.at ?? ts),
+    ackStatus: ack.status,
+    ...(ack.error ? { ackError: String(ack.error) } : {}),
+    requestId: row.syncRequestId,
+  };
+  await db
+    .update(clientSettings)
+    .set({
+      syncRequestId: null,
+      syncRequestType: null,
+      syncRequestAt: null,
+      syncRequestPayload: JSON.stringify(payload),
+      updatedAt: ts,
+    })
+    .where(eq(clientSettings.clientId, clientId));
+  const next = await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1);
+  return next[0] ?? (await getOrCreateClientSettings(clientId));
 }

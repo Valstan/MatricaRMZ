@@ -189,7 +189,12 @@ ledgerRouter.get('/state/changes', async (req, res) => {
   }
   const actor = (req as AuthenticatedRequest).user;
   if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
-  const pull = await pullChangesSince(parsed.data.since, { id: String(actor.id), role: String(actor.role) }, parsed.data.limit ?? 5000);
+  const pull = await pullChangesSince(
+    parsed.data.since,
+    { id: String(actor.id), role: String(actor.role) },
+    parsed.data.limit ?? 5000,
+    { clientId: parsed.data.client_id ?? null },
+  );
   const invalidCounts = new Map<string, number>();
   const filtered = pull.changes.filter((ch) => {
     const validator = syncRowSchemas[String(ch.table)];

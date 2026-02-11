@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { getOrCreateClientSettings, touchClientSettings } from '../services/clientSettingsService.js';
+import { acknowledgeClientSyncRequest, getOrCreateClientSettings, touchClientSettings } from '../services/clientSettingsService.js';
 
 export const clientSettingsRouter = Router();
 
@@ -47,6 +47,37 @@ clientSettingsRouter.get('/settings', async (req, res) => {
         syncRequestType: row.syncRequestType ?? null,
         syncRequestAt: row.syncRequestAt ?? null,
         syncRequestPayload: row.syncRequestPayload ?? null,
+      },
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+clientSettingsRouter.post('/settings/sync-request/ack', async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(2).max(200),
+    requestId: z.string().min(1),
+    status: z.enum(['ok', 'error']),
+    error: z.string().max(2000).optional().nullable(),
+    at: z.number().int().optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const row = await acknowledgeClientSyncRequest(parsed.data.clientId, {
+      requestId: parsed.data.requestId,
+      status: parsed.data.status,
+      error: parsed.data.error ?? null,
+      ...(parsed.data.at != null ? { at: parsed.data.at } : {}),
+    });
+    return res.json({
+      ok: true,
+      row: {
+        clientId: row.clientId,
+        syncRequestId: row.syncRequestId ?? null,
+        syncRequestType: row.syncRequestType ?? null,
+        syncRequestAt: row.syncRequestAt ?? null,
       },
     });
   } catch (e) {

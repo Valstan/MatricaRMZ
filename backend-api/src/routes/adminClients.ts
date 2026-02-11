@@ -88,7 +88,15 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
 
 adminClientsRouter.post('/clients/:clientId/sync-request', async (req, res) => {
   const schema = z.object({
-    type: z.enum(['sync_now', 'force_full_pull', 'entity_diff', 'delete_local_entity']),
+    type: z.enum([
+      'sync_now',
+      'force_full_pull',
+      'entity_diff',
+      'delete_local_entity',
+      'force_full_pull_v2',
+      'reset_sync_state_and_pull',
+      'deep_repair',
+    ]),
     payload: z.record(z.unknown()).optional(),
   });
   const parsed = schema.safeParse(req.body ?? {});
@@ -97,7 +105,7 @@ adminClientsRouter.post('/clients/:clientId/sync-request', async (req, res) => {
   if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
 
   try {
-    if (parsed.data.type === 'force_full_pull') {
+    if (parsed.data.type === 'force_full_pull' || parsed.data.type === 'force_full_pull_v2' || parsed.data.type === 'deep_repair') {
       await emitAllMasterdataSyncSnapshot().catch(() => null);
     }
     const payload = parsed.data.payload ? JSON.stringify(parsed.data.payload) : null;
