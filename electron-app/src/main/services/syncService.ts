@@ -1798,6 +1798,17 @@ async function applyPulledChanges(
     }
     return Array.from(m.values());
   }
+  function dedupByKey(arr: any[], makeKey: (row: any) => string) {
+    if (arr.length <= 1) return arr;
+    const m = new Map<string, any>();
+    for (const r of arr) {
+      const key = makeKey(r);
+      if (!key) continue;
+      const prev = m.get(key);
+      if (!prev || isNewerRow(prev, r)) m.set(key, r);
+    }
+    return Array.from(m.values());
+  }
   groups.entity_types = dedupById(groups.entity_types);
   groups.entities = dedupById(groups.entities);
   groups.attribute_defs = dedupById(groups.attribute_defs);
@@ -1901,6 +1912,10 @@ async function applyPulledChanges(
       });
       groups.attribute_values = dedupById(remapped);
     }
+    groups.attribute_values = dedupByKey(
+      groups.attribute_values,
+      (r: any) => `${String(r.entityId ?? '')}::${String(r.attributeDefId ?? '')}`,
+    );
   }
 
   if (groups.chat_reads.length > 0) {
@@ -2081,6 +2096,32 @@ async function applyPulledChanges(
       );
       groups.attribute_defs = groups.attribute_defs.filter((row: any) => !!row.entityTypeId);
     }
+    const typeIds = Array.from(new Set(groups.attribute_defs.map((r: any) => String(r.entityTypeId))));
+    const codes = Array.from(new Set(groups.attribute_defs.map((r: any) => String(r.code))));
+    if (typeIds.length > 0 && codes.length > 0) {
+      const existing = await db
+        .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+        .from(attributeDefs)
+        .where(and(inArray(attributeDefs.entityTypeId, typeIds as any), inArray(attributeDefs.code, codes as any)))
+        .limit(50_000);
+      const keyToId = new Map<string, string>();
+      for (const r of existing as any[]) {
+        keyToId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
+      }
+      const remapped = groups.attribute_defs.map((r: any) => {
+        const key = `${String(r.entityTypeId)}::${String(r.code)}`;
+        const existingId = keyToId.get(key);
+        if (existingId && existingId !== String(r.id)) {
+          return { ...r, id: existingId };
+        }
+        return r;
+      });
+      groups.attribute_defs = dedupById(remapped);
+    }
+    groups.attribute_defs = dedupByKey(
+      groups.attribute_defs,
+      (r: any) => `${String(r.entityTypeId ?? '')}::${String(r.code ?? '')}`,
+    );
   }
   if (groups.attribute_defs.length > 0) {
     emitApply(SyncTableName.AttributeDefs, groups.attribute_defs.length);
@@ -2110,8 +2151,9 @@ async function applyPulledChanges(
       .insert(attributeValues)
       .values(groups.attribute_values)
       .onConflictDoUpdate({
-        target: attributeValues.id,
+        target: [attributeValues.entityId, attributeValues.attributeDefId],
         set: {
+          id: sql`excluded.id`,
           entityId: sql`excluded.entity_id`,
           attributeDefId: sql`excluded.attribute_def_id`,
           valueJson: sql`excluded.value_json`,
