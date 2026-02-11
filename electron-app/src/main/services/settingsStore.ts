@@ -16,6 +16,7 @@ export const SettingsKey = {
   DiagnosticsSchemaJson: 'diagnostics.schemaJson',
   SyncRequestLastId: 'sync.request.lastId',
   LastFullPullDurationMs: 'sync.fullPull.durationMs',
+  SyncRepairLastRunAt: 'sync.repair.lastRunAt',
 
   // Client schema/migrations
   ClientSchemaVersion: 'schema.clientVersion',

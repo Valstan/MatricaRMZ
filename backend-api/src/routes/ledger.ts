@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
 import { syncRowSchemaByTable } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
-import { ensureLedgerBootstrap, listBlocksSince, listChangesSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
+import { ensureLedgerBootstrap, listBlocksSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
+import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
 import { syncState } from '../database/schema.js';
@@ -165,41 +166,45 @@ ledgerRouter.get('/state/query', (req, res) => {
 });
 
 ledgerRouter.get('/state/changes', async (req, res) => {
+  const syncV2Enforced = String(process.env.SYNC_V2_ENFORCE ?? '').trim() === '1';
   const parsed = z
     .object({
       since: z.coerce.number().int().nonnegative().default(0),
       limit: z.coerce.number().int().min(1).max(20000).optional(),
       client_id: z.string().min(1).max(200).optional(),
+      sync_protocol_version: z.coerce.number().int().optional(),
     })
     .safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const protocolVersion = Number(parsed.data.sync_protocol_version ?? 1);
+  if (syncV2Enforced && protocolVersion < 2) {
+    return res.status(426).json({
+      ok: false,
+      error: 'sync protocol upgrade required',
+      required_sync_protocol_version: 2,
+    });
+  }
   if (parsed.data.since === 0) {
     await ensureLedgerBootstrap().catch(() => null);
   }
-  const { hasMore, lastSeq, changes } = listChangesSince(parsed.data.since, parsed.data.limit ?? 5000);
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
+  const pull = await pullChangesSince(parsed.data.since, { id: String(actor.id), role: String(actor.role) }, parsed.data.limit ?? 5000);
   const invalidCounts = new Map<string, number>();
-  const filtered = changes.filter((ch) => {
+  const filtered = pull.changes.filter((ch) => {
     const validator = syncRowSchemas[String(ch.table)];
     if (!validator) return true;
     try {
       const payload = JSON.parse(String(ch.payload_json ?? ''));
       const ok = validator(payload);
-      if (!ok) {
-        invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
-      }
+      if (!ok) invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
       return ok;
     } catch {
       invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
       return false;
     }
   });
-  if (invalidCounts.size > 0) {
-    const summary = Array.from(invalidCounts.entries())
-      .map(([table, count]) => `${table}=${count}`)
-      .join(', ');
-    console.warn(`[ledger/state/changes] filtered invalid rows: ${summary}`);
-  }
-  const actor = (req as AuthenticatedRequest).user;
+  const lastSeq = pull.server_cursor;
   const clientId = parsed.data.client_id ?? actor?.id ?? null;
   if (clientId) {
     const now = Date.now();
@@ -220,8 +225,11 @@ ledgerRouter.get('/state/changes', async (req, res) => {
       });
   }
   return res.json({
-    server_cursor: lastSeq,
-    has_more: hasMore,
+    sync_protocol_version: 2,
+    sync_mode: 'incremental',
+    server_cursor: pull.server_cursor,
+    server_last_seq: pull.server_last_seq,
+    has_more: pull.has_more,
     changes: filtered,
   });
 });

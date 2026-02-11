@@ -1,8 +1,10 @@
 import { SyncTableName, syncRowSchemaByTable } from '@matricarmz/shared';
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
+import { db } from '../../database/db.js';
 
 import { applyPushBatch } from './applyPushBatch.js';
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
+import { ledgerTxIndex } from '../../database/schema.js';
 
 type LedgerTxInput = {
   type: 'upsert' | 'delete' | 'grant' | 'revoke' | 'presence' | 'chat';
@@ -124,6 +126,24 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
     rowId: String((tx.row as any)?.id ?? tx.row_id ?? ''),
     op: tx.type === 'delete' ? 'delete' : 'upsert',
   }));
+
+  const indexRows = upsertsWithSeq.flatMap((pack) =>
+    (pack.rows as Record<string, unknown>[]).map((row) => ({
+      serverSeq: Number((row as any)?.last_server_seq ?? 0),
+      tableName: String(pack.table),
+      rowId: String((row as any)?.id ?? ''),
+      op: (row as any)?.deleted_at ? 'delete' : 'upsert',
+      payloadJson: JSON.stringify(row),
+      createdAt: Number((row as any)?.updated_at ?? ts),
+    })),
+  ).filter((r) => Number.isFinite(r.serverSeq) && r.serverSeq > 0 && !!r.rowId);
+
+  if (indexRows.length > 0) {
+    await db
+      .insert(ledgerTxIndex)
+      .values(indexRows as any)
+      .onConflictDoNothing();
+  }
 
   return {
     dbApplied: dbResult.applied,

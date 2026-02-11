@@ -186,6 +186,23 @@ export const changeLog = pgTable('change_log', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 });
 
+// Индексная проекция ledger для быстрого pull без чтения block-файлов.
+export const ledgerTxIndex = pgTable(
+  'ledger_tx_index',
+  {
+    serverSeq: bigint('server_seq', { mode: 'number' }).primaryKey(),
+    tableName: text('table_name').notNull(),
+    rowId: uuid('row_id').notNull(),
+    op: text('op').notNull(),
+    payloadJson: text('payload_json').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    tableRowIdx: index('ledger_tx_index_table_row_idx').on(t.tableName, t.rowId),
+    createdIdx: index('ledger_tx_index_created_idx').on(t.createdAt),
+  }),
+);
+
 // Состояние синхронизации по рабочему месту (client_id).
 export const syncState = pgTable('sync_state', {
   clientId: text('client_id').primaryKey(),

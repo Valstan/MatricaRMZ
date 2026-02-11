@@ -5,6 +5,9 @@ import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
 import { runSync } from './syncService.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
 
+type RunSyncOpts = Parameters<typeof runSync>[3];
+type ProgressHandler = NonNullable<NonNullable<RunSyncOpts>['progress']>['onProgress'];
+
 function nowMs() {
   return Date.now();
 }
@@ -17,12 +20,20 @@ export class SyncManager {
   private timer: NodeJS.Timeout | null = null;
   private nextAt: number | null = null;
   private inFlight = false;
+  private baseIntervalMs = 5 * 60_000;
+  private consecutiveErrors = 0;
+  private readonly onProgress?: ProgressHandler;
 
   constructor(
     private readonly db: BetterSQLite3Database,
     private readonly clientId: string,
     private apiBaseUrl: string,
-  ) {}
+    opts?: {
+      onProgress?: ProgressHandler;
+    },
+  ) {
+    this.onProgress = opts?.onProgress;
+  }
 
   setApiBaseUrl(next: string) {
     this.apiBaseUrl = next;
@@ -54,14 +65,15 @@ export class SyncManager {
   }
 
   startAuto(intervalMs: number) {
+    this.baseIntervalMs = Math.max(10_000, Number(intervalMs) || 5 * 60_000);
     this.stopAuto();
     const scheduleNext = (delayMs: number) => {
       this.nextAt = nowMs() + delayMs;
       this.timer = setTimeout(() => {
-        void this.tick(intervalMs);
+        void this.tick(this.baseIntervalMs);
       }, delayMs);
     };
-    scheduleNext(intervalMs);
+    scheduleNext(this.baseIntervalMs);
   }
 
   stopAuto() {
@@ -93,10 +105,29 @@ export class SyncManager {
   }
 
   private async tick(baseIntervalMs: number) {
-    const r = await this.runOnce();
+    const startedAt = nowMs();
+    const r = await this.runOnce({
+      progress: {
+        mode: 'incremental',
+        startedAt,
+        onProgress: this.onProgress,
+      },
+    });
 
-    // Простая политика backoff: при ошибке увеличиваем интервал до 60s→120s→300s→600s (макс).
-    const nextDelay = r.ok ? baseIntervalMs : Math.min(600_000, Math.max(60_000, baseIntervalMs));
+    let nextDelay = baseIntervalMs;
+    if (!r.ok) {
+      this.consecutiveErrors += 1;
+      const backoff = Math.min(10 * 60_000, 30_000 * 2 ** Math.min(4, this.consecutiveErrors - 1));
+      nextDelay = Math.max(30_000, backoff);
+    } else {
+      this.consecutiveErrors = 0;
+      const activity = Number(r.pulled ?? 0) + Number(r.pushed ?? 0);
+      // Если были изменения — повторяем быстрее, чтобы «догрызать хвост».
+      nextDelay = activity > 0 ? Math.min(45_000, Math.max(15_000, Math.floor(baseIntervalMs / 3))) : baseIntervalMs;
+    }
+    // Добавляем jitter, чтобы клиенты не били сервер одновременно.
+    const jitter = Math.floor(nextDelay * 0.15 * Math.random());
+    nextDelay = Math.max(10_000, nextDelay + jitter);
     this.stopAuto();
     this.startAuto(nextDelay);
   }

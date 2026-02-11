@@ -6,6 +6,8 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowActions } from '../components/RowActions.js';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -998,26 +1000,27 @@ export function EmployeeDetailsPage(props: {
   const headerTitle = computedFullName ? `Сотрудник: ${computedFullName}` : 'Карточка сотрудника';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
-        {departmentLabel && <span style={{ color: '#6b7280' }}>• {departmentLabel}</span>}
-        <span style={{ flex: 1 }} />
-        {props.canEdit && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
+    <EntityCardShell
+      title={headerTitle}
+      actions={
+        <RowActions>
+          {props.canEdit && (
+            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
+              Сохранить
+            </Button>
+          )}
+          {props.canEdit && (
+            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
+              {meRole === 'superadmin' ? 'Удалить' : 'Запросить удаление'}
+            </Button>
+          )}
+          <Button variant="ghost" tone="info" onClick={printEmployeeCard}>
+            Распечатать
           </Button>
-        )}
-        {props.canEdit && (
-          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-            {meRole === 'superadmin' ? 'Удалить' : 'Запросить удаление'}
-          </Button>
-        )}
-        <Button variant="ghost" tone="info" onClick={printEmployeeCard}>
-          Распечатать
-        </Button>
-      </div>
-
+        </RowActions>
+      }
+      status={departmentLabel ? <span style={{ color: '#6b7280' }}>{departmentLabel}</span> : null}
+    >
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
       <div className="card-panel" style={{ borderRadius: 12, padding: 12, maxWidth: 900 }}>
       <DraggableFieldList
@@ -1535,6 +1538,6 @@ export function EmployeeDetailsPage(props: {
         </div>
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       </div>
-    </div>
+    </EntityCardShell>
   );
 }

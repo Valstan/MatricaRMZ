@@ -2,6 +2,11 @@ import React, { useEffect, useState, useMemo } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { FormGrid } from '../components/FormGrid.js';
+import { FormField } from '../components/FormField.js';
+import { NumericField } from '../components/NumericField.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowActions } from '../components/RowActions.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import {
@@ -206,18 +211,16 @@ function SectionBlock(props: {
       </div>
 
       <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, minWidth: 0 }}>
-          <div style={{ minWidth: 0 }}>
-            <label style={{ fontSize: 12, color: '#6b7280' }}>Номер</label>
+        <FormGrid columns="repeat(2, minmax(220px, 1fr))" gap={10}>
+          <FormField label="Номер">
             <Input
               value={section.number}
               disabled={!canEdit}
               onChange={(e) => update({ number: e.target.value })}
               style={{ width: '100%' }}
             />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <label style={{ fontSize: 12, color: '#6b7280' }}>Дата заключения</label>
+          </FormField>
+          <FormField label="Дата заключения">
             <Input
               type="date"
               value={toInputDate(section.signedAt)}
@@ -225,9 +228,8 @@ function SectionBlock(props: {
               onChange={(e) => update({ signedAt: fromInputDate(e.target.value) })}
               style={{ width: '100%' }}
             />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <label style={{ fontSize: 12, color: '#6b7280' }}>Дата исполнения</label>
+          </FormField>
+          <FormField label="Дата исполнения">
             <Input
               type="date"
               value={toInputDate(section.dueAt)}
@@ -235,20 +237,18 @@ function SectionBlock(props: {
               onChange={(e) => update({ dueAt: fromInputDate(e.target.value) })}
               style={{ width: '100%' }}
             />
-          </div>
+          </FormField>
           {isPrimary && primarySection && (
             <>
-              <div>
-                <label style={{ fontSize: 12, color: '#6b7280' }}>Внутренний номер</label>
+              <FormField label="Внутренний номер">
                 <Input
                   value={primarySection.internalNumber}
                   disabled={!canEdit}
                   onChange={(e) => update({ internalNumber: e.target.value })}
                   style={{ width: '100%' }}
                 />
-              </div>
-              <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                <label style={{ fontSize: 12, color: '#6b7280' }}>Контрагент</label>
+              </FormField>
+              <FormField label="Контрагент" fullWidth>
                 <SearchSelectWithCreate
                   value={primarySection.customerId ?? null}
                   options={customerOptions}
@@ -262,10 +262,10 @@ function SectionBlock(props: {
                     return id;
                   }}
                 />
-              </div>
+              </FormField>
             </>
           )}
-        </div>
+        </FormGrid>
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -314,23 +314,21 @@ function SectionBlock(props: {
                         )}
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
-                        <Input
-                          type="number"
+                        <NumericField
                           min={0}
                           value={row.qty}
                           disabled={!canEdit}
-                          onChange={(e) => updateEngineBrand(idx, { qty: Number(e.target.value) || 0 })}
-                          style={{ width: 70, textAlign: 'right' }}
+                          onChange={(next) => updateEngineBrand(idx, { qty: next })}
+                          width={70}
                         />
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
-                        <Input
-                          type="number"
+                        <NumericField
                           min={0}
                           value={row.unitPrice}
                           disabled={!canEdit}
-                          onChange={(e) => updateEngineBrand(idx, { unitPrice: Number(e.target.value) || 0 })}
-                          style={{ width: 90, textAlign: 'right' }}
+                          onChange={(next) => updateEngineBrand(idx, { unitPrice: next })}
+                          width={90}
                         />
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
@@ -405,23 +403,21 @@ function SectionBlock(props: {
                         )}
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
-                        <Input
-                          type="number"
+                        <NumericField
                           min={0}
                           value={row.qty}
                           disabled={!canEdit}
-                          onChange={(e) => updatePart(idx, { qty: Number(e.target.value) || 0 })}
-                          style={{ width: 70, textAlign: 'right' }}
+                          onChange={(next) => updatePart(idx, { qty: next })}
+                          width={70}
                         />
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
-                        <Input
-                          type="number"
+                        <NumericField
                           min={0}
                           value={row.unitPrice}
                           disabled={!canEdit}
-                          onChange={(e) => updatePart(idx, { unitPrice: Number(e.target.value) || 0 })}
-                          style={{ width: 90, textAlign: 'right' }}
+                          onChange={(next) => updatePart(idx, { unitPrice: next })}
+                          width={90}
                         />
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
@@ -708,29 +704,30 @@ export function ContractDetailsPage(props: {
   const fileDefs = defs.filter((d) => d.dataType === 'json' && parseMetaJson(d.metaJson)?.ui === 'files');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        <div style={{ margin: 0, flex: '1 1 320px', minWidth: 0, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
-        {props.canEditMasterData && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
+    <EntityCardShell
+      title={headerTitle}
+      actions={
+        <RowActions>
+          {props.canEditMasterData && (
+            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
+              Сохранить
+            </Button>
+          )}
+          {props.canEditMasterData && (
+            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
+              Удалить
+            </Button>
+          )}
+          <Button variant="ghost" tone="info" onClick={printContractCard}>
+            Распечатать
           </Button>
-        )}
-        {props.canEditMasterData && (
-          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-            Удалить
+          <Button variant="ghost" tone="neutral" onClick={() => void loadContract()}>
+            Обновить
           </Button>
-        )}
-        <Button variant="ghost" tone="info" onClick={printContractCard}>
-          Распечатать
-        </Button>
-        {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
-        <Button variant="ghost" tone="neutral" onClick={() => void loadContract()}>
-          Обновить
-        </Button>
-      </div>
-
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        </RowActions>
+      }
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div> : null}
+    >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, minWidth: 0, width: '100%', maxWidth: 1400 }}>
           <SectionBlock
             title="Первичный контракт"
@@ -849,7 +846,6 @@ export function ContractDetailsPage(props: {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </EntityCardShell>
   );
 }

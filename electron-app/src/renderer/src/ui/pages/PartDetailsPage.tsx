@@ -7,6 +7,8 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowActions } from '../components/RowActions.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -861,24 +863,27 @@ export function PartDetailsPage(props: {
   const headerTitle = name.trim() ? `Деталь: ${name.trim()}` : 'Карточка детали';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ margin: 0, flex: 1, fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
-        {props.canEdit && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
+    <EntityCardShell
+      title={headerTitle}
+      actions={
+        <RowActions>
+          {props.canEdit && (
+            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
+              Сохранить
+            </Button>
+          )}
+          <Button variant="ghost" tone="info" onClick={printPartCard}>
+            Распечатать
           </Button>
-        )}
-        <Button variant="ghost" tone="info" onClick={printPartCard}>
-          Распечатать
-        </Button>
-        {props.canDelete && (
-          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-            Удалить
-          </Button>
-        )}
-      </div>
-
+          {props.canDelete && (
+            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
+              Удалить
+            </Button>
+          )}
+        </RowActions>
+      }
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
+    >
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
         {status && <div style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
@@ -1308,7 +1313,7 @@ export function PartDetailsPage(props: {
         </div>
         </div>
       </div>
-    </div>
+    </EntityCardShell>
   );
 }
 

@@ -45,6 +45,13 @@ export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [incrementalSyncUi, setIncrementalSyncUi] = useState<{
+    active: boolean;
+    progress: number | null;
+    activity?: string | null;
+    error?: string | null;
+  } | null>(null);
+  const incrementalSyncCloseTimer = useRef<number | null>(null);
   const [fullSyncUi, setFullSyncUi] = useState<{
     open: boolean;
     progress: number | null;
@@ -124,7 +131,49 @@ export function App() {
   useEffect(() => {
     if (!window.matrica?.sync?.onProgress) return;
     const unsubscribe = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
-      if (!evt || evt.mode !== 'force_full_pull') return;
+      if (!evt) return;
+      if (evt.mode === 'incremental') {
+        const activity = formatSyncActivity(evt);
+        if (incrementalSyncCloseTimer.current) {
+          window.clearTimeout(incrementalSyncCloseTimer.current);
+          incrementalSyncCloseTimer.current = null;
+        }
+        if (evt.state === 'start') {
+          setIncrementalSyncUi({ active: true, progress: evt.progress ?? null, activity, error: null });
+          return;
+        }
+        if (evt.state === 'progress') {
+          setIncrementalSyncUi((prev) => ({
+            active: true,
+            progress: evt.progress ?? prev?.progress ?? null,
+            activity: activity ?? prev?.activity ?? null,
+            error: null,
+          }));
+          return;
+        }
+        if (evt.state === 'done') {
+          setIncrementalSyncUi((prev) => ({
+            active: false,
+            progress: 1,
+            activity: activity ?? prev?.activity ?? 'Синхронизация завершена',
+            error: null,
+          }));
+          incrementalSyncCloseTimer.current = window.setTimeout(() => setIncrementalSyncUi(null), 2200);
+          return;
+        }
+        if (evt.state === 'error') {
+          setIncrementalSyncUi((prev) => ({
+            active: false,
+            progress: prev?.progress ?? null,
+            activity: activity ?? prev?.activity ?? 'Ошибка синхронизации',
+            error: evt.error ?? 'unknown',
+          }));
+          incrementalSyncCloseTimer.current = window.setTimeout(() => setIncrementalSyncUi(null), 5000);
+          return;
+        }
+        return;
+      }
+      if (evt.mode !== 'force_full_pull') return;
       const activity = formatSyncActivity(evt);
       if (fullSyncCloseTimer.current) {
         window.clearTimeout(fullSyncCloseTimer.current);
@@ -180,6 +229,8 @@ export function App() {
       }
     });
     return () => {
+      if (incrementalSyncCloseTimer.current) window.clearTimeout(incrementalSyncCloseTimer.current);
+      incrementalSyncCloseTimer.current = null;
       if (fullSyncCloseTimer.current) window.clearTimeout(fullSyncCloseTimer.current);
       fullSyncCloseTimer.current = null;
       if (unsubscribe) unsubscribe();
@@ -1352,6 +1403,13 @@ export function App() {
             {updateBannerText}
             {updateStatus?.version ? ` v${String(updateStatus.version)}` : ''}
           </div>
+        </div>
+      ) : null}
+      {incrementalSyncUi ? (
+        <div style={{ fontSize: 12, color: incrementalSyncUi.error ? 'var(--danger)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 600 }}>
+          {`Синхронизация${incrementalSyncUi.progress != null ? ` ${Math.round(
+            Math.max(0, Math.min(100, incrementalSyncUi.progress * 100)),
+          )}%` : ''}${incrementalSyncUi.activity ? ` • ${incrementalSyncUi.activity}` : ''}${incrementalSyncUi.error ? ` • ${incrementalSyncUi.error}` : ''}`}
         </div>
       ) : null}
       {postLoginSyncMsg ? (

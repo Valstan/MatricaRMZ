@@ -1,8 +1,8 @@
 import type { SyncPullResponse } from '@matricarmz/shared';
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
-import { changeLog, notes, noteShares } from '../../database/schema.js';
+import { ledgerTxIndex, notes, noteShares } from '../../database/schema.js';
 
 function withServerSeq(payloadJson: string, serverSeq: number): string {
   try {
@@ -21,17 +21,28 @@ export async function pullChangesSince(
   limit = 5000,
 ): Promise<SyncPullResponse> {
   const safeLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
+  if (since === 0 && typeof (db as any).execute === 'function') {
+    // Мягкий backfill для старых инсталляций: индексируем уже существующий change_log.
+    await (db as any).execute(sql`
+      INSERT INTO ledger_tx_index (server_seq, table_name, row_id, op, payload_json, created_at)
+      SELECT server_seq, table_name, row_id, op, payload_json, created_at
+      FROM change_log
+      ON CONFLICT (server_seq) DO NOTHING
+    `);
+  }
+  const maxSeqRow = await db.select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` }).from(ledgerTxIndex).limit(1);
+  const serverLastSeq = Number(maxSeqRow[0]?.max ?? 0);
   const rows = await db
     .select({
-      table: changeLog.tableName,
-      rowId: changeLog.rowId,
-      op: changeLog.op,
-      payloadJson: changeLog.payloadJson,
-      serverSeq: changeLog.serverSeq,
+      table: ledgerTxIndex.tableName,
+      rowId: ledgerTxIndex.rowId,
+      op: ledgerTxIndex.op,
+      payloadJson: ledgerTxIndex.payloadJson,
+      serverSeq: ledgerTxIndex.serverSeq,
     })
-    .from(changeLog)
-    .where(gt(changeLog.serverSeq, since))
-    .orderBy(asc(changeLog.serverSeq))
+    .from(ledgerTxIndex)
+    .where(gt(ledgerTxIndex.serverSeq, since))
+    .orderBy(asc(ledgerTxIndex.serverSeq))
     .limit(safeLimit + 1);
   const pageRows = rows.slice(0, safeLimit);
   const hasMore = rows.length > safeLimit;
@@ -136,7 +147,10 @@ export async function pullChangesSince(
   const last = pageRows.at(-1)?.serverSeq ?? since;
 
   return {
+    sync_protocol_version: 2,
+    sync_mode: 'incremental',
     server_cursor: last,
+    server_last_seq: serverLastSeq,
     has_more: hasMore,
     changes: filtered.map((r) => ({
       table: r.table as any,

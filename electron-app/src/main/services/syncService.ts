@@ -67,9 +67,14 @@ const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
 const LEDGER_BLOCKS_PAGE_SIZE = 200;
 const LEDGER_E2E_ENV = 'MATRICA_LEDGER_E2E';
 const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
+const SYNC_V2_ENABLED = String(process.env.MATRICA_SYNC_V2 ?? '1') !== '0';
 
 function nowMs() {
   return Date.now();
+}
+
+function yieldToEventLoop() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 function logSync(message: string) {
@@ -1475,7 +1480,7 @@ async function applyPulledChanges(
   changes: SyncPullResponse['changes'],
   opts?: {
     onProgress?: (
-      event: Pick<FullPullProgressEvent, 'stage' | 'detail' | 'table' | 'counts' | 'breakdown' | 'service'>,
+      event: Pick<SyncProgressEvent, 'stage' | 'detail' | 'table' | 'counts' | 'breakdown' | 'service'>,
     ) => void;
   },
 ) {
@@ -1497,22 +1502,26 @@ async function applyPulledChanges(
   // We do it before grouping/inserting so we can rewrite IDs consistently across tables.
   const incomingEntityTypes: Array<{ id: string; code: string }> = [];
   const incomingAttrDefs: Array<{ id: string; entity_type_id: string; code: string }> = [];
+  const parsedChanges: Array<{ ch: SyncPullResponse['changes'][number]; payloadRaw: any }> = [];
 
   for (const ch of changes) {
-    let payload: any;
+    let payloadRaw: any;
     try {
-      payload = JSON.parse(ch.payload_json);
+      payloadRaw = decryptRowSensitive(JSON.parse(ch.payload_json) as any, e2eKeys);
     } catch {
       continue;
     }
+    parsedChanges.push({ ch, payloadRaw });
     if (ch.table === SyncTableName.EntityTypes) {
-      if (payload?.id && payload?.code) incomingEntityTypes.push({ id: String(payload.id), code: String(payload.code) });
+      if (payloadRaw?.id && payloadRaw?.code) {
+        incomingEntityTypes.push({ id: String(payloadRaw.id), code: String(payloadRaw.code) });
+      }
     } else if (ch.table === SyncTableName.AttributeDefs) {
-      if (payload?.id && payload?.entity_type_id && payload?.code) {
+      if (payloadRaw?.id && payloadRaw?.entity_type_id && payloadRaw?.code) {
         incomingAttrDefs.push({
-          id: String(payload.id),
-          entity_type_id: String(payload.entity_type_id),
-          code: String(payload.code),
+          id: String(payloadRaw.id),
+          entity_type_id: String(payloadRaw.entity_type_id),
+          code: String(payloadRaw.code),
         });
       }
     }
@@ -1576,8 +1585,9 @@ async function applyPulledChanges(
     [SyncTableName.NoteShares]: [],
   };
 
-  for (const ch of changes) {
-    const payloadRaw = decryptRowSensitive(JSON.parse(ch.payload_json) as any, e2eKeys);
+  for (const item of parsedChanges) {
+    const ch = item.ch;
+    const payloadRaw = item.payloadRaw;
     switch (ch.table) {
       case SyncTableName.EntityTypes:
         {
@@ -1982,7 +1992,7 @@ async function applyPulledChanges(
     }
   }
 
-  const emitApply = (table: SyncTableName, count: number, breakdown?: FullPullProgressEvent['breakdown']) => {
+  const emitApply = (table: SyncTableName, count: number, breakdown?: SyncProgressEvent['breakdown']) => {
     if (!opts?.onProgress || count <= 0) return;
     opts.onProgress({
       stage: 'apply',
@@ -1992,6 +2002,9 @@ async function applyPulledChanges(
       counts: { batch: count },
       breakdown,
     });
+  };
+  const maybeYieldAfterBatch = async (count: number) => {
+    if (count >= 800) await yieldToEventLoop();
   };
 
   const entityTypeCodeById = new Map<string, string>();
@@ -2048,6 +2061,7 @@ async function applyPulledChanges(
           syncStatus: 'synced',
         },
       });
+    await maybeYieldAfterBatch(groups.entity_types.length);
   }
   if (groups.entities.length > 0) {
     await ensureEntityTypeCodes(groups.entities.map((row: any) => String(row.typeId ?? '')));
@@ -2078,6 +2092,7 @@ async function applyPulledChanges(
           syncStatus: 'synced',
         },
       });
+    await maybeYieldAfterBatch(groups.entities.length);
   }
   if (groups.attribute_defs.length > 0) {
     await ensureEntityTypeCodes(groups.attribute_defs.map((row: any) => String(row.entityTypeId ?? '')));
@@ -2144,6 +2159,7 @@ async function applyPulledChanges(
           syncStatus: 'synced',
         },
       });
+    await maybeYieldAfterBatch(groups.attribute_defs.length);
   }
   if (groups.attribute_values.length > 0) {
     emitApply(SyncTableName.AttributeValues, groups.attribute_values.length);
@@ -2163,6 +2179,7 @@ async function applyPulledChanges(
           syncStatus: 'synced',
         },
       });
+    await maybeYieldAfterBatch(groups.attribute_values.length);
   }
   if (groups.operations.length > 0) {
     emitApply(SyncTableName.Operations, groups.operations.length);
@@ -2185,6 +2202,7 @@ async function applyPulledChanges(
           syncStatus: 'synced',
         },
       });
+    await maybeYieldAfterBatch(groups.operations.length);
   }
   if (groups.audit_log.length > 0) {
     emitApply(SyncTableName.AuditLog, groups.audit_log.length);
@@ -2205,6 +2223,7 @@ async function applyPulledChanges(
           syncStatus: 'synced',
         },
       });
+    await maybeYieldAfterBatch(groups.chat_messages.length);
   }
 
   if (groups.chat_messages.length > 0) {
@@ -2403,8 +2422,8 @@ export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui
   }
 }
 
-type FullPullProgressEvent = {
-  mode: 'force_full_pull';
+type SyncProgressEvent = {
+  mode: 'incremental' | 'force_full_pull';
   state: 'start' | 'progress' | 'done' | 'error';
   startedAt: number;
   elapsedMs: number;
@@ -2431,7 +2450,12 @@ type RunSyncOptions = {
     reason: 'force_full_pull';
     startedAt: number;
     estimateMs: number;
-    onProgress?: (event: FullPullProgressEvent) => void;
+    onProgress?: (event: SyncProgressEvent) => void;
+  };
+  progress?: {
+    mode: 'incremental';
+    startedAt?: number;
+    onProgress?: (event: SyncProgressEvent) => void;
   };
 };
 
@@ -2445,17 +2469,22 @@ export async function runSync(
   let currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   let attemptedFix = false;
   const fullPull = opts?.fullPull ?? null;
-  const emitFullPull = (state: FullPullProgressEvent['state'], extra?: Partial<FullPullProgressEvent>) => {
-    if (!fullPull?.onProgress) return;
+  const progressMode: SyncProgressEvent['mode'] = fullPull ? 'force_full_pull' : 'incremental';
+  const progressStartedAt = fullPull?.startedAt ?? opts?.progress?.startedAt ?? startedAt;
+  const progressEstimateMs = fullPull ? fullPull.estimateMs : null;
+  const progressEmitter = fullPull?.onProgress ?? opts?.progress?.onProgress;
+  const emitSyncProgress = (state: SyncProgressEvent['state'], extra?: Partial<SyncProgressEvent>) => {
+    if (!progressEmitter) return;
     const now = nowMs();
-    const elapsedMs = Math.max(0, now - fullPull.startedAt);
-    const estimateMs = Number.isFinite(fullPull.estimateMs) ? Math.max(0, fullPull.estimateMs) : null;
-    const progress = estimateMs && estimateMs > 0 ? Math.min(0.99, elapsedMs / estimateMs) : null;
+    const elapsedMs = Math.max(0, now - progressStartedAt);
+    const estimateMs = Number.isFinite(progressEstimateMs) ? Math.max(0, Number(progressEstimateMs)) : null;
+    const timedProgress = estimateMs && estimateMs > 0 ? Math.min(0.99, elapsedMs / estimateMs) : null;
+    const progress = extra?.progress != null ? extra.progress : timedProgress;
     const etaMs = estimateMs && estimateMs > 0 ? Math.max(0, estimateMs - elapsedMs) : null;
-    fullPull.onProgress({
-      mode: 'force_full_pull',
+    progressEmitter({
+      mode: progressMode,
       state,
-      startedAt: fullPull.startedAt,
+      startedAt: progressStartedAt,
       elapsedMs,
       estimateMs,
       etaMs,
@@ -2464,12 +2493,18 @@ export async function runSync(
     });
   };
   const emitStage = (
-    stage: FullPullProgressEvent['stage'],
+    stage: SyncProgressEvent['stage'],
     detail?: string,
-    extra?: Partial<FullPullProgressEvent> & { service?: FullPullProgressEvent['service'] },
+    extra?: Partial<SyncProgressEvent> & { service?: SyncProgressEvent['service'] },
   ) => {
-    emitFullPull('progress', { stage, detail, ...extra });
+    emitSyncProgress('progress', { stage, detail, ...extra });
   };
+  emitSyncProgress('start', {
+    stage: 'prepare',
+    service: 'sync',
+    detail: fullPull ? 'подготовка полной синхронизации' : 'подготовка инкрементальной синхронизации',
+    progress: fullPull ? 0 : null,
+  });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const session = await getSession(db).catch(() => null);
@@ -2501,14 +2536,23 @@ export async function runSync(
         };
       }
       emitStage('prepare', 'проверка локальной базы', { service: 'schema' });
-      await repairLocalSyncTables(db, schema ?? null).catch(() => {});
+      const lastRepairAt = await settingsGetNumber(db, SettingsKey.SyncRepairLastRunAt, 0);
+      const lastPulledSeq = await settingsGetNumber(db, SettingsKey.LastPulledServerSeq, 0);
+      const shouldRepair =
+        !!fullPull ||
+        lastPulledSeq === 0 ||
+        nowMs() - Number(lastRepairAt || 0) > 6 * 60 * 60_000;
+      if (shouldRepair) {
+        await repairLocalSyncTables(db, schema ?? null).catch(() => {});
+        await settingsSetNumber(db, SettingsKey.SyncRepairLastRunAt, nowMs()).catch(() => {});
+      }
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
       emitStage('prepare', 'подготовка синхронизации', { service: 'sync' });
       const pullOnce = async (sinceValue: number) => {
         const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}&client_id=${encodeURIComponent(
           clientId,
-        )}`;
+        )}${SYNC_V2_ENABLED ? '&sync_protocol_version=2' : ''}`;
         const pull = await fetchAuthed(
           db,
           currentApiBaseUrl,
@@ -2520,10 +2564,13 @@ export async function runSync(
           const body = await safeBodyText(pull);
           logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
           if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
+          if (pull.status === 426) {
+            throw new Error(`sync protocol upgrade required: ${body || 'upgrade client to latest version'}`);
+          }
           throw new Error(`pull HTTP ${pull.status}: ${body || 'no body'}`);
         }
         const pullJson = (await pull.json()) as SyncPullResponse;
-        if (fullPull) {
+        if (progressEmitter) {
           const counts = new Map<string, number>();
           for (const ch of pullJson.changes) {
             const key = String(ch.table ?? '');
@@ -2541,7 +2588,7 @@ export async function runSync(
           emitStage('pull', detail, { counts: { batch: pullJson.changes.length }, service: 'sync' });
         }
         await applyPulledChanges(db, pullJson.changes, {
-          onProgress: fullPull ? (info) => emitFullPull('progress', info) : undefined,
+          onProgress: progressEmitter ? (info) => emitSyncProgress('progress', info) : undefined,
         });
         await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
         await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
@@ -2555,7 +2602,11 @@ export async function runSync(
           const res = await pullOnce(sinceCursor);
           totalPulled += res.changes.length;
           last = res;
-          emitFullPull('progress', { pulled: totalPulled });
+          const serverLastSeq = Number((res as any).server_last_seq ?? res.server_cursor ?? 0);
+          const cursor = Number(res.server_cursor ?? 0);
+          const progressBySeq =
+            progressMode === 'incremental' && serverLastSeq > 0 ? Math.max(0, Math.min(0.999, cursor / serverLastSeq)) : null;
+          emitSyncProgress('progress', { pulled: totalPulled, progress: progressBySeq });
           if (!res.has_more) break;
           if (res.server_cursor === sinceCursor) {
             logSync(`pull paging stalled cursor=${sinceCursor}, stopping`);
@@ -2814,36 +2865,30 @@ export async function runSync(
       }
 
       const pullRes = await pullAll(since);
-      const pullJson = pullRes.last ?? { server_cursor: since, has_more: false, changes: [] };
+      const pullJson = pullRes.last ?? { server_cursor: since, server_last_seq: since, has_more: false, changes: [] };
       const pulled = pullRes.totalPulled;
 
       const finalError = pushError ? `push failed: ${pushError}` : null;
       logSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
-      if (fullPull) emitStage('finalize', 'отправка диагностики', { service: 'diagnostics' });
+      emitStage('finalize', 'отправка диагностики', { service: 'diagnostics' });
       await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
-      if (fullPull) emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger' });
-      await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
-      if (fullPull) emitStage('finalize', 'завершение синхронизации', { service: 'sync' });
+      if (fullPull) {
+        emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger' });
+        await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
+      }
+      emitStage('finalize', 'завершение синхронизации', { service: 'sync' });
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});
-        fullPull.onProgress?.({
-          mode: 'force_full_pull',
-          state: 'done',
-          startedAt: fullPull.startedAt,
-          elapsedMs: durationMs,
-          estimateMs: fullPull.estimateMs,
-          etaMs: 0,
-          progress: 1,
-          pulled,
-        });
       }
+      const serverLastSeq = Number((pullJson as any).server_last_seq ?? pullJson.server_cursor ?? 0);
+      emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled }, etaMs: 0 });
       if (finalError) {
-        return { ok: false, pushed, pulled, serverCursor: pullJson.server_cursor, error: finalError };
+        return { ok: false, pushed, pulled, serverCursor: pullJson.server_cursor, serverLastSeq, error: finalError };
       }
-      return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor };
+      return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor, serverLastSeq };
     } catch (e) {
       const err = formatError(e);
       if (!attemptedFix && isNotFoundSyncError(err)) {
@@ -2855,19 +2900,7 @@ export async function runSync(
         }
       }
       logSync(`error ${err}`);
-      if (fullPull) {
-        const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
-        fullPull.onProgress?.({
-          mode: 'force_full_pull',
-          state: 'error',
-          startedAt: fullPull.startedAt,
-          elapsedMs: durationMs,
-          estimateMs: fullPull.estimateMs,
-          etaMs: null,
-          progress: null,
-          error: err,
-        });
-      }
+      emitSyncProgress('error', { error: err, etaMs: null, progress: null });
       void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
         component: 'sync',
         action: 'run',
@@ -2879,19 +2912,7 @@ export async function runSync(
   }
   const err = 'sync failed: apiBaseUrl auto-fix exhausted';
   logSync(`error ${err}`);
-  if (fullPull) {
-    const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
-    fullPull.onProgress?.({
-      mode: 'force_full_pull',
-      state: 'error',
-      startedAt: fullPull.startedAt,
-      elapsedMs: durationMs,
-      estimateMs: fullPull.estimateMs,
-      etaMs: null,
-      progress: null,
-      error: err,
-    });
-  }
+  emitSyncProgress('error', { error: err, etaMs: null, progress: null });
   void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
     component: 'sync',
     action: 'run',

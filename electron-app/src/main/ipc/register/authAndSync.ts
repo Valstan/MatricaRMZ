@@ -59,7 +59,23 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   // Sync
   ipcMain.handle('sync:run', async () => {
     if (isViewMode(ctx)) return { ok: false as const, pushed: 0, pulled: 0, serverCursor: 0, error: 'view mode' };
-    return ctx.mgr.runOnce();
+    const startedAt = Date.now();
+    const emitSyncProgress = (payload: unknown) => {
+      try {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('sync:progress', payload);
+        });
+      } catch {
+        // ignore
+      }
+    };
+    return ctx.mgr.runOnce({
+      progress: {
+        mode: 'incremental',
+        startedAt,
+        onProgress: emitSyncProgress as any,
+      },
+    });
   });
   ipcMain.handle('sync:status', async () => ctx.mgr.getStatus());
   ipcMain.handle('sync:reset', async () => {

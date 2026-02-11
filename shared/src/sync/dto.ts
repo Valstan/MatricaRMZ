@@ -143,7 +143,10 @@ export const syncPushRequestSchema = z.object({
 export type SyncPushRequest = z.infer<typeof syncPushRequestSchema>;
 
 export const syncPullResponseSchema = z.object({
+  sync_protocol_version: z.number().int().min(1).default(2),
+  sync_mode: z.enum(['incremental', 'force_full_pull']).default('incremental'),
   server_cursor: z.number().int(), // server_seq
+  server_last_seq: z.number().int().default(0), // целевой watermark на момент ответа
   has_more: z.boolean(),
   changes: z.array(
     z.object({

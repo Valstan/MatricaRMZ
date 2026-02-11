@@ -173,6 +173,7 @@ export type SyncRunResult = {
   pushed: number;
   pulled: number;
   serverCursor: number;
+  serverLastSeq?: number;
   error?: string;
 };
 
@@ -185,7 +186,7 @@ export type SyncStatus = {
 };
 
 export type SyncProgressEvent = {
-  mode: 'force_full_pull';
+  mode: 'incremental' | 'force_full_pull';
   state: 'start' | 'progress' | 'done' | 'error';
   startedAt: number;
   elapsedMs: number;

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowActions } from '../components/RowActions.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -531,26 +533,27 @@ export function SimpleMasterdataDetailsPage(props: {
   const headerTitle = name.trim() ? name.trim() : props.title;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
-        <div style={{ flex: 1 }} />
-        {props.canEdit && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
+    <EntityCardShell
+      title={headerTitle}
+      actions={
+        <RowActions>
+          {props.canEdit && (
+            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
+              Сохранить
+            </Button>
+          )}
+          {props.canEdit && (
+            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
+              Удалить
+            </Button>
+          )}
+          <Button variant="ghost" tone="neutral" onClick={() => void load()}>
+            Обновить
           </Button>
-        )}
-        {props.canEdit && (
-          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-            Удалить
-          </Button>
-        )}
-        <Button variant="ghost" tone="neutral" onClick={() => void load()}>
-          Обновить
-        </Button>
-      </div>
-
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        </RowActions>
+      }
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
+    >
         <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
           <DraggableFieldList
             items={mainFields}
@@ -592,10 +595,8 @@ export function SimpleMasterdataDetailsPage(props: {
             )}
           />
         </div>
-
-        {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
-      </div>
+      
       {uploadFlow.renameDialog}
-    </div>
+    </EntityCardShell>
   );
 }

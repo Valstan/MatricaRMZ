@@ -31,6 +31,16 @@ import { registerToolsIpc } from './register/tools.js';
 import { openSqliteReadonly } from '../database/db.js';
 
 export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
+  function emitSyncProgress(payload: unknown) {
+    try {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('sync:progress', payload);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   function logToFile(message: string) {
     try {
       const dir = app.getPath('userData');
@@ -42,7 +52,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   }
 
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
-  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl);
+  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, { onProgress: emitSyncProgress });
   mgr.startAuto(5 * 60_000);
 
   // Инициализация системы логирования
@@ -87,16 +97,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     currentActor,
     currentPermissions,
   };
-
-  function emitSyncProgress(payload: unknown) {
-    try {
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send('sync:progress', payload);
-      });
-    } catch {
-      // ignore
-    }
-  }
 
   startClientSettingsPolling({
     db: sysDb,

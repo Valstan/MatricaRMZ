@@ -5,6 +5,8 @@ import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowActions } from '../components/RowActions.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -563,49 +565,49 @@ export function EngineDetailsPage(props: {
   const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
-        <div style={{ flex: 1 }} />
-        {props.canEditEngines && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
+    <EntityCardShell
+      title={headerTitle}
+      actions={
+        <RowActions>
+          {props.canEditEngines && (
+            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
+              Сохранить
+            </Button>
+          )}
+          {props.canEditEngines && (
+            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
+              Удалить
+            </Button>
+          )}
+          {props.canPrintEngineCard && (
+            <Button
+              variant="ghost"
+              tone="info"
+              onClick={() => {
+                const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
+                printEngineReport(
+                  props.engine,
+                  {
+                    engineNumber,
+                    engineBrand,
+                    arrivalDate,
+                    customer: pickLabel('customer_id', customerId),
+                    contract: pickLabel('contract_id', contractId),
+                  },
+                  orderedPrintRows,
+                );
+              }}
+            >
+              Распечатать
+            </Button>
+          )}
+          <Button variant="ghost" tone="neutral" onClick={props.onReload}>
+            Обновить
           </Button>
-        )}
-        {props.canEditEngines && (
-          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-            Удалить
-          </Button>
-        )}
-        {props.canPrintEngineCard && (
-          <Button
-            variant="ghost"
-            tone="info"
-            onClick={() => {
-              const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
-              printEngineReport(
-                props.engine,
-                {
-                  engineNumber,
-                  engineBrand,
-                  arrivalDate,
-                  customer: pickLabel('customer_id', customerId),
-                  contract: pickLabel('contract_id', contractId),
-                },
-                orderedPrintRows,
-              );
-            }}
-          >
-            Распечатать
-          </Button>
-        )}
-        {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
-        <Button variant="ghost" tone="neutral" onClick={props.onReload}>
-          Обновить
-        </Button>
-      </div>
-
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
+        </RowActions>
+      }
+      status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div> : null}
+    >
         <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
@@ -721,8 +723,7 @@ export function EngineDetailsPage(props: {
         canUpload={props.canUploadFiles && props.canEditEngines}
         onChange={saveAttachments}
       />
-      </div>
-    </div>
+    </EntityCardShell>
   );
 }
 
