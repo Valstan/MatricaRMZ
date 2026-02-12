@@ -526,7 +526,12 @@ export async function transitionSupplyRequest(
 
     p.auditTrail = auditTrail;
 
-    const upd = await updateSupplyRequest(db, { id: args.id, payload: p, actor: args.actor, scope: args.scope });
+    const upd = await updateSupplyRequest(db, {
+      id: args.id,
+      payload: p,
+      actor: args.actor,
+      ...(args.scope ? { scope: args.scope } : {}),
+    });
     if (!upd.ok) return upd;
     await audit(db, args.actor, 'supply_request.transition', {
       operationId: args.id,

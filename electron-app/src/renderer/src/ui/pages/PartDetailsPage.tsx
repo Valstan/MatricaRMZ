@@ -745,7 +745,7 @@ export function PartDetailsPage(props: {
               canCreate={props.canEdit}
               createLabel="Новый поставщик"
               onChange={(next) => {
-                setSupplierId(next);
+                setSupplierId(next ?? '');
                 const label = customerOptions.find((c) => c.id === next)?.label ?? '';
                 setSupplier(label);
                 void saveAttribute('supplier_id', next || null);
@@ -821,6 +821,7 @@ export function PartDetailsPage(props: {
   );
 
   function printPartCard() {
+    if (!part) return;
     const mainRows: Array<[string, string]> = mainFields.map((f) => [f.label, String(f.value ?? '')]);
     const compatibility = engineBrandIds
       .map((id) => engineBrandLabelById.get(id) ?? id)
@@ -829,7 +830,7 @@ export function PartDetailsPage(props: {
     const extraRows = extraAttrs.map((a) => [a.name || a.code, formatValue(a.value)]);
     openPrintPreview({
       title: 'Карточка детали',
-      subtitle: name ? `Название: ${name}` : undefined,
+      ...(name ? { subtitle: `Название: ${name}` } : {}),
       sections: [
         { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
         { id: 'compat', title: 'Совместимость', html: compatibility ? `<div>${escapeHtml(compatibility)}</div>` : '<div class="muted">Нет данных</div>' },
@@ -1240,7 +1241,7 @@ export function PartDetailsPage(props: {
                             value={typeof value === 'string' ? value : ''}
                             options={linkOptionsByCode[attr.code] ?? []}
                             placeholder="Выберите значение"
-                            disabled={!props.canEdit || linkLoadingByCode[attr.code]}
+                            {...((!props.canEdit || linkLoadingByCode[attr.code]) ? { disabled: true } : {})}
                             onChange={(next) => setEditingAttr({ ...editingAttr, [attr.code]: next })}
                           />
                         ) : attr.dataType === 'number' ? (

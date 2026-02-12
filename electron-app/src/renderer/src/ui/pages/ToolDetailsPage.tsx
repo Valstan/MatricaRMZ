@@ -237,7 +237,7 @@ export function ToolDetailsPage(props: {
     }
     const created = await window.matrica.admin.entities.create(String(departmentTypeId));
     if (!created.ok || !created.id) {
-      setStatus(`Ошибка: ${created.error ?? 'не удалось создать подразделение'}`);
+      setStatus(`Ошибка: ${(created as any).error ?? 'не удалось создать подразделение'}`);
       return null;
     }
     await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
@@ -369,7 +369,7 @@ export function ToolDetailsPage(props: {
     });
     openPrintPreview({
       title: 'Карточка инструмента',
-      subtitle: name ? `Наименование: ${name}` : undefined,
+      ...(name ? { subtitle: `Наименование: ${name}` } : {}),
       sections: [
         { id: 'main', title: 'Основные данные', html: keyValueTable(mainRows) },
         { id: 'props', title: 'Свойства инструмента', html: propRows.length ? keyValueTable(propRows) : '<div class="muted">Нет данных</div>' },
@@ -487,7 +487,7 @@ export function ToolDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="Новое подразделение"
             onChange={(next) => {
-              setDepartmentId(next);
+              setDepartmentId(next ?? '');
               void saveAttribute('department_id', next || null);
             }}
             onCreate={async (label) => {
@@ -559,14 +559,14 @@ export function ToolDetailsPage(props: {
                 canCreate={props.canEdit}
                 createLabel="+Добавить новое свойство"
                 onChange={(next) => {
-                  const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next, value: p.value ?? '' } : p));
+                  const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next ?? '', value: p.value ?? '' } : p));
                   void updateProperties(nextRows);
                   if (next) void ensureValueHints(next);
                 }}
                 onCreate={async (label) => {
                   const r = await window.matrica.tools.properties.create();
                   if (!r.ok) {
-                    setStatus(`Ошибка: ${r.error}`);
+                    setStatus(`Ошибка: ${(r as any).error}`);
                     return null;
                   }
                   const id = (r as any).id as string;
@@ -626,7 +626,7 @@ export function ToolDetailsPage(props: {
             options={employeeOptions}
             placeholder="Сотрудник"
             disabled={!props.canEdit}
-            onChange={(next) => setNewMoveEmployeeId(next)}
+            onChange={(next) => setNewMoveEmployeeId(next ?? '')}
           />
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
@@ -639,7 +639,7 @@ export function ToolDetailsPage(props: {
             options={employeeOptions}
             placeholder="Заведующий"
             disabled={!props.canEdit || !newMoveConfirmed}
-            onChange={(next) => setNewMoveConfirmedById(next)}
+            onChange={(next) => setNewMoveConfirmedById(next ?? '')}
           />
           <Input
             value={newMoveComment}

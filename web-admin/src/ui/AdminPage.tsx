@@ -202,7 +202,7 @@ export function MasterdataPage(props: {
       setStatus(`Ошибка типов: ${r.error ?? 'unknown'}`);
       return;
     }
-    const rows = r.rows ?? [];
+    const rows: EntityTypeRow[] = r.rows ?? [];
     setTypes(rows);
     props.onTypesChange?.(rows);
     setSelectedTypeId((prev) => {
@@ -230,7 +230,7 @@ export function MasterdataPage(props: {
         if (units.ok) {
           next.unit = (units.rows ?? [])
             .map((r: any) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }))
-            .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+            .sort((a: { id: string; label: string }, b: { id: string; label: string }) => a.label.localeCompare(b.label, 'ru'));
         }
       }
       if (map.shop) {
@@ -238,7 +238,7 @@ export function MasterdataPage(props: {
         if (stores.ok) {
           next.shop = (stores.rows ?? [])
             .map((r: any) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }))
-            .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+            .sort((a: { id: string; label: string }, b: { id: string; label: string }) => a.label.localeCompare(b.label, 'ru'));
         }
       }
       setLookupOptionsByCode(next);
@@ -321,7 +321,7 @@ export function MasterdataPage(props: {
     }
     const next = r.rows ?? [];
     if (selectedType?.code === 'employee') {
-      const filtered = next.filter((d) => !isServerOnlyDef(d));
+      const filtered = next.filter((d: any) => !isServerOnlyDef(d));
       setDefs(orderEmployeeDefs(filtered));
       return;
     }
@@ -1838,7 +1838,9 @@ function FieldEditor(props: {
         onCreate={
           props.canEdit && props.lookupCreate
             ? async (label) => {
-                const id = await props.lookupCreate(label);
+                const lookupCreate = props.lookupCreate;
+                if (!lookupCreate) return null;
+                const id = await lookupCreate(label);
                 if (!id) return null;
                 props.onChange(label.trim());
                 void props.onSave(label.trim());

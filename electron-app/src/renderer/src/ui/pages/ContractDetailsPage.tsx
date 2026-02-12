@@ -171,7 +171,8 @@ function SectionBlock(props: {
 
   const updateEngineBrand = (idx: number, patch: Partial<ContractEngineBrandRow>) => {
     const next = [...section.engineBrands];
-    next[idx] = { ...next[idx], ...patch };
+    const current = next[idx] ?? { engineBrandId: '', qty: 1, unitPrice: 0 };
+    next[idx] = { ...current, ...patch };
     update({ engineBrands: next });
   };
 
@@ -192,7 +193,8 @@ function SectionBlock(props: {
 
   const updatePart = (idx: number, patch: Partial<ContractPartRow>) => {
     const next = [...section.parts];
-    next[idx] = { ...next[idx], ...patch };
+    const current = next[idx] ?? { partId: '', qty: 1, unitPrice: 0 };
+    next[idx] = { ...current, ...patch };
     update({ parts: next });
   };
 
@@ -680,7 +682,7 @@ export function ContractDetailsPage(props: {
 
     openPrintPreview({
       title: 'Карточка контракта',
-      subtitle: sections.primary.number ? `Номер: ${sections.primary.number}` : undefined,
+      ...(sections.primary.number ? { subtitle: `Номер: ${sections.primary.number}` } : {}),
       sections: [
         { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
         { id: 'files', title: 'Файлы', html: filesHtml },
@@ -736,7 +738,7 @@ export function ContractDetailsPage(props: {
             engineBrandOptions={engineBrandOptions}
             partOptions={partOptions}
             customerOptions={customerOptions}
-            onChange={(primary) => setSections((s) => (s ? { ...s, primary } : s))}
+            onChange={(primary) => setSections((s) => (s ? { ...s, primary: primary as ContractPrimarySection } : s))}
             canEdit={props.canEdit}
             canEditMasterData={props.canEditMasterData}
             createMasterDataItem={createMasterDataItem}

@@ -49,6 +49,7 @@ function updateGroupAtPath(
 ): ReportBuilderFilterGroup {
   if (path.length === 0) return updater(group);
   const [idx, ...rest] = path;
+  if (idx == null) return group;
   const next = cloneGroup(group);
   const target = next.items[idx];
   if (!target || target.kind !== 'group') return next;
@@ -250,9 +251,9 @@ export function ReportsPage(props: { canExport: boolean }) {
     setStatus('Формирование отчёта...');
     const r =
       groupBy === 'none'
-        ? await window.matrica.reports.periodStagesCsv({ startMs: startMs ?? undefined, endMs })
+        ? await window.matrica.reports.periodStagesCsv({ ...(startMs != null ? { startMs } : {}), endMs })
         : await window.matrica.reports.periodStagesByLinkCsv({
-            startMs: startMs ?? undefined,
+            ...(startMs != null ? { startMs } : {}),
             endMs,
             linkAttrCode: groupBy === 'customer' ? 'customer_id' : groupBy === 'contract' ? 'contract_id' : 'work_order_id',
           });
@@ -382,7 +383,7 @@ export function ReportsPage(props: { canExport: boolean }) {
     setDefectStatus('Формирование отчёта...');
     const r = await window.matrica.reports
       .defectSupplyPreview({
-        startMs: startMs ?? undefined,
+        ...(startMs != null ? { startMs } : {}),
         endMs,
         contractIds: selectedContracts,
         brandIds: selectedBrands,
@@ -414,7 +415,7 @@ export function ReportsPage(props: { canExport: boolean }) {
     const labels = contractOptions.filter((o) => selectedContracts.includes(o.id)).map((o) => o.label);
     const r = await window.matrica.reports
       .defectSupplyPdf({
-        startMs: startMs ?? undefined,
+        ...(startMs != null ? { startMs } : {}),
         endMs,
         contractIds: selectedContracts,
         contractLabels: labels,
@@ -442,7 +443,7 @@ export function ReportsPage(props: { canExport: boolean }) {
     const labels = contractOptions.filter((o) => selectedContracts.includes(o.id)).map((o) => o.label);
     const r = await window.matrica.reports
       .defectSupplyPrint({
-        startMs: startMs ?? undefined,
+        ...(startMs != null ? { startMs } : {}),
         endMs,
         contractIds: selectedContracts,
         contractLabels: labels,
@@ -576,7 +577,10 @@ export function ReportsPage(props: { canExport: boolean }) {
               value={typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? String((cond.value as any).from ?? '') : ''}
               onChange={(e) =>
                 updateCondition(table, path, index, {
-                  value: { ...(typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? cond.value : {}), from: e.target.value },
+                  value: {
+                    ...((typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? cond.value : {}) as Record<string, unknown>),
+                    from: e.target.value,
+                  } as any,
                 })
               }
               placeholder={type === 'datetime' ? 'дата и время' : 'значение'}
@@ -587,7 +591,10 @@ export function ReportsPage(props: { canExport: boolean }) {
               value={typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? String((cond.value as any).to ?? '') : ''}
               onChange={(e) =>
                 updateCondition(table, path, index, {
-                  value: { ...(typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? cond.value : {}), to: e.target.value },
+                  value: {
+                    ...((typeof cond.value === 'object' && cond.value && !Array.isArray(cond.value) ? cond.value : {}) as Record<string, unknown>),
+                    to: e.target.value,
+                  } as any,
                 })
               }
               placeholder={type === 'datetime' ? 'дата и время' : 'значение'}
@@ -933,11 +940,14 @@ export function ReportsPage(props: { canExport: boolean }) {
                   <tbody>
                     {t.rows.map((row, idx) => (
                       <tr key={idx}>
-                        {t.columns.map((c) => (
-                          <td key={c.id} style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
-                            {row[c.id] == null ? '' : typeof row[c.id] === 'string' ? row[c.id] : JSON.stringify(row[c.id])}
-                          </td>
-                        ))}
+                        {t.columns.map((c) => {
+                          const cell = row[c.id];
+                          return (
+                            <td key={c.id} style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
+                              {cell == null ? '' : typeof cell === 'string' ? cell : JSON.stringify(cell)}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                     {t.rows.length === 0 && (

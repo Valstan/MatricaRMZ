@@ -15,7 +15,7 @@ export function resolvePreloadPath(baseDir: string): string {
     join(baseDir, '../preload/index.mjs'),
   ];
   for (const p of candidates) if (existsSync(p)) return p;
-  return candidates[0];
+  return candidates[0] ?? join(baseDir, '../preload/index.cjs');
 }
 
 export function resolveRendererIndex(baseDir: string): string {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { randomUUID, createHash } from 'node:crypto';
 import { SyncTableName } from '@matricarmz/shared';
 

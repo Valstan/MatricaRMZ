@@ -300,7 +300,7 @@ export function DiagnosticsPage() {
     };
   }, []);
 
-  const clientView = useMemo(() => {
+  const clientView = useMemo<{ list: ClientView[]; hidden: number }>(() => {
     const list = report?.clients ?? [];
     const baseFiltered = showOnlyIssues
       ? list.filter((c) => {
@@ -327,7 +327,15 @@ export function DiagnosticsPage() {
       return String(a.clientId).localeCompare(String(b.clientId));
     });
     if (!hideDuplicates) {
-      return { list: baseSorted.map((c) => ({ ...c, deviceKey: deviceKeyFor(c), deviceName: inferDeviceName(c) })), hidden: 0 };
+      return {
+        list: baseSorted.map((c) => ({
+          ...c,
+          deviceKey: deviceKeyFor(c),
+          deviceName: inferDeviceName(c),
+          aliases: undefined,
+        })),
+        hidden: 0,
+      };
     }
     const groups = new Map<string, ConsistencyClientReport[]>();
     for (const c of baseSorted) {
@@ -341,6 +349,7 @@ export function DiagnosticsPage() {
     for (const [key, group] of groups.entries()) {
       const sorted = group.slice().sort((a, b) => (lastActiveAt(b) ?? 0) - (lastActiveAt(a) ?? 0));
       const primary = sorted[0];
+      if (!primary) continue;
       const aliases = sorted.slice(1);
       hidden += aliases.length;
       merged.push({

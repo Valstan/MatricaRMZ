@@ -294,9 +294,9 @@ export async function listTools(
 
       out.push({
         id: entityId,
-        toolNumber: toolNumber ? String(toolNumber) : undefined,
-        name: name ? String(name) : undefined,
-        serialNumber: serial ? String(serial) : undefined,
+        ...(toolNumber ? { toolNumber: String(toolNumber) } : {}),
+        ...(name ? { name: String(name) } : {}),
+        ...(serial ? { serialNumber: String(serial) } : {}),
         departmentId: departmentId ? String(departmentId) : null,
         receivedAt: typeof receivedAt === 'number' ? receivedAt : receivedAt ? Number(receivedAt) : null,
         retiredAt: typeof retiredAt === 'number' ? retiredAt : retiredAt ? Number(retiredAt) : null,
@@ -499,9 +499,9 @@ export async function buildToolsReport(
 
       out.push({
         toolId,
-        toolNumber: toolNumber ? String(toolNumber) : undefined,
-        name: name ? String(name) : undefined,
-        serialNumber: serialNumber ? String(serialNumber) : undefined,
+        ...(toolNumber ? { toolNumber: String(toolNumber) } : {}),
+        ...(name ? { name: String(name) } : {}),
+        ...(serialNumber ? { serialNumber: String(serialNumber) } : {}),
         departmentId: departmentId ? String(departmentId) : null,
         departmentName: departmentId ? departmentNames[String(departmentId)] ?? null : null,
         lastMovementAt: last ? last.at : null,
@@ -625,8 +625,8 @@ export async function listToolProperties(db: BetterSQLite3Database): Promise<{ o
       const params = paramsDefId ? rec[paramsDefId] : null;
       return {
         id: String(r.id),
-        name: name ? String(name) : undefined,
-        params: params ? String(params) : undefined,
+        ...(name ? { name: String(name) } : {}),
+        ...(params ? { params: String(params) } : {}),
         updatedAt: Number(r.updatedAt ?? 0),
         createdAt: Number(r.createdAt ?? 0),
       };
@@ -670,7 +670,7 @@ export async function listToolCatalog(db: BetterSQLite3Database): Promise<{ ok: 
       const name = nameDefId ? rec[nameDefId] : null;
       return {
         id: String(r.id),
-        name: name ? String(name) : undefined,
+        ...(name ? { name: String(name) } : {}),
         updatedAt: Number(r.updatedAt ?? 0),
         createdAt: Number(r.createdAt ?? 0),
       };
@@ -861,13 +861,15 @@ export async function listEmployeesForTools(
     for (const row of rows as any[]) {
       const entityId = String(row.id);
       const rec = byEntity[entityId] ?? {};
-      const fullName = String(rec[byCode.full_name] ?? '').trim();
-      const last = String(rec[byCode.last_name] ?? '').trim();
-      const first = String(rec[byCode.first_name] ?? '').trim();
-      const middle = String(rec[byCode.middle_name] ?? '').trim();
+      const pick = (defId: string | undefined) => (defId ? rec[defId] : '');
+      const fullName = String(pick(byCode.full_name)).trim();
+      const last = String(pick(byCode.last_name)).trim();
+      const first = String(pick(byCode.first_name)).trim();
+      const middle = String(pick(byCode.middle_name)).trim();
       const computed = [last, first, middle].filter(Boolean).join(' ').trim();
-      const depId = rec[byCode.department_id] ? String(rec[byCode.department_id]) : null;
-      const employmentStatus = String(rec[byCode.employment_status] ?? '').trim().toLowerCase();
+      const depRaw = byCode.department_id ? rec[byCode.department_id] : null;
+      const depId = depRaw ? String(depRaw) : null;
+      const employmentStatus = String(pick(byCode.employment_status)).trim().toLowerCase();
       if (employmentStatus && employmentStatus.includes('уволен')) continue;
       if (departmentId && depId !== departmentId) continue;
       out.push({ id: entityId, label: fullName || computed || entityId, departmentId: depId ?? null });
@@ -1062,7 +1064,7 @@ export async function exportToolCardPdf(
   const propList = await listToolProperties(db);
   const propMap = new Map<string, { name?: string; params?: string }>();
   if (propList.ok) {
-    for (const p of propList.items) propMap.set(p.id, { name: p.name, params: p.params });
+    for (const p of propList.items) propMap.set(p.id, { ...(p.name ? { name: p.name } : {}), ...(p.params ? { params: p.params } : {}) });
   }
 
   const movements = await listToolMovements(db, args.toolId, args.scope);
@@ -1108,9 +1110,9 @@ export async function exportToolCardPdf(
   const html = toolCardHtml({
     title: 'Карточка инструмента',
     subtitle: attrs.name ? `Наименование: ${String(attrs.name)}` : null,
-    mainRows,
-    propertiesRows,
-    movementsRows,
+    mainRows: mainRows as [string, string][],
+    propertiesRows: propertiesRows as [string, string][],
+    movementsRows: movementsRows as [string, string][],
     filesHtml: fileListHtml(attrs.photos),
   });
 

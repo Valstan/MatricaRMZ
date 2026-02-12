@@ -249,7 +249,7 @@ export function App() {
             label: t.name ?? `Справочник ${typeId.slice(0, 6)}`,
           };
         })
-        .filter(Boolean)
+        .filter((tab): tab is { id: string; label: string } => tab != null)
     : [];
   const visibleTabs = [
     ...(caps.canViewMasterData ? ([{ id: 'masterdata', label: 'Справочники' }] as const) : []),

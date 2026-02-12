@@ -4,6 +4,7 @@ import type { AuthUserInfo, ChangeRequestRow } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 function tryParseJson(s: string | null | undefined): unknown | null {
   const raw = String(s ?? '');
@@ -81,8 +82,16 @@ function diffLines(before: unknown, after: unknown): string[] {
 }
 
 export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean }) {
-  const [status, setStatus] = useState<'pending' | 'applied' | 'rejected'>('pending');
-  const [query, setQuery] = useState<string>('');
+  type SortKey = 'tableName' | 'owner' | 'changer' | 'createdAt';
+  const { state: listState, patchState } = useListUiState('list:changes', {
+    status: 'pending' as 'pending' | 'applied' | 'rejected',
+    query: '',
+    sortKey: 'createdAt' as SortKey,
+    sortDir: 'desc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:changes');
+  const status = listState.status as 'pending' | 'applied' | 'rejected';
+  const query = String(listState.query ?? '');
   const [rows, setRows] = useState<ChangeRequestRow[]>([]);
   const [msg, setMsg] = useState<string>('');
 
@@ -118,6 +127,23 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     });
   }, [filtered]);
 
+  const sorted = useSortedItems(
+    visible,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (c, key) => {
+      if (key === 'tableName') return String((c as any).sectionLabel ?? c.tableName ?? '').toLowerCase();
+      if (key === 'owner') return String(c.recordOwnerUsername ?? '').toLowerCase();
+      if (key === 'changer') return String(c.changeAuthorUsername ?? '').toLowerCase();
+      return Number(c.createdAt ?? 0);
+    },
+    (c) => c.id,
+  );
+
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
   function canDecide(c: ChangeRequestRow): boolean {
     if (props.canDecideAsAdmin) return true;
     if (c.recordOwnerUserId && c.recordOwnerUserId === props.me.id) return true;
@@ -134,39 +160,45 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <select
           value={status}
-          onChange={(e) => setStatus(e.target.value as any)}
+          onChange={(e) => patchState({ status: e.target.value as any })}
           style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
         >
           <option value="pending">Ожидают</option>
           <option value="applied">Применены</option>
           <option value="rejected">Отклонены</option>
         </select>
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск…" />
+        <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск…" />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
         <div style={{ flex: 1 }} />
         <div style={{ color: '#6b7280', fontSize: 12 }}>
-          Всего: <span style={{ fontWeight: 800, color: '#111827' }}>{visible.length}</span>
+          Всего: <span style={{ fontWeight: 800, color: '#111827' }}>{sorted.length}</span>
         </div>
       </div>
 
       {msg && <div style={{ marginTop: 10, color: msg.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{msg}</div>}
 
-      <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'auto' }}>
         <table className="list-table">
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #16a34a 0%, #15803d 120%)', color: '#fff' }}>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Раздел</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)', cursor: 'pointer' }} onClick={() => onSort('tableName')}>
+                Раздел {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'tableName')}
+              </th>
               <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Что было</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Автор записи</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)', cursor: 'pointer' }} onClick={() => onSort('owner')}>
+                Автор записи {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'owner')}
+              </th>
               <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Как стало</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Автор изменений</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)', cursor: 'pointer' }} onClick={() => onSort('changer')}>
+                Автор изменений {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'changer')}
+              </th>
               <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)', width: 220 }}>Действия</th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((c) => {
+            {sorted.map((c) => {
               const allow = canDecide(c);
               const owner = c.recordOwnerUsername ?? '—';
               const changer = c.changeAuthorUsername ?? '—';
@@ -251,7 +283,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
                 </tr>
               );
             })}
-            {visible.length === 0 && (
+            {sorted.length === 0 && (
               <tr>
                 <td style={{ padding: 12, color: '#6b7280' }} colSpan={6}>
                   Изменений нет

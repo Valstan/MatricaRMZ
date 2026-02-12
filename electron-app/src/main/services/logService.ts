@@ -124,7 +124,7 @@ export async function logMessage(
     level,
     message,
     timestamp: Date.now(),
-    metadata,
+    ...(metadata != null ? { metadata } : {}),
   });
 
   if (logBuffer.length >= LOG_BUFFER_MAX) {

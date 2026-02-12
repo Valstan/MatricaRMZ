@@ -1,15 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 type Row = {
   id: string;
   displayName?: string;
   updatedAt: number;
 };
+type SortKey = 'displayName' | 'updatedAt';
 
 export function ServicesPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -19,11 +21,16 @@ export function ServicesPage(props: {
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
-  const [query, setQuery] = useState<string>('');
+  const { state: listState, patchState } = useListUiState('list:services', {
+    query: '',
+    sortKey: 'displayName' as SortKey,
+    sortDir: 'asc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:services');
+  const query = String(listState.query ?? '');
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
-  const queryTimer = useRef<number | null>(null);
 
   async function loadType() {
     if (!props.canViewMasterData) return;
@@ -57,14 +64,6 @@ export function ServicesPage(props: {
     void refresh();
   }, [typeId]);
 
-  useEffect(() => {
-    if (queryTimer.current) window.clearTimeout(queryTimer.current);
-    queryTimer.current = window.setTimeout(() => void refresh(), 300);
-    return () => {
-      if (queryTimer.current) window.clearTimeout(queryTimer.current);
-    };
-  }, [query, typeId]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -74,11 +73,26 @@ export function ServicesPage(props: {
     });
   }, [rows, query]);
 
+  const sorted = useSortedItems(
+    filtered,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => (key === 'updatedAt' ? Number(row.updatedAt ?? 0) : String(row.displayName ?? '').toLowerCase()),
+    (row) => row.id,
+  );
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Название</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Обновлено</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('displayName')}>
+          Название {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'displayName')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+          Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
+        </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
       </tr>
     </thead>
@@ -175,14 +189,14 @@ export function ServicesPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию…" />
         </div>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={filtered} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>
   );

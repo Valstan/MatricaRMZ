@@ -899,11 +899,9 @@ export function MasterdataPage(props: {
                           value={entityAttrs[d.code]}
                           linkOptions={linkOptions[d.code] ?? []}
                           lookupOptions={lookupOptionsByCode[d.code] ?? []}
-                          lookupCreate={
-                            d.code === 'unit' || d.code === 'shop'
-                              ? async (label) => await createLookupEntity(d.code as 'unit' | 'shop', label)
-                              : undefined
-                          }
+                          {...(d.code === 'unit' || d.code === 'shop'
+                            ? { lookupCreate: async (label: string) => await createLookupEntity(d.code as 'unit' | 'shop', label) }
+                            : {})}
                           onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
                           onSave={async (v) => {
                             const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
@@ -1869,20 +1867,20 @@ function FieldEditor(props: {
           props.onChange(next);
           void props.onSave(next);
         }}
-        onCreate={
-          props.canEdit && linkTargetTypeCode
-            ? async (label) => {
+        {...(props.canEdit && linkTargetTypeCode
+          ? {
+              onCreate: async (label: string) => {
                 const id = await createLinkedEntity(label);
                 if (!id) return null;
                 props.onChange(id);
                 void props.onSave(id);
                 return id;
-              }
-            : undefined
-        }
-        createLabel={
-          linkTargetTypeCode ? (linkTargetTypeCode === 'category' ? 'Новая категория' : `Новая запись (${linkTargetTypeCode})`) : undefined
-        }
+              },
+            }
+          : {})}
+        {...(linkTargetTypeCode
+          ? { createLabel: linkTargetTypeCode === 'category' ? 'Новая категория' : `Новая запись (${linkTargetTypeCode})` }
+          : {})}
       />
     );
   }
@@ -1903,17 +1901,19 @@ function FieldEditor(props: {
           props.onChange(label);
           void props.onSave(label);
         }}
-        onCreate={
-          props.canEdit && props.lookupCreate
-            ? async (label) => {
-                const id = await props.lookupCreate(label);
+        {...(props.canEdit && props.lookupCreate
+          ? {
+              onCreate: async (label: string) => {
+                const lookupCreate = props.lookupCreate;
+                if (!lookupCreate) return null;
+                const id = await lookupCreate(label);
                 if (!id) return null;
                 props.onChange(label.trim());
                 void props.onSave(label.trim());
                 return id;
-              }
-            : undefined
-        }
+              },
+            }
+          : {})}
         createLabel={props.def.code === 'unit' ? 'Новая единица' : 'Новый контрагент'}
       />
     );

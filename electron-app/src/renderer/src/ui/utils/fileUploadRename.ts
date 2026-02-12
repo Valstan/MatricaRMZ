@@ -1,4 +1,10 @@
-export const FORBIDDEN_FILENAME_CHARS_RE = /[\\/:*?"<>|\u0000-\u001F]/g;
+const FORBIDDEN_FILENAME_CHARS = new Set(['\\', '/', ':', '*', '?', '"', '<', '>', '|']);
+
+function isForbiddenFilenameChar(ch: string): boolean {
+  if (FORBIDDEN_FILENAME_CHARS.has(ch)) return true;
+  const cp = ch.codePointAt(0);
+  return cp != null && cp >= 0 && cp <= 31;
+}
 
 export function splitNameAndExt(fileName: string): { stem: string; extWithDot: string } {
   const safe = String(fileName || '').replaceAll('\\', '/').split('/').pop() || 'file';
@@ -9,10 +15,18 @@ export function splitNameAndExt(fileName: string): { stem: string; extWithDot: s
 
 export function sanitizeFileNameStem(stem: string): { value: string; forbiddenChar: string | null } {
   const src = String(stem ?? '');
-  const match = src.match(FORBIDDEN_FILENAME_CHARS_RE);
+  let forbiddenChar: string | null = null;
+  let value = '';
+  for (const ch of src) {
+    if (isForbiddenFilenameChar(ch)) {
+      if (forbiddenChar == null) forbiddenChar = ch;
+      continue;
+    }
+    value += ch;
+  }
   return {
-    value: src.replace(FORBIDDEN_FILENAME_CHARS_RE, ''),
-    forbiddenChar: match?.[0] ?? null,
+    value,
+    forbiddenChar,
   };
 }
 

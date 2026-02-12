@@ -11,7 +11,6 @@ import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 import { getUpdatesRootDir } from './updatePaths.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
 import {
-  getLanServerFileName,
   getLanServerPort,
   getLocalLanPeers,
   listLanPeers,
@@ -185,7 +184,9 @@ async function pruneLogFile(path: string, maxDays: number) {
     const kept = lines.filter((line) => {
       const m = line.match(/^\[(.+?)\]/);
       if (!m) return true;
-      const ts = Date.parse(m[1]);
+      const tsRaw = m[1];
+      if (!tsRaw) return true;
+      const ts = Date.parse(tsRaw);
       if (!Number.isFinite(ts)) return true;
       return ts >= cutoff;
     });
@@ -265,7 +266,7 @@ async function fetchLatestUpdateMetaFromServer(): Promise<ServerUpdateMeta | nul
     const size = Number(json.size ?? 0);
     const sha256 = String(json.sha256 ?? '').trim();
     if (!version || !fileName || !Number.isFinite(size) || size <= 0) return null;
-    return { version, fileName, size, sha256: sha256 || undefined };
+    return { version, fileName, size, ...(sha256 ? { sha256 } : {}) };
   } catch {
     return null;
   }
@@ -344,7 +345,7 @@ async function installNow(args: { installerPath: string; version?: string }) {
     installerPath: args.installerPath,
     launchPath: helper.launchPath,
     resourcesPath: helper.resourcesPath,
-    version: args.version,
+    ...(args.version ? { version: args.version } : {}),
     parentPid: process.pid,
   });
   if (!spawned) {
@@ -372,7 +373,7 @@ async function renderUpdateLog() {
   const targetHeight = Math.min(720, Math.max(320, baseHeight + lineCount * lineHeight));
   try {
     const [curW, curH] = w.getSize();
-    if (targetHeight > curH) w.setSize(Math.max(curW, 640), targetHeight);
+    if (curH != null && targetHeight > curH) w.setSize(Math.max(curW ?? 640, 640), targetHeight);
   } catch {
     // ignore resize errors
   }
@@ -405,7 +406,7 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
     minWidth: 520,
     minHeight: 320,
     modal: !!parent,
-    parent: parent ?? undefined,
+    ...(parent ? { parent } : {}),
     title: `Обновление MatricaRMZ`,
     resizable: true,
     minimizable: false,
@@ -642,7 +643,7 @@ async function findCachedInstaller(): Promise<{ version: string; installerPath: 
     const candidates = files.filter((f) => f.isFile() && f.name.toLowerCase().endsWith('.exe')).map((f) => f.name);
     if (candidates.length === 0) continue;
     const preferred = candidates.find((n) => isSetupInstallerName(n)) ?? candidates[0];
-    const installerPath = join(dir, preferred);
+    const installerPath = join(dir, preferred ?? '');
     const validation = await validateInstallerPath(installerPath, preferred);
     if (!validation.ok) continue;
     return { version: ver, installerPath };
@@ -800,7 +801,14 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       progress: 0,
       message: 'Скачиваем обновление (Yandex)…',
     });
-    const ydl = await downloadYandexUpdate({ version: y.version, path: y.path, downloadUrl: y.downloadUrl }, {
+    const yPath = 'path' in y ? y.path : undefined;
+    const ydl = await downloadYandexUpdate(
+      {
+        version: y.version,
+        ...(yPath ? { path: yPath } : {}),
+        ...(y.downloadUrl ? { downloadUrl: y.downloadUrl } : {}),
+      },
+      {
       onProgress: (pct) => {
         setUpdateState({
           state: 'downloading',
@@ -810,7 +818,8 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
           message: 'Скачиваем обновление (Yandex)…',
         });
       },
-    });
+      },
+    );
     if (!ydl.ok || !ydl.filePath) {
       setUpdateState({ state: 'error', source: 'yandex', version, message: ydl.error ?? 'download failed' });
       return { ok: false, error: ydl.error ?? 'download failed' };
@@ -1069,11 +1078,19 @@ export async function runAutoUpdateFlow(
     if (y.ok && y.updateAvailable && y.version) {
       await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 5, y.version);
       await cleanupUpdateCache(y.version ?? 'latest');
-      const ydl = await downloadYandexUpdate({ version: y.version, path: y.path, downloadUrl: y.downloadUrl }, {
+      const yPath = 'path' in y ? y.path : undefined;
+      const ydl = await downloadYandexUpdate(
+        {
+          version: y.version,
+          ...(yPath ? { path: yPath } : {}),
+          ...(y.downloadUrl ? { downloadUrl: y.downloadUrl } : {}),
+        },
+        {
         onProgress: (pct) => {
           void setUpdateUi(`Скачиваем (Yandex)…`, pct, y.version);
         },
-      });
+        },
+      );
       if (!ydl.ok || !ydl.filePath) {
         await setUpdateUi(`Ошибка скачивания: ${ydl.error ?? 'unknown'}`, 100, y.version);
         closeUpdateWindowSoon(3500);
@@ -1083,7 +1100,7 @@ export async function runAutoUpdateFlow(
       const queued = await queuePendingUpdate({
         version: y.version ?? 'latest',
         installerPath: cachedPath,
-        expectedName: y.path,
+        ...('path' in y && y.path ? { expectedName: y.path } : {}),
         expectedSize: y.expectedSize ?? null,
         downloadUrl: y.downloadUrl ?? null,
       });
@@ -1320,7 +1337,10 @@ function parseGithubRepoFromUrl(raw: string): { owner: string; repo: string } | 
   const cleaned = raw.replace(/^git\+/, '').replace(/\.git$/, '');
   const m = cleaned.match(/github\.com\/([^/]+)\/([^/]+)$/i);
   if (!m) return null;
-  return { owner: m[1], repo: m[2] };
+  const owner = m[1];
+  const repo = m[2];
+  if (!owner || !repo) return null;
+  return { owner, repo };
 }
 
 async function getGithubConfig(): Promise<{ owner: string; repo: string } | null> {
@@ -1381,7 +1401,7 @@ async function listPublicFolder(publicKey: string, pathOnDisk: string): Promise<
 
 function extractVersionFromFileName(fileName: string): string | null {
   const m = fileName.match(/(\d+\.\d+\.\d+)/);
-  return m ? m[1] : null;
+  return m?.[1] ?? null;
 }
 
 function resolveUpdateVersion(version?: string, fileName?: string) {
@@ -1435,10 +1455,9 @@ async function tryDownloadFromLan(
   const apiBaseUrl = await resolveUpdateApiBaseUrl();
   if (!apiBaseUrl) return { ok: false as const, error: 'apiBaseUrl missing' };
   const serverPort = getLanServerPort() ?? undefined;
-  const serverFile = getLanServerFileName() ?? '';
   const selfPeers = getLocalLanPeers(serverPort ?? 0);
   const excludeIp = selfPeers[0]?.ip;
-  const peers = await listLanPeers(apiBaseUrl, meta.version, excludeIp ? { ip: excludeIp, port: serverPort } : undefined);
+  const peers = await listLanPeers(apiBaseUrl, meta.version, excludeIp ? { ip: excludeIp, ...(serverPort != null ? { port: serverPort } : {}) } : undefined);
   await logLan(`download peers=${peers.length} version=${meta.version}`);
   if (!peers.length) return { ok: false as const, error: 'no peers' };
 
@@ -1460,7 +1479,7 @@ async function tryDownloadFromLan(
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
-      onProgress: opts?.onProgress,
+      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     });
     if (!dl.ok || !dl.filePath) {
       await logLan(`download failed peer=${ip}:${port} error=${dl.error ?? 'unknown'}`);
@@ -1486,9 +1505,9 @@ function pickNewestInstaller(items: Array<{ name: string; size?: number | null }
   const parsed = candidates
     .map((n) => ({ n, v: extractVersionFromFileName(n.name) }))
     .filter((x) => x.v);
-  if (parsed.length === 0) return candidates[0];
+  if (parsed.length === 0) return candidates[0] ?? null;
   parsed.sort((a, b) => compareSemver(b.v!, a.v!));
-  return parsed[0].n;
+  return parsed[0]?.n ?? null;
 }
 
 async function getYandexItemMeta(publicKey: string, pathOnDisk: string): Promise<{ size?: number | null } | null> {
@@ -1513,7 +1532,7 @@ async function getYandexItemMeta(publicKey: string, pathOnDisk: string): Promise
 function parseLatestYml(text: string): { version?: string; path?: string } {
   const ver = text.match(/^version:\s*["']?([^\n"']+)["']?/m)?.[1];
   const path = text.match(/^path:\s*["']?([^\n"']+)["']?/m)?.[1];
-  return { version: ver?.trim(), path: path?.trim() };
+  return { ...(ver?.trim() ? { version: ver.trim() } : {}), ...(path?.trim() ? { path: path.trim() } : {}) };
 }
 
 async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdateInfo> {
@@ -1542,10 +1561,10 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
             ok: true,
             updateAvailable,
             version: latest,
-            path: parsed.path,
+            ...(parsed.path ? { path: parsed.path } : {}),
             source: 'yandex',
             expectedSize: meta?.size ?? null,
-            downloadUrl: href ?? undefined,
+            ...(href ? { downloadUrl: href } : {}),
           };
         }
       }
@@ -1567,7 +1586,7 @@ async function checkYandexForUpdates(): Promise<UpdateCheckResult | YandexUpdate
       path: exe.name,
       source: 'yandex',
       expectedSize: exe.size ?? null,
-      downloadUrl: exeHref ?? undefined,
+      ...(exeHref ? { downloadUrl: exeHref } : {}),
     };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -1603,7 +1622,7 @@ async function checkGithubReleaseForUpdates(): Promise<UpdateCheckResult | Githu
     const exeCandidates = assets
       .filter((a: any) => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.exe'))
       .map((a: any) => a as { name: string; browser_download_url?: string; size?: number });
-    const preferred = exeCandidates.find((a) => isSetupInstallerName(a.name));
+    const preferred = exeCandidates.find((a: { name: string }) => isSetupInstallerName(a.name));
     const exe = preferred ?? exeCandidates[0];
     const downloadUrl = exe?.browser_download_url ? String(exe.browser_download_url) : undefined;
     if (!downloadUrl) return { ok: false, error: 'github release missing exe asset' };
@@ -1651,7 +1670,7 @@ async function downloadYandexUpdate(
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
-      onProgress: opts?.onProgress,
+      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     });
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1677,7 +1696,7 @@ async function downloadGithubUpdate(
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
-      onProgress: opts?.onProgress,
+      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     });
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1810,30 +1829,6 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     }
   };
 
-  const trySpawn = async (label: string, cmd: string, args: string[]) => {
-    try {
-      await writeUpdaterLog(`installer launch strategy=${label} cmd=${cmd} args=${args.map((a) => JSON.stringify(a)).join(' ')}`);
-      const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
-      child.unref();
-      return await new Promise<boolean>((resolve) => {
-        let done = false;
-        const finish = (ok: boolean) => {
-          if (done) return;
-          done = true;
-          resolve(ok);
-        };
-        child.once('error', (err) => {
-          void writeUpdaterLog(`installer launch error (${label}): ${String(err)}`);
-          finish(false);
-        });
-        setTimeout(() => finish(true), 200);
-      });
-    } catch (e) {
-      await writeUpdaterLog(`installer launch exception (${label}): ${String(e)}`);
-      return false;
-    }
-  };
-
   const tryCmdStart = async (label: string) => {
     const args = ['/c', 'start', '""', installerPath];
     const res = await runWithOutput(`cmd-start-${label}`, 'cmd.exe', args);
@@ -1868,6 +1863,7 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
 
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i];
+    if (!attempt) continue;
     await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
     await sleep(attempt.delayMs);
     try {

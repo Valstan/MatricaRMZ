@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 type Row = {
   id: string;
@@ -11,6 +12,7 @@ type Row = {
   inn?: string;
   updatedAt: number;
 };
+type SortKey = 'displayName' | 'inn' | 'updatedAt';
 
 export function CounterpartiesPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -20,11 +22,16 @@ export function CounterpartiesPage(props: {
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
-  const [query, setQuery] = useState<string>('');
+  const { state: listState, patchState } = useListUiState('list:counterparties', {
+    query: '',
+    sortKey: 'displayName' as SortKey,
+    sortDir: 'asc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
+  const query = String(listState.query ?? '');
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
-  const queryTimer = useRef<number | null>(null);
 
   async function loadType() {
     if (!props.canViewMasterData) return;
@@ -52,7 +59,7 @@ export function CounterpartiesPage(props: {
         const inn = typeof attrs.inn === 'string' ? attrs.inn : attrs.inn == null ? '' : String(attrs.inn);
         return {
           id: String(r.id),
-          displayName: r.displayName ? String(r.displayName) : undefined,
+          displayName: r.displayName ? String(r.displayName) : '',
           inn: inn.trim() || undefined,
           updatedAt: Number(r.updatedAt ?? 0),
         };
@@ -72,14 +79,6 @@ export function CounterpartiesPage(props: {
     void refresh();
   }, [typeId]);
 
-  useEffect(() => {
-    if (queryTimer.current) window.clearTimeout(queryTimer.current);
-    queryTimer.current = window.setTimeout(() => void refresh(), 300);
-    return () => {
-      if (queryTimer.current) window.clearTimeout(queryTimer.current);
-    };
-  }, [query, typeId]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -89,12 +88,34 @@ export function CounterpartiesPage(props: {
     });
   }, [rows, query]);
 
+  const sorted = useSortedItems(
+    filtered,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => {
+      if (key === 'inn') return String(row.inn ?? '').toLowerCase();
+      if (key === 'updatedAt') return Number(row.updatedAt ?? 0);
+      return String(row.displayName ?? '').toLowerCase();
+    },
+    (row) => row.id,
+  );
+
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Название</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>ИНН</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Обновлено</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('displayName')}>
+          Название {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'displayName')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('inn')}>
+          ИНН {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'inn')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+          Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
+        </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
       </tr>
     </thead>
@@ -192,14 +213,14 @@ export function CounterpartiesPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/ИНН…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/ИНН…" />
         </div>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={filtered} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>
   );

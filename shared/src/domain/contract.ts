@@ -139,14 +139,6 @@ const defaultPrimary: ContractPrimarySection = {
   parts: [],
 };
 
-const defaultAddon: () => ContractAddonSection = () => ({
-  number: '',
-  signedAt: null,
-  dueAt: null,
-  engineBrands: [],
-  parts: [],
-});
-
 export function parseContractSections(attrs: Record<string, unknown>): ContractSections {
   const raw = attrs.contract_sections;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {

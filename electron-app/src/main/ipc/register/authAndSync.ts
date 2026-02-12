@@ -37,7 +37,10 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     authRegister(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), ...args }),
   );
   ipcMain.handle('auth:logout', async (_e, args: { refreshToken?: string }) =>
-    authLogout(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), refreshToken: args.refreshToken }),
+    authLogout(ctx.sysDb, {
+      apiBaseUrl: ctx.mgr.getApiBaseUrl(),
+      ...(args.refreshToken ? { refreshToken: args.refreshToken } : {}),
+    }),
   );
   ipcMain.handle('auth:changePassword', async (_e, args: { currentPassword: string; newPassword: string }) =>
     authChangePassword(ctx.sysDb, { apiBaseUrl: ctx.mgr.getApiBaseUrl(), currentPassword: args.currentPassword, newPassword: args.newPassword }),

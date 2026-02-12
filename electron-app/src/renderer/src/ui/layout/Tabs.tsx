@@ -93,9 +93,9 @@ export function Tabs(props: {
 }) {
   const menuState = deriveMenuState(props.availableTabs, props.layout);
   const menuItems: MenuItemId[] = useMemo(() => {
-    const base = [...menuState.visibleOrdered];
-    const next = [...base];
-    next.splice(menuState.trashIndex, 0, 'trash');
+    const base: MenuItemId[] = [...menuState.visibleOrdered];
+    const next: MenuItemId[] = [...base];
+    next.splice(menuState.trashIndex, 0, 'trash' as MenuItemId);
     return next;
   }, [menuState.trashIndex, menuState.visibleOrdered]);
   const menuItemsKey = menuItems.join('|');
@@ -134,8 +134,11 @@ export function Tabs(props: {
     const fullOrder = [...menuState.order];
     let cursor = 0;
     for (let i = 0; i < fullOrder.length; i += 1) {
-      if (!menuState.hiddenSet.has(fullOrder[i])) {
-        fullOrder[i] = nextVisibleOrder[cursor] ?? fullOrder[i];
+      const current = fullOrder[i];
+      if (!current) continue;
+      if (!menuState.hiddenSet.has(current)) {
+        const next = nextVisibleOrder[cursor];
+        if (next) fullOrder[i] = next;
         cursor += 1;
       }
     }
@@ -183,6 +186,7 @@ export function Tabs(props: {
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= menuItems.length) return;
     const nextItems = [...menuItems];
     const [item] = nextItems.splice(currentIndex, 1);
+    if (!item) return;
     nextItems.splice(nextIndex, 0, item);
     const nextVisibleOrder = nextItems.filter((x): x is MenuTabId => x !== 'trash');
     const nextTrashIndex = nextItems.indexOf('trash');

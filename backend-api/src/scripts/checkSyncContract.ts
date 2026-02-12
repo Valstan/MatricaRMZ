@@ -24,10 +24,8 @@ function checkSyncContract() {
 
 try {
   checkSyncContract();
-  // eslint-disable-next-line no-console
   console.log('sync contract ok');
 } catch (e) {
-  // eslint-disable-next-line no-console
   console.error(String(e));
   process.exit(1);
 }

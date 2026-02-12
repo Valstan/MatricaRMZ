@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 type Row = {
   id: string;
@@ -12,13 +13,20 @@ type Row = {
   updatedAt: number;
   createdAt: number;
 };
+type SortKey = 'name' | 'article' | 'updatedAt';
 
 export function PartsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
   canDelete: boolean;
 }) {
-  const [query, setQuery] = useState<string>('');
+  const { state: listState, patchState } = useListUiState('list:parts', {
+    query: '',
+    sortKey: 'updatedAt' as SortKey,
+    sortDir: 'desc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:parts');
+  const query = String(listState.query ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
@@ -28,7 +36,7 @@ export function PartsPage(props: {
   async function refresh() {
     try {
       setStatus('Загрузка…');
-      const r = await window.matrica.parts.list({ q: query.trim() || undefined });
+      const r = await window.matrica.parts.list({ ...(query.trim() ? { q: query.trim() } : {}) });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
         return;
@@ -56,16 +64,33 @@ export function PartsPage(props: {
     };
   }, [query]);
 
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [rows]);
+  const sorted = useSortedItems(
+    rows,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => {
+      if (key === 'name') return String(row.name ?? '').toLowerCase();
+      if (key === 'article') return String(row.article ?? '').toLowerCase();
+      return Number(row.updatedAt ?? 0);
+    },
+    (row) => row.id,
+  );
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
 
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Название</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Артикул</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Обновлено</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('name')}>
+          Название {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'name')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('article')}>
+          Артикул {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'article')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+          Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
+        </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
       </tr>
     </thead>
@@ -164,13 +189,13 @@ export function PartsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/артикулу…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/артикулу…" />
         </div>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

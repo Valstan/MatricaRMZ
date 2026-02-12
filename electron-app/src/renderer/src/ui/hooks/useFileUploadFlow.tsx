@@ -67,6 +67,7 @@ export function useFileUploadFlow() {
 
     for (let i = 0; i < tasks.length; i += 1) {
       const task = tasks[i];
+      if (!task) continue;
       const startPercent = Math.round((i / total) * 100);
       const endPercent = Math.round(((i + 1) / total) * 100);
       let animatedPercent = startPercent;

@@ -81,7 +81,6 @@ export function assertSyncMapCoverage() {
   const problems = [...missingTableMap, ...missingSyncTables];
   if (problems.length === 0) return;
   const msg = `syncChangeService missing mappings for: ${problems.join(', ')}`;
-  // eslint-disable-next-line no-console
   console.error(msg);
   if (mode === 'strict') throw new Error(msg);
 }

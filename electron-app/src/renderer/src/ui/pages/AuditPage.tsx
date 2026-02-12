@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 
 import type { AuditItem } from '@matricarmz/shared';
 
@@ -6,15 +6,26 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 
 export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<void> }) {
   const width = useWindowWidth();
   const twoCol = width >= 1400;
-  const [fromDate, setFromDate] = useState<string>(''); // YYYY-MM-DD
-  const [toDate, setToDate] = useState<string>(''); // YYYY-MM-DD
-  const [actorFilter, setActorFilter] = useState<string | null>(null);
-  const [sectionFilter, setSectionFilter] = useState<string | null>(null);
+  type SortKey = 'createdAt' | 'actor' | 'action' | 'section';
+  const { state: listState, patchState } = useListUiState('list:audit', {
+    fromDate: '',
+    toDate: '',
+    actorFilter: null as string | null,
+    sectionFilter: null as string | null,
+    sortKey: 'createdAt' as SortKey,
+    sortDir: 'desc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:audit');
+  const fromDate = String(listState.fromDate ?? '');
+  const toDate = String(listState.toDate ?? '');
+  const actorFilter = (listState.actorFilter as string | null) ?? null;
+  const sectionFilter = (listState.sectionFilter as string | null) ?? null;
 
   function sectionOf(a: AuditItem): string {
     const action = String(a.action ?? '');
@@ -133,6 +144,23 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
     });
   }, [props.audit, fromDate, toDate, actorFilter, sectionFilter]);
 
+  const sorted = useSortedItems(
+    filtered,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (a, key) => {
+      if (key === 'actor') return String(a.actor ?? '').toLowerCase();
+      if (key === 'action') return String(actionRu(a) ?? '').toLowerCase();
+      if (key === 'section') return String(contextRu(a) ?? '').toLowerCase();
+      return Number(a.createdAt ?? 0);
+    },
+    (a) => a.id,
+  );
+
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
   const actorOptions = useMemo(() => {
     const uniq = Array.from(new Set(props.audit.map((a) => String(a.actor ?? '')).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
     return uniq.map((id) => ({ id, label: id }));
@@ -146,10 +174,18 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
   const tableHeader = (
     <thead>
       <tr style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 120%)', color: '#fff' }}>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Время</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Логин</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Действие</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Раздел</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('createdAt')}>
+          Время {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'createdAt')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('actor')}>
+          Логин {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'actor')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('action')}>
+          Действие {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'action')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('section')}>
+          Раздел {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'section')}
+        </th>
       </tr>
     </thead>
   );
@@ -191,39 +227,36 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <Button onClick={props.onRefresh}>Обновить</Button>
         <div style={{ width: 160 }}>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <Input type="date" value={fromDate} onChange={(e) => patchState({ fromDate: e.target.value })} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>с даты</div>
         </div>
         <div style={{ width: 160 }}>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <Input type="date" value={toDate} onChange={(e) => patchState({ toDate: e.target.value })} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>по дату</div>
         </div>
         <div style={{ width: 240 }}>
-          <SearchSelect value={actorFilter} options={actorOptions} placeholder="Пользователь" onChange={setActorFilter} />
+          <SearchSelect value={actorFilter} options={actorOptions} placeholder="Пользователь" onChange={(next) => patchState({ actorFilter: next })} />
         </div>
         <div style={{ width: 240 }}>
-          <SearchSelect value={sectionFilter} options={sectionOptions} placeholder="Раздел" onChange={setSectionFilter} />
+          <SearchSelect value={sectionFilter} options={sectionOptions} placeholder="Раздел" onChange={(next) => patchState({ sectionFilter: next })} />
         </div>
         {(fromDate || toDate || actorFilter || sectionFilter) && (
           <Button
             variant="ghost"
             onClick={() => {
-              setFromDate('');
-              setToDate('');
-              setActorFilter(null);
-              setSectionFilter(null);
+              patchState({ fromDate: '', toDate: '', actorFilter: null, sectionFilter: null });
             }}
           >
             Сбросить фильтры
           </Button>
         )}
         <span style={{ color: '#6b7280', fontSize: 12 }}>
-          Показано: {filtered.length} / {props.audit.length}
+          Показано: {sorted.length} / {props.audit.length}
         </span>
       </div>
 
-      <div style={{ marginTop: 8 }}>
-        <TwoColumnList items={filtered} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8 }}>
+        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>
   );

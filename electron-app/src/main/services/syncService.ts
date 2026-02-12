@@ -290,6 +290,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
           .all(values) as Array<{ id: string; updated_at: number | null; deleted_at: number | null }>;
         if (!rows || rows.length <= 1) continue;
         const survivor = pickSurvivor(rows);
+        if (!survivor) continue;
         const refs = reverseFks.get(table) ?? [];
         for (const row of rows) {
           if (!row?.id || row.id === survivor.id) continue;
@@ -364,9 +365,13 @@ function decryptTextE2e(value: string, key: Buffer): string {
   if (!value.startsWith('enc:e2e:v1:')) return value;
   const parts = value.split(':');
   if (parts.length !== 6) return value;
-  const iv = Buffer.from(parts[3], 'base64');
-  const tag = Buffer.from(parts[4], 'base64');
-  const data = Buffer.from(parts[5], 'base64');
+  const ivPart = parts[3];
+  const tagPart = parts[4];
+  const dataPart = parts[5];
+  if (!ivPart || !tagPart || !dataPart) return value;
+  const iv = Buffer.from(ivPart, 'base64');
+  const tag = Buffer.from(tagPart, 'base64');
+  const data = Buffer.from(dataPart, 'base64');
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
@@ -601,7 +606,10 @@ async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
       continue;
     }
     const snapshot = await snapshotEntityType(db, typeId);
-    const pendingItems = await listPendingEntities(db, typeId, 5);
+    const pendingItems = (await listPendingEntities(db, typeId, 5)).map((item) => ({
+      ...item,
+      status: (item.status === 'error' ? 'error' : 'pending') as 'error' | 'pending',
+    }));
     entityTypesSnapshot[code] = pendingItems.length > 0 ? { ...snapshot, pendingItems } : snapshot;
   }
   return { tables, entityTypes: entityTypesSnapshot };
@@ -2000,7 +2008,7 @@ async function applyPulledChanges(
       table,
       detail: `строк: ${count}`,
       counts: { batch: count },
-      breakdown,
+      ...(breakdown ? { breakdown } : {}),
     });
   };
   const maybeYieldAfterBatch = async (count: number) => {
@@ -2497,11 +2505,11 @@ export async function runSync(
     });
   };
   const emitStage = (
-    stage: SyncProgressEvent['stage'],
+    stage: NonNullable<SyncProgressEvent['stage']>,
     detail?: string,
     extra?: Partial<SyncProgressEvent> & { service?: SyncProgressEvent['service'] },
   ) => {
-    emitSyncProgress('progress', { stage, detail, ...extra });
+    emitSyncProgress('progress', { ...(extra ?? {}), stage, ...(detail != null ? { detail } : {}) });
   };
   emitSyncProgress('start', {
     stage: 'prepare',
@@ -2592,7 +2600,7 @@ export async function runSync(
           emitStage('pull', detail, { counts: { batch: pullJson.changes.length }, service: 'sync' });
         }
         await applyPulledChanges(db, pullJson.changes, {
-          onProgress: progressEmitter ? (info) => emitSyncProgress('progress', info) : undefined,
+          ...(progressEmitter ? { onProgress: (info: any) => emitSyncProgress('progress', info) } : {}),
         });
         await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
         await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);

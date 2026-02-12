@@ -7,17 +7,17 @@ export type SupplyRequestStatus =
   | 'fulfilled_partial';
 
 export type SupplyRequestDelivery = {
-  deliveredAt: number; // ms epoch
-  qty: number;
+  deliveredAt?: number; // ms epoch
+  qty?: number;
   note?: string | null;
 };
 
 export type SupplyRequestItem = {
-  lineNo: number;
+  lineNo?: number;
   productId?: string | null;
-  name: string;
-  qty: number;
-  unit: string;
+  name?: string;
+  qty?: number;
+  unit?: string;
   note?: string | null;
   deliveries?: SupplyRequestDelivery[];
 };

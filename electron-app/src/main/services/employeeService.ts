@@ -69,8 +69,8 @@ export async function listEmployeeAttributeDefs(db: BetterSQLite3Database) {
 
 export async function listEmployeesSummary(
   dataDb: BetterSQLite3Database,
-  sysDb: BetterSQLite3Database,
-  apiBaseUrl: string,
+  _sysDb: BetterSQLite3Database,
+  _apiBaseUrl: string,
 ) {
   const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
   if (!employeeTypeId) return [];
@@ -121,8 +121,10 @@ export async function listEmployeesSummary(
     const nameDefId = deptDefByCode.name;
     if (nameDefId) {
       const depIds = new Set<string>();
+      const departmentAttrDefId = employeeDefByCode.department_id;
       for (const rec of Object.values(byEntity)) {
-        const raw = rec[employeeDefByCode.department_id];
+        if (!departmentAttrDefId) continue;
+        const raw = rec[departmentAttrDefId];
         if (typeof raw === 'string' && raw.trim()) depIds.add(raw);
       }
       const depIdList = Array.from(depIds);
@@ -144,17 +146,18 @@ export async function listEmployeesSummary(
   return rows.map((row) => {
     const entityId = String(row.id);
     const rec = byEntity[entityId] ?? {};
-    const fullName = String(rec[employeeDefByCode.full_name] ?? '').trim();
-    const last = String(rec[employeeDefByCode.last_name] ?? '').trim();
-    const first = String(rec[employeeDefByCode.first_name] ?? '').trim();
-    const middle = String(rec[employeeDefByCode.middle_name] ?? '').trim();
+    const pick = (defId: string | undefined) => (defId ? rec[defId] : undefined);
+    const fullName = String(pick(employeeDefByCode.full_name) ?? '').trim();
+    const last = String(pick(employeeDefByCode.last_name) ?? '').trim();
+    const first = String(pick(employeeDefByCode.first_name) ?? '').trim();
+    const middle = String(pick(employeeDefByCode.middle_name) ?? '').trim();
     const computedName = [last, first, middle].filter(Boolean).join(' ').trim();
-    const position = String(rec[employeeDefByCode.role] ?? '').trim();
-    const departmentId = String(rec[employeeDefByCode.department_id] ?? '').trim();
-    const employmentStatus = String(rec[employeeDefByCode.employment_status] ?? '').trim();
-    const personnelNumber = String(rec[employeeDefByCode.personnel_number] ?? '').trim();
-    const accessEnabled = rec[employeeDefByCode.access_enabled] === true;
-    const systemRole = String(rec[employeeDefByCode.system_role] ?? '').trim();
+    const position = String(pick(employeeDefByCode.role) ?? '').trim();
+    const departmentId = String(pick(employeeDefByCode.department_id) ?? '').trim();
+    const employmentStatus = String(pick(employeeDefByCode.employment_status) ?? '').trim();
+    const personnelNumber = String(pick(employeeDefByCode.personnel_number) ?? '').trim();
+    const accessEnabled = pick(employeeDefByCode.access_enabled) === true;
+    const systemRole = String(pick(employeeDefByCode.system_role) ?? '').trim();
     return {
       id: entityId,
       displayName: fullName || computedName || undefined,

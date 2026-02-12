@@ -133,7 +133,8 @@ export function SuggestInput(props: {
             if (!dropdown.open) return;
             e.preventDefault();
             if (dropdown.activeIdx >= 0) {
-              pick(dropdown.filtered[dropdown.activeIdx].id);
+              const active = dropdown.filtered[dropdown.activeIdx];
+              if (active) pick(active.id);
             } else if (props.onCreate && dropdown.query.trim()) {
               void submitCreate();
             }

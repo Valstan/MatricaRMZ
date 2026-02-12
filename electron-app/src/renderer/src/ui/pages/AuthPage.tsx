@@ -22,7 +22,7 @@ function roleStyles(roleRaw: string) {
 }
 
 export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
-  const [status, setStatus] = useState<AuthStatus>({ loggedIn: false, user: null });
+  const [status, setStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: {} });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginOptions, setLoginOptions] = useState<Array<{ login: string; fullName: string; role: string }>>([]);

@@ -364,7 +364,12 @@ export async function exportDefectSupplyReportPdf(
 ): Promise<Ok<{ contentBase64: string; fileName: string; mime: string }> | Err> {
   const base = await buildDefectSupplyReport(db, args);
   if (!base.ok) return base;
-  const html = buildDefectSupplyHtml({ ...base, startMs: args.startMs, endMs: args.endMs, contractLabels: args.contractLabels });
+  const html = buildDefectSupplyHtml({
+    ...base,
+    ...(args.startMs !== undefined ? { startMs: args.startMs } : {}),
+    endMs: args.endMs,
+    contractLabels: args.contractLabels,
+  });
   const win = await renderHtmlWindow(html);
   try {
     const pdf = await win.webContents.printToPDF({ printBackground: true });
@@ -392,7 +397,12 @@ export async function printDefectSupplyReport(
 ): Promise<Ok<{}> | Err> {
   const base = await buildDefectSupplyReport(db, args);
   if (!base.ok) return base;
-  const html = buildDefectSupplyHtml({ ...base, startMs: args.startMs, endMs: args.endMs, contractLabels: args.contractLabels });
+  const html = buildDefectSupplyHtml({
+    ...base,
+    ...(args.startMs !== undefined ? { startMs: args.startMs } : {}),
+    endMs: args.endMs,
+    contractLabels: args.contractLabels,
+  });
   const win = await renderHtmlWindow(html);
   try {
     await new Promise<void>((resolve, reject) => {
@@ -527,7 +537,9 @@ export async function buildPeriodStagesCsvByLink(
     const lines: string[] = [header.join(';')];
     const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     for (const [key, count] of sorted) {
-      const [group, stage] = key.split('||');
+      const [groupRaw, stageRaw] = key.split('||');
+      const group = groupRaw ?? '';
+      const stage = stageRaw ?? '';
       lines.push([csvEscape(group), csvEscape(stage), String(count)].join(';'));
     }
     return { ok: true, csv: lines.join('\n') + '\n' };

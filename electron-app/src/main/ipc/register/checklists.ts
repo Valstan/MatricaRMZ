@@ -47,10 +47,16 @@ export function registerChecklistsIpc(ctx: IpcContext) {
         filledBy: actor || null,
         filledAt: Date.now(),
         answers: args.answers ?? {},
-        attachments: Array.isArray(args.attachments) ? args.attachments : undefined,
+        ...(Array.isArray(args.attachments) ? { attachments: args.attachments } : {}),
       };
 
-      return saveRepairChecklistForEngine(ctx.dataDb(), { engineId: args.engineId, stage: args.stage, operationId: args.operationId, payload, actor });
+      return saveRepairChecklistForEngine(ctx.dataDb(), {
+        engineId: args.engineId,
+        stage: args.stage,
+        ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
+        payload,
+        actor,
+      });
     },
   );
 }

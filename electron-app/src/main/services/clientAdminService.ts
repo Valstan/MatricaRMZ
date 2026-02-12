@@ -188,7 +188,7 @@ export async function applyRemoteClientSettings(args: {
             });
             await resetSyncState(db);
             const result = await runSync(db, args.clientId, args.apiBaseUrl, {
-              fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress },
+              fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress as any },
             });
             if (!result.ok) {
               requestStatus = 'error';
@@ -210,7 +210,7 @@ export async function applyRemoteClientSettings(args: {
             const startedAt = Date.now();
             const estimateMs = Math.max(120_000, Math.min(20 * 60_000, (await settingsGetNumber(db, SettingsKey.LastFullPullDurationMs, 0)) || 300_000));
             const result = await runSync(db, args.clientId, args.apiBaseUrl, {
-              fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress },
+              fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress as any },
             });
             if (!result.ok) {
               requestStatus = 'error';

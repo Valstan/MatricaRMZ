@@ -84,7 +84,9 @@ function printEngineReport(
 
   openPrintPreview({
     title: `Карточка двигателя`,
-    subtitle: (context?.engineNumber ?? attrs.engine_number) ? `Номер: ${String(context?.engineNumber ?? attrs.engine_number)}` : undefined,
+    ...((context?.engineNumber ?? attrs.engine_number)
+      ? { subtitle: `Номер: ${String(context?.engineNumber ?? attrs.engine_number)}` }
+      : {}),
     sections: [
       { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
       { id: 'files', title: 'Файлы', html: fileListHtml(attrs.attachments) },
@@ -239,6 +241,7 @@ export function EngineDetailsPage(props: {
         setSaveStatus(`Ошибка удаления: ${r.error ?? 'unknown'}`);
         return;
       }
+      await props.onEngineUpdated();
       setSaveStatus('Удалено');
       setTimeout(() => setSaveStatus(''), 900);
       props.onClose();
@@ -675,7 +678,7 @@ export function EngineDetailsPage(props: {
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
           engineBrand={engineBrand}
-          engineBrandId={engineBrandId || undefined}
+          {...(engineBrandId ? { engineBrandId } : {})}
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}
           defaultCollapsed
@@ -692,7 +695,7 @@ export function EngineDetailsPage(props: {
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
           engineBrand={engineBrand}
-          engineBrandId={engineBrandId || undefined}
+          {...(engineBrandId ? { engineBrandId } : {})}
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}
           defaultCollapsed
@@ -709,7 +712,7 @@ export function EngineDetailsPage(props: {
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
           engineBrand={engineBrand}
-          engineBrandId={engineBrandId || undefined}
+          {...(engineBrandId ? { engineBrandId } : {})}
           defaultCollapsed
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}

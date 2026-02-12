@@ -58,7 +58,7 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
       typeId: String(e.typeId),
       updatedAt: Number(e.updatedAt),
       syncStatus: String(e.syncStatus),
-      displayName,
+      ...(displayName != null ? { displayName } : {}),
     });
   }
   // newest first

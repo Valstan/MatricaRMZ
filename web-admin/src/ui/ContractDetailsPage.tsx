@@ -534,7 +534,14 @@ export function ContractDetailsPage(props: {
             canView={props.canViewFiles}
             canUpload={props.canUploadFiles && props.canEditMasterData}
             scope={{ ownerType: 'contract', ownerId: contract.id, category: 'attachments' }}
-            onChange={(next) => saveAttr('attachments', next)}
+            onChange={async (next) => {
+              try {
+                await saveAttr('attachments', next);
+                return { ok: true as const };
+              } catch (e) {
+                return { ok: false as const, error: String(e) };
+              }
+            }}
           />
         </div>
 
@@ -551,7 +558,14 @@ export function ContractDetailsPage(props: {
                   canView={props.canViewFiles}
                   canUpload={props.canUploadFiles && props.canEditMasterData}
                   scope={{ ownerType: 'contract', ownerId: contract.id, category }}
-                  onChange={(next) => saveAttr(def.code, next)}
+                  onChange={async (next) => {
+                    try {
+                      await saveAttr(def.code, next);
+                      return { ok: true as const };
+                    } catch (e) {
+                      return { ok: false as const, error: String(e) };
+                    }
+                  }}
                 />
               );
             })}

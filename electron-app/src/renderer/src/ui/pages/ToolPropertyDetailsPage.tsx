@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 
 export function ToolPropertyDetailsPage(props: {
@@ -40,7 +41,7 @@ export function ToolPropertyDetailsPage(props: {
         setParamHints([]);
         return;
       }
-      const values = Array.isArray(r.items)
+      const values: string[] = Array.isArray(r.items)
         ? r.items.map((x: any) => String(x?.params ?? '').trim()).filter(Boolean)
         : [];
       setParamHints(Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, 'ru')));
@@ -70,7 +71,7 @@ export function ToolPropertyDetailsPage(props: {
           <div>Наименование свойства</div>
           <Input
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
             onBlur={() => void saveAttr('name', name.trim())}
             placeholder="Например: Материал"
             disabled={!props.canEdit}

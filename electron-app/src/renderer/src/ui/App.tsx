@@ -196,7 +196,7 @@ export function App() {
           progress: evt.progress ?? prev?.progress ?? 0,
           etaMs: evt.etaMs ?? prev?.etaMs ?? null,
           estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
-          pulled: evt.pulled ?? prev?.pulled,
+          ...(evt.pulled != null ? { pulled: evt.pulled } : prev?.pulled != null ? { pulled: prev.pulled } : {}),
           activity: activity ?? prev?.activity ?? null,
           history: activity ? pushSyncHistory(prev?.history ?? [], activity) : prev?.history ?? [],
         }));
@@ -208,7 +208,7 @@ export function App() {
           progress: 1,
           etaMs: 0,
           estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
-          pulled: evt.pulled ?? prev?.pulled,
+          ...(evt.pulled != null ? { pulled: evt.pulled } : prev?.pulled != null ? { pulled: prev.pulled } : {}),
           activity: activity ?? prev?.activity ?? null,
           history: activity ? pushSyncHistory(prev?.history ?? [], activity) : prev?.history ?? [],
         }));
@@ -221,7 +221,7 @@ export function App() {
           progress: prev?.progress ?? null,
           etaMs: null,
           estimateMs: evt.estimateMs ?? prev?.estimateMs ?? null,
-          pulled: prev?.pulled,
+          ...(prev?.pulled != null ? { pulled: prev.pulled } : {}),
           error: evt.error ?? 'unknown',
           activity: activity ?? prev?.activity ?? null,
           history: activity ? pushSyncHistory(prev?.history ?? [], activity) : prev?.history ?? [],
@@ -965,7 +965,7 @@ export function App() {
       return;
     }
     const r = await window.matrica.chat
-      .sendDeepLink({ recipientUserId: chatContext.selectedUserId ?? null, link: currentAppLink })
+      .sendDeepLink({ recipientUserId: chatContext.selectedUserId ?? null, link: currentAppLink as any })
       .catch(() => null);
     if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
   }
@@ -1008,7 +1008,7 @@ export function App() {
   async function sendCurrentLinkToNotes() {
     if (!authStatus.loggedIn || viewMode) return;
     const title = sendLinkDialog.title.trim() || 'Ссылка на раздел';
-    const body = [{ id: crypto.randomUUID(), kind: 'link', appLink: currentAppLink }];
+    const body = [{ id: crypto.randomUUID(), kind: 'link' as const, appLink: currentAppLink as any }];
     const r = await window.matrica.notes.upsert({ title, body, importance: 'normal' }).catch(() => null);
     if ((r as any)?.ok && !viewMode) void window.matrica.sync.run().catch(() => {});
     setSendLinkDialog({ open: false, title: 'Ссылка на раздел' });
@@ -1525,7 +1525,7 @@ export function App() {
               onLayoutChange={persistTabsLayout}
               userLabel={userLabel}
               userTab={userTab}
-              authStatus={presence ? { online: presence.online } : undefined}
+              {...(presence ? { authStatus: { online: presence.online } } : {})}
               notesAlertCount={notesAlertCount}
             />
           </div>
@@ -1854,7 +1854,7 @@ export function App() {
           <NotesPage
             meUserId={authStatus.user?.id ?? ''}
             canEdit={authStatus.loggedIn && !viewMode}
-            currentLink={currentAppLink}
+            currentLink={currentAppLink as any}
             onNavigate={(link) => {
               void navigateDeepLink(link);
             }}

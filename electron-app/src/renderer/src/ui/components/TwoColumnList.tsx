@@ -4,7 +4,9 @@ function splitAlternating<T>(items: T[]): { left: T[]; right: T[] } {
   const left: T[] = [];
   const right: T[] = [];
   for (let i = 0; i < items.length; i++) {
-    (i % 2 === 0 ? left : right).push(items[i]);
+    const item = items[i];
+    if (item === undefined) continue;
+    (i % 2 === 0 ? left : right).push(item);
   }
   return { left, right };
 }

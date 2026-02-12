@@ -540,7 +540,7 @@ export function ChatPanel(props: {
           ) : (
             <>
               {modeLabel}
-              {privateWith ? `: ${privateWith.chatDisplayName || privateWith.username}` : ''}
+              {selectedUserId ? `: ${selectedUserId}` : ''}
             </>
           )}
         </div>

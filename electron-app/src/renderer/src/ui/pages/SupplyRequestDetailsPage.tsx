@@ -76,6 +76,26 @@ function sumDelivered(deliveries: SupplyRequestDelivery[] | undefined): number {
   return deliveries.reduce((acc, d) => acc + (Number(d?.qty) || 0), 0);
 }
 
+function ensureItem(item: SupplyRequestItem | undefined, lineNo: number): SupplyRequestItem {
+  return {
+    lineNo,
+    productId: item?.productId ?? null,
+    name: item?.name ?? '',
+    qty: Number(item?.qty ?? 0),
+    unit: item?.unit ?? '',
+    note: item?.note ?? '',
+    deliveries: Array.isArray(item?.deliveries) ? item.deliveries : [],
+  };
+}
+
+function ensureDelivery(d: SupplyRequestDelivery | undefined): SupplyRequestDelivery {
+  return {
+    deliveredAt: d?.deliveredAt ?? Date.now(),
+    qty: Number(d?.qty ?? 0),
+    note: d?.note ?? '',
+  };
+}
+
 function printSupplyRequest(
   p: SupplyRequestPayload,
   departmentLabel: string,
@@ -176,7 +196,7 @@ function printSupplyRequest(
 
   openPrintPreview({
     title: `Заявка ${p.requestNumber}`,
-    subtitle: p.compiledAt ? `Дата: ${new Date(p.compiledAt).toLocaleDateString('ru-RU')}` : undefined,
+    ...(p.compiledAt ? { subtitle: `Дата: ${new Date(p.compiledAt).toLocaleDateString('ru-RU')}` } : {}),
     sections: [
       { id: 'main', title: 'Основное', html: mainHtml },
       { id: 'items', title: 'Позиции', html: itemsHtml },
@@ -800,8 +820,9 @@ export function SupplyRequestDetailsPage(props: {
                         const items = [...(payload.items ?? [])];
                         if (!items[from] || !items[to]) return;
                         const [moved] = items.splice(from, 1);
+                        if (!moved) return;
                         items.splice(to, 0, moved);
-                        const renum = items.map((x, i) => ({ ...x, lineNo: i + 1 }));
+                        const renum = items.map((x, i) => ({ ...ensureItem(x, i + 1), lineNo: i + 1 }));
                         scheduleSave({ ...payload, items: renum });
                       }}
                     >
@@ -849,11 +870,12 @@ export function SupplyRequestDetailsPage(props: {
                             onChange={(next) => {
                               const items = [...(payload.items ?? [])];
                               const selected = productOptions.find((p) => p.id === next);
+                              const current = ensureItem(items[idx], idx + 1);
                               items[idx] = {
-                                ...items[idx],
+                                ...current,
                                 productId: next || null,
-                                name: selected?.name ?? items[idx]?.name ?? '',
-                                unit: selected?.unit ?? items[idx]?.unit ?? '',
+                                name: selected?.name ?? current.name ?? '',
+                                unit: selected?.unit ?? current.unit ?? '',
                               };
                               scheduleSave({ ...payload, items });
                               if (next) {
@@ -861,7 +883,8 @@ export function SupplyRequestDetailsPage(props: {
                                   const enriched = await enrichUnitIfMissing(next);
                                   if (!enriched?.unit) return;
                                   const updated = [...(payload.items ?? [])];
-                                  updated[idx] = { ...updated[idx], unit: enriched.unit };
+                                  const current = ensureItem(updated[idx], idx + 1);
+                                  updated[idx] = { ...current, unit: enriched.unit };
                                   scheduleSave({ ...payload, items: updated });
                                 })();
                               }
@@ -884,11 +907,12 @@ export function SupplyRequestDetailsPage(props: {
                               nextOptions.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
                               setProductOptions(nextOptions);
                               const items = [...(payload.items ?? [])];
+                              const current = ensureItem(items[idx], idx + 1);
                               items[idx] = {
-                                ...items[idx],
+                                ...current,
                                 productId: id,
                                 name,
-                                unit: items[idx]?.unit ?? '',
+                                unit: current.unit ?? '',
                               };
                               scheduleSave({ ...payload, items });
                               return id;
@@ -909,7 +933,7 @@ export function SupplyRequestDetailsPage(props: {
                           onChange={(e) => {
                             const n = Number(e.target.value);
                             const items = [...(payload.items ?? [])];
-                            items[idx] = { ...items[idx], qty: Number.isFinite(n) ? n : 0 };
+                            items[idx] = { ...ensureItem(items[idx], idx + 1), qty: Number.isFinite(n) ? n : 0 };
                             scheduleSave({ ...payload, items });
                           }}
                           style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
@@ -926,7 +950,7 @@ export function SupplyRequestDetailsPage(props: {
                           onChange={(next) => {
                             const label = unitOptions.find((o) => o.id === next)?.label ?? '';
                             const items = [...(payload.items ?? [])];
-                            items[idx] = { ...items[idx], unit: label };
+                            items[idx] = { ...ensureItem(items[idx], idx + 1), unit: label };
                             scheduleSave({ ...payload, items });
                           }}
                           onCreate={async (label) => {
@@ -936,7 +960,7 @@ export function SupplyRequestDetailsPage(props: {
                             const nextUnits = [...unitOptions, { id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
                             setUnitOptions(nextUnits);
                             const items = [...(payload.items ?? [])];
-                            items[idx] = { ...items[idx], unit: clean };
+                            items[idx] = { ...ensureItem(items[idx], idx + 1), unit: clean };
                             scheduleSave({ ...payload, items });
                             return id;
                           }}
@@ -948,7 +972,7 @@ export function SupplyRequestDetailsPage(props: {
                           disabled={!props.canEdit}
                           onChange={(e) => {
                             const items = [...(payload.items ?? [])];
-                            items[idx] = { ...items[idx], note: e.target.value };
+                            items[idx] = { ...ensureItem(items[idx], idx + 1), note: e.target.value };
                             scheduleSave({ ...payload, items });
                           }}
                           style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
@@ -965,7 +989,7 @@ export function SupplyRequestDetailsPage(props: {
                             const n = Number(e.target.value);
                             const qty = Number.isFinite(n) ? n : 0;
                             const items = [...(payload.items ?? [])];
-                            const cur = items[idx];
+                            const cur = ensureItem(items[idx], idx + 1);
                             const deliveredAt = payload.arrivedAt ?? Date.now();
                             items[idx] = { ...cur, deliveries: qty > 0 ? [{ deliveredAt, qty, note: '' }] : [] };
                             scheduleSave({ ...payload, items });
@@ -988,7 +1012,7 @@ export function SupplyRequestDetailsPage(props: {
                               onClick={() => {
                                 const items = [...(payload.items ?? [])];
                                 items.splice(idx, 1);
-                                const renum = items.map((x, i) => ({ ...x, lineNo: i + 1 }));
+                                const renum = items.map((x, i) => ({ ...ensureItem(x, i + 1), lineNo: i + 1 }));
                                 scheduleSave({ ...payload, items: renum });
                                 setExpandedLine((v) => (v === idx ? null : v));
                               }}
@@ -1009,7 +1033,7 @@ export function SupplyRequestDetailsPage(props: {
                               <Button
                                 onClick={() => {
                                   const items = [...(payload.items ?? [])];
-                                  const cur = items[idx];
+                                  const cur = ensureItem(items[idx], idx + 1);
                                   const deliveries = [...(cur.deliveries ?? [])];
                                   deliveries.push({ deliveredAt: Date.now(), qty: 0, note: '' });
                                   items[idx] = { ...cur, deliveries };
@@ -1042,9 +1066,9 @@ export function SupplyRequestDetailsPage(props: {
                                   const ms = fromInputDate(e.target.value);
                                   if (!ms) return;
                                   const items = [...(payload.items ?? [])];
-                                  const cur = items[idx];
+                                  const cur = ensureItem(items[idx], idx + 1);
                                   const deliveries = [...(cur.deliveries ?? [])];
-                                  deliveries[di] = { ...deliveries[di], deliveredAt: ms };
+                                  deliveries[di] = { ...ensureDelivery(deliveries[di]), deliveredAt: ms };
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
@@ -1059,9 +1083,9 @@ export function SupplyRequestDetailsPage(props: {
                                 onChange={(e) => {
                                   const n = Number(e.target.value);
                                   const items = [...(payload.items ?? [])];
-                                  const cur = items[idx];
+                                  const cur = ensureItem(items[idx], idx + 1);
                                   const deliveries = [...(cur.deliveries ?? [])];
-                                  deliveries[di] = { ...deliveries[di], qty: Number.isFinite(n) ? n : 0 };
+                                  deliveries[di] = { ...ensureDelivery(deliveries[di]), qty: Number.isFinite(n) ? n : 0 };
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
@@ -1072,9 +1096,9 @@ export function SupplyRequestDetailsPage(props: {
                                 disabled={!props.canEdit}
                                 onChange={(e) => {
                                   const items = [...(payload.items ?? [])];
-                                  const cur = items[idx];
+                                  const cur = ensureItem(items[idx], idx + 1);
                                   const deliveries = [...(cur.deliveries ?? [])];
-                                  deliveries[di] = { ...deliveries[di], note: e.target.value };
+                                  deliveries[di] = { ...ensureDelivery(deliveries[di]), note: e.target.value };
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
@@ -1086,7 +1110,7 @@ export function SupplyRequestDetailsPage(props: {
                                   variant="ghost"
                                   onClick={() => {
                                     const items = [...(payload.items ?? [])];
-                                    const cur = items[idx];
+                                    const cur = ensureItem(items[idx], idx + 1);
                                     const deliveries = [...(cur.deliveries ?? [])];
                                     deliveries.splice(di, 1);
                                     items[idx] = { ...cur, deliveries };

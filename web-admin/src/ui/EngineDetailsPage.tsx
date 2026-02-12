@@ -183,7 +183,7 @@ export function EngineDetailsPage(props: {
       const rows = await listEntities(tid);
       if (!rows?.ok) return;
       const opts = (rows.rows ?? []).map((x: any) => ({ id: String(x.id), label: x.displayName ? `${x.displayName}` : String(x.id) }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      opts.sort((a: LinkOpt, b: LinkOpt) => a.label.localeCompare(b.label, 'ru'));
       setLinkLists((p) => ({ ...p, [key]: opts }));
     }
     await load('engine_brand', 'engine_brand');

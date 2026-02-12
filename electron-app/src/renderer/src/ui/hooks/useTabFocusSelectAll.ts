@@ -71,6 +71,7 @@ export function useTabFocusSelectAll(options?: { enableEnterAsTab?: boolean }) {
         e.preventDefault();
         selectOnNextFocus = true;
         const next = fields[nextIdx];
+        if (!next) return;
         window.requestAnimationFrame(() => {
           try {
             next.focus();

@@ -30,8 +30,8 @@ function safeTabsLayout(value: unknown): TabsLayoutPrefs | null {
   const hidden = Array.isArray(raw.hidden) ? raw.hidden.map((x) => String(x)) : undefined;
   const trashIndex = raw.trashIndex == null ? null : Number(raw.trashIndex);
   return {
-    order,
-    hidden,
+    ...(order ? { order } : {}),
+    ...(hidden ? { hidden } : {}),
     trashIndex: Number.isFinite(trashIndex ?? NaN) ? trashIndex : null,
   };
 }

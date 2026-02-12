@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { parseContractSections, aggregateProgressByContract, type ProgressLinkedItem } from '@matricarmz/shared';
 
 type Row = {
@@ -15,6 +16,7 @@ type Row = {
   daysLeft: number | null;
   progress: number | null;
 };
+type SortKey = 'number' | 'internalNumber' | 'dateMs' | 'updatedAt';
 
 function normalize(s: string) {
   return String(s || '')
@@ -32,7 +34,13 @@ export function ContractsPage(props: {
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
-  const [query, setQuery] = useState<string>('');
+  const { state: listState, patchState } = useListUiState('list:contracts', {
+    query: '',
+    sortKey: 'updatedAt' as SortKey,
+    sortDir: 'desc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:contracts');
+  const query = String(listState.query ?? '');
   const [contractTypeId, setContractTypeId] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
@@ -126,17 +134,38 @@ export function ContractsPage(props: {
     return rows.filter((r) => normalize(r.number).includes(q) || normalize(r.internalNumber).includes(q));
   }, [rows, query]);
 
-  const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [filtered]);
+  const sorted = useSortedItems(
+    filtered,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => {
+      if (key === 'number') return String(row.number ?? '').toLowerCase();
+      if (key === 'internalNumber') return String(row.internalNumber ?? '').toLowerCase();
+      if (key === 'dateMs') return Number(row.dateMs ?? 0);
+      return Number(row.updatedAt ?? 0);
+    },
+    (row) => row.id,
+  );
+
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
 
   const tableHeader = (
     <thead>
       <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #1d4ed8 120%)', color: '#fff' }}>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Номер</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Внутр. номер</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Обновлено</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('number')}>
+          Номер {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'number')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('internalNumber')}>
+          Внутр. номер {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'internalNumber')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('dateMs')}>
+          Дата {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'dateMs')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+          Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
+        </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 140 }}>Действия</th>
       </tr>
     </thead>
@@ -230,7 +259,7 @@ export function ContractsPage(props: {
                 setStatus('Создание контракта…');
                 const r = await window.matrica.admin.entities.create(contractTypeId);
                 if (!r?.ok || !r?.id) {
-                  setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
+                  setStatus(`Ошибка: ${(r as any)?.error ?? 'unknown'}`);
                   return;
                 }
                 setStatus('');
@@ -245,7 +274,7 @@ export function ContractsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру/внутреннему номеру…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру/внутреннему номеру…" />
         </div>
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
@@ -254,7 +283,7 @@ export function ContractsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

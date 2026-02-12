@@ -110,7 +110,7 @@ export class SyncManager {
       progress: {
         mode: 'incremental',
         startedAt,
-        onProgress: this.onProgress,
+        ...(this.onProgress ? { onProgress: this.onProgress } : {}),
       },
     });
 

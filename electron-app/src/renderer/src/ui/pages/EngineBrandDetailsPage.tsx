@@ -212,7 +212,7 @@ export function EngineBrandDetailsPage(props: {
     try {
       const created = await window.matrica.parts.create({ attributes: { name } });
       if (!created?.ok || !created.part?.id) {
-        setPartsStatus(`Ошибка: ${created?.error ?? 'Не удалось создать деталь'}`);
+        setPartsStatus(`Ошибка: ${(created as any)?.error ?? 'Не удалось создать деталь'}`);
         return null;
       }
       const id = String(created.part.id);

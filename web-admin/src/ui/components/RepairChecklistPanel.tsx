@@ -160,7 +160,7 @@ export function RepairChecklistPanel(props: {
     setOperationId(r.operationId ?? null);
     setPayload(r.payload ?? null);
 
-    const t = (r.templates ?? []).find((x) => x.id === preferred) ?? (r.templates?.[0] ?? null);
+    const t = (r.templates ?? []).find((x: any) => x.id === preferred) ?? (r.templates?.[0] ?? null);
     if (r.payload?.answers) setAnswers(r.payload.answers);
     else if (t) setAnswers(emptyAnswersForTemplate(t));
     else setAnswers({});
@@ -883,27 +883,27 @@ export function RepairChecklistPanel(props: {
 
 function TableEditor(props: {
   canEdit: boolean;
-  columns: { id: string; label: string; kind?: 'text' | 'boolean' }[];
-  rows: Record<string, string | boolean>[];
+  columns: { id: string; label: string; kind?: 'text' | 'boolean' | 'number' }[];
+  rows: Record<string, string | boolean | number>[];
   cellRenderers?: Record<
     string,
     (args: {
       rowIdx: number;
       columnId: string;
-      value: string | boolean;
-      setValue: (rowIdx: number, columnId: string, value: string | boolean, save?: boolean) => void;
+      value: string | boolean | number;
+      setValue: (rowIdx: number, columnId: string, value: string | boolean | number, save?: boolean) => void;
     }) => React.ReactNode
   >;
-  onChange: (rows: Record<string, string | boolean>[]) => void;
-  onSave: (rows: Record<string, string | boolean>[]) => void;
+  onChange: (rows: Record<string, string | boolean | number>[]) => void;
+  onSave: (rows: Record<string, string | boolean | number>[]) => void;
 }) {
-  const [draft, setDraft] = useState<Record<string, string | boolean>[]>(props.rows ?? []);
+  const [draft, setDraft] = useState<Record<string, string | boolean | number>[]>(props.rows ?? []);
 
   useEffect(() => {
     setDraft(props.rows ?? []);
   }, [props.rows]);
 
-  function updateRow(idx: number, colId: string, value: string | boolean, save = false) {
+  function updateRow(idx: number, colId: string, value: string | boolean | number, save = false) {
     const next = draft.map((r, i) => (i === idx ? { ...r, [colId]: value } : r));
     setDraft(next);
     props.onChange(next);

@@ -159,7 +159,7 @@ app.whenReady().then(() => {
 
   const helperArgs = getUpdateHelperArgs(process.argv);
   if (helperArgs) {
-    void runUpdateHelperFlow(helperArgs);
+    void runUpdateHelperFlow(helperArgs as any);
     return;
   }
 

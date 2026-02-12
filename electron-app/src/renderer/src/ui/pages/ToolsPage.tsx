@@ -6,6 +6,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 type Row = {
   id: string;
@@ -16,6 +17,7 @@ type Row = {
   retiredAt?: number | null;
   updatedAt: number;
 };
+type SortKey = 'toolNumber' | 'name' | 'serialNumber' | 'departmentName' | 'retired' | 'updatedAt';
 
 type ReportRow = {
   toolId: string;
@@ -35,7 +37,13 @@ export function ToolsPage(props: {
   canCreate: boolean;
   canDelete: boolean;
 }) {
-  const [query, setQuery] = useState<string>('');
+  const { state: listState, patchState } = useListUiState('list:tools', {
+    query: '',
+    sortKey: 'updatedAt' as SortKey,
+    sortDir: 'desc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:tools');
+  const query = String(listState.query ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [reportOpen, setReportOpen] = useState(false);
@@ -109,9 +117,23 @@ export function ToolsPage(props: {
     };
   }, [query]);
 
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [rows]);
+  const sorted = useSortedItems(
+    rows,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => {
+      if (key === 'toolNumber') return String(row.toolNumber ?? '').toLowerCase();
+      if (key === 'name') return String(row.name ?? '').toLowerCase();
+      if (key === 'serialNumber') return String(row.serialNumber ?? '').toLowerCase();
+      if (key === 'departmentName') return String(row.departmentName ?? '').toLowerCase();
+      if (key === 'retired') return row.retiredAt ? 1 : 0;
+      return Number(row.updatedAt ?? 0);
+    },
+    (row) => row.id,
+  );
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
   const reportNameHints = useMemo(() => {
     const s = new Set<string>();
     rows.forEach((r) => {
@@ -163,11 +185,21 @@ export function ToolsPage(props: {
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Таб. №</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Наименование</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Серийный №</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Подразделение</th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Статус</th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('toolNumber')}>
+          Таб. № {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'toolNumber')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('name')}>
+          Наименование {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'name')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('serialNumber')}>
+          Серийный № {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'serialNumber')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('departmentName')}>
+          Подразделение {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'departmentName')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('retired')}>
+          Статус {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'retired')}
+        </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>
           Действия
         </th>
@@ -275,7 +307,7 @@ export function ToolsPage(props: {
           Отчет
         </Button>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру/названию/серийному…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру/названию/серийному…" />
         </div>
       </div>
 
@@ -374,7 +406,7 @@ export function ToolsPage(props: {
         </div>
       )}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

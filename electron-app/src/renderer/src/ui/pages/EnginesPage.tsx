@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 
 import type { EngineListItem } from '@matricarmz/shared';
 
@@ -6,8 +6,45 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+
+export type EnginesPageUiState = {
+  query: string;
+  showReport: boolean;
+  periodFrom: string;
+  periodTo: string;
+  arrivalFrom: string;
+  arrivalTo: string;
+  shippingFrom: string;
+  shippingTo: string;
+  contractIds: string[];
+  brandIds: string[];
+  scrapFilter: 'all' | 'yes' | 'no';
+  onSiteFilter: 'all' | 'yes' | 'no';
+  sortKey: 'engineNumber' | 'engineBrand' | 'customerName' | 'arrivalDate' | 'shippingDate';
+  sortDir: 'asc' | 'desc';
+};
+
+export function createDefaultEnginesPageUiState(): EnginesPageUiState {
+  return {
+    query: '',
+    showReport: false,
+    periodFrom: '',
+    periodTo: '',
+    arrivalFrom: '',
+    arrivalTo: '',
+    shippingFrom: '',
+    shippingTo: '',
+    contractIds: [],
+    brandIds: [],
+    scrapFilter: 'all',
+    onSiteFilter: 'all',
+    sortKey: 'arrivalDate',
+    sortDir: 'desc',
+  };
+}
 
 function toDateLabel(ms?: number | null) {
   if (!ms) return '';
@@ -41,20 +78,22 @@ export function EnginesPage(props: {
   onCreate: () => Promise<void>;
   canCreate: boolean;
 }) {
-  const [query, setQuery] = useState('');
-  const [showReport, setShowReport] = useState(false);
-  const [periodFrom, setPeriodFrom] = useState('');
-  const [periodTo, setPeriodTo] = useState('');
-  const [arrivalFrom, setArrivalFrom] = useState('');
-  const [arrivalTo, setArrivalTo] = useState('');
-  const [shippingFrom, setShippingFrom] = useState('');
-  const [shippingTo, setShippingTo] = useState('');
-  const [contractIds, setContractIds] = useState<string[]>([]);
-  const [brandIds, setBrandIds] = useState<string[]>([]);
-  const [scrapFilter, setScrapFilter] = useState<'all' | 'yes' | 'no'>('all');
-  const [onSiteFilter, setOnSiteFilter] = useState<'all' | 'yes' | 'no'>('all');
-  const [sortKey, setSortKey] = useState<'engineNumber' | 'engineBrand' | 'customerName' | 'arrivalDate' | 'shippingDate'>('arrivalDate');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
+  const { containerRef, onScroll } = usePersistedScrollTop('list:engines');
+  const query = listState.query;
+  const showReport = listState.showReport;
+  const periodFrom = listState.periodFrom;
+  const periodTo = listState.periodTo;
+  const arrivalFrom = listState.arrivalFrom;
+  const arrivalTo = listState.arrivalTo;
+  const shippingFrom = listState.shippingFrom;
+  const shippingTo = listState.shippingTo;
+  const contractIds = listState.contractIds;
+  const brandIds = listState.brandIds;
+  const scrapFilter = listState.scrapFilter;
+  const onSiteFilter = listState.onSiteFilter;
+  const sortKey = listState.sortKey;
+  const sortDir = listState.sortDir;
   const width = useWindowWidth();
   const twoCol = width >= 1400;
 
@@ -121,11 +160,10 @@ export function EnginesPage(props: {
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      patchState({ sortDir: sortDir === 'asc' ? 'desc' : 'asc' });
       return;
     }
-    setSortKey(key);
-    setSortDir('asc');
+    patchState({ sortKey: key, sortDir: 'asc' });
   }
 
   function sortArrow(key: typeof sortKey) {
@@ -318,11 +356,11 @@ export function EnginesPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
-        <Button variant="ghost" onClick={() => setShowReport((v) => !v)}>
+        <Button variant="ghost" onClick={() => patchState({ showReport: !showReport })}>
           Отчет
         </Button>
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру или марке…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру или марке…" />
         </div>
       </div>
 
@@ -331,32 +369,32 @@ export function EnginesPage(props: {
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr', gap: 10, alignItems: 'center' }}>
             <div style={{ color: '#6b7280' }}>Период (создание)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Input type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
-              <Input type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
+              <Input type="date" value={periodFrom} onChange={(e) => patchState({ periodFrom: e.target.value })} />
+              <Input type="date" value={periodTo} onChange={(e) => patchState({ periodTo: e.target.value })} />
             </div>
 
             <div style={{ color: '#6b7280' }}>Контракты</div>
-            <MultiSearchSelect values={contractIds} options={contractOptions} placeholder="Все" onChange={setContractIds} />
+            <MultiSearchSelect values={contractIds} options={contractOptions} placeholder="Все" onChange={(next) => patchState({ contractIds: next })} />
 
             <div style={{ color: '#6b7280' }}>Марки двигателя</div>
-            <MultiSearchSelect values={brandIds} options={brandOptions} placeholder="Все" onChange={setBrandIds} />
+            <MultiSearchSelect values={brandIds} options={brandOptions} placeholder="Все" onChange={(next) => patchState({ brandIds: next })} />
 
             <div style={{ color: '#6b7280' }}>Дата прихода</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Input type="date" value={arrivalFrom} onChange={(e) => setArrivalFrom(e.target.value)} />
-              <Input type="date" value={arrivalTo} onChange={(e) => setArrivalTo(e.target.value)} />
+              <Input type="date" value={arrivalFrom} onChange={(e) => patchState({ arrivalFrom: e.target.value })} />
+              <Input type="date" value={arrivalTo} onChange={(e) => patchState({ arrivalTo: e.target.value })} />
             </div>
 
             <div style={{ color: '#6b7280' }}>Дата отгрузки</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Input type="date" value={shippingFrom} onChange={(e) => setShippingFrom(e.target.value)} />
-              <Input type="date" value={shippingTo} onChange={(e) => setShippingTo(e.target.value)} />
+              <Input type="date" value={shippingFrom} onChange={(e) => patchState({ shippingFrom: e.target.value })} />
+              <Input type="date" value={shippingTo} onChange={(e) => patchState({ shippingTo: e.target.value })} />
             </div>
 
             <div style={{ color: '#6b7280' }}>Утиль</div>
             <select
               value={scrapFilter}
-              onChange={(e) => setScrapFilter(e.target.value as 'all' | 'yes' | 'no')}
+              onChange={(e) => patchState({ scrapFilter: e.target.value as 'all' | 'yes' | 'no' })}
               style={{ padding: '7px 10px', borderRadius: 10, border: '1px solid var(--input-border)' }}
             >
               <option value="all">Все</option>
@@ -367,7 +405,7 @@ export function EnginesPage(props: {
             <div style={{ color: '#6b7280' }}>Наличие на заводе</div>
             <select
               value={onSiteFilter}
-              onChange={(e) => setOnSiteFilter(e.target.value as 'all' | 'yes' | 'no')}
+              onChange={(e) => patchState({ onSiteFilter: e.target.value as 'all' | 'yes' | 'no' })}
               style={{ padding: '7px 10px', borderRadius: 10, border: '1px solid var(--input-border)' }}
             >
               <option value="all">Все</option>
@@ -387,16 +425,18 @@ export function EnginesPage(props: {
             <Button
               variant="ghost"
               onClick={() => {
-                setPeriodFrom('');
-                setPeriodTo('');
-                setArrivalFrom('');
-                setArrivalTo('');
-                setShippingFrom('');
-                setShippingTo('');
-                setContractIds([]);
-                setBrandIds([]);
-                setScrapFilter('all');
-                setOnSiteFilter('all');
+                patchState({
+                  periodFrom: '',
+                  periodTo: '',
+                  arrivalFrom: '',
+                  arrivalTo: '',
+                  shippingFrom: '',
+                  shippingTo: '',
+                  contractIds: [],
+                  brandIds: [],
+                  scrapFilter: 'all',
+                  onSiteFilter: 'all',
+                });
               }}
             >
               Сбросить фильтры
@@ -405,7 +445,11 @@ export function EnginesPage(props: {
         </div>
       )}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <div
+        ref={containerRef}
+        style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
+        onScroll={onScroll}
+      >
         <TwoColumnList
           items={sorted}
           enabled={twoCol}

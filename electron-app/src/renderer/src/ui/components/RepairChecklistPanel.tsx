@@ -382,7 +382,7 @@ export function RepairChecklistPanel(props: {
     if (prefillKey.current === key) return;
     prefillKey.current = key;
     void (async () => {
-      const r = await window.matrica.parts.list({ engineBrandId: props.engineBrandId, limit: 5000 });
+      const r = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
       if (!r.ok) return;
       const rows = r.parts.map((p) => ({
         part_name: String(p.name ?? p.article ?? p.id),
@@ -412,7 +412,7 @@ export function RepairChecklistPanel(props: {
     if (prefillKey.current === key) return;
     prefillKey.current = key;
     void (async () => {
-      const r = await window.matrica.parts.list({ engineBrandId: props.engineBrandId, limit: 5000 });
+      const r = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
       if (!r.ok) return;
       const rows = r.parts.map((p: any) => ({
         part_name: String(p.name ?? p.article ?? p.id),
@@ -816,32 +816,36 @@ export function RepairChecklistPanel(props: {
                       canEdit={props.canEdit}
                       columns={it.columns ?? []}
                       rows={a?.kind === 'table' ? (a.rows ?? []) : []}
-                      cellRenderers={
-                        props.stage === 'defect' && it.id === 'defect_items'
-                          ? {
-                              part_name: ({ rowIdx, columnId, value, setValue }) => {
-                                const current = String(value ?? '');
-                                const match = defectOptions.find((o) => o.label === current) ?? null;
-                                const valueId = match?.id ?? null;
-                                return (
-                                  <SearchSelect
-                                    value={valueId}
-                                    options={defectOptions}
-                                    disabled={!props.canEdit}
-                                    placeholder="Выберите деталь или узел"
-                                    createLabel="Добавить"
-                                    onCreate={props.canEdit ? createDefectItem : undefined}
-                                    onChange={(next) => {
-                                      const selected = defectOptions.find((o) => o.id === next) ?? null;
-                                      setValue(rowIdx, columnId, selected?.label ?? '', true);
-                                    }}
-                                  />
-                                );
-                              },
-                            }
-                          : props.stage === 'completeness' && it.id === 'completeness_items'
+                      {...(() => {
+                        const defectRenderers =
+                          props.stage === 'defect' && it.id === 'defect_items'
                             ? {
-                                part_name: ({ rowIdx, columnId, value, setValue }) => {
+                                part_name: ({ rowIdx, columnId, value, setValue }: any) => {
+                                  const current = String(value ?? '');
+                                  const match = defectOptions.find((o) => o.label === current) ?? null;
+                                  const valueId = match?.id ?? null;
+                                  return (
+                                    <SearchSelect
+                                      value={valueId}
+                                      options={defectOptions}
+                                      disabled={!props.canEdit}
+                                      placeholder="Выберите деталь или узел"
+                                      createLabel="Добавить"
+                                      {...(props.canEdit ? { onCreate: createDefectItem } : {})}
+                                      onChange={(next) => {
+                                        const selected = defectOptions.find((o) => o.id === next) ?? null;
+                                        setValue(rowIdx, columnId, selected?.label ?? '', true);
+                                      }}
+                                    />
+                                  );
+                                },
+                              }
+                            : null;
+                        if (defectRenderers) return { cellRenderers: defectRenderers };
+                        const completenessRenderers =
+                          props.stage === 'completeness' && it.id === 'completeness_items'
+                            ? {
+                                part_name: ({ rowIdx, columnId, value, setValue }: any) => {
                                   const current = String(value ?? '');
                                   const match = completenessOptions.find((o) => o.label === current) ?? null;
                                   const valueId = match?.id ?? null;
@@ -852,7 +856,7 @@ export function RepairChecklistPanel(props: {
                                       disabled={!props.canEdit}
                                       placeholder="Выберите деталь"
                                       createLabel="Добавить"
-                                      onCreate={props.canEdit ? createCompletenessItem : undefined}
+                                      {...(props.canEdit ? { onCreate: createCompletenessItem } : {})}
                                       onChange={(next) => {
                                         const selected = completenessOptions.find((o) => o.id === next) ?? null;
                                         setValue(rowIdx, columnId, selected?.label ?? '', true);
@@ -861,8 +865,9 @@ export function RepairChecklistPanel(props: {
                                   );
                                 },
                               }
-                            : undefined
-                      }
+                            : null;
+                        return completenessRenderers ? { cellRenderers: completenessRenderers } : {};
+                      })()}
                       onChange={(rows) => {
                         const next = { ...answers, [it.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
                         setAnswers(next);
@@ -936,24 +941,24 @@ export function RepairChecklistPanel(props: {
 
 function TableEditor(props: {
   canEdit: boolean;
-  columns: { id: string; label: string; kind?: 'text' | 'boolean' }[];
-  rows: Record<string, string | boolean>[];
+  columns: { id: string; label: string; kind?: 'text' | 'boolean' | 'number' }[];
+  rows: Record<string, string | boolean | number>[];
   cellRenderers?: Record<
     string,
     (args: {
       rowIdx: number;
       columnId: string;
-      value: string | boolean;
-      setValue: (rowIdx: number, columnId: string, value: string | boolean, save?: boolean) => void;
+      value: string | boolean | number;
+      setValue: (rowIdx: number, columnId: string, value: string | boolean | number, save?: boolean) => void;
     }) => React.ReactNode
   >;
-  onChange: (rows: Record<string, string | boolean>[]) => void;
-  onSave: (rows: Record<string, string | boolean>[]) => void;
+  onChange: (rows: Record<string, string | boolean | number>[]) => void;
+  onSave: (rows: Record<string, string | boolean | number>[]) => void;
 }) {
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
 
-  function setCell(rowIdx: number, colId: string, value: string | boolean, save = false) {
+  function setCell(rowIdx: number, colId: string, value: string | boolean | number, save = false) {
     const next = rows.map((r, i) => (i === rowIdx ? { ...r, [colId]: value } : r));
     props.onChange(next);
     if (save && props.canEdit) props.onSave(next);

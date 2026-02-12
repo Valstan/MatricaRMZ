@@ -77,7 +77,6 @@ function normalizeAttributeValueRow(row: any) {
 
 function normalizeLedgerTypeDelete(row: LedgerRow, ts: number) {
   const createdAt = Number(row?.created_at ?? ts);
-  const updatedAt = Number(row?.updated_at ?? ts);
   return {
     id: String(row.id),
     code: String(row.code),

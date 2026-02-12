@@ -68,7 +68,7 @@ export function AttachmentsPanel(props: {
   canView: boolean;
   canUpload: boolean;
   scope?: { ownerType: string; ownerId: string; category: string };
-  onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
+  onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 }) {
   const [busy, setBusy] = useState<string>('');
   const uploadFlow = useFileUploadFlow();
@@ -122,14 +122,17 @@ export function AttachmentsPanel(props: {
         const r = await window.matrica.files.upload({ path: task.path, fileName: task.fileName, ...(props.scope ? { scope: props.scope } : {}) });
         return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
       });
-      if (uploadResult.failures.length > 0) throw new Error(uploadResult.failures[0].error);
+      if (uploadResult.failures.length > 0) {
+        const firstFailure = uploadResult.failures[0];
+        throw new Error(firstFailure ? firstFailure.error : 'upload failed');
+      }
       const added = uploadResult.successes.map((x) => x.value);
       const merged = [...list];
       for (const f of added) {
         if (!merged.find((x) => x.id === f.id)) merged.push(f);
       }
       uploadFlow.setProgress({ active: true, percent: 98, label: 'Сохранение изменений...' });
-      const r = await props.onChange(merged).catch((e) => ({ ok: false as const, error: String(e) }));
+      const r = await Promise.resolve(props.onChange(merged)).catch((e) => ({ ok: false as const, error: String(e) }));
       uploadFlow.setProgress({ active: false, percent: 0, label: '' });
       if (!r) {
         setBusy(`Успешно: прикреплено файлов — ${added.length}`);
@@ -298,7 +301,12 @@ export function AttachmentsPanel(props: {
                           try {
                             const next = list.filter((x) => x.id !== f.id);
                             setBusy('Удаление из списка...');
-                            const upd = await props.onChange(next);
+                            const upd = await Promise.resolve(props.onChange(next));
+                            if (!upd) {
+                              setBusy('Сохранено');
+                              setTimeout(() => setBusy(''), 700);
+                              return;
+                            }
                             if (!upd.ok) {
                               setBusy(`Ошибка: ${upd.error}`);
                               setTimeout(() => setBusy(''), 3000);

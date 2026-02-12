@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, inArray, isNull } from 'drizzle-orm';
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 import { SyncTableName, type SyncPushRequest } from '@matricarmz/shared';
 

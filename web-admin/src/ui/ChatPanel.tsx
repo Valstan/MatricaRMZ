@@ -437,9 +437,14 @@ export function ChatPanel(props: {
         )}
         {!adminMode && (
           <div>
-            <Button ref={othersButtonRef} variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
+            <button
+              ref={othersButtonRef}
+              type="button"
+              onClick={() => setOthersOpen((v) => !v)}
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer' }}
+            >
               Другие
-            </Button>
+            </button>
             {othersOpen &&
               otherUsers.length > 0 &&
               createPortal(
@@ -675,18 +680,19 @@ export function ChatPanel(props: {
 
       <div style={{ borderTop: '1px solid #e5e7eb', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Input
+          <input
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Введите сообщение…"
             disabled={adminMode}
-            onKeyDown={(e: any) => {
+            onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 void sendText();
               }
             }}
+            style={{ flex: 1, minWidth: 0, height: 34, borderRadius: 10, border: '1px solid #d1d5db', padding: '0 10px' }}
           />
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

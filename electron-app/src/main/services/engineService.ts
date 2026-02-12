@@ -159,7 +159,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
     if (statusDefIds.length > 0) {
       for (const statusDefId of statusDefIds) {
-        const code = statusDefById[statusDefId];
+        const code = (statusDefById as Record<string, StatusCode | undefined>)[statusDefId];
         if (code) {
           const rawValue = rowValues.get(statusDefId);
           const raw = rawValue != null ? safeJsonParse(rawValue) : null;
@@ -168,15 +168,17 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       }
     }
 
+    const customerName = customerId ? customerNameById.get(customerId) : undefined;
+    const contractName = contractId ? contractNameById.get(contractId) : undefined;
     result.push({
       id: e.id,
-      engineNumber,
-      engineBrand,
-      engineBrandId,
-      customerId,
-      customerName: customerId ? customerNameById.get(customerId) : undefined,
-      contractId,
-      contractName: contractId ? contractNameById.get(contractId) : undefined,
+      engineNumber: engineNumber ?? '',
+      engineBrand: engineBrand ?? '',
+      engineBrandId: engineBrandId ?? '',
+      customerId: customerId ?? '',
+      ...(customerName ? { customerName } : {}),
+      contractId: contractId ?? '',
+      ...(contractName ? { contractName } : {}),
       arrivalDate: arrivalDate ?? null,
       shippingDate: shippingDate ?? null,
       isScrap: isScrap === true,

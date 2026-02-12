@@ -386,7 +386,7 @@ export function EmployeeDetailsPage(props: {
     }
     const created = await window.matrica.admin.entities.create(String(departmentType.id));
     if (!created.ok || !created.id) {
-      setDepartmentsStatus(`Ошибка: ${created.error ?? 'не удалось создать подразделение'}`);
+      setDepartmentsStatus(`Ошибка: ${(created as any).error ?? 'не удалось создать подразделение'}`);
       return null;
     }
     await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
@@ -983,7 +983,7 @@ export function EmployeeDetailsPage(props: {
 
     openPrintPreview({
       title: 'Карточка сотрудника',
-      subtitle: computedFullName ? `Сотрудник: ${computedFullName}` : undefined,
+      ...(computedFullName ? { subtitle: `Сотрудник: ${computedFullName}` } : {}),
       sections: [
         { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
         { id: 'transfers', title: 'Кадровые перемещения', html: transfersHtml },

@@ -13,7 +13,9 @@ function pruneLogFile(path: string) {
     const kept = lines.filter((line) => {
       const m = line.match(/^\[(.+?)\]/);
       if (!m) return true;
-      const ts = Date.parse(m[1]);
+      const tsRaw = m[1];
+      if (!tsRaw) return true;
+      const ts = Date.parse(tsRaw);
       if (!Number.isFinite(ts)) return true;
       return ts >= cutoff;
     });

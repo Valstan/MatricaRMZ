@@ -206,7 +206,6 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
             options={actorOptions}
             value={actorFilter}
             onChange={setActorFilter}
-            allowClear
           />
         </div>
         <div style={{ minWidth: 200 }}>
@@ -215,7 +214,6 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
             options={sectionOptions}
             value={sectionFilter}
             onChange={setSectionFilter}
-            allowClear
           />
         </div>
       </div>

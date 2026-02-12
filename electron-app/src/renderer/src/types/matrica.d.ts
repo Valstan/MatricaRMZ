@@ -11,6 +11,13 @@ type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees'> & {
     defs: () => Promise<any[]>;
     resyncFromServer: () => Promise<any>;
   };
+  tools: any;
+  update: MatricaApi['update'] & {
+    reset: () => Promise<any>;
+  };
+  engines: MatricaApi['engines'] & {
+    delete: (id: string) => Promise<any>;
+  };
 };
 
 declare global {

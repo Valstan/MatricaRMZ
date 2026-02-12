@@ -165,7 +165,10 @@ export function NotesPage(props: {
   }
 
   function updateDraft(id: string, next: Partial<NoteDraft>) {
-    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...next } }));
+    setDrafts((prev) => {
+      const current = prev[id] ?? { id, title: '', body: [], importance: 'normal' as const, dueAt: null };
+      return { ...prev, [id]: { ...current, ...next } };
+    });
     setDirty((prev) => ({ ...prev, [id]: true }));
   }
 
@@ -178,7 +181,6 @@ export function NotesPage(props: {
       body: draft.body,
       importance: draft.importance,
       dueAt: draft.dueAt ?? null,
-      sortOrder: undefined,
     });
     if ((r as any)?.ok) {
       setDirty((prev) => ({ ...prev, [id]: false }));
@@ -223,7 +225,9 @@ export function NotesPage(props: {
 
   async function reorderNotes(list: NoteView[]) {
     for (let i = 0; i < list.length; i += 1) {
-      await window.matrica.notes.reorder({ noteId: list[i].id, sortOrder: i * 10 });
+      const note = list[i];
+      if (!note) continue;
+      await window.matrica.notes.reorder({ noteId: note.id, sortOrder: i * 10 });
     }
     await refresh();
   }
@@ -279,8 +283,16 @@ export function NotesPage(props: {
       uploadFlow.setStatusWithTimeout(`Неуспешно: ${result.failures[0]?.error ?? 'неизвестная ошибка'}`, 4500);
       return;
     }
-    const file = result.successes[0].value as { id: string; name: string; mime?: string | null };
-    const block: NoteBlock = { id: newId(), kind: 'image', fileId: file.id, name: file.name, mime: file.mime ?? undefined };
+    const firstSuccess = result.successes[0];
+    if (!firstSuccess) return;
+    const file = firstSuccess.value as { id: string; name: string; mime?: string | null };
+    const block: NoteBlock = {
+      id: newId(),
+      kind: 'image',
+      fileId: file.id,
+      name: file.name,
+      ...(file.mime != null ? { mime: file.mime } : {}),
+    };
     updateDraft(noteId, { body: [...draft.body, block] });
     uploadFlow.setStatusWithTimeout('Успешно: изображение прикреплено', 1400);
   }

@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 type Row = {
   id: string;
@@ -20,6 +21,7 @@ type Row = {
   updatedAt: number;
   isIncomplete?: boolean;
 };
+type SortKey = 'requestNumber' | 'compiledAt' | 'sentAt' | 'arrivedAt' | 'status' | 'updatedAt';
 
 function statusLabel(s: string): string {
   switch (s) {
@@ -45,8 +47,15 @@ export function SupplyRequestsPage(props: {
   canCreate: boolean;
   canDelete: boolean;
 }) {
-  const [query, setQuery] = useState<string>('');
-  const [month, setMonth] = useState<string>(''); // YYYY-MM
+  const { state: listState, patchState } = useListUiState('list:supply_requests', {
+    query: '',
+    month: '',
+    sortKey: 'updatedAt' as SortKey,
+    sortDir: 'desc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:supply_requests');
+  const query = String(listState.query ?? '');
+  const month = String(listState.month ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
@@ -55,7 +64,10 @@ export function SupplyRequestsPage(props: {
   async function refresh() {
     try {
       setStatus('Загрузка…');
-      const r = await window.matrica.supplyRequests.list({ q: query.trim() || undefined, month: month || undefined });
+      const r = await window.matrica.supplyRequests.list({
+        ...(query.trim() ? { q: query.trim() } : {}),
+        ...(month ? { month } : {}),
+      });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
         return;
@@ -71,18 +83,42 @@ export function SupplyRequestsPage(props: {
     void refresh();
   }, []);
 
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [rows]);
+  const sorted = useSortedItems(
+    rows,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => {
+      if (key === 'requestNumber') return String(row.requestNumber ?? '').toLowerCase();
+      if (key === 'compiledAt') return Number(row.compiledAt ?? 0);
+      if (key === 'sentAt') return Number(row.sentAt ?? 0);
+      if (key === 'arrivedAt') return Number(row.arrivedAt ?? 0);
+      if (key === 'status') return String(statusLabel(row.status) ?? '').toLowerCase();
+      return Number(row.updatedAt ?? 0);
+    },
+    (row) => row.id,
+  );
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
 
   const tableHeader = (
     <thead>
       <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Номер</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата создания</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата отправки</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Дата поступления</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Статус</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('requestNumber')}>
+          Номер {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'requestNumber')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('compiledAt')}>
+          Дата создания {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'compiledAt')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('sentAt')}>
+          Дата отправки {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'sentAt')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('arrivedAt')}>
+          Дата поступления {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'arrivedAt')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('status')}>
+          Статус {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'status')}
+        </th>
         {props.canDelete && (
           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 100 }}>Действия</th>
         )}
@@ -190,10 +226,10 @@ export function SupplyRequestsPage(props: {
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию/тексту/товарам…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/тексту/товарам…" />
         </div>
         <div style={{ width: 180 }}>
-          <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
           Поиск
@@ -202,7 +238,7 @@ export function SupplyRequestsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>

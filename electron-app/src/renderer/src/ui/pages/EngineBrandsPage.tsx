@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 
 type Row = {
   id: string;
@@ -11,19 +12,25 @@ type Row = {
   updatedAt: number;
   partsCount?: number | null;
 };
+type SortKey = 'displayName' | 'partsCount' | 'updatedAt';
 
 export function EngineBrandsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
   canViewMasterData: boolean;
 }) {
-  const [query, setQuery] = useState<string>('');
+  const { state: listState, patchState } = useListUiState('list:engine_brands', {
+    query: '',
+    sortKey: 'displayName' as SortKey,
+    sortDir: 'asc' as const,
+  });
+  const { containerRef, onScroll } = usePersistedScrollTop('list:engine_brands');
+  const query = String(listState.query ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
-  const queryTimer = useRef<number | null>(null);
 
   async function loadType() {
     if (!props.canViewMasterData) return;
@@ -44,7 +51,7 @@ export function EngineBrandsPage(props: {
       const list = await window.matrica.admin.entities.listByEntityType(typeId);
       const nextRows = (list as any[]).map((row) => ({
         id: String(row.id),
-        displayName: row.displayName ? String(row.displayName) : undefined,
+        displayName: row.displayName ? String(row.displayName) : '',
         updatedAt: Number(row.updatedAt ?? 0),
         partsCount: null,
       }));
@@ -79,14 +86,6 @@ export function EngineBrandsPage(props: {
     void refresh();
   }, [typeId]);
 
-  useEffect(() => {
-    if (queryTimer.current) window.clearTimeout(queryTimer.current);
-    queryTimer.current = window.setTimeout(() => void refresh(), 300);
-    return () => {
-      if (queryTimer.current) window.clearTimeout(queryTimer.current);
-    };
-  }, [typeId]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -96,14 +95,29 @@ export function EngineBrandsPage(props: {
     });
   }, [rows, query]);
 
+  const sorted = useSortedItems(
+    filtered,
+    listState.sortKey as SortKey,
+    listState.sortDir,
+    (row, key) => {
+      if (key === 'partsCount') return Number(row.partsCount ?? 0);
+      if (key === 'updatedAt') return Number(row.updatedAt ?? 0);
+      return String(row.displayName ?? '').toLowerCase();
+    },
+    (row) => row.id,
+  );
+  function onSort(key: SortKey) {
+    patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>
-          Наименование марки двигателя
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('displayName')}>
+          Наименование марки двигателя {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'displayName')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>
-          Количество деталей
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('partsCount')}>
+          Количество деталей {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'partsCount')}
         </th>
       </tr>
     </thead>
@@ -176,14 +190,14 @@ export function EngineBrandsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию…" />
         </div>
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={filtered} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>
   );
