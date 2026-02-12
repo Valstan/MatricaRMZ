@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/backend-api",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,8 +23,7 @@
     "backup:nightly": "tsx src/scripts/nightlyBackup.ts",
     "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts",
     "clients:enable-logging": "tsx src/scripts/enableClientLogging.ts",
-    "erp:migrate-from-eav": "tsx src/scripts/migrateEavToErp.ts"
-    ,
+    "erp:migrate-from-eav": "tsx src/scripts/migrateEavToErp.ts",
     "erp:legacy-cleanup": "tsx src/scripts/erpLegacyCleanup.ts"
   },
   "dependencies": {
