@@ -10,6 +10,9 @@ type TabsLayoutPrefs = {
   order?: string[];
   hidden?: string[];
   trashIndex?: number | null;
+  groupOrder?: string[];
+  collapsedGroups?: string[];
+  activeGroup?: string | null;
 };
 
 function parseTabsLayout(raw: string | null): Record<string, TabsLayoutPrefs> {
@@ -28,10 +31,16 @@ function safeTabsLayout(value: unknown): TabsLayoutPrefs | null {
   const raw = value as TabsLayoutPrefs;
   const order = Array.isArray(raw.order) ? raw.order.map((x) => String(x)) : undefined;
   const hidden = Array.isArray(raw.hidden) ? raw.hidden.map((x) => String(x)) : undefined;
+  const groupOrder = Array.isArray(raw.groupOrder) ? raw.groupOrder.map((x) => String(x)) : undefined;
+  const collapsedGroups = Array.isArray(raw.collapsedGroups) ? raw.collapsedGroups.map((x) => String(x)) : undefined;
   const trashIndex = raw.trashIndex == null ? null : Number(raw.trashIndex);
+  const activeGroup = raw.activeGroup == null ? null : String(raw.activeGroup);
   return {
     ...(order ? { order } : {}),
     ...(hidden ? { hidden } : {}),
+    ...(groupOrder ? { groupOrder } : {}),
+    ...(collapsedGroups ? { collapsedGroups } : {}),
+    ...(activeGroup != null ? { activeGroup } : {}),
     trashIndex: Number.isFinite(trashIndex ?? NaN) ? trashIndex : null,
   };
 }

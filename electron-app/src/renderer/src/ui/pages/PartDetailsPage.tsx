@@ -13,6 +13,7 @@ import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules
 import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Attribute = {
   id: string;
@@ -460,6 +461,16 @@ export function PartDetailsPage(props: {
     void loadContracts();
     void loadLinkRules();
   }, []);
+
+  useLiveDataRefresh(
+    async () => {
+      await load();
+      await loadEngineBrands();
+      await loadCustomers();
+      await loadContracts();
+    },
+    { intervalMs: 20000 },
+  );
 
   useEffect(() => {
     if (!props.canEdit || !partTypeId || partDefs.length === 0 || coreDefsReady) return;

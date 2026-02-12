@@ -7,6 +7,7 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Option = { id: string; label: string };
 type EmployeeOption = Option & { departmentId: string | null };
@@ -206,6 +207,14 @@ export function ToolDetailsPage(props: {
       setEmployeeOptions(list.map((e: any) => ({ id: String(e.id), label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id) })));
     });
   }, [departmentId, currentDepartmentId]);
+
+  useLiveDataRefresh(
+    async () => {
+      await refresh();
+      await refreshMovements();
+    },
+    { intervalMs: 20000 },
+  );
 
   useEffect(() => {
     if (employeeOptions.length > 0) return;

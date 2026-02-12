@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Row = {
   id: string;
@@ -39,22 +40,23 @@ export function ServicesPage(props: {
     setTypeId(type?.id ? String(type.id) : '');
   }
 
-  async function refresh() {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     if (!props.canViewMasterData) return;
     if (!typeId) {
-      setStatus('Справочник услуг не найден (service).');
+      if (!silent) setStatus('Справочник услуг не найден (service).');
       setRows([]);
       return;
     }
     try {
-      setStatus('Загрузка…');
+      if (!silent) setStatus('Загрузка…');
       const list = await window.matrica.admin.entities.listByEntityType(typeId);
       setRows(list as any);
-      setStatus('');
+      if (!silent) setStatus('');
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, [props.canViewMasterData, typeId]);
 
   useEffect(() => {
     void loadType();
@@ -62,7 +64,14 @@ export function ServicesPage(props: {
 
   useEffect(() => {
     void refresh();
-  }, [typeId]);
+  }, [refresh]);
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await refresh({ silent: true });
+    }, [refresh]),
+    { enabled: !!typeId && props.canViewMasterData, intervalMs: 15000 },
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

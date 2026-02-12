@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type PartOption = { id: string; label: string };
 
@@ -236,6 +237,15 @@ export function EngineBrandDetailsPage(props: {
     void loadPartsOptions();
     void loadBrandParts();
   }, [props.brandId, props.canViewMasterData, props.canViewParts]);
+
+  useLiveDataRefresh(
+    async () => {
+      if (!props.canViewMasterData) return;
+      await loadBrand();
+      await loadBrandParts();
+    },
+    { enabled: props.canViewMasterData, intervalMs: 20000 },
+  );
 
   const selectedParts = engineBrandPartIds.map((id) => ({
     id,

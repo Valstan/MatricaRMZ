@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Row = {
   id: string;
@@ -27,24 +28,32 @@ export function ToolPropertiesPage(props: {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
 
-  async function refresh() {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setStatus('Загрузка…');
+      if (!silent) setStatus('Загрузка…');
       const r = await window.matrica.tools.properties.list();
       if (!r.ok) {
-        setStatus(`Ошибка: ${r.error}`);
+        if (!silent) setStatus(`Ошибка: ${r.error}`);
         return;
       }
       setRows((r as any).items ?? []);
-      setStatus('');
+      if (!silent) setStatus('');
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await refresh({ silent: true });
+    }, [refresh]),
+    { intervalMs: 15000 },
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

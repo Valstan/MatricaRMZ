@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent } from '@matricarmz/shared';
 
@@ -39,6 +39,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
+import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { theme } from './theme.js';
 
 export function App() {
@@ -152,6 +153,8 @@ export function App() {
           return;
         }
         if (evt.state === 'done') {
+          void refreshEngines();
+          if (tab === 'engine') void reloadEngine();
           setIncrementalSyncUi((prev) => ({
             active: false,
             progress: 1,
@@ -203,6 +206,8 @@ export function App() {
         return;
       }
       if (evt.state === 'done') {
+        void refreshEngines();
+        if (tab === 'engine') void reloadEngine();
         setFullSyncUi((prev) => ({
           open: true,
           progress: 1,
@@ -1028,6 +1033,18 @@ export function App() {
       setEngineLoading(false);
     }
   }
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await refreshEngines();
+      if (tab === 'engine') await reloadEngine();
+    }, [refreshEngines, reloadEngine, tab]),
+    {
+      enabled: authStatus.loggedIn && (tab === 'engines' || tab === 'engine'),
+      intervalMs: 12000,
+      refreshOnSyncDone: false,
+    },
+  );
 
   // Audit page is hidden in client app.
 

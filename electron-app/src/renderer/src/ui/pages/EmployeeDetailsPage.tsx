@@ -12,6 +12,7 @@ import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type EmployeeAccount = {
   id: string;
@@ -312,6 +313,14 @@ export function EmployeeDetailsPage(props: {
     setAccountRole(String(accountUser.role ?? 'user'));
     setAccountActive(!!accountUser.isActive);
   }, [accountUser?.id, accountUser?.login, accountUser?.role, accountUser?.isActive]);
+
+  useLiveDataRefresh(
+    async () => {
+      await loadEmployee();
+      await loadAccountPerms();
+    },
+    { intervalMs: 20000 },
+  );
 
   useEffect(() => {
     if (meRole !== 'superadmin') {

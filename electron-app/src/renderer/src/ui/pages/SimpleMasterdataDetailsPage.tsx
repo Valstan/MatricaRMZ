@@ -8,6 +8,7 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
@@ -255,6 +256,13 @@ export function SimpleMasterdataDetailsPage(props: {
   useEffect(() => {
     void load();
   }, [props.entityId]);
+
+  useLiveDataRefresh(
+    async () => {
+      await load();
+    },
+    { intervalMs: 20000 },
+  );
 
   const ownerType = props.ownerType ?? 'masterdata';
   const activePhoto = useMemo(() => photos.find((p) => p.id === mainPhotoId) ?? photos[0] ?? null, [photos, mainPhotoId]);

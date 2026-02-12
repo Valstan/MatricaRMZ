@@ -54,9 +54,41 @@ export type TabsLayoutPrefs = {
   order?: MenuTabId[];
   hidden?: MenuTabId[];
   trashIndex?: number | null;
+  groupOrder?: MenuGroupId[];
+  collapsedGroups?: MenuGroupId[];
+  activeGroup?: MenuGroupId | null;
 };
 
 type MenuItemId = MenuTabId | 'trash';
+export type MenuGroupId =
+  | 'production'
+  | 'supply'
+  | 'business'
+  | 'people'
+  | 'control'
+  | 'interaction'
+  | 'admin';
+
+const GROUP_LABELS: Record<MenuGroupId, string> = {
+  production: 'Производство',
+  supply: 'Снабжение и склад',
+  business: 'Договоры и контрагенты',
+  people: 'Персонал и доступ',
+  control: 'Контроль и аналитика',
+  interaction: 'Взаимодействие',
+  admin: 'Администрирование',
+};
+
+const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['production', 'supply', 'business', 'people', 'control', 'interaction', 'admin'];
+const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
+  production: ['engines', 'engine_brands', 'parts'],
+  supply: ['requests', 'tools', 'products', 'services'],
+  business: ['contracts', 'counterparties'],
+  people: ['employees'],
+  control: ['reports', 'changes'],
+  interaction: ['notes'],
+  admin: ['masterdata'],
+};
 
 function clamp(n: number, min: number, max: number) {
   if (Number.isNaN(n)) return min;
@@ -79,6 +111,17 @@ export function deriveMenuState(availableTabs: MenuTabId[], layout?: TabsLayoutP
   return { order, hidden, hiddenSet, visibleOrdered, hiddenVisible, trashIndex };
 }
 
+function isGroupId(value: string): value is MenuGroupId {
+  return DEFAULT_GROUP_ORDER.includes(value as MenuGroupId);
+}
+
+function groupForTab(tab: MenuTabId): MenuGroupId {
+  for (const groupId of DEFAULT_GROUP_ORDER) {
+    if (DEFAULT_GROUP_TABS[groupId].includes(tab)) return groupId;
+  }
+  return 'admin';
+}
+
 export function Tabs(props: {
   tab: TabId;
   onTab: (t: MenuTabId) => void;
@@ -92,13 +135,63 @@ export function Tabs(props: {
   notesAlertCount?: number;
 }) {
   const menuState = deriveMenuState(props.availableTabs, props.layout);
+  const collapsedGroups = useMemo(() => {
+    const raw = Array.isArray(props.layout?.collapsedGroups) ? props.layout?.collapsedGroups ?? [] : [];
+    return new Set(raw.filter((x): x is MenuGroupId => isGroupId(String(x))));
+  }, [props.layout?.collapsedGroups]);
+  const groupOrder = useMemo(() => {
+    const raw = Array.isArray(props.layout?.groupOrder) ? props.layout?.groupOrder ?? [] : [];
+    const order = raw.filter((x): x is MenuGroupId => isGroupId(String(x)));
+    for (const groupId of DEFAULT_GROUP_ORDER) {
+      if (!order.includes(groupId)) order.push(groupId);
+    }
+    return order;
+  }, [props.layout?.groupOrder]);
+  const visibleByGroup = useMemo(() => {
+    const mapped: Record<MenuGroupId, MenuTabId[]> = {
+      production: [],
+      supply: [],
+      business: [],
+      people: [],
+      control: [],
+      interaction: [],
+      admin: [],
+    };
+    for (const tab of menuState.visibleOrdered) {
+      mapped[groupForTab(tab)].push(tab);
+    }
+    return mapped;
+  }, [menuState.visibleOrdered]);
+  const groupsInUse = useMemo(
+    () => groupOrder.filter((groupId) => visibleByGroup[groupId].length > 0),
+    [groupOrder, visibleByGroup],
+  );
+  const preferredGroupByTab = useMemo(() => {
+    if (!menuState.visibleOrdered.includes(props.tab as MenuTabId)) return null;
+    return groupForTab(props.tab as MenuTabId);
+  }, [menuState.visibleOrdered, props.tab]);
+  const activeGroup = useMemo(() => {
+    if (preferredGroupByTab && groupsInUse.includes(preferredGroupByTab) && !collapsedGroups.has(preferredGroupByTab)) {
+      return preferredGroupByTab;
+    }
+    const byLayout = props.layout?.activeGroup;
+    if (byLayout && isGroupId(byLayout) && groupsInUse.includes(byLayout) && !collapsedGroups.has(byLayout)) return byLayout;
+    for (const groupId of groupsInUse) {
+      if (!collapsedGroups.has(groupId)) return groupId;
+    }
+    return groupsInUse[0] ?? null;
+  }, [collapsedGroups, groupsInUse, preferredGroupByTab, props.layout?.activeGroup]);
   const menuItems: MenuItemId[] = useMemo(() => {
     const base: MenuItemId[] = [...menuState.visibleOrdered];
     const next: MenuItemId[] = [...base];
     next.splice(menuState.trashIndex, 0, 'trash' as MenuItemId);
     return next;
   }, [menuState.trashIndex, menuState.visibleOrdered]);
-  const menuItemsKey = menuItems.join('|');
+  const groupMenuItems: MenuItemId[] = useMemo(() => {
+    if (!activeGroup) return [];
+    return menuItems.filter((id) => id === 'trash' || groupForTab(id) === activeGroup);
+  }, [activeGroup, menuItems]);
+  const menuItemsKey = groupMenuItems.join('|');
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
@@ -146,8 +239,49 @@ export function Tabs(props: {
       order: fullOrder,
       hidden: nextHidden,
       trashIndex,
+      ...(props.layout?.groupOrder ? { groupOrder: props.layout.groupOrder } : {}),
+      ...(props.layout?.collapsedGroups ? { collapsedGroups: props.layout.collapsedGroups } : {}),
+      ...(props.layout?.activeGroup != null ? { activeGroup: props.layout.activeGroup } : {}),
     });
   }
+
+  function updateGroupPrefs(next: { activeGroup?: MenuGroupId | null; collapsedGroups?: MenuGroupId[] }) {
+    props.onLayoutChange({
+      order: menuState.order,
+      hidden: menuState.hidden,
+      trashIndex: menuState.trashIndex,
+      ...(props.layout?.groupOrder ? { groupOrder: props.layout.groupOrder } : {}),
+      ...(next.collapsedGroups ? { collapsedGroups: next.collapsedGroups } : props.layout?.collapsedGroups ? { collapsedGroups: props.layout.collapsedGroups } : {}),
+      ...(next.activeGroup !== undefined
+        ? { activeGroup: next.activeGroup }
+        : props.layout?.activeGroup !== undefined
+          ? { activeGroup: props.layout.activeGroup }
+          : {}),
+    });
+  }
+
+  function toggleGroup(groupId: MenuGroupId) {
+    const nextCollapsed = new Set(collapsedGroups);
+    const isCollapsed = nextCollapsed.has(groupId);
+    if (isCollapsed) nextCollapsed.delete(groupId);
+    else if (activeGroup === groupId) nextCollapsed.add(groupId);
+    const nextActive = isCollapsed ? groupId : activeGroup === groupId ? null : groupId;
+    updateGroupPrefs({
+      activeGroup: nextActive,
+      collapsedGroups: Array.from(nextCollapsed),
+    });
+  }
+
+  useEffect(() => {
+    if (!preferredGroupByTab) return;
+    if (activeGroup === preferredGroupByTab) return;
+    const nextCollapsed = new Set(collapsedGroups);
+    if (nextCollapsed.has(preferredGroupByTab)) nextCollapsed.delete(preferredGroupByTab);
+    updateGroupPrefs({
+      activeGroup: preferredGroupByTab,
+      collapsedGroups: Array.from(nextCollapsed),
+    });
+  }, [activeGroup, collapsedGroups, preferredGroupByTab]);
 
   function openContextMenu(id: MenuItemId, e: React.MouseEvent) {
     e.preventDefault();
@@ -330,7 +464,61 @@ export function Tabs(props: {
           border: '1px solid rgba(148, 163, 184, 0.35)',
         }}
       >
-        {menuItems.map((id) => (
+        {groupsInUse.map((groupId) => {
+          const isActive = activeGroup === groupId && !collapsedGroups.has(groupId);
+          const isCollapsed = collapsedGroups.has(groupId);
+          return (
+            <Button
+              key={groupId}
+              variant="ghost"
+              onClick={() => toggleGroup(groupId)}
+              style={
+                isActive
+                  ? {
+                      border: '2px solid #2563eb',
+                      background: 'rgba(37, 99, 235, 0.15)',
+                      color: '#1d4ed8',
+                      fontWeight: 800,
+                    }
+                  : {
+                      border: '1px solid rgba(37, 99, 235, 0.35)',
+                      background: theme.colors.surface2,
+                      color: '#334155',
+                    }
+              }
+              title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
+            >
+              {`${GROUP_LABELS[groupId]} ${isCollapsed ? '▸' : '▾'}`}
+            </Button>
+          );
+        })}
+        <span style={{ flex: 1 }} />
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {authDot}
+          {tabButton(props.userTab, props.userLabel?.trim() ? props.userLabel.trim() : 'Вход')}
+        </div>
+        {props.right}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: 6,
+          rowGap: 6,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          marginTop: 6,
+          padding: '6px 8px',
+          borderRadius: 12,
+          background: 'rgba(148, 163, 184, 0.12)',
+          border: '1px solid rgba(148, 163, 184, 0.28)',
+          minHeight: 44,
+        }}
+      >
+        {activeGroup == null ? (
+          <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
+        ) : null}
+        {groupMenuItems.map((id) => (
           <div
             key={id}
             ref={(el) => {
@@ -341,12 +529,6 @@ export function Tabs(props: {
             {menuItemButton(id)}
           </div>
         ))}
-        <span style={{ flex: 1 }} />
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {authDot}
-          {tabButton(props.userTab, props.userLabel?.trim() ? props.userLabel.trim() : 'Вход')}
-        </div>
-        {props.right}
       </div>
 
       {contextMenu && (

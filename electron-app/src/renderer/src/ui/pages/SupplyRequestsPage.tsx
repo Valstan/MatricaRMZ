@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Row = {
   id: string;
@@ -61,27 +62,35 @@ export function SupplyRequestsPage(props: {
   const width = useWindowWidth();
   const twoCol = width >= 1600;
 
-  async function refresh() {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setStatus('Загрузка…');
+      if (!silent) setStatus('Загрузка…');
       const r = await window.matrica.supplyRequests.list({
         ...(query.trim() ? { q: query.trim() } : {}),
         ...(month ? { month } : {}),
       });
       if (!r.ok) {
-        setStatus(`Ошибка: ${r.error}`);
+        if (!silent) setStatus(`Ошибка: ${r.error}`);
         return;
       }
       setRows(r.requests as any);
-      setStatus('');
+      if (!silent) setStatus('');
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, [month, query]);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await refresh({ silent: true });
+    }, [refresh]),
+    { intervalMs: 15000 },
+  );
 
   const sorted = useSortedItems(
     rows,

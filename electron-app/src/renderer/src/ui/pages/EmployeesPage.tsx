@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Row = {
   id: string;
@@ -47,24 +48,32 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const width = useWindowWidth();
   const twoCol = width >= 1400;
 
-  async function refresh() {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setStatus('Загрузка…');
+      if (!silent) setStatus('Загрузка…');
       const list = await window.matrica.employees.list();
       setRows(list as any);
-      setStatus('');
+      if (!silent) setStatus('');
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }
-
-  useEffect(() => {
-    void refresh();
   }, []);
 
   useEffect(() => {
     void refresh();
-  }, [props.refreshKey]);
+  }, [refresh]);
+
+  useEffect(() => {
+    void refresh();
+  }, [props.refreshKey, refresh]);
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await refresh({ silent: true });
+    }, [refresh]),
+    { intervalMs: 15000 },
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

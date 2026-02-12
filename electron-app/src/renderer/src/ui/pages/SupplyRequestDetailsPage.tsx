@@ -9,6 +9,7 @@ import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -342,7 +343,7 @@ export function SupplyRequestDetailsPage(props: {
     let changed = false;
     const items = (payload.items ?? []).map((it) => {
       if (it.productId) return it;
-      const match = productOptions.find((p) => normalizeForMatch(p.name) === normalizeForMatch(it.name));
+      const match = productOptions.find((p) => normalizeForMatch(p.name) === normalizeForMatch(String(it.name ?? '')));
       if (!match) return it;
       changed = true;
       return {
@@ -492,6 +493,13 @@ export function SupplyRequestDetailsPage(props: {
       void auditEditDone(payloadRef.current);
     };
   }, []);
+
+  useLiveDataRefresh(
+    async () => {
+      await load();
+    },
+    { intervalMs: 60000 },
+  );
 
   const departmentLabel = useMemo(() => {
     if (!payload) return '';

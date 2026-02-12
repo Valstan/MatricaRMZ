@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type CounterpartyEntity = {
   id: string;
@@ -60,6 +61,13 @@ export function CounterpartyDetailsPage(props: {
   useEffect(() => {
     void load();
   }, [props.counterpartyId]);
+
+  useLiveDataRefresh(
+    async () => {
+      await load();
+    },
+    { intervalMs: 20000 },
+  );
 
   useEffect(() => {
     if (!props.canEdit || !typeId || defs.length === 0 || coreDefsReady) return;

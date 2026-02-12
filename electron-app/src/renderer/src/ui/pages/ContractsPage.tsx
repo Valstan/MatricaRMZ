@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { parseContractSections, aggregateProgressByContract, type ProgressLinkedItem } from '@matricarmz/shared';
 
 type Row = {
@@ -45,9 +46,10 @@ export function ContractsPage(props: {
   const width = useWindowWidth();
   const twoCol = width >= 1400;
 
-  async function loadContracts() {
+  const loadContracts = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setStatus('Загрузка…');
+      if (!silent) setStatus('Загрузка…');
       const types = await window.matrica.admin.entityTypes.list();
       const type = (types as any[]).find((t) => String(t.code) === 'contract') ?? null;
       if (!type?.id) {
@@ -118,15 +120,22 @@ export function ContractsPage(props: {
         }),
       );
       setRows(details);
-      setStatus('');
+      if (!silent) setStatus('');
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadContracts();
-  }, []);
+  }, [loadContracts]);
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await loadContracts({ silent: true });
+    }, [loadContracts]),
+    { intervalMs: 15000 },
+  );
 
   const filtered = useMemo(() => {
     const q = normalize(query);

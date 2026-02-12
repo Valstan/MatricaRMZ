@@ -485,7 +485,14 @@ export type MatricaApi = {
           theme: string;
           chatSide: string;
           enterAsTab?: boolean;
-          tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+          tabsLayout?: {
+            order?: string[];
+            hidden?: string[];
+            trashIndex?: number | null;
+            groupOrder?: string[];
+            collapsedGroups?: string[];
+            activeGroup?: string | null;
+          } | null;
         }
       | { ok: false; error: string }
     >;
@@ -494,14 +501,28 @@ export type MatricaApi = {
       chatSide?: string;
       enterAsTab?: boolean;
       userId?: string;
-      tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+      tabsLayout?: {
+        order?: string[];
+        hidden?: string[];
+        trashIndex?: number | null;
+        groupOrder?: string[];
+        collapsedGroups?: string[];
+        activeGroup?: string | null;
+      } | null;
     }) => Promise<
       | {
           ok: true;
           theme: string;
           chatSide: string;
           enterAsTab?: boolean;
-          tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+          tabsLayout?: {
+            order?: string[];
+            hidden?: string[];
+            trashIndex?: number | null;
+            groupOrder?: string[];
+            collapsedGroups?: string[];
+            activeGroup?: string | null;
+          } | null;
         }
       | { ok: false; error: string }
     >;

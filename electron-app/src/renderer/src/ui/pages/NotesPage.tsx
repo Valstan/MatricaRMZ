@@ -7,6 +7,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { theme } from '../theme.js';
 
 type NoteDraft = {
@@ -99,6 +100,13 @@ export function NotesPage(props: {
     void refresh();
     void refreshUsers();
   }, []);
+
+  useLiveDataRefresh(
+    async () => {
+      await refresh();
+    },
+    { intervalMs: 15000 },
+  );
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(nowMs()), 60_000);

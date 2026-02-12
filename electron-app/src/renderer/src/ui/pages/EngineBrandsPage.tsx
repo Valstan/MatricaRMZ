@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Row = {
   id: string;
@@ -39,15 +40,16 @@ export function EngineBrandsPage(props: {
     setTypeId(type?.id ? String(type.id) : '');
   }
 
-  async function refresh() {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     if (!props.canViewMasterData) return;
     if (!typeId) {
-      setStatus('Справочник марок двигателя не найден (engine_brand).');
+      if (!silent) setStatus('Справочник марок двигателя не найден (engine_brand).');
       setRows([]);
       return;
     }
     try {
-      setStatus('Загрузка…');
+      if (!silent) setStatus('Загрузка…');
       const list = await window.matrica.admin.entities.listByEntityType(typeId);
       const nextRows = (list as any[]).map((row) => ({
         id: String(row.id),
@@ -56,7 +58,7 @@ export function EngineBrandsPage(props: {
         partsCount: null,
       }));
       setRows(nextRows);
-      setStatus('');
+      if (!silent) setStatus('');
       try {
         const counts = await Promise.all(
           nextRows.map(async (row) => {
@@ -74,9 +76,9 @@ export function EngineBrandsPage(props: {
         // ignore parts count errors
       }
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, [props.canViewMasterData, typeId]);
 
   useEffect(() => {
     void loadType();
@@ -84,7 +86,14 @@ export function EngineBrandsPage(props: {
 
   useEffect(() => {
     void refresh();
-  }, [typeId]);
+  }, [refresh]);
+
+  useLiveDataRefresh(
+    useCallback(async () => {
+      await refresh({ silent: true });
+    }, [refresh]),
+    { enabled: !!typeId && props.canViewMasterData, intervalMs: 15000 },
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

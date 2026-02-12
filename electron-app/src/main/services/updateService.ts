@@ -1053,7 +1053,36 @@ export async function runAutoUpdateFlow(
 
     if (serverMeta && compareSemver(serverMeta.version, current) > 0) {
       await stageUpdate('Проверяем обновления в локальной сети…', 20);
-      const lan = await tryDownloadFromLan(serverMeta);
+      await stageUpdate('Скачиваем (локальная сеть)…', 5, serverMeta.version);
+      setUpdateState({
+        state: 'downloading',
+        source: 'lan',
+        version: serverMeta.version,
+        progress: 0,
+        message: 'Скачиваем обновление (Локальная сеть)…',
+      });
+      let lastLanUiAt = 0;
+      const lan = await tryDownloadFromLan(serverMeta, {
+        onProgress: (pct, transferred, total) => {
+          const now = Date.now();
+          if (now - lastLanUiAt < 250 && pct < 100) return;
+          lastLanUiAt = now;
+          const safePct = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+          const transferredMb = Math.max(0, transferred) / (1024 * 1024);
+          const totalMb = total && total > 0 ? total / (1024 * 1024) : null;
+          const detail = totalMb
+            ? `${transferredMb.toFixed(1)} / ${totalMb.toFixed(1)} MB`
+            : `${transferredMb.toFixed(1)} MB`;
+          void setUpdateUi(`Скачиваем (Локальная сеть)… ${detail}`, Math.max(5, safePct), serverMeta.version);
+          setUpdateState({
+            state: 'downloading',
+            source: 'lan',
+            version: serverMeta.version,
+            progress: safePct,
+            message: 'Скачиваем обновление (Локальная сеть)…',
+          });
+        },
+      });
       if (lan.ok) {
         const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
         const queued = await queuePendingUpdate({
@@ -1065,9 +1094,22 @@ export async function runAutoUpdateFlow(
         });
         if (!queued.ok) {
           await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, serverMeta.version);
+          setUpdateState({
+            state: 'error',
+            source: 'lan',
+            version: serverMeta.version,
+            message: queued.error,
+          });
           closeUpdateWindowSoon(3500);
           return { action: 'error', error: queued.error };
         }
+        setUpdateState({
+          state: 'downloaded',
+          source: 'lan',
+          version: serverMeta.version,
+          progress: 100,
+          message: 'Обновление скачано из локальной сети. Запускаем установку…',
+        });
         await installNow({ installerPath: cachedPath, version: serverMeta.version });
         return { action: 'update_started' };
       }

@@ -22,6 +22,7 @@ import {
 } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type AttributeDef = {
   id: string;
@@ -574,6 +575,14 @@ export function ContractDetailsPage(props: {
   useEffect(() => {
     if (contract) void loadProgress();
   }, [contract?.id, contract?.updatedAt, sections]);
+
+  useLiveDataRefresh(
+    async () => {
+      await loadContract();
+      await loadProgress();
+    },
+    { intervalMs: 20000 },
+  );
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
