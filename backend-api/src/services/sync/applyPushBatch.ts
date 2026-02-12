@@ -286,7 +286,13 @@ export async function applyPushBatch(
         }
         if (incomingSeq != null && currentSeq == null) return true;
         if (incomingSeq == null && currentSeq != null) {
-          if (r.deleted_at && cur.deletedAt == null) return true;
+          const incomingDeleted = r.deleted_at != null;
+          // If server already has a tombstone with a known seq, do not allow seq-less undelete.
+          if (!incomingDeleted && cur.deletedAt != null) {
+            conflicts += 1;
+            return false;
+          }
+          if (incomingDeleted && cur.deletedAt == null) return true;
           return !(cur.updatedAt > r.updated_at);
         }
         if (r.deleted_at && cur.deletedAt == null) return true;

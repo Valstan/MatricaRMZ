@@ -4,6 +4,7 @@ import os from 'node:os';
 
 import { db } from '../../database/db.js';
 import { clientSettings, ledgerTxIndex, notes, noteShares } from '../../database/schema.js';
+import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 
 function withServerSeq(payloadJson: string, serverSeq: number): string {
   try {
@@ -23,20 +24,14 @@ export async function pullChangesSince(
   opts?: { clientId?: string | null },
 ): Promise<SyncPullResponse> {
   const requestedLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
-  if (since === 0 && typeof (db as any).execute === 'function') {
-    // Мягкий backfill для старых инсталляций: индексируем уже существующий change_log.
-    await (db as any).execute(sql`
-      INSERT INTO ledger_tx_index (server_seq, table_name, row_id, op, payload_json, created_at)
-      SELECT server_seq, table_name, row_id, op, payload_json, created_at
-      FROM change_log
-      ON CONFLICT (server_seq) DO NOTHING
-    `);
-  }
+  await ensureLedgerTxIndexUpToDate().catch(() => null);
   const maxSeqRow = await db.select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` }).from(ledgerTxIndex).limit(1);
   const serverLastSeq = Number(maxSeqRow[0]?.max ?? 0);
+  // Self-heal for clients that carry an out-of-range cursor after index maintenance/rebuild.
+  const effectiveSince = Math.max(0, Math.min(Number(since ?? 0), serverLastSeq));
   let safeLimit = requestedLimit;
   if (String(process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED ?? '1').trim() !== '0') {
-    const backlog = Math.max(0, serverLastSeq - Number(since ?? 0));
+    const backlog = Math.max(0, serverLastSeq - effectiveSince);
     const cores = Math.max(1, Number((os as any).availableParallelism?.() ?? os.cpus()?.length ?? 1));
     const load = Number(os.loadavg?.()[0] ?? 0);
     if (backlog >= 100_000) {
@@ -71,7 +66,7 @@ export async function pullChangesSince(
       serverSeq: ledgerTxIndex.serverSeq,
     })
     .from(ledgerTxIndex)
-    .where(gt(ledgerTxIndex.serverSeq, since))
+    .where(gt(ledgerTxIndex.serverSeq, effectiveSince))
     .orderBy(asc(ledgerTxIndex.serverSeq))
     .limit(safeLimit + 1);
   const pageRows = rows.slice(0, safeLimit);
@@ -174,7 +169,7 @@ export async function pullChangesSince(
   });
 
   // IMPORTANT: cursor must reflect the real last server_seq we observed.
-  const last = pageRows.at(-1)?.serverSeq ?? since;
+  const last = pageRows.at(-1)?.serverSeq ?? effectiveSince;
 
   return {
     sync_protocol_version: 2,

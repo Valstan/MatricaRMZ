@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { randomUUID, createHash } from 'node:crypto';
 import { SyncTableName } from '@matricarmz/shared';
 
@@ -355,6 +355,15 @@ async function latestSnapshot(scope: 'server' | 'client', clientId?: string | nu
   return rows;
 }
 
+function isConsistencySnapshotPayload(payload: unknown): payload is ConsistencySnapshot {
+  if (!payload || typeof payload !== 'object') return false;
+  const p = payload as any;
+  if (p.scope !== 'server' && p.scope !== 'client') return false;
+  if (!p.tables || typeof p.tables !== 'object') return false;
+  if (!p.entityTypes || typeof p.entityTypes !== 'object') return false;
+  return true;
+}
+
 function compareSection(server: SnapshotSection | null, client: SnapshotSection | null): 'ok' | 'warning' | 'drift' | 'unknown' {
   if (!server || !client) return 'unknown';
   if (server.count !== client.count) return 'drift';
@@ -402,18 +411,27 @@ function diffSnapshots(server: ConsistencySnapshot, client: ConsistencySnapshot 
 }
 
 export async function getConsistencyReport() {
-  let server = (await latestSnapshot('server'))[0] ?? null;
+  const serverRows = await db
+    .select()
+    .from(diagnosticsSnapshots)
+    .where(and(eq(diagnosticsSnapshots.scope, 'server'), isNull(diagnosticsSnapshots.clientId)))
+    .orderBy(desc(diagnosticsSnapshots.createdAt))
+    .limit(50);
   let serverSnapshot: ConsistencySnapshot | null = null;
-  if (!server) {
+  for (const row of serverRows as any[]) {
+    try {
+      const parsed = JSON.parse(String(row.payloadJson));
+      if (isConsistencySnapshotPayload(parsed)) {
+        serverSnapshot = parsed;
+        break;
+      }
+    } catch {
+      // ignore malformed row
+    }
+  }
+  if (!serverSnapshot) {
     serverSnapshot = await computeServerSnapshot();
     await saveSnapshot(serverSnapshot);
-  } else {
-    try {
-      serverSnapshot = JSON.parse(server.payloadJson) as ConsistencySnapshot;
-    } catch {
-      serverSnapshot = await computeServerSnapshot();
-      await saveSnapshot(serverSnapshot);
-    }
   }
   if (!serverSnapshot) throw new Error('server snapshot not available');
 

@@ -13,6 +13,15 @@ function nowMs() {
   return Date.now();
 }
 
+function safeJsonParse(raw: string | null | undefined): any {
+  if (!raw) return null;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
 function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | 'updatedAt'> {
   return {
     updatesEnabled: true,
@@ -133,7 +142,10 @@ export async function acknowledgeClientSyncRequest(clientId: string, ack: Client
   if (!row) return await getOrCreateClientSettings(clientId);
   if (!row.syncRequestId || String(row.syncRequestId) !== String(ack.requestId)) return row;
   const ts = nowMs();
+  const previousPayload = safeJsonParse(row.syncRequestPayload ?? null);
+  const autohealPayload = previousPayload?.autoheal && typeof previousPayload.autoheal === 'object' ? previousPayload.autoheal : null;
   const payload = {
+    ...(autohealPayload ? { autoheal: autohealPayload } : {}),
     ackAt: Number(ack.at ?? ts),
     ackStatus: ack.status,
     ...(ack.error ? { ackError: String(ack.error) } : {}),

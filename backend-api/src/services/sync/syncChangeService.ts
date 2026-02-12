@@ -12,6 +12,7 @@ import {
   chatReads,
   entities,
   entityTypes,
+  ledgerTxIndex,
   noteShares,
   notes,
   operations,
@@ -114,6 +115,7 @@ export async function recordSyncChanges(actor: SyncActor, changes: SyncChange[])
   }));
   const ledgerResult = signAndAppendDetailed(payloads);
   await applyLedgerSeqToRows(changes, ledgerResult.signed);
+  await appendLedgerTxIndexRows(changes, ledgerResult.signed);
 }
 
 export function appendLedgerChanges(actor: SyncActor, changes: SyncChangeJson[]) {
@@ -181,4 +183,33 @@ async function applyLedgerSeqToRows(changes: SyncChange[], signed: LedgerSignedT
     const caseExpr = sql`case ${cases} end`;
     await db.update(table).set({ lastServerSeq: caseExpr }).where(inArray(table.id, ids as any));
   }
+}
+
+async function appendLedgerTxIndexRows(changes: SyncChange[], signed: LedgerSignedTx[]) {
+  if (!changes.length || !signed.length) return;
+  const seqByKey = buildLedgerSeqMap(signed);
+  const rows = changes
+    .map((ch) => {
+      const key = `${String(TABLE_MAP[ch.tableName])}:${String(ch.rowId)}`;
+      const serverSeq = seqByKey.get(key);
+      if (!serverSeq) return null;
+      return {
+        serverSeq,
+        tableName: ch.tableName,
+        rowId: ch.rowId as any,
+        op: ch.op,
+        payloadJson: JSON.stringify(ch.payload),
+        createdAt: ch.ts ?? Date.now(),
+      };
+    })
+    .filter(Boolean) as Array<{
+    serverSeq: number;
+    tableName: string;
+    rowId: any;
+    op: 'upsert' | 'delete';
+    payloadJson: string;
+    createdAt: number;
+  }>;
+  if (!rows.length) return;
+  await db.insert(ledgerTxIndex).values(rows as any).onConflictDoNothing();
 }

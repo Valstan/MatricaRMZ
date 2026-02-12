@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 let clientSettingsRows: any[] = [];
 const setClientSyncRequestMock = vi.fn();
@@ -38,6 +39,7 @@ describe('diagnostics autoheal', () => {
     clientSettingsRows = [];
     process.env.MATRICA_SYNC_AUTOHEAL_ENABLED = '1';
     process.env.MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS = '1000';
+    process.env.MATRICA_SYNC_AUTOHEAL_SAME_FINGERPRINT_COOLDOWN_MS = '3600000';
     process.env.MATRICA_SYNC_DRIFT_THRESHOLD = '2';
   });
 
@@ -89,6 +91,34 @@ describe('diagnostics autoheal', () => {
     const r = await evaluateAutohealForClient('c1');
     expect(r.queued).toBe(false);
     expect((r as any).reason).toBe('cooldown');
+    expect(setClientSyncRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('skips re-enqueue for same fingerprint after ack', async () => {
+    const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    const now = Date.now();
+    const fingerprint = createHash('sha1').update('table:entities:drift').digest('hex');
+    clientSettingsRows = [
+      {
+        clientId: 'c1',
+        syncRequestId: null,
+        syncRequestType: null,
+        syncRequestAt: null,
+        syncRequestPayload: JSON.stringify({
+          autoheal: { fingerprint },
+          ackAt: now,
+          ackStatus: 'ok',
+          requestId: 'req-1',
+        }),
+      },
+    ];
+    getConsistencyReportMock.mockResolvedValue({
+      server: { source: 'ledger', serverSeq: 1000 },
+      clients: [{ clientId: 'c1', status: 'drift', lastPulledServerSeq: 0, diffs: [{ kind: 'table', name: 'entities', status: 'drift' }] }],
+    });
+    const r = await evaluateAutohealForClient('c1');
+    expect(r.queued).toBe(false);
+    expect((r as any).reason).toBe('same_fingerprint_cooldown');
     expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 });

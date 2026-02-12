@@ -22,6 +22,11 @@ function autohealCooldownMs() {
   return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60_000;
 }
 
+function sameFingerprintCooldownMs() {
+  const raw = Number(process.env.MATRICA_SYNC_AUTOHEAL_SAME_FINGERPRINT_COOLDOWN_MS ?? 6 * 60 * 60_000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 6 * 60 * 60_000;
+}
+
 function driftThreshold() {
   const raw = Number(process.env.MATRICA_SYNC_DRIFT_THRESHOLD ?? 2);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 2;
@@ -95,7 +100,28 @@ export async function evaluateAutohealForClient(clientId: string) {
     }
     const fingerprint = buildFingerprint(report);
     const previousPayload = parseJson(row?.syncRequestPayload ?? null);
-    if (row?.syncRequestType && previousPayload?.autoheal?.fingerprint === fingerprint) {
+    const previousFingerprint =
+      previousPayload?.autoheal?.fingerprint != null ? String(previousPayload.autoheal.fingerprint) : null;
+    const previousAckAt = Number(previousPayload?.ackAt ?? 0);
+    const previousSyncRequestAt = Number(row?.syncRequestAt ?? 0);
+    const previousActionAt = Math.max(
+      Number.isFinite(previousAckAt) ? previousAckAt : 0,
+      Number.isFinite(previousSyncRequestAt) ? previousSyncRequestAt : 0,
+    );
+    if (previousFingerprint && previousFingerprint === fingerprint && previousActionAt > 0) {
+      const sameFpCooldown = sameFingerprintCooldownMs();
+      if (now - previousActionAt < sameFpCooldown) {
+        await auditAutohealEvent(clientId, {
+          action: 'skip',
+          reason: 'same_fingerprint_cooldown',
+          fingerprint,
+          previousActionAt,
+          cooldownMs: sameFpCooldown,
+        });
+        return { queued: false as const, reason: 'same_fingerprint_cooldown' };
+      }
+    }
+    if (row?.syncRequestType && previousFingerprint === fingerprint) {
       await auditAutohealEvent(clientId, { action: 'skip', reason: 'same_fingerprint', fingerprint });
       return { queued: false as const, reason: 'same_fingerprint' };
     }
