@@ -359,6 +359,10 @@ export type NoteListResult = { ok: true; notes: NoteItem[]; shares: NoteShareIte
 export type NoteUpsertResult = { ok: true; id: string } | { ok: false; error: string };
 export type NoteDeleteResult = { ok: true } | { ok: false; error: string };
 export type NoteShareResult = { ok: true } | { ok: false; error: string };
+export type ErpDictionaryListResult = { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+export type ErpCardListResult = { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+export type ErpUpsertResult = { ok: true; id: string } | { ok: false; error: string };
+export type ErpDocumentListResult = { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
 
 export type ReportBuilderOperator =
   | 'eq'
@@ -910,6 +914,40 @@ export type MatricaApi = {
     >;
     delete: (partId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     getFiles: (partId: string) => Promise<{ ok: true; files: unknown[] } | { ok: false; error: string }>;
+  };
+  erp: {
+    dictionaryList: (moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees') => Promise<ErpDictionaryListResult>;
+    dictionaryUpsert: (args: {
+      moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
+      id?: string;
+      code: string;
+      name: string;
+      payloadJson?: string | null;
+    }) => Promise<ErpUpsertResult>;
+    cardsList: (moduleName: 'parts' | 'tools' | 'employees') => Promise<ErpCardListResult>;
+    cardsUpsert: (args: {
+      moduleName: 'parts' | 'tools' | 'employees';
+      id?: string;
+      templateId?: string | null;
+      serialNo?: string | null;
+      cardNo?: string | null;
+      status?: string | null;
+      payloadJson?: string | null;
+      fullName?: string | null;
+      personnelNo?: string | null;
+      roleCode?: string | null;
+    }) => Promise<ErpUpsertResult>;
+    documentsList: (args?: { status?: string; docType?: string }) => Promise<ErpDocumentListResult>;
+    documentsCreate: (args: {
+      docType: string;
+      docNo: string;
+      docDate?: number;
+      departmentId?: string | null;
+      authorId?: string | null;
+      payloadJson?: string | null;
+      lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
+    }) => Promise<ErpUpsertResult>;
+    documentsPost: (documentId: string) => Promise<ErpUpsertResult>;
   };
 
   files: {

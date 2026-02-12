@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
-import { tabAccent, theme } from '../theme.js';
+import { theme } from '../theme.js';
 
 export type TabId =
   | 'engines'
@@ -171,31 +171,27 @@ export function Tabs(props: {
     return groupForTab(props.tab as MenuTabId);
   }, [menuState.visibleOrdered, props.tab]);
   const activeGroup = useMemo(() => {
+    const byLayout = props.layout?.activeGroup;
+    if (byLayout && isGroupId(byLayout) && groupsInUse.includes(byLayout) && !collapsedGroups.has(byLayout)) return byLayout;
     if (preferredGroupByTab && groupsInUse.includes(preferredGroupByTab) && !collapsedGroups.has(preferredGroupByTab)) {
       return preferredGroupByTab;
     }
-    const byLayout = props.layout?.activeGroup;
-    if (byLayout && isGroupId(byLayout) && groupsInUse.includes(byLayout) && !collapsedGroups.has(byLayout)) return byLayout;
     for (const groupId of groupsInUse) {
       if (!collapsedGroups.has(groupId)) return groupId;
     }
     return groupsInUse[0] ?? null;
   }, [collapsedGroups, groupsInUse, preferredGroupByTab, props.layout?.activeGroup]);
-  const menuItems: MenuItemId[] = useMemo(() => {
-    const base: MenuItemId[] = [...menuState.visibleOrdered];
-    const next: MenuItemId[] = [...base];
-    next.splice(menuState.trashIndex, 0, 'trash' as MenuItemId);
-    return next;
-  }, [menuState.trashIndex, menuState.visibleOrdered]);
-  const groupMenuItems: MenuItemId[] = useMemo(() => {
+  const menuItems: MenuTabId[] = useMemo(() => [...menuState.visibleOrdered], [menuState.visibleOrdered]);
+  const groupMenuItems: MenuTabId[] = useMemo(() => {
     if (!activeGroup) return [];
-    return menuItems.filter((id) => id === 'trash' || groupForTab(id) === activeGroup);
+    return menuItems.filter((id) => groupForTab(id) === activeGroup);
   }, [activeGroup, menuItems]);
   const menuItemsKey = groupMenuItems.join('|');
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
   const movePopupRef = useRef<HTMLDivElement | null>(null);
+  const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<{ id: MenuItemId; x: number; y: number } | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashRect, setTrashRect] = useState<DOMRect | null>(null);
@@ -275,13 +271,14 @@ export function Tabs(props: {
   useEffect(() => {
     if (!preferredGroupByTab) return;
     if (activeGroup === preferredGroupByTab) return;
+    if (props.layout?.activeGroup && isGroupId(props.layout.activeGroup)) return;
     const nextCollapsed = new Set(collapsedGroups);
     if (nextCollapsed.has(preferredGroupByTab)) nextCollapsed.delete(preferredGroupByTab);
     updateGroupPrefs({
       activeGroup: preferredGroupByTab,
       collapsedGroups: Array.from(nextCollapsed),
     });
-  }, [activeGroup, collapsedGroups, preferredGroupByTab]);
+  }, [activeGroup, collapsedGroups, preferredGroupByTab, props.layout?.activeGroup]);
 
   function openContextMenu(id: MenuItemId, e: React.MouseEvent) {
     e.preventDefault();
@@ -314,7 +311,7 @@ export function Tabs(props: {
   }
 
   function moveItem(delta: -1 | 1) {
-    if (!moveId) return;
+    if (!moveId || moveId === 'trash') return;
     const currentIndex = menuItems.indexOf(moveId);
     const nextIndex = currentIndex + delta;
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= menuItems.length) return;
@@ -322,13 +319,10 @@ export function Tabs(props: {
     const [item] = nextItems.splice(currentIndex, 1);
     if (!item) return;
     nextItems.splice(nextIndex, 0, item);
-    const nextVisibleOrder = nextItems.filter((x): x is MenuTabId => x !== 'trash');
-    const nextTrashIndex = nextItems.indexOf('trash');
-    updateLayout(nextVisibleOrder, nextTrashIndex, menuState.hidden);
+    updateLayout(nextItems, menuState.trashIndex, menuState.hidden);
   }
 
   function tabButton(id: MenuTabId, label: string, opts?: { onContextMenu?: (e: React.MouseEvent) => void }) {
-    const acc = theme.accents[tabAccent(id)];
     const active = props.tab === id;
     const notesCount = id === 'notes' ? Math.max(0, Number(props.notesAlertCount ?? 0)) : 0;
     return (
@@ -341,19 +335,18 @@ export function Tabs(props: {
         style={
           active
             ? {
-                border: '2px dashed #dc2626',
-                background: `linear-gradient(135deg, ${acc.bg} 0%, ${acc.border} 120%)`,
-                color: acc.text,
-                boxShadow: '0 14px 24px rgba(0,0,0,0.18)',
+                border: '1px solid #0f2f72',
+                background: '#0f2f72',
+                color: '#ffffff',
+                boxShadow: '0 8px 18px rgba(15, 47, 114, 0.24)',
                 fontWeight: 800,
-                fontSize: 16,
-                transform: 'scale(1.06)',
+                transform: 'scale(1.04)',
               }
             : {
-                border: `1px solid ${acc.border}`,
-                background: theme.colors.surface2,
-                color: acc.border,
-                boxShadow: '0 10px 18px rgba(15, 23, 42, 0.08)',
+                border: '1px solid rgba(71, 85, 105, 0.34)',
+                background: 'rgba(148, 163, 184, 0.35)',
+                color: '#111827',
+                boxShadow: '0 3px 10px rgba(15, 23, 42, 0.09)',
               }
         }
       >
@@ -367,31 +360,16 @@ export function Tabs(props: {
     );
   }
 
-  function menuItemButton(id: MenuItemId) {
-    if (id === 'trash') {
-      return (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setContextMenu(null);
-            setTrashOpen((prev) => !prev);
-          }}
-          onContextMenu={(e) => openContextMenu('trash', e)}
-          title="Корзина кнопок"
-        >
-          🗑 Корзина
-        </Button>
-      );
-    }
+  function menuItemButton(id: MenuTabId) {
     return tabButton(id, labels[id], { onContextMenu: (e) => openContextMenu(id, e) });
   }
 
   useEffect(() => {
     if (!trashOpen) return;
-    const el = itemRefs.current.trash;
+    const el = trashButtonRef.current;
     if (el) setTrashRect(el.getBoundingClientRect());
     const sync = () => {
-      const nextEl = itemRefs.current.trash;
+      const nextEl = trashButtonRef.current;
       if (nextEl) setTrashRect(nextEl.getBoundingClientRect());
     };
     window.addEventListener('resize', sync);
@@ -423,7 +401,7 @@ export function Tabs(props: {
     const handler = (e: PointerEvent) => {
       const target = e.target as Node | null;
       if (contextMenu && contextMenuRef.current?.contains(target)) return;
-      if (trashOpen && (trashPopupRef.current?.contains(target) || itemRefs.current.trash?.contains(target as Node))) return;
+      if (trashOpen && (trashPopupRef.current?.contains(target) || trashButtonRef.current?.contains(target as Node))) return;
       if (moveId && movePopupRef.current?.contains(target)) return;
       setContextMenu(null);
       setTrashOpen(false);
@@ -453,15 +431,14 @@ export function Tabs(props: {
       <div
         style={{
           display: 'flex',
-          gap: 6,
-          rowGap: 6,
+          gap: 8,
+          rowGap: 8,
           flexWrap: 'wrap',
           alignItems: 'center',
-          marginTop: 8,
-          padding: '6px 8px',
-          borderRadius: 12,
-          background: 'rgba(148, 163, 184, 0.2)',
-          border: '1px solid rgba(148, 163, 184, 0.35)',
+          marginTop: 4,
+          padding: '4px 6px',
+          background: '#ffffff',
+          border: '1px solid rgba(148, 163, 184, 0.24)',
         }}
       >
         {groupsInUse.map((groupId) => {
@@ -475,27 +452,66 @@ export function Tabs(props: {
               style={
                 isActive
                   ? {
-                      border: '2px solid #2563eb',
-                      background: 'rgba(37, 99, 235, 0.15)',
-                      color: '#1d4ed8',
+                      width: 124,
+                      minHeight: 74,
+                      padding: '8px 10px',
+                      border: '1px solid #8a6842',
+                      background: 'linear-gradient(150deg, #f7deb4 0%, #efd3a7 35%, #f5e3c3 70%, #e2bc84 100%)',
+                      color: '#4f2c12',
                       fontWeight: 800,
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.55), 0 4px 10px rgba(70, 42, 18, 0.28)',
+                      textShadow: '0 1px 0 rgba(255, 237, 205, 0.75)',
+                      letterSpacing: 0.2,
                     }
                   : {
-                      border: '1px solid rgba(37, 99, 235, 0.35)',
-                      background: theme.colors.surface2,
-                      color: '#334155',
+                      width: 124,
+                      minHeight: 74,
+                      padding: '8px 10px',
+                      border: '1px solid #9a764d',
+                      background: 'linear-gradient(150deg, #fae8c7 0%, #f0d7ad 45%, #f7e7cb 75%, #e5c18c 100%)',
+                      color: '#64371a',
+                      fontWeight: 760,
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(70, 42, 18, 0.2)',
+                      textShadow: '0 1px 0 rgba(255, 237, 205, 0.6)',
+                      letterSpacing: 0.2,
                     }
               }
               title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
             >
-              {`${GROUP_LABELS[groupId]} ${isCollapsed ? '▸' : '▾'}`}
+              <span style={{ display: 'block', textAlign: 'center', lineHeight: 1.15 }}>{GROUP_LABELS[groupId]}</span>
             </Button>
           );
         })}
         <span style={{ flex: 1 }} />
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div ref={trashButtonRef}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setContextMenu(null);
+                setTrashOpen((prev) => !prev);
+              }}
+              title="Корзина кнопок"
+              style={{ minHeight: 32, padding: '5px 10px', border: '1px solid rgba(15, 23, 42, 0.22)' }}
+            >
+              🗑 Корзина
+            </Button>
+          </div>
           {authDot}
-          {tabButton(props.userTab, props.userLabel?.trim() ? props.userLabel.trim() : 'Вход')}
+          <Button
+            variant="ghost"
+            onClick={() => props.onTab(props.userTab)}
+            style={{
+              minHeight: 32,
+              padding: '5px 10px',
+              border: props.tab === props.userTab ? '1px solid #1e40af' : '1px solid rgba(15, 23, 42, 0.22)',
+              background: props.tab === props.userTab ? '#e2e8f0' : '#f8fafc',
+              color: '#0f172a',
+              fontWeight: 700,
+            }}
+          >
+            {props.userLabel?.trim() ? props.userLabel.trim() : 'Вход'}
+          </Button>
         </div>
         {props.right}
       </div>
@@ -507,12 +523,12 @@ export function Tabs(props: {
           rowGap: 6,
           flexWrap: 'wrap',
           alignItems: 'center',
-          marginTop: 6,
-          padding: '6px 8px',
-          borderRadius: 12,
-          background: 'rgba(148, 163, 184, 0.12)',
-          border: '1px solid rgba(148, 163, 184, 0.28)',
-          minHeight: 44,
+          justifyContent: 'center',
+          marginTop: 2,
+          padding: '3px 6px',
+          background: 'transparent',
+          border: 'none',
+          minHeight: 38,
         }}
       >
         {activeGroup == null ? (

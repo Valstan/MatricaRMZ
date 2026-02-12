@@ -369,7 +369,7 @@ export function App() {
     if (!currentId) return;
     if (backupMode?.mode === 'backup') return;
     void (async () => {
-      await runSyncNow({ showStatusMessage: true });
+      await runSyncNow({ showStatusMessage: false });
     })();
   }, [authReady, authStatus.loggedIn, authStatus.user?.id, backupMode?.mode]);
 
@@ -1040,7 +1040,7 @@ export function App() {
       if (tab === 'engine') await reloadEngine();
     }, [refreshEngines, reloadEngine, tab]),
     {
-      enabled: authStatus.loggedIn && (tab === 'engines' || tab === 'engine'),
+      enabled: authStatus.loggedIn && tab === 'engine',
       intervalMs: 12000,
       refreshOnSyncDone: false,
     },
@@ -1380,7 +1380,7 @@ export function App() {
   }
 
   const headerStatus = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, overflow: 'hidden', justifyContent: 'flex-end' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', justifyContent: 'flex-end' }}>
       {showUpdateBanner ? (
         <div
           style={{
@@ -1410,8 +1410,8 @@ export function App() {
               justifyContent: 'center',
               padding: '0 8px',
               fontSize: 11,
-              color: '#0b1220',
-              textShadow: '0 1px 2px rgba(255,255,255,0.65)',
+              color: '#ffffff',
+              textShadow: '0 1px 2px rgba(15, 23, 42, 0.8)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -1423,14 +1423,14 @@ export function App() {
         </div>
       ) : null}
       {incrementalSyncUi ? (
-        <div style={{ fontSize: 12, color: incrementalSyncUi.error ? 'var(--danger)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 600 }}>
+        <div style={{ fontSize: 12, color: incrementalSyncUi.error ? '#fecaca' : '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 600 }}>
           {`Синхронизация${incrementalSyncUi.progress != null ? ` ${Math.round(
             Math.max(0, Math.min(100, incrementalSyncUi.progress * 100)),
           )}%` : ''}${incrementalSyncUi.activity ? ` • ${incrementalSyncUi.activity}` : ''}${incrementalSyncUi.error ? ` • ${incrementalSyncUi.error}` : ''}`}
         </div>
       ) : null}
-      {postLoginSyncMsg ? (
-        <div style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 520 }}>
+      {postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? (
+        <div style={{ fontSize: 12, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 520 }}>
           {postLoginSyncMsg}
         </div>
       ) : null}
@@ -1460,6 +1460,13 @@ export function App() {
               onClick={() => void runSyncNow({ showStatusMessage: true })}
               disabled={syncStatus?.state === 'syncing'}
               title="Запустить синхронизацию вручную"
+              style={{
+                background: '#90ee90',
+                color: '#000000',
+                border: '1px solid #4b8a4b',
+                boxShadow: 'none',
+                fontWeight: 700,
+              }}
             >
               Синхронизировать сейчас
             </Button>
@@ -1470,7 +1477,7 @@ export function App() {
         {renderFullSyncModal()}
         {renderFatalModal()}
       <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 6, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
           <div
             style={{
@@ -1547,7 +1554,7 @@ export function App() {
             />
           </div>
 
-          <div style={{ marginTop: 14, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+          <div style={{ marginTop: 6, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
             {!authStatus.loggedIn && tab !== 'auth' && (
               <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
             )}

@@ -56,6 +56,17 @@ export const PermissionCode = {
   PartsFilesUpload: 'parts.files.upload',
   PartsFilesDelete: 'parts.files.delete',
 
+  // ERP strict layers
+  ErpDictionaryView: 'erp.dictionary.view',
+  ErpDictionaryEdit: 'erp.dictionary.edit',
+  ErpCardsView: 'erp.cards.view',
+  ErpCardsEdit: 'erp.cards.edit',
+  ErpDocumentsView: 'erp.documents.view',
+  ErpDocumentsEdit: 'erp.documents.edit',
+  ErpDocumentsPost: 'erp.documents.post',
+  ErpRegistersView: 'erp.registers.view',
+  ErpJournalsView: 'erp.journals.view',
+
   // chat
   ChatUse: 'chat.use',
   ChatExport: 'chat.export',
@@ -131,6 +142,16 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.PartsDelete, group: 'Детали', titleRu: 'Удаление деталей' },
   { code: PermissionCode.PartsFilesUpload, group: 'Детали', titleRu: 'Загрузка файлов к деталям' },
   { code: PermissionCode.PartsFilesDelete, group: 'Детали', titleRu: 'Удаление файлов у деталей' },
+
+  { code: PermissionCode.ErpDictionaryView, group: 'ERP', titleRu: 'Просмотр справочников ERP' },
+  { code: PermissionCode.ErpDictionaryEdit, group: 'ERP', titleRu: 'Редактирование справочников ERP' },
+  { code: PermissionCode.ErpCardsView, group: 'ERP', titleRu: 'Просмотр карточек ERP' },
+  { code: PermissionCode.ErpCardsEdit, group: 'ERP', titleRu: 'Редактирование карточек ERP' },
+  { code: PermissionCode.ErpDocumentsView, group: 'ERP', titleRu: 'Просмотр документов ERP' },
+  { code: PermissionCode.ErpDocumentsEdit, group: 'ERP', titleRu: 'Редактирование документов ERP' },
+  { code: PermissionCode.ErpDocumentsPost, group: 'ERP', titleRu: 'Проведение документов ERP' },
+  { code: PermissionCode.ErpRegistersView, group: 'ERP', titleRu: 'Просмотр регистров ERP' },
+  { code: PermissionCode.ErpJournalsView, group: 'ERP', titleRu: 'Просмотр журналов ERP' },
 
   { code: PermissionCode.ChatUse, group: 'Чат', titleRu: 'Использование чата' },
   { code: PermissionCode.ChatExport, group: 'Чат', titleRu: 'Экспорт сообщений чата (админ)', adminOnly: true },

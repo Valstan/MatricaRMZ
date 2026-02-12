@@ -27,6 +27,7 @@ import { aiAgentRouter } from './routes/aiAgent.js';
 import { ledgerRouter } from './routes/ledger.js';
 import { notesRouter } from './routes/notes.js';
 import { reportsRouter } from './routes/reports.js';
+import { erpRouter } from './routes/erp.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -62,6 +63,7 @@ export function createApp() {
   app.use('/diagnostics', diagnosticsRouter);
   app.use('/ai', aiAgentRouter);
   app.use('/reports', requireAuth, requirePermission(PermissionCode.ReportsView), reportsRouter);
+  app.use('/erp', erpRouter);
 
   // Web admin UI (served as static SPA from /admin-ui)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

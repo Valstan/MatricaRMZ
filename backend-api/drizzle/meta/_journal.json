@@ -190,6 +190,13 @@
       "when": 1769878001000,
       "tag": "0025_add_last_server_seq",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1771171205000,
+      "tag": "0030_erp_strict_core",
+      "breakpoints": true
     }
   ]
 }

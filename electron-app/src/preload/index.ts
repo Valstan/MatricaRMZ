@@ -273,6 +273,41 @@ contextBridge.exposeInMainWorld('matrica', {
     delete: async (partId: string) => ipcRenderer.invoke('parts:delete', partId),
     getFiles: async (partId: string) => ipcRenderer.invoke('parts:getFiles', partId),
   },
+  erp: {
+    dictionaryList: async (moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees') =>
+      ipcRenderer.invoke('erp:dictionary:list', moduleName),
+    dictionaryUpsert: async (args: {
+      moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
+      id?: string;
+      code: string;
+      name: string;
+      payloadJson?: string | null;
+    }) => ipcRenderer.invoke('erp:dictionary:upsert', args),
+    cardsList: async (moduleName: 'parts' | 'tools' | 'employees') => ipcRenderer.invoke('erp:cards:list', moduleName),
+    cardsUpsert: async (args: {
+      moduleName: 'parts' | 'tools' | 'employees';
+      id?: string;
+      templateId?: string | null;
+      serialNo?: string | null;
+      cardNo?: string | null;
+      status?: string | null;
+      payloadJson?: string | null;
+      fullName?: string | null;
+      personnelNo?: string | null;
+      roleCode?: string | null;
+    }) => ipcRenderer.invoke('erp:cards:upsert', args),
+    documentsList: async (args?: { status?: string; docType?: string }) => ipcRenderer.invoke('erp:documents:list', args),
+    documentsCreate: async (args: {
+      docType: string;
+      docNo: string;
+      docDate?: number;
+      departmentId?: string | null;
+      authorId?: string | null;
+      payloadJson?: string | null;
+      lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
+    }) => ipcRenderer.invoke('erp:documents:create', args),
+    documentsPost: async (documentId: string) => ipcRenderer.invoke('erp:documents:post', documentId),
+  },
   files: {
     upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
       ipcRenderer.invoke('files:upload', args),

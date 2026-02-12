@@ -545,4 +545,271 @@ export const userPresence = pgTable(
   (_t) => ({}),
 );
 
+// -----------------------------
+// ERP strict model (phase-in)
+// -----------------------------
+export const erpPartTemplates = pgTable(
+  'erp_part_templates',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    specJson: text('spec_json'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_part_templates_code_uq').on(t.code),
+  }),
+);
+
+export const erpPartCards = pgTable(
+  'erp_part_cards',
+  {
+    id: uuid('id').primaryKey(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => erpPartTemplates.id),
+    serialNo: text('serial_no'),
+    cardNo: text('card_no'),
+    attrsJson: text('attrs_json'),
+    status: text('status').notNull().default('active'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    templateIdx: index('erp_part_cards_template_idx').on(t.templateId),
+    cardNoIdx: index('erp_part_cards_card_no_idx').on(t.cardNo),
+  }),
+);
+
+export const erpToolTemplates = pgTable(
+  'erp_tool_templates',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    specJson: text('spec_json'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_tool_templates_code_uq').on(t.code),
+  }),
+);
+
+export const erpToolCards = pgTable(
+  'erp_tool_cards',
+  {
+    id: uuid('id').primaryKey(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => erpToolTemplates.id),
+    serialNo: text('serial_no'),
+    cardNo: text('card_no'),
+    attrsJson: text('attrs_json'),
+    status: text('status').notNull().default('active'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    templateIdx: index('erp_tool_cards_template_idx').on(t.templateId),
+    cardNoIdx: index('erp_tool_cards_card_no_idx').on(t.cardNo),
+  }),
+);
+
+export const erpCounterparties = pgTable(
+  'erp_counterparties',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    attrsJson: text('attrs_json'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_counterparties_code_uq').on(t.code),
+    nameIdx: index('erp_counterparties_name_idx').on(t.name),
+  }),
+);
+
+export const erpContracts = pgTable(
+  'erp_contracts',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    counterpartyId: uuid('counterparty_id').references(() => erpCounterparties.id),
+    startsAt: bigint('starts_at', { mode: 'number' }),
+    endsAt: bigint('ends_at', { mode: 'number' }),
+    attrsJson: text('attrs_json'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_contracts_code_uq').on(t.code),
+    counterpartyIdx: index('erp_contracts_counterparty_idx').on(t.counterpartyId),
+  }),
+);
+
+export const erpEmployeeCards = pgTable(
+  'erp_employee_cards',
+  {
+    id: uuid('id').primaryKey(),
+    personnelNo: text('personnel_no'),
+    fullName: text('full_name').notNull(),
+    roleCode: text('role_code'),
+    attrsJson: text('attrs_json'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),
+    fullNameIdx: index('erp_employee_cards_full_name_idx').on(t.fullName),
+  }),
+);
+
+export const erpDocumentHeaders = pgTable(
+  'erp_document_headers',
+  {
+    id: uuid('id').primaryKey(),
+    docType: text('doc_type').notNull(),
+    docNo: text('doc_no').notNull(),
+    docDate: bigint('doc_date', { mode: 'number' }).notNull(),
+    status: text('status').notNull().default('draft'),
+    authorId: uuid('author_id').references(() => erpEmployeeCards.id),
+    departmentId: text('department_id'),
+    payloadJson: text('payload_json'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    postedAt: bigint('posted_at', { mode: 'number' }),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    docNoUq: uniqueIndex('erp_document_headers_doc_no_uq').on(t.docNo),
+    docTypeDateIdx: index('erp_document_headers_type_date_idx').on(t.docType, t.docDate),
+    statusIdx: index('erp_document_headers_status_idx').on(t.status),
+  }),
+);
+
+export const erpDocumentLines = pgTable(
+  'erp_document_lines',
+  {
+    id: uuid('id').primaryKey(),
+    headerId: uuid('header_id')
+      .notNull()
+      .references(() => erpDocumentHeaders.id),
+    lineNo: integer('line_no').notNull(),
+    partCardId: uuid('part_card_id').references(() => erpPartCards.id),
+    qty: integer('qty').notNull().default(0),
+    price: bigint('price', { mode: 'number' }),
+    payloadJson: text('payload_json'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    headerLineUq: uniqueIndex('erp_document_lines_header_line_uq').on(t.headerId, t.lineNo),
+    partIdx: index('erp_document_lines_part_idx').on(t.partCardId),
+  }),
+);
+
+export const erpRegStockBalance = pgTable(
+  'erp_reg_stock_balance',
+  {
+    id: uuid('id').primaryKey(),
+    partCardId: uuid('part_card_id')
+      .notNull()
+      .references(() => erpPartCards.id),
+    warehouseId: text('warehouse_id').notNull().default('default'),
+    qty: integer('qty').notNull().default(0),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    partWarehouseUq: uniqueIndex('erp_reg_stock_balance_part_warehouse_uq').on(t.partCardId, t.warehouseId),
+  }),
+);
+
+export const erpRegPartUsage = pgTable(
+  'erp_reg_part_usage',
+  {
+    id: uuid('id').primaryKey(),
+    partCardId: uuid('part_card_id')
+      .notNull()
+      .references(() => erpPartCards.id),
+    engineId: uuid('engine_id').references(() => entities.id),
+    documentLineId: uuid('document_line_id').references(() => erpDocumentLines.id),
+    qty: integer('qty').notNull().default(0),
+    usedAt: bigint('used_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    partUsedAtIdx: index('erp_reg_part_usage_part_used_at_idx').on(t.partCardId, t.usedAt),
+  }),
+);
+
+export const erpRegContractSettlement = pgTable(
+  'erp_reg_contract_settlement',
+  {
+    id: uuid('id').primaryKey(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => erpContracts.id),
+    documentHeaderId: uuid('document_header_id')
+      .notNull()
+      .references(() => erpDocumentHeaders.id),
+    amount: bigint('amount', { mode: 'number' }).notNull().default(0),
+    direction: text('direction').notNull().default('debit'),
+    at: bigint('at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    contractAtIdx: index('erp_reg_contract_settlement_contract_at_idx').on(t.contractId, t.at),
+  }),
+);
+
+export const erpRegEmployeeAccess = pgTable(
+  'erp_reg_employee_access',
+  {
+    id: uuid('id').primaryKey(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => erpEmployeeCards.id),
+    scope: text('scope').notNull(),
+    allowed: boolean('allowed').notNull().default(true),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    employeeScopeUq: uniqueIndex('erp_reg_employee_access_employee_scope_uq').on(t.employeeId, t.scope),
+  }),
+);
+
+export const erpJournalDocuments = pgTable(
+  'erp_journal_documents',
+  {
+    id: uuid('id').primaryKey(),
+    documentHeaderId: uuid('document_header_id')
+      .notNull()
+      .references(() => erpDocumentHeaders.id),
+    eventType: text('event_type').notNull(),
+    eventPayloadJson: text('event_payload_json'),
+    eventAt: bigint('event_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    headerEventAtIdx: index('erp_journal_documents_header_event_at_idx').on(t.documentHeaderId, t.eventAt),
+    eventAtIdx: index('erp_journal_documents_event_at_idx').on(t.eventAt),
+  }),
+);
+
 

@@ -9,6 +9,11 @@ import { logDebug, logError, logInfo } from '../utils/logger.js';
 export const partsRouter = Router();
 partsRouter.use(requireAuth);
 
+function isErpStrictMode() {
+  const raw = String(process.env.MATRICA_ERP_STRICT_MODE ?? '').toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, res) => {
   try {
     logDebug('parts list', { method: req.method, query: req.query });
@@ -49,6 +54,9 @@ partsRouter.get('/:id', requirePermission(PermissionCode.PartsView), async (req,
 });
 
 partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: create parts via /erp API' });
+  }
   try {
     logDebug('parts create', { method: req.method });
     const actor = (req as AuthenticatedRequest).user;
@@ -77,6 +85,9 @@ partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req,
 
 // Создать новое поле (attribute_def) для карточки детали (для расширения карты без миграций).
 partsRouter.post('/attribute-defs', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: attribute defs are read-only in legacy parts module' });
+  }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const schema = z.object({
@@ -118,6 +129,9 @@ partsRouter.post('/attribute-defs', requirePermission(PermissionCode.PartsEdit),
 });
 
 partsRouter.put('/:id/attributes/:code', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: edit parts via /erp API' });
+  }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const id = String(req.params.id || '');
@@ -148,6 +162,9 @@ partsRouter.put('/:id/attributes/:code', requirePermission(PermissionCode.PartsE
 });
 
 partsRouter.delete('/:id', requirePermission(PermissionCode.PartsDelete), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: delete parts via /erp API' });
+  }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const id = String(req.params.id || '');

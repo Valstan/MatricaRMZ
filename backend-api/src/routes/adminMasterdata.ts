@@ -32,6 +32,17 @@ function isAdminRole(role: string) {
   return r === 'admin' || r === 'superadmin';
 }
 
+function isErpStrictMode() {
+  const raw = String(process.env.MATRICA_ERP_STRICT_MODE ?? '').toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function blockLegacyEavWrites(res: Response) {
+  if (!isErpStrictMode()) return false;
+  res.status(409).json({ ok: false, error: 'ERP strict mode enabled: legacy EAV writes are disabled' });
+  return true;
+}
+
 async function requireAdmin(req: Request, res: Response) {
   const actor = (req as unknown as AuthenticatedRequest).user;
   const roleOk = isAdminRole(actor?.role ?? '');
@@ -55,6 +66,7 @@ adminMasterdataRouter.get('/entity-types', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/entity-types', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({ id: z.string().uuid().optional(), code: z.string().min(1).max(200), name: z.string().min(1).max(500) });
@@ -92,6 +104,7 @@ adminMasterdataRouter.get('/entity-types/:id/delete-info', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/entity-types/:id/delete', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({ deleteEntities: z.boolean().optional(), deleteDefs: z.boolean().optional() });
@@ -116,6 +129,7 @@ adminMasterdataRouter.get('/attribute-defs', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/attribute-defs', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({
@@ -155,6 +169,7 @@ adminMasterdataRouter.get('/attribute-defs/:id/delete-info', async (req, res) =>
 });
 
 adminMasterdataRouter.post('/attribute-defs/:id/delete', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({ deleteValues: z.boolean().optional() });
@@ -176,6 +191,7 @@ adminMasterdataRouter.get('/entities', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/entities', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({ entityTypeId: z.string().uuid() });
@@ -195,6 +211,7 @@ adminMasterdataRouter.get('/entities/:id', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/entities/:id/set-attr', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({ code: z.string().min(1).max(200), value: z.any() });
@@ -216,6 +233,7 @@ adminMasterdataRouter.get('/entities/:id/delete-info', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/entities/:id/soft-delete', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
@@ -225,6 +243,7 @@ adminMasterdataRouter.post('/entities/:id/soft-delete', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/entities/:id/detach-links-delete', async (req, res) => {
+  if (blockLegacyEavWrites(res)) return;
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');

@@ -8,14 +8,14 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       ref={ref}
       style={{
         width: '100%',
-        padding: '7px 10px',
+        padding: '4px 6px',
         border: focused ? '1px solid var(--input-border-focus)' : '1px solid var(--input-border)',
         outline: 'none',
         background: props.disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
         color: 'var(--text)',
-        fontSize: 14,
+        fontSize: 13,
         lineHeight: 1.2,
-        minHeight: 32,
+        minHeight: 28,
         boxShadow: focused ? 'var(--input-shadow-focus)' : 'var(--input-shadow)',
         ...(props.style ?? {}),
       }}

@@ -1,14 +1,12 @@
 import React from 'react';
 
-function splitAlternating<T>(items: T[]): { left: T[]; right: T[] } {
-  const left: T[] = [];
-  const right: T[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (item === undefined) continue;
-    (i % 2 === 0 ? left : right).push(item);
-  }
-  return { left, right };
+function splitInHalves<T>(items: T[]): { left: T[]; right: T[] } {
+  const safe = items.filter((item) => item !== undefined);
+  const splitAt = Math.ceil(safe.length / 2);
+  return {
+    left: safe.slice(0, splitAt),
+    right: safe.slice(splitAt),
+  };
 }
 
 export function TwoColumnList<T>(props: {
@@ -20,7 +18,7 @@ export function TwoColumnList<T>(props: {
 }) {
   const gap = props.gapPx ?? 10;
   if (!props.enabled) return <>{props.renderColumn(props.items, 'left')}</>;
-  const { left, right } = splitAlternating(props.items);
+  const { left, right } = splitInHalves(props.items);
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap }}>
       <div>{props.renderColumn(left, 'left')}</div>

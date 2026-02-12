@@ -51,8 +51,8 @@ body {
   --list-row-bg-hover: #e2e8f0;
   --list-row-border: rgba(15, 23, 42, 0.14);
   --list-row-text: #0b1220;
-  --list-row-padding-y: 6px;
-  --list-row-padding-x: 10px;
+  --list-row-padding-y: 4px;
+  --list-row-padding-x: 6px;
   --list-row-green-bg: #ecfdf3;
   --list-row-green-alt: #dcfce7;
   --list-row-green-hover: #bbf7d0;
@@ -62,9 +62,9 @@ body {
   --card-row-bg: #e0f2fe;
   --card-row-bg-hover: #dbeafe;
   --card-row-border: rgba(37, 99, 235, 0.25);
-  --card-row-gap: 6px;
-  --card-row-padding-y: 6px;
-  --card-row-padding-x: 8px;
+  --card-row-gap: 4px;
+  --card-row-padding-y: 4px;
+  --card-row-padding-x: 6px;
   --card-row-drag-bg: rgba(59, 130, 246, 0.12);
 
   --tone-success-bg: linear-gradient(135deg, #16a34a 0%, #22c55e 110%);

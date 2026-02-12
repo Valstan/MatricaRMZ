@@ -12,10 +12,10 @@ export const Button = React.forwardRef<
   const size = props.size ?? 'md';
   const sizeStyle: React.CSSProperties =
     size === 'sm'
-      ? { padding: '5px 10px', minHeight: 28, fontSize: 12 }
+      ? { padding: '4px 8px', minHeight: 26, fontSize: 12 }
       : size === 'lg'
-        ? { padding: '9px 14px', minHeight: 36, fontSize: 15 }
-        : { padding: '7px 12px', minHeight: 32, fontSize: 14 };
+        ? { padding: '8px 12px', minHeight: 34, fontSize: 14 }
+        : { padding: '5px 9px', minHeight: 28, fontSize: 13 };
   const toneStyle: React.CSSProperties | null = tone
     ? {
         background: `var(--tone-${tone}-bg)`,

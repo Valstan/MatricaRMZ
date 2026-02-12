@@ -22,7 +22,10 @@
     "ledger:import": "tsx src/scripts/ledgerImport.ts",
     "backup:nightly": "tsx src/scripts/nightlyBackup.ts",
     "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts",
-    "clients:enable-logging": "tsx src/scripts/enableClientLogging.ts"
+    "clients:enable-logging": "tsx src/scripts/enableClientLogging.ts",
+    "erp:migrate-from-eav": "tsx src/scripts/migrateEavToErp.ts"
+    ,
+    "erp:legacy-cleanup": "tsx src/scripts/erpLegacyCleanup.ts"
   },
   "dependencies": {
     "@matricarmz/ledger": "workspace:*",

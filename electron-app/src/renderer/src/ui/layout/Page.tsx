@@ -38,14 +38,25 @@ export function Page(props: {
           overflow: 'hidden',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', padding: 10 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flex: '0 0 auto',
+            padding: '6px 8px',
+            background: '#0b2d63',
+            color: '#ffffff',
+            borderBottom: '1px solid rgba(255,255,255,0.14)',
+          }}
+        >
           <div style={{ flex: '0 1 42%', minWidth: 180 }}>
             <h1
               style={{
                 margin: 0,
-                fontSize: 18,
+                fontSize: 15,
                 fontWeight: 800,
-                color: theme.colors.text,
+                color: '#ffffff',
                 lineHeight: 1.15,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
@@ -56,7 +67,7 @@ export function Page(props: {
               {props.title}
             </h1>
           </div>
-          {props.center ? <div style={{ flex: '1 1 auto', minWidth: 0 }}>{props.center}</div> : null}
+          {props.center ? <div style={{ flex: '1 1 auto', minWidth: 0, color: '#ffffff' }}>{props.center}</div> : null}
           {props.right}
         </div>
         {props.topBanner ? <div style={{ marginTop: 8 }}>{props.topBanner}</div> : null}
