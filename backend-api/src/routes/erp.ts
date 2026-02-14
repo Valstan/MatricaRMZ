@@ -25,7 +25,12 @@ erpRouter.post('/dictionary/:module', requirePermission(PermissionCode.ErpDictio
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await upsertErpDictionary(moduleName, parsed.data);
+  const result = await upsertErpDictionary(moduleName, {
+    code: parsed.data.code,
+    name: parsed.data.name,
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    ...(parsed.data.payloadJson !== undefined ? { payloadJson: parsed.data.payloadJson } : {}),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -52,7 +57,17 @@ erpRouter.post('/cards/:module', requirePermission(PermissionCode.ErpCardsEdit),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await upsertErpCard(moduleName, parsed.data);
+  const result = await upsertErpCard(moduleName, {
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    ...(parsed.data.templateId !== undefined ? { templateId: parsed.data.templateId } : {}),
+    ...(parsed.data.serialNo !== undefined ? { serialNo: parsed.data.serialNo } : {}),
+    ...(parsed.data.cardNo !== undefined ? { cardNo: parsed.data.cardNo } : {}),
+    ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+    ...(parsed.data.payloadJson !== undefined ? { payloadJson: parsed.data.payloadJson } : {}),
+    ...(parsed.data.fullName !== undefined ? { fullName: parsed.data.fullName } : {}),
+    ...(parsed.data.personnelNo !== undefined ? { personnelNo: parsed.data.personnelNo } : {}),
+    ...(parsed.data.roleCode !== undefined ? { roleCode: parsed.data.roleCode } : {}),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -64,7 +79,10 @@ erpRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsView), 
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await listErpDocuments(parsed.data);
+  const result = await listErpDocuments({
+    ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+    ...(parsed.data.docType !== undefined ? { docType: parsed.data.docType } : {}),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -90,7 +108,21 @@ erpRouter.post('/documents', requirePermission(PermissionCode.ErpDocumentsEdit),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await createErpDocument(parsed.data);
+  const lines = parsed.data.lines.map((line) => ({
+    qty: line.qty,
+    ...(line.partCardId !== undefined ? { partCardId: line.partCardId } : {}),
+    ...(line.price !== undefined ? { price: line.price } : {}),
+    ...(line.payloadJson !== undefined ? { payloadJson: line.payloadJson } : {}),
+  }));
+  const result = await createErpDocument({
+    docType: parsed.data.docType,
+    docNo: parsed.data.docNo,
+    lines,
+    ...(parsed.data.docDate !== undefined ? { docDate: parsed.data.docDate } : {}),
+    ...(parsed.data.departmentId !== undefined ? { departmentId: parsed.data.departmentId } : {}),
+    ...(parsed.data.authorId !== undefined ? { authorId: parsed.data.authorId } : {}),
+    ...(parsed.data.payloadJson !== undefined ? { payloadJson: parsed.data.payloadJson } : {}),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

@@ -84,7 +84,7 @@ async function migrateParts() {
 
   for (const src of rows) {
     const code = String(src.attrs.article ?? src.attrs.part_number ?? src.id).trim();
-    const name = String(src.attrs.name ?? src.attrs.full_name ?? code || 'Деталь').trim();
+    const name = String(src.attrs.name ?? src.attrs.full_name ?? code ?? 'Деталь').trim();
     const templateId = randomUUID();
     await db.insert(erpPartTemplates).values({
       id: templateId,
@@ -123,7 +123,7 @@ async function migrateTools() {
   let cards = 0;
   for (const src of rows) {
     const code = String(src.attrs.tool_number ?? src.attrs.number ?? src.id).trim();
-    const name = String(src.attrs.name ?? code || 'Инструмент').trim();
+    const name = String(src.attrs.name ?? code ?? 'Инструмент').trim();
     const templateId = randomUUID();
     await db.insert(erpToolTemplates).values({
       id: templateId,
@@ -159,7 +159,7 @@ async function migrateCounterparties() {
   const ts = nowMs();
   for (const src of rows) {
     const code = String(src.attrs.code ?? src.id).trim();
-    const name = String(src.attrs.name ?? src.attrs.full_name ?? code || 'Контрагент').trim();
+    const name = String(src.attrs.name ?? src.attrs.full_name ?? code ?? 'Контрагент').trim();
     await db.insert(erpCounterparties).values({
       id: randomUUID(),
       code: code || randomUUID(),
@@ -181,7 +181,7 @@ async function migrateContracts() {
   const ts = nowMs();
   for (const src of rows) {
     const code = String(src.attrs.number ?? src.attrs.code ?? src.id).trim();
-    const name = String(src.attrs.name ?? src.attrs.title ?? code || 'Контракт').trim();
+    const name = String(src.attrs.name ?? src.attrs.title ?? code ?? 'Контракт').trim();
     await db.insert(erpContracts).values({
       id: randomUUID(),
       code: code || randomUUID(),
