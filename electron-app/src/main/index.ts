@@ -24,6 +24,10 @@ import { setupMenu } from './utils/menu.js';
 let mainWindow: BrowserWindow | null = null;
 let mainWindowReady = false;
 let allowMainWindowShow = false;
+let writeSessionAuditEvent:
+  | ((action: 'app.session.start' | 'app.session.stop') => Promise<void>)
+  | null = null;
+let stopAuditWritten = false;
 const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
 
 const { logToFile, getLogPath } = createFileLogger(app);
@@ -187,6 +191,8 @@ app.whenReady().then(() => {
       const { seedIfNeeded } = await import('./database/seed.js');
       const { registerIpc } = await import('./ipc/registerIpc.js');
       const { SettingsKey, settingsGetString, settingsSetString } = await import('./services/settingsStore.js');
+      const { getSession } = await import('./services/authService.js');
+      const { addAudit } = await import('./services/auditService.js');
 
       const userData = app.getPath('userData');
       mkdirSync(userData, { recursive: true });
@@ -222,9 +228,30 @@ app.whenReady().then(() => {
         logToFile(`generated stable clientId=${stableClientId}`);
       }
 
+      writeSessionAuditEvent = async (action) => {
+        try {
+          const session = await getSession(db);
+          const actor = String(session?.user?.username ?? '').trim();
+          if (!actor) return;
+          await addAudit(db, {
+            actor,
+            action,
+            payload: {
+              clientId: stableClientId,
+              version: app.getVersion(),
+              platform: process.platform,
+              hostname: process.env.COMPUTERNAME || process.env.HOSTNAME || null,
+            },
+          });
+        } catch {
+          // ignore audit write failures
+        }
+      };
+
       registerIpc(db, { clientId: stableClientId, apiBaseUrl });
       logToFile('IPC registered, SQLite ready');
       configureUpdateService({ apiBaseUrl, db });
+      await writeSessionAuditEvent('app.session.start');
 
       const remote = await applyRemoteClientSettings({
         db,
@@ -276,6 +303,12 @@ app.on('window-all-closed', () => {
   // Prevent quitting before the main window is ready.
   if (!allowMainWindowShow) return;
   app.quit();
+});
+
+app.on('before-quit', () => {
+  if (stopAuditWritten) return;
+  stopAuditWritten = true;
+  if (writeSessionAuditEvent) void writeSessionAuditEvent('app.session.stop');
 });
 
 // Тестовый IPC: проверяем связку renderer -> main.

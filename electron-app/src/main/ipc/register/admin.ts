@@ -38,6 +38,7 @@ import {
   adminUpdateUser,
 } from '../../services/adminUsersService.js';
 import { adminResyncAllMasterdata, adminResyncEntityType } from '../../services/adminMasterdataRemoteService.js';
+import { adminAuditDailySummary, adminAuditList } from '../../services/adminAuditService.js';
 
 export function registerAdminIpc(ctx: IpcContext) {
   // Master-data: EntityTypes/AttributeDefs/Entities
@@ -252,6 +253,25 @@ export function registerAdminIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminRevokeDelegation(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args.id, args.note);
+  });
+
+  ipcMain.handle(
+    'admin:audit:list',
+    async (_e, args?: { limit?: number; fromMs?: number; toMs?: number; actor?: string; actionType?: string }) => {
+      if (isViewMode(ctx)) return viewModeWriteError() as any;
+      await requirePermOrThrow(ctx, 'admin.users.manage');
+      const actor = await ctx.currentActor();
+      if (String(actor.role ?? '').toLowerCase() !== 'superadmin') return { ok: false as const, error: 'superadmin only' };
+      return adminAuditList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle('admin:audit:dailySummary', async (_e, args?: { date?: string; cutoffHour?: number }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'admin.users.manage');
+    const actor = await ctx.currentActor();
+    if (String(actor.role ?? '').toLowerCase() !== 'superadmin') return { ok: false as const, error: 'superadmin only' };
+    return adminAuditDailySummary(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 }
 

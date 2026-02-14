@@ -85,7 +85,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   supply: ['requests', 'tools', 'products', 'services'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
-  control: ['reports', 'changes'],
+  control: ['reports', 'changes', 'audit'],
   interaction: ['notes'],
   admin: ['masterdata'],
 };

@@ -7,7 +7,6 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
-import { ErpWorkspacePanel } from './ErpWorkspacePanel.js';
 import { applyClassicMasterdataPreset } from './masterdataClassicPreset.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
@@ -770,11 +769,6 @@ export function MasterdataPage(props: {
           ? 'Здесь можно настраивать номенклатуру и свойства (для расширения системы без миграций).'
           : 'У вас нет доступа к мастер-данным.'}
       </div>
-      {props.canViewMasterData && (
-        <div style={{ marginBottom: 12 }}>
-          <ErpWorkspacePanel canEdit={props.canEditMasterData} />
-        </div>
-      )}
 
       {props.canViewMasterData && (
         <div style={{ display: 'grid', gap: 12 }}>

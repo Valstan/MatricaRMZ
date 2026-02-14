@@ -31,6 +31,7 @@ import { ServicesPage } from './pages/ServicesPage.js';
 import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { NotesPage } from './pages/NotesPage.js';
+import { SuperadminAuditPage } from './pages/SuperadminAuditPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
@@ -480,7 +481,7 @@ export function App() {
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
-    // Audit is web-admin only.
+    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
   ];
   const menuState = deriveMenuState(availableTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
@@ -1906,6 +1907,8 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
           />
         )}
+
+        {tab === 'audit' && String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' && <SuperadminAuditPage />}
 
         {tab === 'admin' && <div style={{ color: 'var(--muted)' }}>Раздел перемещён в карточку сотрудника.</div>}
 

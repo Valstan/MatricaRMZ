@@ -783,6 +783,45 @@ export type MatricaApi = {
       deleteConfirm: (userId: string) => Promise<{ ok: boolean; error?: string }>;
       deleteCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>;
     };
+    audit: {
+      list: (args?: { limit?: number; fromMs?: number; toMs?: number; actor?: string; actionType?: 'create' | 'update' | 'delete' | 'session' | 'other' }) => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              id: string;
+              createdAt: number;
+              actor: string;
+              action: string;
+              actionType: 'create' | 'update' | 'delete' | 'session' | 'other';
+              section: string;
+              actionText: string;
+              documentLabel: string;
+              clientId: string | null;
+              tableName: string | null;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+      dailySummary: (args?: { date?: string; cutoffHour?: number }) => Promise<
+        | {
+            ok: true;
+            rangeStart: number;
+            rangeEnd: number;
+            cutoffHour: number;
+            rows: Array<{
+              login: string;
+              fullName: string;
+              onlineMs: number;
+              onlineHours: number;
+              created: number;
+              updated: number;
+              deleted: number;
+              totalChanged: number;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+    };
   };
   employees: {
     list: () => Promise<EmployeeListItem[]>;

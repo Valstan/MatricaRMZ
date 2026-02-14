@@ -168,6 +168,11 @@ contextBridge.exposeInMainWorld('matrica', {
       }) => ipcRenderer.invoke('admin:users:delegationCreate', args),
       delegationRevoke: async (args: { id: string; note?: string }) => ipcRenderer.invoke('admin:users:delegationRevoke', args),
     },
+    audit: {
+      list: async (args?: { limit?: number; fromMs?: number; toMs?: number; actor?: string; actionType?: string }) =>
+        ipcRenderer.invoke('admin:audit:list', args),
+      dailySummary: async (args?: { date?: string; cutoffHour?: number }) => ipcRenderer.invoke('admin:audit:dailySummary', args),
+    },
   },
   employees: {
     list: async () => ipcRenderer.invoke('employees:list'),
