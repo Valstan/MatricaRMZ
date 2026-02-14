@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHash } from 'node:crypto';
-import { makeSelectChain } from './utils/dbMockHelpers.js';
+import { makeQueuedSelectMock } from './utils/dbMockHelpers.js';
 
-let clientSettingsRows: any[] = [];
+let selectQueue: any[][] = [];
 const setClientSyncRequestMock = vi.fn();
 const getConsistencyReportMock = vi.fn();
 
 vi.mock('../database/db.js', () => ({
   db: {
-    select: vi.fn(() => makeSelectChain(() => clientSettingsRows)),
+    select: makeQueuedSelectMock(selectQueue),
     insert: vi.fn(() => ({
       values: vi.fn().mockResolvedValue({}),
     })),
@@ -31,11 +30,14 @@ vi.mock('../utils/logger.js', () => ({
 describe('diagnostics autoheal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clientSettingsRows = [];
+    selectQueue.length = 0;
     process.env.MATRICA_SYNC_AUTOHEAL_ENABLED = '1';
-    process.env.MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS = '1000';
+    process.env.MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS = '60000';
     process.env.MATRICA_SYNC_AUTOHEAL_SAME_FINGERPRINT_COOLDOWN_MS = '3600000';
     process.env.MATRICA_SYNC_DRIFT_THRESHOLD = '2';
+    process.env.MATRICA_SYNC_AUTOHEAL_RESET_CONSECUTIVE = '4';
+    process.env.MATRICA_SYNC_AUTOHEAL_CRITICAL_CONSECUTIVE = '2';
+    process.env.MATRICA_SYNC_AUTOHEAL_FORCE_PULL_CONSECUTIVE = '8';
   });
 
   it('skips when server snapshot is unknown', async () => {
@@ -50,8 +52,14 @@ describe('diagnostics autoheal', () => {
     expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 
-  it('enqueues deep_repair for heavy drift', async () => {
+  it('does not enqueue on a single critical spike', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    // 1) client_settings row, 2) diagnostics history rows
+    const now = Date.now();
+    selectQueue.push(
+      [],
+      [{ payloadJson: JSON.stringify({ kind: 'autoheal_signal', at: now - 1000, level: 'critical' }), createdAt: now - 1000 }],
+    );
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'ledger', serverSeq: 150000 },
       clients: [
@@ -68,81 +76,83 @@ describe('diagnostics autoheal', () => {
     });
     setClientSyncRequestMock.mockResolvedValue({});
     const r = await evaluateAutohealForClient('c1');
-    expect(r.queued).toBe(true);
-    expect(setClientSyncRequestMock).toHaveBeenCalledTimes(1);
-    const firstCall = setClientSyncRequestMock.mock.calls[0];
-    expect(firstCall?.[0]).toBe('c1');
-    expect(firstCall?.[1]?.type).toBe('deep_repair');
+    expect(r.queued).toBe(false);
+    expect((r as any).reason).toBe('below_action_threshold');
+    expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 
   it('respects cooldown for existing request', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
     const now = Date.now();
-    clientSettingsRows = [{ clientId: 'c1', syncRequestAt: now, syncRequestType: 'force_full_pull_v2', syncRequestPayload: '{}' }];
+    selectQueue.push(
+      [{ clientId: 'c1', syncRequestAt: now, syncRequestType: null, syncRequestPayload: '{}' }],
+      [{ payloadJson: JSON.stringify({ kind: 'autoheal_signal', at: now - 2000, level: 'degraded' }), createdAt: now - 2000 }],
+    );
     getConsistencyReportMock.mockResolvedValue({
-      server: { source: 'ledger', serverSeq: 1000 },
-      clients: [{ clientId: 'c1', status: 'drift', lastPulledServerSeq: 0, diffs: [{ kind: 'table', name: 'entities', status: 'drift' }] }],
+      server: { source: 'ledger', serverSeq: 20000 },
+      clients: [
+        {
+          clientId: 'c1',
+          status: 'drift',
+          lastPulledServerSeq: 1000,
+          diffs: [
+            { kind: 'table', name: 'entities', status: 'drift' },
+            { kind: 'table', name: 'attribute_values', status: 'drift' },
+          ],
+        },
+      ],
     });
     const r = await evaluateAutohealForClient('c1');
     expect(r.queued).toBe(false);
-    expect((r as any).reason).toBe('cooldown');
+    expect((r as any).reason).toBe('below_action_threshold');
     expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 
-  it('skips re-enqueue for same fingerprint after ack', async () => {
+  it('does not enqueue for isolated weak drift (below action threshold)', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
-    const now = Date.now();
-    const fingerprint = createHash('sha1').update('table:entities:drift').digest('hex');
-    clientSettingsRows = [
-      {
-        clientId: 'c1',
-        syncRequestId: null,
-        syncRequestType: null,
-        syncRequestAt: null,
-        syncRequestPayload: JSON.stringify({
-          autoheal: { fingerprint },
-          ackAt: now,
-          ackStatus: 'ok',
-          requestId: 'req-1',
-        }),
-      },
-    ];
+    selectQueue.push([], []);
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'ledger', serverSeq: 1000 },
-      clients: [{ clientId: 'c1', status: 'drift', lastPulledServerSeq: 0, diffs: [{ kind: 'table', name: 'entities', status: 'drift' }] }],
+      clients: [{ clientId: 'c1', status: 'drift', lastPulledServerSeq: 990, diffs: [{ kind: 'table', name: 'entities', status: 'drift' }] }],
     });
     const r = await evaluateAutohealForClient('c1');
     expect(r.queued).toBe(false);
-    expect((r as any).reason).toBe('same_fingerprint_cooldown');
+    expect((r as any).reason).toBe('below_action_threshold');
     expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 
-  it('re-enqueues same fingerprint after cooldown window', async () => {
+  it('keeps degraded streak in observe mode without immediate reset', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
     const now = Date.now();
-    const fingerprint = createHash('sha1').update('table:entities:drift').digest('hex');
-    clientSettingsRows = [
-      {
-        clientId: 'c1',
-        syncRequestId: null,
-        syncRequestType: null,
-        syncRequestAt: null,
-        syncRequestPayload: JSON.stringify({
-          autoheal: { fingerprint },
-          ackAt: now - 2 * 60 * 60 * 1000,
-          ackStatus: 'ok',
-          requestId: 'req-old',
-        }),
-      },
-    ];
+    selectQueue.push(
+      [],
+      [
+        { payloadJson: JSON.stringify({ kind: 'autoheal_signal', at: now - 1_000, level: 'degraded' }), createdAt: now - 1_000 },
+      ],
+    );
     getConsistencyReportMock.mockResolvedValue({
-      server: { source: 'ledger', serverSeq: 1000 },
-      clients: [{ clientId: 'c1', status: 'drift', lastPulledServerSeq: 0, diffs: [{ kind: 'table', name: 'entities', status: 'drift' }] }],
+      server: { source: 'ledger', serverSeq: 15000 },
+      clients: [
+        {
+          clientId: 'c1',
+          status: 'warning',
+          lastPulledServerSeq: 6000,
+          diffs: [
+            { kind: 'table', name: 'entities', status: 'drift' },
+            { kind: 'table', name: 'attribute_values', status: 'warning' },
+            { kind: 'entityType', name: 'engine', status: 'warning' },
+            { kind: 'entityType', name: 'part', status: 'warning' },
+            { kind: 'entityType', name: 'contract', status: 'warning' },
+            { kind: 'entityType', name: 'employee', status: 'warning' },
+          ],
+        },
+      ],
     });
     setClientSyncRequestMock.mockResolvedValue({});
     const r = await evaluateAutohealForClient('c1');
-    expect(r.queued).toBe(true);
-    expect(setClientSyncRequestMock).toHaveBeenCalledTimes(1);
+    expect(r.queued).toBe(false);
+    expect((r as any).reason).toBe('below_action_threshold');
+    expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 
   it('does not enqueue when report status is ok', async () => {
@@ -157,8 +167,9 @@ describe('diagnostics autoheal', () => {
     expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 
-  it('chooses reset_sync_state_and_pull for warning-only drift signal', async () => {
+  it('does not enqueue for warning-only signal without streak', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    selectQueue.push([], []);
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'ledger', serverSeq: 5000 },
       clients: [
@@ -173,11 +184,10 @@ describe('diagnostics autoheal', () => {
         },
       ],
     });
-    setClientSyncRequestMock.mockResolvedValue({});
     const r = await evaluateAutohealForClient('c1');
-    expect(r.queued).toBe(true);
-    const firstCall = setClientSyncRequestMock.mock.calls[0];
-    expect(firstCall?.[1]?.type).toBe('reset_sync_state_and_pull');
+    expect(r.queued).toBe(false);
+    expect((r as any).reason).toBe('below_action_threshold');
+    expect(setClientSyncRequestMock).not.toHaveBeenCalled();
   });
 });
 
