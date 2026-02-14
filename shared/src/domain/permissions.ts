@@ -18,6 +18,10 @@ export const PermissionCode = {
   SupplyRequestsAccept: 'supply_requests.accept',
   SupplyRequestsFulfill: 'supply_requests.fulfill',
   SupplyRequestsPrint: 'supply_requests.print',
+  WorkOrdersView: 'work_orders.view',
+  WorkOrdersCreate: 'work_orders.create',
+  WorkOrdersEdit: 'work_orders.edit',
+  WorkOrdersPrint: 'work_orders.print',
 
   // engines & operations
   EnginesView: 'engines.view',
@@ -124,6 +128,10 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.SupplyRequestsAccept, group: 'Заявки', titleRu: 'Принятие заявок к исполнению (снабжение)' },
   { code: PermissionCode.SupplyRequestsFulfill, group: 'Заявки', titleRu: 'Исполнение заявок (снабжение)' },
   { code: PermissionCode.SupplyRequestsPrint, group: 'Заявки', titleRu: 'Печать заявок' },
+  { code: PermissionCode.WorkOrdersView, group: 'Наряды', titleRu: 'Просмотр нарядов' },
+  { code: PermissionCode.WorkOrdersCreate, group: 'Наряды', titleRu: 'Создание нарядов' },
+  { code: PermissionCode.WorkOrdersEdit, group: 'Наряды', titleRu: 'Редактирование нарядов' },
+  { code: PermissionCode.WorkOrdersPrint, group: 'Наряды', titleRu: 'Печать нарядов' },
 
   { code: PermissionCode.ReportsView, group: 'Отчёты', titleRu: 'Просмотр отчётов' },
   { code: PermissionCode.ReportsExport, group: 'Отчёты', titleRu: 'Экспорт отчётов' },

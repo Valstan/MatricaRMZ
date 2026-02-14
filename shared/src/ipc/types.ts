@@ -455,6 +455,7 @@ export type ChangeDecisionResult = { ok: true } | { ok: false; error: string };
 
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '../domain/repairChecklist.js';
 import type { SupplyRequestPayload, SupplyRequestStatus } from '../domain/supplyRequest.js';
+import type { WorkOrderPayload } from '../domain/workOrder.js';
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
@@ -893,6 +894,27 @@ export type MatricaApi = {
       | { ok: true; payload: SupplyRequestPayload }
       | { ok: false; error: string }
     >;
+  };
+  workOrders: {
+    list: (args?: { q?: string; month?: string }) => Promise<
+      | {
+          ok: true;
+          rows: Array<{
+            id: string;
+            workOrderNumber: number;
+            orderDate: number;
+            partName: string;
+            crewCount: number;
+            totalAmountRub: number;
+            updatedAt: number;
+          }>;
+        }
+      | { ok: false; error: string }
+    >;
+    get: (id: string) => Promise<{ ok: true; payload: WorkOrderPayload } | { ok: false; error: string }>;
+    create: () => Promise<{ ok: true; id: string; payload: WorkOrderPayload } | { ok: false; error: string }>;
+    update: (args: { id: string; payload: WorkOrderPayload }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
 
   parts: {

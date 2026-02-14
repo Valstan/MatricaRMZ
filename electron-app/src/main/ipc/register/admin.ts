@@ -260,8 +260,6 @@ export function registerAdminIpc(ctx: IpcContext) {
     async (_e, args?: { limit?: number; fromMs?: number; toMs?: number; actor?: string; actionType?: string }) => {
       if (isViewMode(ctx)) return viewModeWriteError() as any;
       await requirePermOrThrow(ctx, 'admin.users.manage');
-      const actor = await ctx.currentActor();
-      if (String(actor.role ?? '').toLowerCase() !== 'superadmin') return { ok: false as const, error: 'superadmin only' };
       return adminAuditList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
     },
   );
@@ -269,8 +267,6 @@ export function registerAdminIpc(ctx: IpcContext) {
   ipcMain.handle('admin:audit:dailySummary', async (_e, args?: { date?: string; cutoffHour?: number }) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
-    const actor = await ctx.currentActor();
-    if (String(actor.role ?? '').toLowerCase() !== 'superadmin') return { ok: false as const, error: 'superadmin only' };
     return adminAuditDailySummary(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 }

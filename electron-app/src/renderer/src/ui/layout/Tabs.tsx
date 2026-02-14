@@ -18,6 +18,8 @@ export type TabId =
   | 'contract'
   | 'requests'
   | 'request'
+  | 'work_orders'
+  | 'work_order'
   | 'parts'
   | 'part'
   | 'tools'
@@ -39,6 +41,7 @@ export type MenuTabId = Exclude<
   TabId,
   | 'engine'
   | 'request'
+  | 'work_order'
   | 'part'
   | 'employee'
   | 'contract'
@@ -82,7 +85,7 @@ const GROUP_LABELS: Record<MenuGroupId, string> = {
 const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['production', 'supply', 'business', 'people', 'control', 'interaction', 'admin'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   production: ['engines', 'engine_brands', 'parts'],
-  supply: ['requests', 'tools', 'products', 'services'],
+  supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
   control: ['reports', 'changes', 'audit'],
@@ -206,6 +209,7 @@ export function Tabs(props: {
     engine_brands: 'Марки двигателей',
     counterparties: 'Контрагенты',
     requests: 'Заявки',
+    work_orders: 'Наряды',
     parts: 'Детали',
     tools: 'Инструменты',
     products: 'Товары',

@@ -18,6 +18,10 @@ export type UiCaps = {
   canAcceptSupplyRequests: boolean;
   canFulfillSupplyRequests: boolean;
   canPrintSupplyRequests: boolean;
+  canViewWorkOrders: boolean;
+  canCreateWorkOrders: boolean;
+  canEditWorkOrders: boolean;
+  canPrintWorkOrders: boolean;
   canUseSync: boolean;
   canUseUpdates: boolean;
   canViewReports: boolean;
@@ -54,6 +58,10 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canAcceptSupplyRequests = has(perms, 'supply_requests.accept');
   const canFulfillSupplyRequests = has(perms, 'supply_requests.fulfill');
   const canPrintSupplyRequests = has(perms, 'supply_requests.print');
+  const canViewWorkOrders = has(perms, 'work_orders.view');
+  const canCreateWorkOrders = has(perms, 'work_orders.create');
+  const canEditWorkOrders = has(perms, 'work_orders.edit');
+  const canPrintWorkOrders = has(perms, 'work_orders.print');
 
   const canViewEngines = has(perms, 'engines.view');
   const canEditEngines = has(perms, 'engines.edit');
@@ -91,6 +99,10 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canAcceptSupplyRequests,
     canFulfillSupplyRequests,
     canPrintSupplyRequests,
+    canViewWorkOrders,
+    canCreateWorkOrders,
+    canEditWorkOrders,
+    canPrintWorkOrders,
     canUseSync,
     canUseUpdates,
     canViewReports,

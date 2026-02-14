@@ -187,13 +187,15 @@ const CLASSIC_PRESET: TypeSeed[] = [
     defs: [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
       { code: 'code', name: 'Код услуги', dataType: 'text', sortOrder: 20 },
+      { code: 'unit', name: 'Единица измерения', dataType: 'text', sortOrder: 30 },
+      { code: 'price', name: 'Цена, ₽', dataType: 'number', sortOrder: 40 },
     ],
     entries: [
-      { name: 'Диагностика', attrs: { code: 'SRV-001' } },
-      { name: 'Дефектация', attrs: { code: 'SRV-002' } },
-      { name: 'Механообработка', attrs: { code: 'SRV-003' } },
-      { name: 'Сборка и испытания', attrs: { code: 'SRV-004' } },
-      { name: 'Выездной ремонт', attrs: { code: 'SRV-005' } },
+      { name: 'Диагностика', attrs: { code: 'SRV-001', unit: 'шт', price: 1200 } },
+      { name: 'Дефектация', attrs: { code: 'SRV-002', unit: 'шт', price: 1800 } },
+      { name: 'Механообработка', attrs: { code: 'SRV-003', unit: 'компл', price: 3500 } },
+      { name: 'Сборка и испытания', attrs: { code: 'SRV-004', unit: 'компл', price: 4200 } },
+      { name: 'Выездной ремонт', attrs: { code: 'SRV-005', unit: 'шт', price: 6000 } },
     ],
   },
   {

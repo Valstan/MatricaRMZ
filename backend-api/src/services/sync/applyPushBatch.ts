@@ -42,6 +42,9 @@ import {
 const SUPPLY_REQUESTS_CONTAINER_ENTITY_ID = SystemIds.SupplyRequestsContainerEntityId;
 const SUPPLY_REQUESTS_CONTAINER_TYPE_ID = SystemIds.SupplyRequestsContainerEntityTypeId;
 const SUPPLY_REQUESTS_CONTAINER_TYPE_CODE = SystemIds.SupplyRequestsContainerEntityTypeCode;
+const WORK_ORDERS_CONTAINER_ENTITY_ID = SystemIds.WorkOrdersContainerEntityId;
+const WORK_ORDERS_CONTAINER_TYPE_ID = SystemIds.WorkOrdersContainerEntityTypeId;
+const WORK_ORDERS_CONTAINER_TYPE_CODE = SystemIds.WorkOrdersContainerEntityTypeCode;
 
 function nowMs() {
   return Date.now();
@@ -240,6 +243,58 @@ export async function applyPushBatch(
         const payload = {
           id: SUPPLY_REQUESTS_CONTAINER_ENTITY_ID,
           type_id: SUPPLY_REQUESTS_CONTAINER_TYPE_ID,
+          created_at: appliedAt,
+          updated_at: appliedAt,
+          deleted_at: null,
+          sync_status: 'synced',
+        };
+        await insertChangeLogAndUpdateSeq(entities, SyncTableName.Entities, [payload]);
+      }
+    }
+
+    async function ensureWorkOrdersContainer() {
+      const insertedType = await tx
+        .insert(entityTypes)
+        .values({
+          id: WORK_ORDERS_CONTAINER_TYPE_ID as any,
+          code: WORK_ORDERS_CONTAINER_TYPE_CODE,
+          name: 'System container (work orders)',
+          createdAt: appliedAt,
+          updatedAt: appliedAt,
+          deletedAt: null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoNothing()
+        .returning({ id: entityTypes.id });
+      if (insertedType.length > 0) {
+        const payload = {
+          id: WORK_ORDERS_CONTAINER_TYPE_ID,
+          code: WORK_ORDERS_CONTAINER_TYPE_CODE,
+          name: 'System container (work orders)',
+          created_at: appliedAt,
+          updated_at: appliedAt,
+          deleted_at: null,
+          sync_status: 'synced',
+        };
+        await insertChangeLogAndUpdateSeq(entityTypes, SyncTableName.EntityTypes, [payload]);
+      }
+
+      const insertedEntity = await tx
+        .insert(entities)
+        .values({
+          id: WORK_ORDERS_CONTAINER_ENTITY_ID as any,
+          typeId: WORK_ORDERS_CONTAINER_TYPE_ID as any,
+          createdAt: appliedAt,
+          updatedAt: appliedAt,
+          deletedAt: null,
+          syncStatus: 'synced',
+        })
+        .onConflictDoNothing()
+        .returning({ id: entities.id });
+      if (insertedEntity.length > 0) {
+        const payload = {
+          id: WORK_ORDERS_CONTAINER_ENTITY_ID,
+          type_id: WORK_ORDERS_CONTAINER_TYPE_ID,
           created_at: appliedAt,
           updated_at: appliedAt,
           deleted_at: null,
@@ -796,27 +851,33 @@ export async function applyPushBatch(
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
       const supplyOps = rows.filter((r) => r.operation_type === 'supply_request');
-      let engineOps = rows.filter((r) => r.operation_type !== 'supply_request');
+      const workOrderOps = rows.filter((r) => r.operation_type === 'work_order');
+      const workOrderContainerOps = workOrderOps.filter((r) => String(r.engine_entity_id) === WORK_ORDERS_CONTAINER_ENTITY_ID);
+      const workOrderPartOps = workOrderOps.filter((r) => String(r.engine_entity_id) !== WORK_ORDERS_CONTAINER_ENTITY_ID);
+      const engineOps = rows.filter((r) => r.operation_type !== 'supply_request' && r.operation_type !== 'work_order');
 
-      if (engineOps.length > 0) {
-        const engineIds = Array.from(new Set(engineOps.map((r) => String(r.engine_entity_id))));
+      if (rows.some((r) => r.operation_type === 'supply_request' && r.engine_entity_id === SUPPLY_REQUESTS_CONTAINER_ENTITY_ID)) {
+        await ensureSupplyRequestsContainer();
+      }
+      if (workOrderContainerOps.length > 0) {
+        await ensureWorkOrdersContainer();
+      }
+
+      const engineScopedOps = [...engineOps, ...workOrderPartOps];
+      if (engineScopedOps.length > 0) {
+        const engineIds = Array.from(new Set(engineScopedOps.map((r) => String(r.engine_entity_id))));
         const existingEngines = await tx
           .select({ id: entities.id })
           .from(entities)
           .where(inArray(entities.id, engineIds as any))
           .limit(50_000);
         const existingEngineIds = new Set<string>((existingEngines as any[]).map((r) => String(r.id)));
-        const missingOps = engineOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
+        const missingOps = engineScopedOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
         if (missingOps.length > 0) {
           throw new Error(`sync_dependency_missing: engine_entity (${missingOps.length})`);
         }
       }
-
-      rows = [...supplyOps, ...engineOps];
-
-      if (rows.some((r) => r.operation_type === 'supply_request' && r.engine_entity_id === SUPPLY_REQUESTS_CONTAINER_ENTITY_ID)) {
-        await ensureSupplyRequestsContainer();
-      }
+      rows = [...supplyOps, ...workOrderOps, ...engineOps];
       const allowed: typeof rows = rows;
 
       if (allowed.length > 0) {

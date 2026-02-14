@@ -18,6 +18,8 @@ import { ContractDetailsPage } from './pages/ContractDetailsPage.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
 import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
+import { WorkOrdersPage } from './pages/WorkOrdersPage.js';
+import { WorkOrderDetailsPage } from './pages/WorkOrderDetailsPage.js';
 import { PartsPage } from './pages/PartsPage.js';
 import { PartDetailsPage } from './pages/PartDetailsPage.js';
 import { ToolsPage } from './pages/ToolsPage.js';
@@ -82,6 +84,7 @@ export function App() {
   const [selectedEngineBrandId, setSelectedEngineBrandId] = useState<string | null>(null);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const [selectedToolPropertyId, setSelectedToolPropertyId] = useState<string | null>(null);
@@ -292,6 +295,7 @@ export function App() {
     setEngineDetails(null);
     setSelectedContractId(null);
     setSelectedRequestId(null);
+    setSelectedWorkOrderId(null);
     setSelectedEngineBrandId(null);
     setSelectedPartId(null);
     setSelectedEmployeeId(null);
@@ -347,6 +351,7 @@ export function App() {
     setSelectedEngineBrandId(null);
     setSelectedContractId(null);
     setSelectedRequestId(null);
+    setSelectedWorkOrderId(null);
     setSelectedPartId(null);
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
@@ -452,6 +457,8 @@ export function App() {
         canEditOperations: false,
         canCreateSupplyRequests: false,
         canEditSupplyRequests: false,
+        canCreateWorkOrders: false,
+        canEditWorkOrders: false,
         canSignSupplyRequests: false,
         canApproveSupplyRequests: false,
         canAcceptSupplyRequests: false,
@@ -473,6 +480,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
     ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
+    ...(caps.canViewWorkOrders ? (['work_orders'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
@@ -490,6 +498,7 @@ export function App() {
     TabId,
     | 'engine'
     | 'request'
+    | 'work_order'
     | 'part'
     | 'tool'
     | 'tool_properties'
@@ -664,6 +673,11 @@ export function App() {
   async function openRequest(id: string) {
     setSelectedRequestId(id);
     setTab('request');
+  }
+
+  async function openWorkOrder(id: string) {
+    setSelectedWorkOrderId(id);
+    setTab('work_order');
   }
 
   async function openEngineBrand(id: string) {
@@ -1613,6 +1627,14 @@ export function App() {
           />
         )}
 
+        {tab === 'work_orders' && (
+          <WorkOrdersPage
+            onOpen={openWorkOrder}
+            canCreate={caps.canCreateWorkOrders}
+            canDelete={caps.canEditWorkOrders}
+          />
+        )}
+
         {tab === 'engine' && selectedEngineId && engineDetails && (
           <EngineDetailsPage
             key={selectedEngineId}
@@ -1685,6 +1707,18 @@ export function App() {
             onClose={() => {
               setSelectedRequestId(null);
               setTab('requests');
+            }}
+          />
+        )}
+
+        {tab === 'work_order' && selectedWorkOrderId && (
+          <WorkOrderDetailsPage
+            key={selectedWorkOrderId}
+            id={selectedWorkOrderId}
+            canEdit={caps.canEditWorkOrders}
+            onClose={() => {
+              setSelectedWorkOrderId(null);
+              setTab('work_orders');
             }}
           />
         )}
@@ -1935,6 +1969,10 @@ export function App() {
 
         {tab === 'request' && !selectedRequestId && (
           <div style={{ color: 'var(--muted)' }}>Выберите заявку из списка.</div>
+        )}
+
+        {tab === 'work_order' && !selectedWorkOrderId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите наряд из списка.</div>
         )}
 
         {tab === 'part' && !selectedPartId && (

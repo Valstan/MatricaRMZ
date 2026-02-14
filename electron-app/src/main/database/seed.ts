@@ -290,6 +290,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   // Services
   await ensureAttrDef(serviceTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
   await ensureAttrDef(serviceTypeId, 'unit', 'Единица измерения', AttributeDataType.Text, 20);
+  await ensureAttrDef(serviceTypeId, 'price', 'Цена, ₽', AttributeDataType.Number, 25);
   await ensureAttrDef(
     serviceTypeId,
     'category_id',

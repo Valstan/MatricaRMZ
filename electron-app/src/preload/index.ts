@@ -206,6 +206,13 @@ contextBridge.exposeInMainWorld('matrica', {
     delete: async (id: string) => ipcRenderer.invoke('supplyRequests:delete', id),
     transition: async (args: { id: string; action: string; note?: string | null }) => ipcRenderer.invoke('supplyRequests:transition', args),
   },
+  workOrders: {
+    list: async (args?: { q?: string; month?: string }) => ipcRenderer.invoke('workOrders:list', args),
+    get: async (id: string) => ipcRenderer.invoke('workOrders:get', id),
+    create: async () => ipcRenderer.invoke('workOrders:create'),
+    update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('workOrders:update', args),
+    delete: async (id: string) => ipcRenderer.invoke('workOrders:delete', id),
+  },
   tools: {
     list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),
     get: async (id: string) => ipcRenderer.invoke('tools:get', id),

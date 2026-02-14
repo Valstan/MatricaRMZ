@@ -6,6 +6,7 @@ export * from './domain/enums.js';
 export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/supplyRequest.js';
+export * from './domain/workOrder.js';
 export * from './domain/part.js';
 export * from './domain/notes.js';
 export * from './domain/aiAgent.js';
