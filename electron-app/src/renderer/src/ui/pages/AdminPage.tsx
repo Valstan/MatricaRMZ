@@ -8,6 +8,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { ErpWorkspacePanel } from './ErpWorkspacePanel.js';
+import { applyClassicMasterdataPreset } from './masterdataClassicPreset.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -25,6 +26,74 @@ type AttrDefRow = {
 
 type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string };
 
+const CLASSIC_TYPE_ORDER = [
+  'unit',
+  'warehouse_ref',
+  'nomenclature_group',
+  'service',
+  'supplier_ref',
+  'department',
+  'section',
+  'workshop_ref',
+  'position_ref',
+  'payroll_item',
+  'cost_center',
+  'machine_operation',
+  'employee',
+  'tool',
+  'tool_catalog',
+  'tool_property',
+] as const;
+
+const CLASSIC_TYPE_CODES = new Set<string>(CLASSIC_TYPE_ORDER);
+const CLASSIC_GROUPS: Array<{ key: string; title: string; subtitle: string; icon: string; color: string; tint: string; codes: string[] }> = [
+  {
+    key: 'stock',
+    title: 'Склад и номенклатура',
+    subtitle: 'Единицы, склады, номенклатурные группы, поставщики, услуги',
+    icon: '📦',
+    color: '#1d4ed8',
+    tint: 'rgba(37,99,235,0.08)',
+    codes: ['unit', 'warehouse_ref', 'nomenclature_group', 'supplier_ref', 'service'],
+  },
+  {
+    key: 'people',
+    title: 'Кадры и зарплата',
+    subtitle: 'Подразделения, участки, должности, начисления/удержания, сотрудники',
+    icon: '👥',
+    color: '#7c3aed',
+    tint: 'rgba(124,58,237,0.08)',
+    codes: ['department', 'section', 'position_ref', 'payroll_item', 'employee'],
+  },
+  {
+    key: 'production',
+    title: 'Производство и машиностроение',
+    subtitle: 'Цеха, операции, инструмент и его классификаторы',
+    icon: '🏭',
+    color: '#b45309',
+    tint: 'rgba(180,83,9,0.08)',
+    codes: ['workshop_ref', 'machine_operation', 'tool', 'tool_catalog', 'tool_property'],
+  },
+  {
+    key: 'finance',
+    title: 'Учет и аналитика',
+    subtitle: 'Центры затрат и управленческая аналитика',
+    icon: '📊',
+    color: '#0f766e',
+    tint: 'rgba(15,118,110,0.08)',
+    codes: ['cost_center'],
+  },
+];
+
+const TECHNICAL_HIDDEN_CODES = new Set<string>([
+  'engine',
+  'part',
+  'link_field_rule',
+  'telegram_chat',
+  'telegram_message',
+  'sync_event',
+]);
+
 export function MasterdataPage(props: {
   canViewMasterData: boolean;
   canEditMasterData: boolean;
@@ -41,6 +110,8 @@ export function MasterdataPage(props: {
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
   const [entityFilter, setEntityFilter] = useState<'all' | 'named' | 'empty'>('all');
   const [showDefsPanel, setShowDefsPanel] = useState(false);
+  const [showAllTypes, setShowAllTypes] = useState(false);
+  const [advancedMode, setAdvancedMode] = useState(false);
   const [engineBrandName, setEngineBrandName] = useState<string>('');
   const [partsOptions, setPartsOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
@@ -95,14 +166,45 @@ export function MasterdataPage(props: {
 
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
+  const canUseDangerActions = props.canEditMasterData && advancedMode;
 
-  const excludedTypeCodes = new Set(['engine', 'part', 'category', 'store']);
-  const visibleTypes = useMemo(() => {
+  const typeOrderRank = useMemo(() => {
+    const rank = new Map<string, number>();
+    CLASSIC_TYPE_ORDER.forEach((code, i) => rank.set(code, i));
+    return rank;
+  }, []);
+
+  const sortedNonTechnicalTypes = useMemo(() => {
     return types
-      .filter((t) => !excludedTypeCodes.has(t.code))
+      .filter((t) => !TECHNICAL_HIDDEN_CODES.has(t.code))
       .slice()
-      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
-  }, [types]);
+      .sort((a, b) => {
+        const ar = typeOrderRank.get(a.code);
+        const br = typeOrderRank.get(b.code);
+        if (ar != null && br != null) return ar - br;
+        if (ar != null) return -1;
+        if (br != null) return 1;
+        return String(a.name).localeCompare(String(b.name), 'ru');
+      });
+  }, [types, typeOrderRank]);
+
+  const classicTypes = useMemo(() => sortedNonTechnicalTypes.filter((t) => CLASSIC_TYPE_CODES.has(t.code)), [sortedNonTechnicalTypes]);
+  const additionalTypes = useMemo(() => sortedNonTechnicalTypes.filter((t) => !CLASSIC_TYPE_CODES.has(t.code)), [sortedNonTechnicalTypes]);
+  const visibleTypes = useMemo(() => {
+    // Default to "classic only" to keep administration screen clean.
+    if (showAllTypes) return sortedNonTechnicalTypes;
+    return classicTypes.length > 0 ? classicTypes : sortedNonTechnicalTypes;
+  }, [showAllTypes, classicTypes, sortedNonTechnicalTypes]);
+  const classicGroupedTypes = useMemo(() => {
+    const byCode = new Map(visibleTypes.map((t) => [t.code, t]));
+    const groups = CLASSIC_GROUPS.map((group) => ({
+      key: group.key,
+      title: group.title,
+      items: group.codes.map((code) => byCode.get(code)).filter((v): v is EntityTypeRow => Boolean(v)),
+    })).filter((group) => group.items.length > 0);
+    if (groups.length > 0) return groups;
+    return [{ key: 'all', title: 'Разделы', items: visibleTypes }];
+  }, [visibleTypes]);
 
   const visibleDefs = useMemo(() => defs.filter((d) => d.code !== 'category_id'), [defs]);
 
@@ -179,7 +281,7 @@ export function MasterdataPage(props: {
     const rows = await window.matrica.admin.entityTypes.list();
     setTypes(rows);
     setSelectedTypeId((prev) => {
-      const nextVisible = rows.filter((t) => !excludedTypeCodes.has(t.code));
+      const nextVisible = rows.filter((t) => !TECHNICAL_HIDDEN_CODES.has(t.code));
       if (prev && nextVisible.some((t) => t.id === prev)) return prev;
       return nextVisible[0]?.id ?? '';
     });
@@ -680,16 +782,55 @@ export function MasterdataPage(props: {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <strong>Справочники</strong>
               <span style={{ flex: 1 }} />
+              {props.canEditMasterData && (
+                <Button
+                  variant="ghost"
+                  onClick={() => setAdvancedMode((v) => !v)}
+                  style={
+                    advancedMode
+                      ? { border: '1px solid #b91c1c', color: '#b91c1c', background: '#fef2f2' }
+                      : undefined
+                  }
+                >
+                  {advancedMode ? 'Расширенный режим: вкл' : 'Расширенный режим'}
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => void resyncAllMasterdata()}>
                 Подгрузить все
               </Button>
+              {props.canEditMasterData && (
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void (async () => {
+                      try {
+                        setStatus('Применяем классический шаблон справочников...');
+                        const r = await applyClassicMasterdataPreset((m) => setStatus(m));
+                        if (!r.ok) {
+                          setStatus('Ошибка применения шаблона');
+                          return;
+                        }
+                        await refreshTypes();
+                        if (selectedTypeId) {
+                          await refreshDefs(selectedTypeId);
+                          await refreshEntities(selectedTypeId);
+                        }
+                      } catch (e) {
+                        setStatus(`Ошибка: ${String(e)}`);
+                      }
+                    })()
+                  }
+                >
+                  Классический шаблон
+                </Button>
+              )}
               <Button variant="ghost" disabled={!selectedTypeId} onClick={() => void resyncSelectedType(selectedTypeId)}>
                 Подгрузить с сервера
               </Button>
               <Button variant="ghost" onClick={() => void refreshTypes()}>
                 Обновить
               </Button>
-              {props.canEditMasterData && (
+              {canUseDangerActions && (
                 <Button
                   variant="ghost"
                   disabled={!selectedTypeId}
@@ -703,32 +844,75 @@ export function MasterdataPage(props: {
                 </Button>
               )}
             </div>
+            {!advancedMode && props.canEditMasterData && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                Безопасный режим: удаление разделов/свойств/записей скрыто.
+              </div>
+            )}
 
-            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {visibleTypes.map((t) => {
-                const active = t.id === selectedTypeId;
-                return (
-                  <Button
-                    key={t.id}
-                    variant="ghost"
-                    onClick={() => setSelectedTypeId(t.id)}
-                    style={
-                      active
-                        ? {
-                            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
-                            border: '1px solid #1e40af',
-                            color: '#fff',
-                            boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
+            {!showAllTypes && additionalTypes.length > 0 && (
+              <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280' }}>
+                Показаны классические разделы. Дополнительные: {additionalTypes.length}.
+              </div>
+            )}
+            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+              {(showAllTypes
+                ? [
+                    {
+                      key: 'all',
+                      title: 'Все разделы',
+                      subtitle: 'Показан полный список, включая дополнительные справочники',
+                      icon: '🧩',
+                      color: '#475569',
+                      tint: 'rgba(71,85,105,0.08)',
+                      items: visibleTypes,
+                    },
+                  ]
+                : classicGroupedTypes
+              ).map((group) => (
+                <div key={group.key} style={{ border: '1px solid #f3f4f6', borderRadius: 10, padding: 8, background: group.tint }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: group.color }}>
+                      <span>{group.icon}</span>
+                      <span style={{ fontWeight: 700 }}>{group.title}</span>
+                    </div>
+                    <div style={{ marginTop: 2, fontSize: 11, color: '#64748b' }}>{group.subtitle}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {group.items.map((t) => {
+                      const active = t.id === selectedTypeId;
+                      return (
+                        <Button
+                          key={t.id}
+                          variant="ghost"
+                          onClick={() => setSelectedTypeId(t.id)}
+                          style={
+                            active
+                              ? {
+                                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
+                                  border: '1px solid #1e40af',
+                                  color: '#fff',
+                                  boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
+                                }
+                              : undefined
                           }
-                        : undefined
-                    }
-                  >
-                    {t.name}
-                  </Button>
-                );
-              })}
+                        >
+                          {t.name}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
               {visibleTypes.length === 0 && <div style={{ color: '#6b7280' }}>(справочники не настроены)</div>}
             </div>
+            {additionalTypes.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="ghost" onClick={() => setShowAllTypes((v) => !v)}>
+                  {showAllTypes ? 'Только классические' : `Показать все (${additionalTypes.length} доп.)`}
+                </Button>
+              </div>
+            )}
 
             {props.canEditMasterData && (
               <div style={{ marginTop: 12 }}>
@@ -817,7 +1001,7 @@ export function MasterdataPage(props: {
                           <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{e.id.slice(0, 8)}</div>
                         </div>
                         <span style={{ flex: 1 }} />
-                        {props.canEditMasterData && (
+                        {canUseDangerActions && (
                           <Button
                             variant="ghost"
                             style={{ color: '#b91c1c' }}
@@ -1309,7 +1493,7 @@ export function MasterdataPage(props: {
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Название</th>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Обяз.</th>
-                          {props.canEditMasterData && (
+                          {canUseDangerActions && (
                             <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>
                               Действия
                             </th>
@@ -1323,7 +1507,7 @@ export function MasterdataPage(props: {
                             <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.name}</td>
                             <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatDefDataType(d)}</td>
                             <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.isRequired ? 'да' : 'нет'}</td>
-                            {props.canEditMasterData && (
+                            {canUseDangerActions && (
                               <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }} onClick={(e) => e.stopPropagation()}>
                                 <Button
                                   variant="ghost"
@@ -1340,7 +1524,7 @@ export function MasterdataPage(props: {
                         ))}
                         {visibleDefs.length === 0 && (
                           <tr>
-                            <td style={{ padding: 12, color: '#6b7280' }} colSpan={props.canEditMasterData ? 5 : 4}>
+                            <td style={{ padding: 12, color: '#6b7280' }} colSpan={canUseDangerActions ? 5 : 4}>
                               Свойств нет
                             </td>
                           </tr>

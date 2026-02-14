@@ -15,6 +15,20 @@ const LAYER_LABELS: Record<Layer, string> = {
   journals: 'Журналы',
 };
 
+const DICTIONARY_LABELS: Record<DictionaryModule, string> = {
+  parts: 'Номенклатура деталей',
+  tools: 'Инструмент',
+  counterparties: 'Контрагенты',
+  contracts: 'Договоры',
+  employees: 'Сотрудники',
+};
+
+const CARD_LABELS: Record<CardModule, string> = {
+  parts: 'Карточки деталей',
+  tools: 'Карточки инструмента',
+  employees: 'Карточки сотрудников',
+};
+
 export function ErpWorkspacePanel(props: { canEdit: boolean }) {
   const [layer, setLayer] = useState<Layer>('dictionary');
   const [dictionaryModule, setDictionaryModule] = useState<DictionaryModule>('parts');
@@ -171,13 +185,16 @@ export function ErpWorkspacePanel(props: { canEdit: boolean }) {
       </div>
 
       <div style={{ marginTop: 10, fontWeight: 800 }}>{title}</div>
+      <div style={{ marginTop: 4, color: '#475569', fontSize: 12 }}>
+        ERP-блок вспомогательный. Основные рабочие справочники настраиваются в секции ниже.
+      </div>
 
       {layer === 'dictionary' && (
         <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {(['parts', 'tools', 'counterparties', 'contracts', 'employees'] as const).map((m) => (
               <Button key={m} variant="ghost" onClick={() => setDictionaryModule(m)} style={dictionaryModule === m ? { border: '1px solid #2563eb' } : undefined}>
-                {m}
+                {DICTIONARY_LABELS[m]}
               </Button>
             ))}
           </div>
@@ -196,7 +213,7 @@ export function ErpWorkspacePanel(props: { canEdit: boolean }) {
           <div style={{ display: 'flex', gap: 8 }}>
             {(['parts', 'tools', 'employees'] as const).map((m) => (
               <Button key={m} variant="ghost" onClick={() => setCardModule(m)} style={cardModule === m ? { border: '1px solid #2563eb' } : undefined}>
-                {m}
+                {CARD_LABELS[m]}
               </Button>
             ))}
           </div>
