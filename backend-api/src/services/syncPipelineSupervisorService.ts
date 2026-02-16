@@ -183,6 +183,14 @@ export function startSyncPipelineSupervisorService() {
       await sendTelegramMessageToChat({
         chatId,
         text: formatPipelineMessage(health, 'manual'),
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              { text: 'Проверить sync сейчас', callback_data: 'sync:check_now' },
+              { text: 'Помощь', callback_data: 'sync:help' },
+            ],
+          ],
+        },
       });
       return;
     }

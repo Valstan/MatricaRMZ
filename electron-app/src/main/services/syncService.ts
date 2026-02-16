@@ -21,7 +21,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { getSqliteHandle } from '../database/db.js';
 import {
