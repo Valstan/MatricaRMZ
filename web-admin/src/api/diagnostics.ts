@@ -122,6 +122,11 @@ export type SyncPipelineHealth = {
       diffRatio: number;
     }
   >;
+  skippedRows24h?: {
+    dependency: number;
+    conflict: number;
+    byTable: Record<string, { dependency: number; conflict: number }>;
+  };
   reasons?: string[];
 };
 

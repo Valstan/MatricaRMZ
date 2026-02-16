@@ -70,6 +70,14 @@ function deepRepairBudget() {
   return Math.max(1, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_MAX_DEEP_REPAIR_PER_24H, 1)));
 }
 
+function deepRepairEnabled() {
+  return String(process.env.MATRICA_SYNC_AUTOHEAL_ENABLE_DEEP_REPAIR ?? '0').trim() === '1';
+}
+
+function maxSnapshotAgeMs() {
+  return Math.max(60_000, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_MAX_SNAPSHOT_AGE_MS, 20 * 60_000)));
+}
+
 function observeThresholdRatio() {
   return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_OBSERVE_RATIO, 0.1)));
 }
@@ -282,6 +290,7 @@ function chooseAction(signal: AutohealSignal, history: AutohealSignal[]): Autohe
   const { criticalStreak, degradedStreak, observeStreak } = computeStreaks(signal, history);
 
   if (
+    deepRepairEnabled() &&
     signal.level === 'critical' &&
     criticalStreak >= criticalConsecutiveThreshold() &&
     signal.lagAbs > 15_000 &&
@@ -305,6 +314,11 @@ export async function evaluateAutohealForClient(clientId: string) {
     const reportAll = await getConsistencyReport();
     const report = reportAll.clients.find((c) => c.clientId === clientId) ?? null;
     if (!report) return { queued: false as const, reason: 'no_report' };
+    const snapshotAt = Number(report.snapshotAt ?? 0);
+    if (!snapshotAt || nowMs() - snapshotAt > maxSnapshotAgeMs()) {
+      await auditAutohealEvent(clientId, { action: 'skip', reason: 'stale_client_snapshot', snapshotAt });
+      return { queued: false as const, reason: 'stale_client_snapshot' };
+    }
     if (reportAll.server?.source === 'unknown') {
       await auditAutohealEvent(clientId, { action: 'skip', reason: 'server_snapshot_unknown' });
       return { queued: false as const, reason: 'server_snapshot_unknown' };
@@ -325,6 +339,11 @@ export async function evaluateAutohealForClient(clientId: string) {
         streaks,
       });
       return { queued: false as const, reason: signal.level === 'normal' ? 'status_ok' : 'below_action_threshold' };
+    }
+    // Keep autoheal silent and non-intrusive: ignore one-off warning states.
+    if (signal.level === 'observe' && signal.driftRatio < observeThresholdRatio() * 1.5 && signal.lagAbs < 20_000) {
+      await auditAutohealEvent(clientId, { action: 'skip', reason: 'observe_non_intrusive_mode' });
+      return { queued: false as const, reason: 'observe_non_intrusive_mode' };
     }
 
     const row = (await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1))[0] ?? null;

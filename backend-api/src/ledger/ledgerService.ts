@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createSign, randomBytes } from 'node:crypto';
 import { LedgerStore, type LedgerSignedTx, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
 import { generateLedgerKeyPair } from '@matricarmz/ledger';
 import { SyncTableName } from '@matricarmz/shared';
@@ -25,6 +25,7 @@ const DEFAULT_LEDGER_DIR = resolve(process.cwd(), 'ledger');
 const KEY_FILE = 'server-key.json';
 const DATA_KEY_FILE = 'data-key.json';
 const BOOTSTRAP_FILE = 'bootstrap.json';
+const SIGNED_CHECKPOINT_FILE = 'checkpoint.signed.json';
 
 let store: LedgerStore | null = null;
 let serverKeys: { publicKeyPem: string; privateKeyPem: string } | null = null;
@@ -275,6 +276,10 @@ export function signAndAppendDetailed(
   const signed = ledger.signTxs(encryptedPayloads, keys.privateKeyPem, keys.publicKeyPem);
   const block = ledger.appendBlock(signed);
   const lastSeq = signed.at(-1)?.seq ?? ledger.loadIndex().lastSeq;
+  const checkpointEvery = Math.max(1, Number(process.env.MATRICA_LEDGER_SIGNED_CHECKPOINT_EVERY_BLOCKS ?? 100));
+  if (block.height % checkpointEvery === 0) {
+    void createSignedCheckpoint().catch(() => {});
+  }
   return { applied: signed.length, lastSeq, blockHeight: block.height, signed };
 }
 
@@ -325,6 +330,56 @@ export function listBlocksSince(height: number, limit: number) {
 export function getLedgerLastSeq(): number {
   const ledger = getLedgerStore();
   return ledger.loadIndex().lastSeq ?? 0;
+}
+
+function stableStringify(value: unknown): string {
+  if (value == null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
+}
+
+function signCheckpointPayload(payload: Record<string, unknown>, privateKeyPem: string) {
+  const canonical = stableStringify(payload);
+  const signer = createSign('RSA-SHA256');
+  signer.update(canonical);
+  signer.end();
+  const signature = signer.sign(privateKeyPem, 'base64');
+  const digest = createHash('sha256').update(canonical).digest('hex');
+  return { canonical, signature, digest };
+}
+
+export async function createSignedCheckpoint() {
+  const ledgerDir = resolveLedgerDir();
+  const ledger = getLedgerStore();
+  const keys = loadOrCreateServerKeys(ledgerDir);
+  const checkpoint = ledger.buildCheckpoint();
+  const payload = {
+    version: 1,
+    createdAt: Date.now(),
+    ledgerDir,
+    checkpoint,
+  };
+  const signed = signCheckpointPayload(payload, keys.privateKeyPem);
+  const row = {
+    ...payload,
+    signature: signed.signature,
+    digest: signed.digest,
+    publicKeyPem: keys.publicKeyPem,
+  };
+  writeFileSync(join(ledgerDir, SIGNED_CHECKPOINT_FILE), JSON.stringify(row, null, 2));
+  return row;
+}
+
+export function getSignedCheckpoint() {
+  const ledgerDir = resolveLedgerDir();
+  const path = join(ledgerDir, SIGNED_CHECKPOINT_FILE);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 export async function ensureLedgerBootstrap(): Promise<{ ran: boolean; reason: string }> {

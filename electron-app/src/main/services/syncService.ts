@@ -48,6 +48,7 @@ import { getKeyRing, keyRingToBuffers } from './e2eKeyService.js';
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
 const PULL_PAGE_SIZE = 5000;
+const FULL_STATE_PAGE_SIZE = 4000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 1000,
@@ -68,6 +69,19 @@ const LEDGER_BLOCKS_PAGE_SIZE = 200;
 const LEDGER_E2E_ENV = 'MATRICA_LEDGER_E2E';
 const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
 const SYNC_V2_ENABLED = String(process.env.MATRICA_SYNC_V2 ?? '1') !== '0';
+const FULL_STATE_SYNC_TABLES: SyncTableName[] = [
+  SyncTableName.EntityTypes,
+  SyncTableName.Entities,
+  SyncTableName.AttributeDefs,
+  SyncTableName.AttributeValues,
+  SyncTableName.Operations,
+  SyncTableName.AuditLog,
+  SyncTableName.ChatMessages,
+  SyncTableName.ChatReads,
+  SyncTableName.UserPresence,
+  SyncTableName.Notes,
+  SyncTableName.NoteShares,
+];
 
 function nowMs() {
   return Date.now();
@@ -2887,8 +2901,14 @@ export async function runSync(
         }
       }
 
-      const pullRes = await pullAll(since);
-      const pullJson = pullRes.last ?? { server_cursor: since, server_last_seq: since, has_more: false, changes: [] };
+      const pullRes = fullPull
+        ? await pullFullState()
+        : await pullAll(since).then((r) => ({
+            totalPulled: r.totalPulled,
+            serverSeq: Number((r.last as any)?.server_last_seq ?? r.last?.server_cursor ?? since),
+            pullJson: r.last ?? { server_cursor: since, server_last_seq: since, has_more: false, changes: [] },
+          }));
+      const pullJson = pullRes.pullJson;
       const pulled = pullRes.totalPulled;
 
       const finalError = pushError ? `push failed: ${pushError}` : null;

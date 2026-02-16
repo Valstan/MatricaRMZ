@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { sql } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { getLedgerLastSeq } from '../ledger/ledgerService.js';
+import { createSignedCheckpoint, getLedgerLastSeq, getSignedCheckpoint } from '../ledger/ledgerService.js';
 import { rebuildLedgerTxIndexFromLedger } from '../services/sync/ledgerTxIndexService.js';
 
 async function main() {
@@ -29,6 +29,10 @@ async function main() {
   const afterMax = Number((after.rows?.[0] as any)?.max_seq ?? 0);
   const afterCount = Number((after.rows?.[0] as any)?.row_count ?? 0);
   const ledgerAfter = getLedgerLastSeq();
+  let checkpoint = getSignedCheckpoint();
+  if (!checkpoint) {
+    checkpoint = await createSignedCheckpoint().catch(() => null);
+  }
   const ok = afterMax === ledgerAfter;
   console.log(
     JSON.stringify(
@@ -39,6 +43,13 @@ async function main() {
         ledgerLastSeq: ledgerAfter,
         indexMaxSeq: afterMax,
         indexRowCount: afterCount,
+        checkpoint: checkpoint
+          ? {
+              digest: (checkpoint as any).digest ?? null,
+              createdAt: (checkpoint as any).createdAt ?? null,
+              lastSeq: (checkpoint as any).checkpoint?.lastSeq ?? null,
+            }
+          : null,
       },
       null,
       2,

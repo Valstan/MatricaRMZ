@@ -1,8 +1,8 @@
-import { sql } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import { SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { ledgerTxIndex } from '../database/schema.js';
+import { diagnosticsSnapshots, ledgerTxIndex } from '../database/schema.js';
 import { getLedgerLastSeq, queryState } from '../ledger/ledgerService.js';
 
 type TableKey = 'entity_types' | 'entities' | 'attribute_defs' | 'attribute_values' | 'operations';
@@ -36,10 +36,13 @@ function computeStatus(args: {
   ledgerToIndexLag: number;
   indexToProjectionLag: number;
   maxTableRatio: number;
+  skippedDependencyRows24h: number;
 }) {
-  const { ledgerToIndexLag, indexToProjectionLag, maxTableRatio } = args;
+  const { ledgerToIndexLag, indexToProjectionLag, maxTableRatio, skippedDependencyRows24h } = args;
   if (ledgerToIndexLag > 10_000 || indexToProjectionLag > 10_000 || maxTableRatio > 0.15) return 'critical';
+  if (skippedDependencyRows24h > 500) return 'critical';
   if (ledgerToIndexLag > 2_000 || indexToProjectionLag > 2_000 || maxTableRatio > 0.05) return 'warn';
+  if (skippedDependencyRows24h > 0) return 'warn';
   return 'ok';
 }
 
@@ -47,14 +50,58 @@ function reasons(args: {
   ledgerToIndexLag: number;
   indexToProjectionLag: number;
   worstTable: { key: string; diffRatio: number } | null;
+  skippedRows24h: { dependency: number; conflict: number };
 }) {
   const out: string[] = [];
   if (args.ledgerToIndexLag > 0) out.push(`ledger_tx_index lag=${args.ledgerToIndexLag}`);
   if (args.indexToProjectionLag > 0) out.push(`projection lag by last_server_seq=${args.indexToProjectionLag}`);
+  if (args.skippedRows24h.dependency > 0) out.push(`skipped dependency rows 24h=${args.skippedRows24h.dependency}`);
+  if (args.skippedRows24h.conflict > 0) out.push(`skipped conflict rows 24h=${args.skippedRows24h.conflict}`);
   if (args.worstTable && args.worstTable.diffRatio > 0) {
     out.push(`table drift ${args.worstTable.key} ratio=${args.worstTable.diffRatio.toFixed(4)}`);
   }
   return out;
+}
+
+async function loadSkippedRows24h() {
+  const since = Date.now() - 24 * 60 * 60_000;
+  const rows = await db
+    .select({ payloadJson: diagnosticsSnapshots.payloadJson })
+    .from(diagnosticsSnapshots)
+    .where(
+      and(
+        eq(diagnosticsSnapshots.scope, 'server'),
+        gt(diagnosticsSnapshots.createdAt, since),
+        sql`${diagnosticsSnapshots.payloadJson} like '%"kind":"sync_skipped_rows"%'`,
+      ),
+    )
+    .limit(10_000);
+  const byTable: Record<string, { dependency: number; conflict: number }> = {};
+  let dependency = 0;
+  let conflict = 0;
+  for (const row of rows as any[]) {
+    try {
+      const payload = JSON.parse(String(row?.payloadJson ?? '{}')) as any;
+      if (payload?.kind !== 'sync_skipped_rows' || !Array.isArray(payload?.metrics)) continue;
+      for (const m of payload.metrics) {
+        const kind = String(m?.kind ?? '');
+        const table = String(m?.table ?? '');
+        const count = toNumber(m?.count ?? 0);
+        if (!table || count <= 0) continue;
+        if (!byTable[table]) byTable[table] = { dependency: 0, conflict: 0 };
+        if (kind === 'dependency') {
+          byTable[table].dependency += count;
+          dependency += count;
+        } else if (kind === 'conflict') {
+          byTable[table].conflict += count;
+          conflict += count;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return { dependency, conflict, byTable };
 }
 
 function countLedgerRows(syncTable: SyncTableName): number {
@@ -139,6 +186,7 @@ async function maxProjectionSeq(): Promise<number> {
 export async function getSyncPipelineHealth() {
   const generatedAt = Date.now();
   const ledgerLastSeq = toNumber(getLedgerLastSeq());
+  const skippedRows24h = await loadSkippedRows24h();
 
   const idxMax = await db
     .select({ maxSeq: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` })
@@ -249,7 +297,12 @@ export async function getSyncPipelineHealth() {
     .map(([key, v]) => ({ key, diffRatio: v.diffRatio }))
     .sort((a, b) => b.diffRatio - a.diffRatio)[0] ?? null;
   const maxTableRatio = worstTable?.diffRatio ?? 0;
-  const status = computeStatus({ ledgerToIndexLag, indexToProjectionLag, maxTableRatio });
+  const status = computeStatus({
+    ledgerToIndexLag,
+    indexToProjectionLag,
+    maxTableRatio,
+    skippedDependencyRows24h: skippedRows24h.dependency,
+  });
 
   return {
     ok: true as const,
@@ -263,7 +316,8 @@ export async function getSyncPipelineHealth() {
       indexToProjectionLag,
     },
     tables,
-    reasons: reasons({ ledgerToIndexLag, indexToProjectionLag, worstTable }),
+    skippedRows24h,
+    reasons: reasons({ ledgerToIndexLag, indexToProjectionLag, worstTable, skippedRows24h }),
   };
 }
 

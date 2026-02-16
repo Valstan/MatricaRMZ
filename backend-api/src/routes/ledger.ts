@@ -3,7 +3,15 @@ import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
 import { syncRowSchemaByTable } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
-import { ensureLedgerBootstrap, listBlocksSince, queryState, signAndAppend } from '../ledger/ledgerService.js';
+import {
+  createSignedCheckpoint,
+  ensureLedgerBootstrap,
+  getLedgerLastSeq,
+  getSignedCheckpoint,
+  listBlocksSince,
+  queryState,
+  signAndAppend,
+} from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
@@ -165,6 +173,39 @@ ledgerRouter.get('/state/query', (req, res) => {
   return res.json({ ok: true, rows });
 });
 
+ledgerRouter.get('/state/snapshot', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
+  const parsed = z
+    .object({
+      table: z.nativeEnum(LedgerTableName),
+      limit: z.coerce.number().int().min(1).max(20000).optional(),
+      cursor_id: z.string().optional(),
+      include_deleted: z.coerce.boolean().optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const limit = parsed.data.limit ?? 5000;
+  const rows = queryState(parsed.data.table, {
+    includeDeleted: parsed.data.include_deleted ?? false,
+    sortBy: 'id',
+    sortDir: 'asc',
+    limit: limit + 1,
+    ...(parsed.data.cursor_id ? { cursorValue: parsed.data.cursor_id, cursorId: parsed.data.cursor_id } : {}),
+  }) as Array<Record<string, unknown>>;
+  const page = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const nextCursorId = hasMore ? String(page.at(-1)?.id ?? '') : null;
+  return res.json({
+    ok: true,
+    table: parsed.data.table,
+    rows: page,
+    has_more: hasMore,
+    next_cursor_id: nextCursorId || null,
+    server_last_seq: getLedgerLastSeq(),
+  });
+});
+
 ledgerRouter.get('/state/changes', async (req, res) => {
   const syncV2Enforced = String(process.env.SYNC_V2_ENFORCE ?? '').trim() === '1';
   const parsed = z
@@ -250,6 +291,21 @@ ledgerRouter.get('/blocks', (req, res) => {
   const blocks = listBlocksSince(parsed.data.since, parsed.data.limit ?? 200);
   const lastHeight = blocks.at(-1)?.height ?? parsed.data.since;
   return res.json({ ok: true, last_height: lastHeight, blocks });
+});
+
+ledgerRouter.get('/checkpoint/latest', (_req, res) => {
+  const checkpoint = getSignedCheckpoint();
+  return res.json({ ok: true, checkpoint });
+});
+
+ledgerRouter.post('/checkpoint/build', (req, res) => {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) return res.status(401).json({ ok: false, error: 'auth required' });
+  const role = String(user.role ?? '').toLowerCase();
+  if (role !== 'admin' && role !== 'superadmin') return res.status(403).json({ ok: false, error: 'admin only' });
+  void createSignedCheckpoint()
+    .then((checkpoint) => res.json({ ok: true, checkpoint }))
+    .catch((e) => res.status(500).json({ ok: false, error: String(e) }));
 });
 
 ledgerRouter.post('/releases/publish', (req, res) => {

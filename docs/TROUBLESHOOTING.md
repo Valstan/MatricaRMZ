@@ -335,4 +335,27 @@ curl -sS "http://127.0.0.1:3001/diagnostics/sync-pipeline-health" \
 - кратковременный lag в несколько десятков/сотен seq при высокой нагрузке;
 - единичные warning-расхождения без роста лага и без повторяемости.
 
+---
+
+## 13) Новый full-sync (state snapshot) и checkpoint
+
+### Что изменилось
+- Полная синхронизация клиента теперь использует `GET /ledger/state/snapshot` (текущее `ledger-state`), а не replay всей истории `changes`.
+- Это устраняет зависимость времени full-sync от возраста ledger и снижает риск "пустых" значений из старых цепочек изменений.
+
+### Как проверить
+```bash
+curl -sS "http://127.0.0.1:3001/ledger/state/snapshot?table=entity_types&limit=100" \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+В ответе проверяйте:
+- `has_more`/`next_cursor_id` для постраничного чтения;
+- `server_last_seq` как общий watermark состояния.
+
+### Checkpoint
+- Актуальный checkpoint: `GET /ledger/checkpoint/latest`
+- Принудительно пересобрать signed-checkpoint: `POST /ledger/checkpoint/build` (admin/superadmin)
+- При пересборке индекса скрипт `rebuildLedgerTxIndex.ts` теперь также выводит digest checkpoint.
+
 

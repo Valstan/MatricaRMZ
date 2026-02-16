@@ -384,6 +384,19 @@ export function DiagnosticsPage() {
     return totals;
   }, [clientView.list]);
 
+  const keyEntityDrift = useMemo(() => {
+    const keys = ['engine_brand', 'employee', 'part', 'contract'];
+    const counters: Record<string, number> = Object.fromEntries(keys.map((k) => [k, 0]));
+    for (const c of report?.clients ?? []) {
+      for (const d of c.diffs ?? []) {
+        if (d.kind !== 'entityType') continue;
+        if (!keys.includes(d.name)) continue;
+        if (d.status === 'drift' || d.status === 'warning') counters[d.name] = (counters[d.name] ?? 0) + 1;
+      }
+    }
+    return counters;
+  }, [report?.clients]);
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -430,6 +443,11 @@ export function DiagnosticsPage() {
               {pipelineHealth.reasons.join(' | ')}
             </div>
           ) : null}
+          {pipelineHealth.skippedRows24h ? (
+            <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+              skipped rows 24h: dependency={pipelineHealth.skippedRows24h.dependency}, conflict={pipelineHealth.skippedRows24h.conflict}
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -449,6 +467,10 @@ export function DiagnosticsPage() {
               {report ? `${sumPendingErrors(report.server).pending} / ${sumPendingErrors(report.server).error}` : '—'}
             </div>
           </div>
+        </div>
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+          Drift ключевых справочников (клиентов с warning/drift): марки={keyEntityDrift.engine_brand ?? 0}, сотрудники=
+          {keyEntityDrift.employee ?? 0}, номенклатура={keyEntityDrift.part ?? 0}, контракты={keyEntityDrift.contract ?? 0}
         </div>
       </div>
 

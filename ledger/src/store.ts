@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 
 import { join } from 'node:path';
 import type { LedgerBlock, LedgerSignedTx, LedgerState, LedgerTxPayload } from './types.js';
 import { emptyLedgerState } from './types.js';
-import { applyTxs } from './state.js';
+import { applyTxs, computeLedgerStateHashes } from './state.js';
 import { hashBlockContent, hashTxPayload, signTxPayload, verifyTxPayload } from './crypto.js';
 
 type LedgerIndex = {
@@ -11,8 +11,18 @@ type LedgerIndex = {
   lastSeq: number;
 };
 
+type LedgerCheckpoint = {
+  version: 1;
+  createdAt: number;
+  lastHeight: number;
+  lastSeq: number;
+  stateHash: string;
+  tableHashes: Record<string, string>;
+};
+
 const INDEX_FILE = 'index.json';
 const STATE_FILE = 'state.json';
+const CHECKPOINT_FILE = 'checkpoint.json';
 
 export class LedgerStore {
   private readonly rootDir: string;
@@ -47,6 +57,33 @@ export class LedgerStore {
   saveState(state: LedgerState) {
     const statePath = join(this.rootDir, STATE_FILE);
     writeFileSync(statePath, JSON.stringify(state, null, 2));
+  }
+
+  loadCheckpoint(): LedgerCheckpoint | null {
+    const checkpointPath = join(this.rootDir, CHECKPOINT_FILE);
+    if (!existsSync(checkpointPath)) return null;
+    return JSON.parse(readFileSync(checkpointPath, 'utf8')) as LedgerCheckpoint;
+  }
+
+  saveCheckpoint(checkpoint: LedgerCheckpoint) {
+    const checkpointPath = join(this.rootDir, CHECKPOINT_FILE);
+    writeFileSync(checkpointPath, JSON.stringify(checkpoint, null, 2));
+  }
+
+  buildCheckpoint(): LedgerCheckpoint {
+    const state = this.loadState();
+    const index = this.loadIndex();
+    const hashes = computeLedgerStateHashes(state);
+    const checkpoint: LedgerCheckpoint = {
+      version: 1,
+      createdAt: Date.now(),
+      lastHeight: index.lastHeight,
+      lastSeq: index.lastSeq,
+      stateHash: hashes.stateHash,
+      tableHashes: hashes.tableHashes,
+    };
+    this.saveCheckpoint(checkpoint);
+    return checkpoint;
   }
 
   signTxs(payloads: LedgerTxPayload[], privateKeyPem: string, publicKeyPem: string): LedgerSignedTx[] {
@@ -103,6 +140,8 @@ export class LedgerStore {
     this.saveIndex({ lastHeight: height, lastHash: hash, lastSeq: txs.at(-1)?.seq ?? index.lastSeq });
     const state = this.loadState();
     this.saveState(applyTxs(state, txs));
+    const checkpointEvery = Math.max(1, Number(process.env.MATRICA_LEDGER_CHECKPOINT_EVERY_BLOCKS ?? 100));
+    if (height % checkpointEvery === 0) this.buildCheckpoint();
     return block;
   }
 
@@ -123,6 +162,8 @@ export class LedgerStore {
     this.saveIndex({ lastHeight: block.height, lastHash: block.hash, lastSeq: block.txs.at(-1)?.seq ?? index.lastSeq });
     const state = this.loadState();
     this.saveState(applyTxs(state, block.txs));
+    const checkpointEvery = Math.max(1, Number(process.env.MATRICA_LEDGER_CHECKPOINT_EVERY_BLOCKS ?? 100));
+    if (block.height % checkpointEvery === 0) this.buildCheckpoint();
     return block;
   }
 

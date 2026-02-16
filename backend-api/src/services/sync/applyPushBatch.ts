@@ -26,6 +26,7 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  diagnosticsSnapshots,
   changeLog,
   entities,
   entityTypes,
@@ -48,6 +49,10 @@ const WORK_ORDERS_CONTAINER_TYPE_CODE = SystemIds.WorkOrdersContainerEntityTypeC
 
 function nowMs() {
   return Date.now();
+}
+
+function strictSyncDependencies() {
+  return String(process.env.MATRICA_SYNC_STRICT_DEPENDENCIES ?? '0').trim() === '1';
 }
 
 function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'upsert' | 'delete' {
@@ -102,6 +107,13 @@ export async function applyPushBatch(
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const collected = applyOpts.collectChanges ?? null;
   const telegramNotifications: TelegramNotification[] = [];
+  const skipCounters = new Map<string, number>();
+
+  function addSkipMetric(kind: 'dependency' | 'conflict', table: SyncTableName, count: number, dependency?: string) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const key = `${kind}|${table}|${dependency ?? ''}`;
+    skipCounters.set(key, (skipCounters.get(key) ?? 0) + Math.floor(count));
+  }
 
   function parseRows<T>(
     table: SyncTableName,
@@ -357,6 +369,7 @@ export async function applyPushBatch(
         return !(cur.updatedAt > r.updated_at);
       });
       if (conflicts > 0) {
+        addSkipMetric('conflict', tableName, conflicts);
         if (opts?.allowSyncConflicts || applyOpts.allowSyncConflicts) {
           logWarn('sync conflict rows skipped', {
             table: tableName,
@@ -547,7 +560,8 @@ export async function applyPushBatch(
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.type_id)));
         if (missingRows.length > 0) {
-          if (!applyOpts.allowSyncConflicts) {
+          addSkipMetric('dependency', SyncTableName.Entities, missingRows.length, 'entity_type');
+          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
             throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
           }
           logWarn('sync dependency rows skipped', {
@@ -704,7 +718,8 @@ export async function applyPushBatch(
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
         if (missingRows.length > 0) {
-          if (!applyOpts.allowSyncConflicts) {
+          addSkipMetric('dependency', SyncTableName.AttributeDefs, missingRows.length, 'entity_type');
+          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
             throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
           }
           logWarn('sync dependency rows skipped', {
@@ -794,7 +809,8 @@ export async function applyPushBatch(
         const existingDefIds = new Set<string>((existingDefs as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
         if (missingRows.length > 0) {
-          if (!applyOpts.allowSyncConflicts) {
+          addSkipMetric('dependency', SyncTableName.AttributeValues, missingRows.length, 'attribute_def');
+          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
             throw new Error(`sync_dependency_missing: attribute_def (${missingRows.length})`);
           }
           logWarn('sync dependency rows skipped', {
@@ -818,7 +834,8 @@ export async function applyPushBatch(
         const existingEntityIds = new Set<string>((existingEntities as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingEntityIds.has(String(r.entity_id)));
         if (missingRows.length > 0) {
-          if (!applyOpts.allowSyncConflicts) {
+          addSkipMetric('dependency', SyncTableName.AttributeValues, missingRows.length, 'entity');
+          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
             throw new Error(`sync_dependency_missing: entity (${missingRows.length})`);
           }
           logWarn('sync dependency rows skipped', {
@@ -952,7 +969,8 @@ export async function applyPushBatch(
         const existingEngineIds = new Set<string>((existingEngines as any[]).map((r) => String(r.id)));
         const missingOps = engineScopedOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
         if (missingOps.length > 0) {
-          if (!applyOpts.allowSyncConflicts) {
+          addSkipMetric('dependency', SyncTableName.Operations, missingOps.length, 'engine_entity');
+          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
             throw new Error(`sync_dependency_missing: engine_entity (${missingOps.length})`);
           }
           logWarn('sync dependency rows skipped', {
@@ -1383,6 +1401,31 @@ export async function applyPushBatch(
           applied += allowed.length;
         }
       }
+    }
+
+    if (skipCounters.size > 0) {
+      const metrics = Array.from(skipCounters.entries()).map(([key, count]) => {
+        const [kind, table, dependency] = key.split('|');
+        return {
+          kind,
+          table,
+          dependency: dependency || null,
+          count,
+        };
+      });
+      await tx.insert(diagnosticsSnapshots).values({
+        id: randomUUID(),
+        scope: 'server',
+        clientId: req.client_id,
+        payloadJson: JSON.stringify({
+          kind: 'sync_skipped_rows',
+          at: appliedAt,
+          actor: actor.username,
+          clientId: req.client_id,
+          metrics,
+        }),
+        createdAt: appliedAt,
+      });
     }
 
     return { applied, ...(collected ? { changes: collected } : {}) };
