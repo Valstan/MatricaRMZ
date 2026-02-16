@@ -106,6 +106,7 @@ export async function replayLedgerToDb(actor: { id: string; username: string; ro
   const result = await applyPushBatch(
     { client_id: 'ledger-replay', upserts },
     { id: actor.id, username: actor.username, role: actor.role },
+    { allowSyncConflicts: true },
   );
   return { applied: result.applied };
 }

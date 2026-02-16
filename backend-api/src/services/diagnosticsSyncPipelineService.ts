@@ -83,6 +83,42 @@ function countLedgerRows(syncTable: SyncTableName): number {
   return total;
 }
 
+function loadLedgerRows(syncTable: SyncTableName): Array<Record<string, unknown>> {
+  const pageSize = 5000;
+  const out: Array<Record<string, unknown>> = [];
+  let cursorValue: string | number | undefined;
+  let cursorId: string | undefined;
+  for (let i = 0; i < 20_000; i += 1) {
+    const rows = queryState(syncTable as any, {
+      includeDeleted: false,
+      sortBy: 'id',
+      sortDir: 'asc',
+      limit: pageSize,
+      ...(cursorValue != null ? { cursorValue } : {}),
+      ...(cursorId ? { cursorId } : {}),
+    }) as Array<Record<string, unknown>>;
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    const last = rows[rows.length - 1];
+    const nextId = String(last?.id ?? '');
+    if (!nextId) break;
+    cursorValue = nextId;
+    cursorId = nextId;
+  }
+  return out;
+}
+
+function isBulkEntityTypeRow(row: Record<string, unknown>) {
+  const code = String(row?.code ?? '');
+  const name = String(row?.name ?? '');
+  return code.startsWith('t_bulk_') || name.startsWith('Type Bulk ');
+}
+
+function rowUpdatedAt(row: Record<string, unknown>) {
+  return toNumber(row.updated_at ?? row.created_at ?? 0);
+}
+
 async function countProjectionRows(table: string): Promise<number> {
   const q = await db.execute(sql.raw(`select count(*)::bigint as cnt from ${table} where deleted_at is null`));
   return toNumber((q.rows?.[0] as any)?.cnt ?? 0);
@@ -119,8 +155,88 @@ export async function getSyncPipelineHealth() {
     operations: { ledgerCount: 0, projectionCount: 0, diffAbs: 0, diffRatio: 0 },
   };
 
+  const ledgerEntityTypes = loadLedgerRows(SyncTableName.EntityTypes);
+  const entityTypeByCode = new Map<string, Record<string, unknown>>();
+  const entityTypeCodeById = new Map<string, string>();
+  const bulkEntityTypeIds = new Set<string>();
+  for (const row of ledgerEntityTypes) {
+    const id = String(row.id ?? '');
+    const code = String(row.code ?? '');
+    if (!id) continue;
+    entityTypeCodeById.set(id, code);
+    if (isBulkEntityTypeRow(row)) {
+      bulkEntityTypeIds.add(id);
+      continue;
+    }
+    const key = code || id;
+    const prev = entityTypeByCode.get(key);
+    if (!prev || rowUpdatedAt(prev) < rowUpdatedAt(row)) {
+      entityTypeByCode.set(key, row);
+    }
+  }
+  const canonicalEntityTypeIdByCode = new Map<string, string>();
+  for (const [key, row] of entityTypeByCode) canonicalEntityTypeIdByCode.set(key, String(row.id ?? ''));
+  const canonicalEntityTypeIdById = new Map<string, string>();
+  for (const row of ledgerEntityTypes) {
+    const id = String(row.id ?? '');
+    const code = String(row.code ?? '');
+    if (!id || bulkEntityTypeIds.has(id)) continue;
+    const key = code || id;
+    const canonicalId = canonicalEntityTypeIdByCode.get(key);
+    if (canonicalId) canonicalEntityTypeIdById.set(id, canonicalId);
+  }
+
+  const ledgerAttributeDefs = loadLedgerRows(SyncTableName.AttributeDefs);
+  const attributeDefByKey = new Map<string, Record<string, unknown>>();
+  for (const row of ledgerAttributeDefs) {
+    const id = String(row.id ?? '');
+    const typeId = String(row.entity_type_id ?? '');
+    const code = String(row.code ?? '');
+    if (!id || !typeId || !code || bulkEntityTypeIds.has(typeId)) continue;
+    const canonicalTypeId = canonicalEntityTypeIdById.get(typeId) ?? typeId;
+    const key = `${canonicalTypeId}::${code}`;
+    const prev = attributeDefByKey.get(key);
+    if (!prev || rowUpdatedAt(prev) < rowUpdatedAt(row)) {
+      attributeDefByKey.set(key, row);
+    }
+  }
+  const canonicalAttributeDefIdByKey = new Map<string, string>();
+  for (const [key, row] of attributeDefByKey) canonicalAttributeDefIdByKey.set(key, String(row.id ?? ''));
+  const canonicalAttributeDefIdById = new Map<string, string>();
+  for (const row of ledgerAttributeDefs) {
+    const id = String(row.id ?? '');
+    const typeId = String(row.entity_type_id ?? '');
+    const code = String(row.code ?? '');
+    if (!id || !typeId || !code || bulkEntityTypeIds.has(typeId)) continue;
+    const canonicalTypeId = canonicalEntityTypeIdById.get(typeId) ?? typeId;
+    const key = `${canonicalTypeId}::${code}`;
+    const canonicalDefId = canonicalAttributeDefIdByKey.get(key);
+    if (canonicalDefId) canonicalAttributeDefIdById.set(id, canonicalDefId);
+  }
+
+  const ledgerAttributeValues = loadLedgerRows(SyncTableName.AttributeValues);
+  const attributeValueByPair = new Map<string, Record<string, unknown>>();
+  for (const row of ledgerAttributeValues) {
+    const entityId = String(row.entity_id ?? '');
+    const defId = String(row.attribute_def_id ?? '');
+    if (!entityId || !defId) continue;
+    const canonicalDefId = canonicalAttributeDefIdById.get(defId) ?? defId;
+    const key = `${entityId}::${canonicalDefId}`;
+    const prev = attributeValueByPair.get(key);
+    if (!prev || rowUpdatedAt(prev) < rowUpdatedAt(row)) {
+      attributeValueByPair.set(key, row);
+    }
+  }
+
   for (const t of TABLES) {
-    const ledgerCount = countLedgerRows(t.syncName);
+    let ledgerCount = countLedgerRows(t.syncName);
+    if (t.syncName === SyncTableName.EntityTypes) {
+      ledgerCount = entityTypeByCode.size;
+    } else if (t.syncName === SyncTableName.AttributeDefs) {
+      ledgerCount = attributeDefByKey.size;
+    } else if (t.syncName === SyncTableName.AttributeValues) {
+      ledgerCount = attributeValueByPair.size;
+    }
     const projectionCount = await countProjectionRows(t.projectionTable);
     const diffAbs = Math.abs(ledgerCount - projectionCount);
     const diffRatio = computeRatio(ledgerCount, projectionCount);

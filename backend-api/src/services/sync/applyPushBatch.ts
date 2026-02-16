@@ -66,6 +66,9 @@ export type AppliedSyncChange = {
 type ApplyPushOptions = {
   collectChanges?: AppliedSyncChange[];
   skipChangeLog?: boolean;
+  // Recovery mode for server-side replay from canonical ledger state.
+  // In this mode stale/older rows are dropped, but batch does not fail.
+  allowSyncConflicts?: boolean;
 };
 
 type TelegramNotification = {
@@ -91,13 +94,13 @@ function isBulkEntityTypeRow(r: { code?: unknown; name?: unknown }): boolean {
 export async function applyPushBatch(
   req: SyncPushRequest,
   actorRaw: SyncActor,
-  opts: ApplyPushOptions = {},
+  applyOpts: ApplyPushOptions = {},
 ): Promise<{ applied: number; changes?: AppliedSyncChange[] }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
   const actorRole = String(actor.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
-  const collected = opts.collectChanges ?? null;
+  const collected = applyOpts.collectChanges ?? null;
   const telegramNotifications: TelegramNotification[] = [];
 
   function parseRows<T>(
@@ -308,7 +311,7 @@ export async function applyPushBatch(
       table: any,
       rows: any[],
       tableName: SyncTableName,
-      opts?: { allowConflicts?: boolean },
+      opts?: { allowConflicts?: boolean; allowSyncConflicts?: boolean },
     ): Promise<any[]> {
       if (rows.length === 0) return rows;
       const ids = rows.map((r) => r.id);
@@ -354,7 +357,14 @@ export async function applyPushBatch(
         return !(cur.updatedAt > r.updated_at);
       });
       if (conflicts > 0) {
-        if (!opts?.allowConflicts) {
+        if (opts?.allowSyncConflicts || applyOpts.allowSyncConflicts) {
+          logWarn('sync conflict rows skipped', {
+            table: tableName,
+            conflicts,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+        } else if (!opts?.allowConflicts) {
           throw new Error(`sync_conflict: ${tableName} (${conflicts})`);
         }
       }
@@ -374,7 +384,7 @@ export async function applyPushBatch(
 
     async function insertChangeLogAndUpdateSeq(table: any, tableName: SyncTableName, rows: any[]) {
       if (rows.length === 0) return;
-      if (!opts?.skipChangeLog) {
+      if (!applyOpts?.skipChangeLog) {
         const inserted = await tx
           .insert(changeLog)
           .values(
@@ -537,7 +547,18 @@ export async function applyPushBatch(
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.type_id)));
         if (missingRows.length > 0) {
-          throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
+          if (!applyOpts.allowSyncConflicts) {
+            throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
+          }
+          logWarn('sync dependency rows skipped', {
+            table: SyncTableName.Entities,
+            dependency: 'entity_type',
+            missing: missingRows.length,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missingRows.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
         }
       }
 
@@ -683,7 +704,18 @@ export async function applyPushBatch(
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
         if (missingRows.length > 0) {
-          throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
+          if (!applyOpts.allowSyncConflicts) {
+            throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
+          }
+          logWarn('sync dependency rows skipped', {
+            table: SyncTableName.AttributeDefs,
+            dependency: 'entity_type',
+            missing: missingRows.length,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missingRows.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
         }
       }
 
@@ -762,7 +794,42 @@ export async function applyPushBatch(
         const existingDefIds = new Set<string>((existingDefs as any[]).map((r) => String(r.id)));
         const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
         if (missingRows.length > 0) {
-          throw new Error(`sync_dependency_missing: attribute_def (${missingRows.length})`);
+          if (!applyOpts.allowSyncConflicts) {
+            throw new Error(`sync_dependency_missing: attribute_def (${missingRows.length})`);
+          }
+          logWarn('sync dependency rows skipped', {
+            table: SyncTableName.AttributeValues,
+            dependency: 'attribute_def',
+            missing: missingRows.length,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missingRows.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
+        }
+      }
+      const entityIdsToCheck = Array.from(new Set(rows.map((r) => String(r.entity_id))));
+      if (entityIdsToCheck.length > 0) {
+        const existingEntities = await tx
+          .select({ id: entities.id })
+          .from(entities)
+          .where(inArray(entities.id, entityIdsToCheck as any))
+          .limit(50_000);
+        const existingEntityIds = new Set<string>((existingEntities as any[]).map((r) => String(r.id)));
+        const missingRows = rows.filter((r) => !existingEntityIds.has(String(r.entity_id)));
+        if (missingRows.length > 0) {
+          if (!applyOpts.allowSyncConflicts) {
+            throw new Error(`sync_dependency_missing: entity (${missingRows.length})`);
+          }
+          logWarn('sync dependency rows skipped', {
+            table: SyncTableName.AttributeValues,
+            dependency: 'entity',
+            missing: missingRows.length,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missingRows.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
         }
       }
       const ids = rows.map((r) => r.id);
@@ -799,12 +866,23 @@ export async function applyPushBatch(
           allowed.push(r);
         }
       }
+      // Avoid duplicate conflict-target keys in one INSERT ... ON CONFLICT statement.
+      // Keep the newest row for each (entity_id, attribute_def_id) pair.
+      const dedupByPair = new Map<string, (typeof allowed)[number]>();
+      for (const r of allowed) {
+        const key = `${String(r.entity_id)}:${String(r.attribute_def_id)}`;
+        const prev = dedupByPair.get(key);
+        if (!prev || Number(prev.updated_at ?? 0) < Number(r.updated_at ?? 0)) {
+          dedupByPair.set(key, r);
+        }
+      }
+      const allowedDeduped = Array.from(dedupByPair.values());
 
-      if (allowed.length > 0) {
+      if (allowedDeduped.length > 0) {
         await tx
           .insert(attributeValues)
           .values(
-            allowed.map((r) => ({
+            allowedDeduped.map((r) => ({
               id: r.id,
               entityId: r.entity_id,
               attributeDefId: r.attribute_def_id,
@@ -824,11 +902,11 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(attributeValues, SyncTableName.AttributeValues, allowed);
-        applied += allowed.length;
+        await insertChangeLogAndUpdateSeq(attributeValues, SyncTableName.AttributeValues, allowedDeduped);
+        applied += allowedDeduped.length;
 
         // Ownership for newly created attribute_values is inherited from parent entity.
-        for (const r of allowed) {
+        for (const r of allowedDeduped) {
           if (!existingMap.get(String(r.id))) {
             await ensureOwner(SyncTableName.AttributeValues, String(r.id), { userId: actor.id || null, username: actor.username });
           }
@@ -874,10 +952,25 @@ export async function applyPushBatch(
         const existingEngineIds = new Set<string>((existingEngines as any[]).map((r) => String(r.id)));
         const missingOps = engineScopedOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
         if (missingOps.length > 0) {
-          throw new Error(`sync_dependency_missing: engine_entity (${missingOps.length})`);
+          if (!applyOpts.allowSyncConflicts) {
+            throw new Error(`sync_dependency_missing: engine_entity (${missingOps.length})`);
+          }
+          logWarn('sync dependency rows skipped', {
+            table: SyncTableName.Operations,
+            dependency: 'engine_entity',
+            missing: missingOps.length,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missingOps.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
         }
       }
-      rows = [...supplyOps, ...workOrderOps, ...engineOps];
+      rows = [
+        ...rows.filter((r) => r.operation_type === 'supply_request'),
+        ...rows.filter((r) => r.operation_type === 'work_order'),
+        ...rows.filter((r) => r.operation_type !== 'supply_request' && r.operation_type !== 'work_order'),
+      ];
       const allowed: typeof rows = rows;
 
       if (allowed.length > 0) {
