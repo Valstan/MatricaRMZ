@@ -38,4 +38,12 @@ backend-api/ledger
 backend-api/ledger.bak-*
 backend-api/logs
 
+# Ledger package runtime artifacts (do not commit generated chain/state)
+ledger/blocks/
+ledger/bootstrap.json
+ledger/data-key.json
+ledger/index.json
+ledger/server-key.json
+ledger/state.json
+
 
