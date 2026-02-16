@@ -101,3 +101,30 @@ export async function getEntityDiff(clientId: string, entityId: string) {
 export async function getClientLastError(clientId: string) {
   return await apiJson(`/diagnostics/clients/${encodeURIComponent(clientId)}/last-error`, { method: 'GET' });
 }
+
+export type SyncPipelineHealth = {
+  ok: boolean;
+  generatedAt: number;
+  status: 'ok' | 'warn' | 'critical';
+  seq: {
+    ledgerLastSeq: number;
+    indexMaxSeq: number;
+    projectionMaxSeq: number;
+    ledgerToIndexLag: number;
+    indexToProjectionLag: number;
+  };
+  tables: Record<
+    string,
+    {
+      ledgerCount: number;
+      projectionCount: number;
+      diffAbs: number;
+      diffRatio: number;
+    }
+  >;
+  reasons?: string[];
+};
+
+export async function getSyncPipelineHealth() {
+  return await apiJson('/diagnostics/sync-pipeline-health', { method: 'GET' });
+}

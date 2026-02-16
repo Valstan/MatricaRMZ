@@ -4,11 +4,13 @@ import {
   getConsistencyReport,
   getClientLastError,
   getEntityDiff,
+  getSyncPipelineHealth,
   requestMasterdataSnapshotAll,
   requestClientSync,
   runConsistencyCheck,
   type ConsistencyClientReport,
   type ConsistencySnapshot,
+  type SyncPipelineHealth,
 } from '../api/diagnostics.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
@@ -140,6 +142,7 @@ export function DiagnosticsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [report, setReport] = useState<Report | null>(null);
+  const [pipelineHealth, setPipelineHealth] = useState<SyncPipelineHealth | null>(null);
   const [showOnlyIssues, setShowOnlyIssues] = useState(false);
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(true);
   const [hideDuplicates, setHideDuplicates] = useState(true);
@@ -153,13 +156,14 @@ export function DiagnosticsPage() {
   async function refresh() {
     setLoading(true);
     setError('');
-    const r = await getConsistencyReport();
+    const [r, hp] = await Promise.all([getConsistencyReport(), getSyncPipelineHealth()]);
     if (!r?.ok) {
       setError(r?.error ?? 'Ошибка загрузки');
       setLoading(false);
       return;
     }
     setReport(r.report ?? null);
+    if (hp?.ok) setPipelineHealth(hp as SyncPipelineHealth);
     setLoading(false);
   }
 
@@ -173,6 +177,8 @@ export function DiagnosticsPage() {
       return;
     }
     setReport(r.report ?? null);
+    const hp = await getSyncPipelineHealth();
+    if (hp?.ok) setPipelineHealth(hp as SyncPipelineHealth);
     setLoading(false);
   }
 
@@ -410,6 +416,22 @@ export function DiagnosticsPage() {
       </div>
 
       {error && <div className="muted">Ошибка: {error}</div>}
+
+      {pipelineHealth && (
+        <div style={{ marginTop: 8 }} className="card">
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>
+            Sync pipeline: <span style={{ color: pipelineHealth.status === 'ok' ? 'var(--success)' : pipelineHealth.status === 'warn' ? 'var(--warning)' : 'var(--danger)' }}>{pipelineHealth.status}</span>
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            ledger={pipelineHealth.seq.ledgerLastSeq}, index={pipelineHealth.seq.indexMaxSeq}, projection={pipelineHealth.seq.projectionMaxSeq}, lag ledger→index={pipelineHealth.seq.ledgerToIndexLag}, lag index→projection={pipelineHealth.seq.indexToProjectionLag}
+          </div>
+          {Array.isArray(pipelineHealth.reasons) && pipelineHealth.reasons.length > 0 ? (
+            <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+              {pipelineHealth.reasons.join(' | ')}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div style={{ marginTop: 10 }} className="card">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>

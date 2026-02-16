@@ -284,4 +284,55 @@ curl -sS http://127.0.0.1:3001/health
 - Проверьте доступность `/client/settings` и `/client/settings/sync-request/ack` через nginx.
 - Проверьте локальный лог клиента `matricarmz.log` по строкам `sync request` и `sync request ack failed`.
 
+---
+
+## 12) Клиент и WebAdmin показывают разные данные
+
+### Что это означает
+- Клиент читает изменения через ledger (`/ledger/state/changes`).
+- WebAdmin должен читать мастер-данные через ledger query (`/ledger/state/query`).
+- Если `ledger -> ledger_tx_index -> SQL projection` рассинхронизирован, возможны:
+  - «старые» данные в одной витрине;
+  - «пропавшие» записи в другой;
+  - дрейф после авто-восстановления.
+
+### Быстрая проверка цепочки
+```bash
+curl -sS "http://127.0.0.1:3001/diagnostics/sync-pipeline-health" \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+Смотрите поля:
+- `seq.ledgerLastSeq`
+- `seq.indexMaxSeq`
+- `seq.projectionMaxSeq`
+- `seq.ledgerToIndexLag`
+- `seq.indexToProjectionLag`
+
+### Когда что запускать
+- `ledgerToIndexLag > 0` стабильно (не уменьшается) -> пересобрать индекс:
+  ```bash
+  cd /home/valstan/MatricaRMZ/backend-api
+  pnpm exec tsx src/scripts/rebuildLedgerTxIndex.ts
+  ```
+
+- `indexToProjectionLag > 0` или сильные расхождения по таблицам при нормальном индексе ->
+  переиграть ledger в SQL-проекцию:
+  ```bash
+  cd /home/valstan/MatricaRMZ/backend-api
+  pnpm exec tsx src/scripts/ledgerReplayToDb.ts
+  ```
+
+- Если после replay/index rebuild лаги возвращаются быстро -> искать причину в runtime pipeline
+  (`applyLedgerTxs`/`applyPushBatch`/ошибки в логах backend).
+
+### Что считать аварией
+- `ledgerToIndexLag > 10000` или `indexToProjectionLag > 10000`;
+- повторяющийся drift по ключевым таблицам (`entity_types`, `entities`, `attribute_defs`, `attribute_values`, `operations`);
+- автоисправление часто ставит тяжелые команды (`reset_sync_state_and_pull` / `deep_repair`).
+
+### Что считать нормальным
+- кратковременный lag в несколько десятков/сотен seq при высокой нагрузке;
+- единичные warning-расхождения без роста лага и без повторяемости.
+
 

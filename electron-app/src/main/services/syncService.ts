@@ -620,6 +620,7 @@ async function sendDiagnosticsSnapshot(
   apiBaseUrl: string,
   clientId: string,
   serverSeq: number,
+  syncRunId: string,
 ) {
   const lastSentAt = await getSyncStateNumber(db, SettingsKey.DiagnosticsLastSentAt, 0);
   const now = nowMs();
@@ -633,7 +634,7 @@ async function sendDiagnosticsSnapshot(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId, serverSeq, tables: snapshot.tables, entityTypes: snapshot.entityTypes }),
+      body: JSON.stringify({ clientId, syncRunId, serverSeq, tables: snapshot.tables, entityTypes: snapshot.entityTypes }),
     },
     { attempts: 3, timeoutMs: 60_000, label: 'push' },
   );
@@ -2477,6 +2478,7 @@ export async function runSync(
   apiBaseUrl: string,
   opts?: RunSyncOptions,
 ): Promise<SyncRunResult> {
+  const syncRunId = randomUUID();
   const startedAt = nowMs();
   let currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   let attemptedFix = false;
@@ -2517,6 +2519,15 @@ export async function runSync(
     detail: fullPull ? 'подготовка полной синхронизации' : 'подготовка инкрементальной синхронизации',
     progress: fullPull ? 0 : null,
   });
+  const logRecovery = (reason: string, extra?: Record<string, unknown>) => {
+    const suffix = extra
+      ? ` ${Object.entries(extra)
+          .map(([k, v]) => `${k}=${String(v)}`)
+          .join(' ')}`
+      : '';
+    logSync(`sync.recovery id=${syncRunId} reason=${reason}${suffix}`);
+  };
+  logSync(`sync.run.start id=${syncRunId} clientId=${clientId} mode=${progressMode}`);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const session = await getSession(db).catch(() => null);
@@ -2677,7 +2688,7 @@ export async function runSync(
                 .filter(Boolean);
               const session = await getSession(db).catch(() => null);
               const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
-              logSync(`push duplicate chat_reads: dropped=${dropped}, retrying`);
+              logRecovery('duplicate_chat_reads', { dropped, status: r.status });
               attemptedChatReadsFix = true;
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2688,7 +2699,7 @@ export async function runSync(
             }
             if (!attemptedInvalidAttrDefs && isInvalidAttributeDefError(body)) {
               attemptedInvalidAttrDefs = true;
-              logSync(`push invalid attribute_defs: marking pending as error and retrying`);
+              logRecovery('invalid_attribute_defs_mark_error');
               await markPendingAttributeDefsError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2699,7 +2710,7 @@ export async function runSync(
             }
             if (!attemptedInvalidEntities && isInvalidEntityError(body)) {
               attemptedInvalidEntities = true;
-              logSync(`push invalid entities: marking pending as error and retrying`);
+              logRecovery('invalid_entities_mark_error');
               await markPendingEntitiesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2710,7 +2721,7 @@ export async function runSync(
             }
             if (!attemptedInvalidChatMessages && isInvalidChatMessageError(body)) {
               attemptedInvalidChatMessages = true;
-              logSync(`push invalid chat_messages: marking pending as error and retrying`);
+              logRecovery('invalid_chat_messages_mark_error');
               await markPendingChatMessagesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2721,7 +2732,7 @@ export async function runSync(
             }
             if (!attemptedInvalidChatReads && isInvalidChatReadError(body)) {
               attemptedInvalidChatReads = true;
-              logSync(`push invalid chat_reads: marking pending as error and retrying`);
+              logRecovery('invalid_chat_reads_mark_error');
               await markPendingChatReadsError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2732,7 +2743,7 @@ export async function runSync(
             }
             if (!attemptedInvalidAttributeValues && isInvalidAttributeValueError(body)) {
               attemptedInvalidAttributeValues = true;
-              logSync(`push invalid attribute_values: marking pending as error and retrying`);
+              logRecovery('invalid_attribute_values_mark_error');
               await markPendingAttributeValuesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2743,7 +2754,7 @@ export async function runSync(
             }
             if (!attemptedInvalidNotes && isInvalidNotesError(body)) {
               attemptedInvalidNotes = true;
-              logSync(`push invalid notes: marking pending as error and retrying`);
+              logRecovery('invalid_notes_mark_error');
               await markPendingNotesError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2754,7 +2765,7 @@ export async function runSync(
             }
             if (!attemptedInvalidOperations && isInvalidOperationsError(body)) {
               attemptedInvalidOperations = true;
-              logSync(`push invalid operations: marking pending as error and retrying`);
+              logRecovery('invalid_operations_mark_error');
               await markPendingOperationsError(db);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2765,7 +2776,7 @@ export async function runSync(
             }
             if (!attemptedConflictRecovery && isConflictError(body)) {
               attemptedConflictRecovery = true;
-              logSync(`push conflict detected: forcing full pull and retry`);
+              logRecovery('push_conflict_force_full_pull');
               await resetSyncState(db);
               await pullAll(0);
               await markAllEntityTypesPending(db);
@@ -2779,7 +2790,7 @@ export async function runSync(
             }
             if (!attemptedDependencyRecovery && isDependencyMissingError(body)) {
               attemptedDependencyRecovery = true;
-              logSync(`push dependency missing: forcing full pull and retry`);
+              logRecovery('dependency_missing_force_full_pull');
               await resetSyncState(db);
               await pullAll(0);
               await markAllEntityTypesPending(db);
@@ -2847,7 +2858,7 @@ export async function runSync(
         for (const code of requiredTypes) {
           const t = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.code, code)).limit(1);
           if (!t[0]?.id) {
-            logSync(`force full pull (since=0): missing local entity_type '${code}' while since=${since}`);
+            logRecovery('force_full_pull_missing_entity_type', { code, since });
             since = 0;
             break;
           }
@@ -2860,7 +2871,7 @@ export async function runSync(
             .limit(1);
           const engineBrandTypeId = engineBrandType[0]?.id ? String(engineBrandType[0].id) : null;
           if (!engineBrandTypeId) {
-            logSync(`force full pull (since=0): missing local entity_type '${EntityTypeCode.EngineBrand}' while since=${since}`);
+            logRecovery('force_full_pull_missing_engine_brand_type', { since });
             since = 0;
           } else {
             const nameDef = await db
@@ -2869,7 +2880,7 @@ export async function runSync(
               .where(and(eq(attributeDefs.entityTypeId, engineBrandTypeId), eq(attributeDefs.code, 'name')))
               .limit(1);
             if (!nameDef[0]?.id) {
-              logSync(`force full pull (since=0): missing attr 'name' for '${EntityTypeCode.EngineBrand}' while since=${since}`);
+              logRecovery('force_full_pull_missing_engine_brand_name_attr', { since });
               since = 0;
             }
           }
@@ -2885,7 +2896,7 @@ export async function runSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
       emitStage('finalize', 'отправка диагностики', { service: 'diagnostics' });
-      await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor).catch(() => {});
+      await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor, syncRunId).catch(() => {});
       if (fullPull) {
         emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger' });
         await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
@@ -2897,6 +2908,7 @@ export async function runSync(
       }
       const serverLastSeq = Number((pullJson as any).server_last_seq ?? pullJson.server_cursor ?? 0);
       emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled }, etaMs: 0 });
+      logSync(`sync.run.done id=${syncRunId} ok=${finalError ? 0 : 1} pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
       if (finalError) {
         return { ok: false, pushed, pulled, serverCursor: pullJson.server_cursor, serverLastSeq, error: finalError };
       }
@@ -2912,6 +2924,7 @@ export async function runSync(
         }
       }
       logSync(`error ${err}`);
+      logSync(`sync.run.error id=${syncRunId} err=${err}`);
       emitSyncProgress('error', { error: err, etaMs: null, progress: null });
       void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
         component: 'sync',
@@ -2924,6 +2937,7 @@ export async function runSync(
   }
   const err = 'sync failed: apiBaseUrl auto-fix exhausted';
   logSync(`error ${err}`);
+  logSync(`sync.run.error id=${syncRunId} err=${err}`);
   emitSyncProgress('error', { error: err, etaMs: null, progress: null });
   void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
     component: 'sync',

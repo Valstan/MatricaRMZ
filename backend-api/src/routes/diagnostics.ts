@@ -6,6 +6,7 @@ import { PermissionCode } from '../auth/permissions.js';
 import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
 import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
 import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
+import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
 import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
 
@@ -35,6 +36,7 @@ diagnosticsRouter.post('/consistency/run', requirePermission(PermissionCode.Clie
 diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.SyncUse), async (req, res) => {
   const schema = z.object({
     clientId: z.string().min(1).max(200),
+    syncRunId: z.string().min(1).max(120).optional(),
     serverSeq: z.number().int().nonnegative().optional(),
     tables: z.record(z.any()).optional(),
     entityTypes: z.record(z.any()).optional(),
@@ -46,6 +48,7 @@ diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.S
     const actor = (req as unknown as AuthenticatedRequest).user;
     if (!actor?.id) return res.status(403).json({ ok: false, error: 'auth required' });
     const snapshot = await storeClientSnapshot(parsed.data.clientId, {
+      syncRunId: parsed.data.syncRunId ?? null,
       serverSeq: parsed.data.serverSeq ?? null,
       tables: parsed.data.tables ?? {},
       entityTypes: parsed.data.entityTypes ?? {},
@@ -119,6 +122,15 @@ diagnosticsRouter.get('/sync-schema', requirePermission(PermissionCode.SyncUse),
   try {
     const schema = await getSyncSchemaSnapshot();
     return res.json({ ok: true, schema });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/sync-pipeline-health', requirePermission(PermissionCode.ClientsManage), async (_req, res) => {
+  try {
+    const report = await getSyncPipelineHealth();
+    return res.json(report);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

@@ -585,6 +585,7 @@ export function App() {
       tab === 'engine' ||
       tab === 'engine_brand' ||
       tab === 'request' ||
+      tab === 'work_order' ||
       tab === 'part' ||
       tab === 'tool' ||
       tab === 'tool_properties' ||
@@ -801,6 +802,8 @@ export function App() {
       engine: 'Карточка двигателя',
       requests: 'Закупка деталей',
       request: 'Карточка закупки деталей',
+      work_orders: 'Наряды',
+      work_order: 'Карточка наряда',
       parts: 'Детали',
       part: 'Карточка детали',
       tools: 'Инструменты',
@@ -823,6 +826,7 @@ export function App() {
       engine: 'Двигатели',
       engine_brand: 'Марки двигателей',
       request: 'Закупка деталей',
+      work_order: 'Наряды',
       part: 'Детали',
       tool: 'Инструменты',
       tool_property: 'Свойства инструментов',
@@ -846,6 +850,7 @@ export function App() {
     }
     if (tab === 'engine_brand' && selectedEngineBrandId) crumbs.push(`ID ${shortId(selectedEngineBrandId)}`);
     if (tab === 'request' && selectedRequestId) crumbs.push(`ID ${shortId(selectedRequestId)}`);
+    if (tab === 'work_order' && selectedWorkOrderId) crumbs.push(`ID ${shortId(selectedWorkOrderId)}`);
     if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
     if (tab === 'tool' && selectedToolId) crumbs.push(`ID ${shortId(selectedToolId)}`);
     if (tab === 'tool_property' && selectedToolPropertyId) crumbs.push(`ID ${shortId(selectedToolPropertyId)}`);
@@ -1094,6 +1099,10 @@ export function App() {
           ? 'Матрица РМЗ — Заявки'
           : tab === 'request'
             ? 'Матрица РМЗ — Заявка'
+          : tab === 'work_orders'
+            ? 'Матрица РМЗ — Наряды'
+            : tab === 'work_order'
+              ? 'Матрица РМЗ — Карточка наряда'
           : tab === 'parts'
             ? 'Матрица РМЗ — Детали'
             : tab === 'part'

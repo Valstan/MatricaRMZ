@@ -30,6 +30,7 @@ export type ConsistencySnapshot = {
   generatedAt: number;
   scope: 'server' | 'client';
   clientId?: string | null;
+  syncRunId?: string | null;
   serverSeq?: number | null;
   source?: 'ledger' | 'unknown';
   degradedReason?: string | null;
@@ -47,6 +48,7 @@ export type ConsistencyDiff = {
 
 export type ConsistencyClientReport = {
   clientId: string;
+  lastSyncRunId: string | null;
   status: 'ok' | 'warning' | 'drift' | 'unknown';
   lastSeenAt: number | null;
   lastHostname: string | null;
@@ -460,6 +462,7 @@ export async function getConsistencyReport() {
     const diff = diffSnapshots(serverSnapshot, clientSnapshot);
     return {
       clientId,
+      lastSyncRunId: clientSnapshot?.syncRunId ?? null,
       status: diff.status,
       lastSeenAt: settings?.lastSeenAt == null ? null : Number(settings.lastSeenAt),
       lastHostname: settings?.lastHostname ?? null,
@@ -487,6 +490,7 @@ export async function storeClientSnapshot(clientId: string, payload: Partial<Con
     generatedAt: nowMs(),
     scope: 'client',
     clientId,
+    syncRunId: payload.syncRunId ? String(payload.syncRunId) : null,
     serverSeq: payload.serverSeq ?? null,
     tables: payload.tables ?? {},
     entityTypes: payload.entityTypes ?? {},

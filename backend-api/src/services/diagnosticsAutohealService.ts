@@ -43,13 +43,13 @@ function isAutohealEnabled() {
 }
 
 function autohealCooldownMs() {
-  const raw = Number(process.env.MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS ?? 15 * 60_000);
-  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60_000;
+  const raw = Number(process.env.MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS ?? 30 * 60_000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 30 * 60_000;
 }
 
 function sameFingerprintCooldownMs() {
-  const raw = Number(process.env.MATRICA_SYNC_AUTOHEAL_SAME_FINGERPRINT_COOLDOWN_MS ?? 6 * 60 * 60_000);
-  return Number.isFinite(raw) && raw > 0 ? raw : 6 * 60 * 60_000;
+  const raw = Number(process.env.MATRICA_SYNC_AUTOHEAL_SAME_FINGERPRINT_COOLDOWN_MS ?? 12 * 60 * 60_000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 12 * 60 * 60_000;
 }
 
 function driftThresholdCount() {
@@ -63,7 +63,7 @@ function n(value: string | undefined, fallback: number) {
 }
 
 function dailyActionBudget() {
-  return Math.max(1, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_MAX_ACTIONS_PER_24H, 3)));
+  return Math.max(1, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_MAX_ACTIONS_PER_24H, 2)));
 }
 
 function deepRepairBudget() {
@@ -71,27 +71,27 @@ function deepRepairBudget() {
 }
 
 function observeThresholdRatio() {
-  return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_OBSERVE_RATIO, 0.08)));
+  return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_OBSERVE_RATIO, 0.1)));
 }
 
 function degradedThresholdRatio() {
-  return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_DEGRADED_RATIO, 0.15)));
+  return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_DEGRADED_RATIO, 0.22)));
 }
 
 function criticalThresholdRatio() {
-  return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_CRITICAL_RATIO, 0.35)));
+  return Math.max(0.01, Math.min(0.95, n(process.env.MATRICA_SYNC_AUTOHEAL_CRITICAL_RATIO, 0.45)));
 }
 
 function resetConsecutiveThreshold() {
-  return Math.max(2, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_RESET_CONSECUTIVE, 4)));
+  return Math.max(3, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_RESET_CONSECUTIVE, 6)));
 }
 
 function criticalConsecutiveThreshold() {
-  return Math.max(2, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_CRITICAL_CONSECUTIVE, 2)));
+  return Math.max(2, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_CRITICAL_CONSECUTIVE, 3)));
 }
 
 function forceFullPullConsecutiveThreshold() {
-  return Math.max(4, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_FORCE_PULL_CONSECUTIVE, 8)));
+  return Math.max(6, Math.floor(n(process.env.MATRICA_SYNC_AUTOHEAL_FORCE_PULL_CONSECUTIVE, 12)));
 }
 
 function levelWeight(level: AutohealSignalLevel) {
@@ -270,17 +270,30 @@ async function loadRecentAutoheal(clientId: string) {
   return { signals, actions };
 }
 
-function chooseAction(signal: AutohealSignal, history: AutohealSignal[]): AutohealAction | null {
+function computeStreaks(signal: AutohealSignal, history: AutohealSignal[]) {
   const chain = [signal, ...history];
   const criticalStreak = consecutiveAtLeast(chain, 'critical');
   const degradedStreak = consecutiveAtLeast(chain, 'degraded');
   const observeStreak = consecutiveAtLeast(chain, 'observe');
+  return { criticalStreak, degradedStreak, observeStreak };
+}
 
-  if (signal.level === 'critical' && criticalStreak >= criticalConsecutiveThreshold()) return 'deep_repair';
+function chooseAction(signal: AutohealSignal, history: AutohealSignal[]): AutohealAction | null {
+  const { criticalStreak, degradedStreak, observeStreak } = computeStreaks(signal, history);
+
+  if (
+    signal.level === 'critical' &&
+    criticalStreak >= criticalConsecutiveThreshold() &&
+    signal.lagAbs > 15_000 &&
+    signal.driftRatio >= criticalThresholdRatio()
+  ) {
+    return 'deep_repair';
+  }
   if (compareAtLeast(signal.level, 'degraded') && degradedStreak >= resetConsecutiveThreshold()) {
+    if (signal.lagAbs <= 4_000 && signal.driftRatio < degradedThresholdRatio()) return null;
     return 'reset_sync_state_and_pull';
   }
-  if (signal.level === 'observe' && observeStreak >= forceFullPullConsecutiveThreshold() && signal.lagAbs > 8000) {
+  if (signal.level === 'observe' && observeStreak >= forceFullPullConsecutiveThreshold() && signal.lagAbs > 15_000) {
     return 'force_full_pull_v2';
   }
   return null;
@@ -300,6 +313,7 @@ export async function evaluateAutohealForClient(clientId: string) {
     await saveAutohealSignal(clientId, signal);
     const history = await loadRecentAutoheal(clientId);
     const priorSignals = history.signals.filter((s) => s.at < signal.at).slice(0, 50);
+    const streaks = computeStreaks(signal, priorSignals);
     const action = chooseAction(signal, priorSignals);
     if (!action) {
       await auditAutohealEvent(clientId, {
@@ -308,6 +322,7 @@ export async function evaluateAutohealForClient(clientId: string) {
         level: signal.level,
         driftRatio: signal.driftRatio,
         lagAbs: signal.lagAbs,
+        streaks,
       });
       return { queued: false as const, reason: signal.level === 'normal' ? 'status_ok' : 'below_action_threshold' };
     }

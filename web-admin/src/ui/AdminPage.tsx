@@ -683,6 +683,11 @@ export function MasterdataPage(props: {
           ? 'Здесь можно настраивать номенклатуру и свойства (для расширения системы без миграций).'
           : 'У вас нет доступа к мастер-данным.'}
       </div>
+      {props.canViewMasterData && (
+        <div className="muted" style={{ marginBottom: 10, fontSize: 12 }}>
+          Источник чтения: <strong>{masterdata.MASTERDATA_READ_SOURCE}</strong>
+        </div>
+      )}
 
       {props.canViewMasterData && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
