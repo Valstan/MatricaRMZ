@@ -2586,6 +2586,80 @@ export async function runSync(
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
       emitStage('prepare', 'подготовка синхронизации', { service: 'sync' });
+      const pullStatePage = async (table: SyncTableName, cursorId: string | null) => {
+        const query = new URLSearchParams();
+        query.set('table', table);
+        query.set('limit', String(FULL_STATE_PAGE_SIZE));
+        if (cursorId) query.set('cursor_id', cursorId);
+        const url = `${currentApiBaseUrl}/ledger/state/snapshot?${query.toString()}`;
+        const res = await fetchAuthed(
+          db,
+          currentApiBaseUrl,
+          url,
+          { method: 'GET' },
+          { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' },
+        );
+        if (!res.ok) {
+          const body = await safeBodyText(res);
+          if (res.status === 401 || res.status === 403) await clearSession(db).catch(() => {});
+          throw new Error(`state snapshot HTTP ${res.status}: ${body || 'no body'}`);
+        }
+        return (await res.json()) as {
+          ok: boolean;
+          table: SyncTableName;
+          rows: Array<Record<string, unknown>>;
+          has_more: boolean;
+          next_cursor_id: string | null;
+          server_last_seq: number;
+        };
+      };
+      const pullFullState = async () => {
+        let totalPulled = 0;
+        let serverSeq = 0;
+        for (const table of FULL_STATE_SYNC_TABLES) {
+          let cursorId: string | null = null;
+          for (let page = 0; page < 20_000; page += 1) {
+            const statePage = await pullStatePage(table, cursorId);
+            serverSeq = Math.max(serverSeq, Number(statePage.server_last_seq ?? 0));
+            const rows = Array.isArray(statePage.rows) ? statePage.rows : [];
+            if (rows.length > 0) {
+              emitStage('pull', `state ${table}: ${rows.length}`, { counts: { batch: rows.length }, service: 'sync' });
+              const changes = rows.map((row) => {
+                const payload = { ...row, last_server_seq: serverSeq };
+                const rowId = String((payload as any).id ?? '');
+                return {
+                  table,
+                  row_id: rowId,
+                  op: ((payload as any).deleted_at != null ? 'delete' : 'upsert') as 'upsert' | 'delete',
+                  payload_json: JSON.stringify(payload),
+                  server_seq: serverSeq,
+                };
+              });
+              await applyPulledChanges(db, changes, {
+                ...(progressEmitter ? { onProgress: (info: any) => emitSyncProgress('progress', info) } : {}),
+              });
+              totalPulled += changes.length;
+              emitSyncProgress('progress', { pulled: totalPulled });
+            }
+            if (!statePage.has_more || !statePage.next_cursor_id) break;
+            cursorId = statePage.next_cursor_id;
+          }
+        }
+        await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, serverSeq);
+        await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
+        return {
+          totalPulled,
+          serverSeq,
+          pullJson: {
+            sync_protocol_version: 2,
+            sync_mode: 'incremental' as const,
+            server_cursor: serverSeq,
+            server_last_seq: serverSeq,
+            has_more: false,
+            changes: [],
+          },
+        };
+      };
       const pullOnce = async (sinceValue: number) => {
         const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}&client_id=${encodeURIComponent(
           clientId,
