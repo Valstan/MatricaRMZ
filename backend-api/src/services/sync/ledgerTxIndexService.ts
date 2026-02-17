@@ -1,3 +1,4 @@
+import { SyncTableRegistry } from '@matricarmz/shared';
 import { sql } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
@@ -33,16 +34,21 @@ export async function appendLedgerTxIndexFromLedger(startSeq: number, maxRows = 
     const page = listChangesSince(since, pageLimit);
     if (!page.changes.length) break;
     const now = Date.now();
-    const rows = page.changes.map((ch) => ({
-      serverSeq: Number(ch.server_seq),
-      tableName: String(ch.table),
-      rowId: ch.row_id as any,
-      op: ch.op,
-      payloadJson: String(ch.payload_json ?? '{}'),
-      createdAt: extractCreatedAt(String(ch.payload_json ?? '{}'), now),
-    }));
-    await db.insert(ledgerTxIndex).values(rows as any).onConflictDoNothing();
-    inserted += rows.length;
+    // Skip sync tables -- their data is served directly from PG in pullChangesSince.
+    // Importing them from ledger blocks would re-introduce phantom/duplicate entries.
+    const filtered = page.changes.filter((ch) => !SyncTableRegistry.isSyncTable(String(ch.table)));
+    if (filtered.length > 0) {
+      const rows = filtered.map((ch) => ({
+        serverSeq: Number(ch.server_seq),
+        tableName: String(ch.table),
+        rowId: ch.row_id as any,
+        op: ch.op,
+        payloadJson: String(ch.payload_json ?? '{}'),
+        createdAt: extractCreatedAt(String(ch.payload_json ?? '{}'), now),
+      }));
+      await db.insert(ledgerTxIndex).values(rows as any).onConflictDoNothing();
+    }
+    inserted += page.changes.length;
     if (!page.hasMore || page.lastSeq <= since) {
       since = Math.max(since, page.lastSeq);
       break;

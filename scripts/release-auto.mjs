@@ -1,242 +1,160 @@
+/* eslint-disable no-console */
 import { execSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function out(cmd) {
   return execSync(cmd, { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8').trim();
 }
 
 function run(cmd) {
-  // eslint-disable-next-line no-console
   console.log(`\n$ ${cmd}`);
   execSync(cmd, { cwd: process.cwd(), stdio: 'inherit' });
 }
 
 function envInt(name, fallback) {
-  const raw = process.env[name];
-  if (raw == null || raw === '') return fallback;
-  const n = Number(raw);
+  const n = Number(process.env[name]);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-async function readText(path) {
-  return await readFile(path, 'utf8');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function readVersion() {
+  return (await readFile(join(process.cwd(), 'VERSION'), 'utf8').catch(() => '')).trim();
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function tagExists(tag) {
+  try { out(`git rev-parse -q --verify "refs/tags/${tag}"`); return true; } catch { return false; }
 }
 
-async function readClientVersion() {
-  const raw = await readText(join(process.cwd(), 'VERSION')).catch(() => '');
-  return String(raw).trim();
+function lastTag() {
+  try { return out('git describe --tags --match "v*.*.*" --abbrev=0'); } catch { return null; }
+}
+
+function hasGh() {
+  try { out('gh --version'); return true; } catch { return false; }
 }
 
 function hasDiffSince(ref, paths) {
   if (!ref) return true;
-  const list = out(`git diff --name-only ${ref}..HEAD -- ${paths.join(' ')}`);
-  return !!list.trim();
+  return !!out(`git diff --name-only ${ref}..HEAD -- ${paths.join(' ')}`).trim();
 }
 
-function tagExists(tag) {
-  try {
-    out(`git rev-parse -q --verify "refs/tags/${tag}"`);
-    return true;
-  } catch {
-    return false;
-  }
+// ── SHA-256 ──────────────────────────────────────────────────────────
+
+async function sha256(filePath) {
+  const hash = createHash('sha256');
+  return new Promise((resolve, reject) => {
+    const s = createReadStream(filePath);
+    s.on('error', reject);
+    s.on('data', (b) => hash.update(b));
+    s.on('end', () => resolve(hash.digest('hex')));
+  });
 }
 
-function hasGh() {
+// ── GitHub Release helpers ───────────────────────────────────────────
+
+function ghReleaseAssets(tag) {
   try {
-    out('gh --version');
-    return true;
-  } catch {
-    return false;
-  }
+    const raw = out(`gh release view ${tag} --repo Valstan/MatricaRMZ --json assets`);
+    return JSON.parse(raw)?.assets ?? [];
+  } catch { return []; }
 }
 
-function diagnoseWindowsRelease(tag) {
+function diagnoseRelease(tag) {
   try {
-    const runRaw = out(
-      `gh run list --workflow release-electron-windows.yml --repo Valstan/MatricaRMZ --limit 1 --json status,conclusion,htmlUrl,createdAt`,
-    );
-    const runs = JSON.parse(runRaw);
-    const run = Array.isArray(runs) ? runs[0] : null;
-    // eslint-disable-next-line no-console
-    console.log(`Windows release run: ${run?.status ?? 'unknown'} conclusion=${run?.conclusion ?? 'n/a'}`);
-    if (run?.htmlUrl) {
-      // eslint-disable-next-line no-console
-      console.log(`Windows release run URL: ${run.htmlUrl}`);
-    }
-    const relRaw = out(`gh release view ${tag} --repo Valstan/MatricaRMZ --json url,assets`);
-    const rel = JSON.parse(relRaw);
-    const assets = Array.isArray(rel?.assets) ? rel.assets.map((a) => a?.name).filter(Boolean) : [];
-    // eslint-disable-next-line no-console
+    const raw = out('gh run list --workflow release-electron-windows.yml --repo Valstan/MatricaRMZ --limit 1 --json status,conclusion,htmlUrl');
+    const r = JSON.parse(raw)?.[0];
+    console.log(`Windows build: ${r?.status ?? '?'} / ${r?.conclusion ?? '?'}  ${r?.htmlUrl ?? ''}`);
+    const assets = ghReleaseAssets(tag).map((a) => a?.name).filter(Boolean);
     console.log(`Release assets: ${assets.join(', ') || '(none)'}`);
-    if (rel?.url) {
-      // eslint-disable-next-line no-console
-      console.log(`Release URL: ${rel.url}`);
-    }
   } catch (e) {
-    // eslint-disable-next-line no-console
-    console.log(`Diagnostics failed: ${String(e)}`);
+    console.log(`Diagnostics failed: ${e}`);
   }
 }
 
-async function waitForReleaseAsset(tag, pattern, maxWaitMs = 6 * 60_000, pollIntervalMs = 5_000) {
-  const started = Date.now();
-  // eslint-disable-next-line no-console
-  console.log(`Waiting for release asset: ${tag} (timeout=${Math.ceil(maxWaitMs / 1000)}s)`);
-  while (Date.now() - started < maxWaitMs) {
-    try {
-      const raw = out(`gh release view ${tag} --repo Valstan/MatricaRMZ --json assets`);
-      const json = JSON.parse(raw);
-      const assets = Array.isArray(json?.assets) ? json.assets : [];
-      const found = assets.find((a) => typeof a?.name === 'string' && a.name.match(pattern));
-      if (found?.name) {
-        // eslint-disable-next-line no-console
-        console.log(`Release asset found: ${found.name}`);
-        return found.name;
-      }
-      // eslint-disable-next-line no-console
-      console.log(`Release asset not ready yet (assets=${assets.length})`);
-    } catch {
-      // ignore and retry
-    }
-    await sleep(Math.max(500, pollIntervalMs));
+async function waitForAsset(tag, pattern, totalMs = 3 * 60_000, pollMs = 5_000) {
+  const deadline = Date.now() + totalMs;
+  console.log(`Waiting for release asset matching ${pattern} (timeout ${Math.ceil(totalMs / 1000)}s)...`);
+  while (Date.now() < deadline) {
+    const found = ghReleaseAssets(tag).find((a) => pattern.test(a?.name ?? ''));
+    if (found?.name) { console.log(`Asset found: ${found.name}`); return found.name; }
+    console.log(`  ...not ready yet`);
+    await sleep(pollMs);
   }
   return null;
 }
 
-function downloadWindowsInstaller(tag, pattern, destDir, attempts = 3) {
-  run(`sudo mkdir -p ${destDir}`);
-  run(`sudo chown -R $USER:$USER ${destDir}`);
-  let lastError = null;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+function downloadInstaller(tag, assetName, destDir, attempts = 3) {
+  for (let i = 1; i <= attempts; i++) {
     try {
-      // eslint-disable-next-line no-console
-      console.log(`Downloading Windows installer (attempt ${attempt}/${attempts}): ${pattern} -> ${destDir}`);
-      run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${pattern}" -D ${destDir} --skip-existing`);
-      return join(destDir, pattern);
+      console.log(`Downloading ${assetName} (attempt ${i}/${attempts})...`);
+      run(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${assetName}" -D ${destDir} --skip-existing`);
+      return join(destDir, assetName);
     } catch (e) {
-      lastError = e;
-      // eslint-disable-next-line no-console
-      console.log(`Download failed: ${String(e)}`);
+      if (i === attempts) throw e;
+      console.log(`  retry...`);
     }
   }
-  throw lastError ?? new Error('Download failed');
 }
 
-function fetchUpdatesStatus(base) {
-  const raw = out(`curl -s ${base}/updates/status`);
-  const json = JSON.parse(raw);
-  const status = json?.status ?? {};
-  const lastError = status?.lastError ?? null;
-  const version = status?.latest?.version ?? null;
-  const enabled = status?.enabled ?? null;
-  return { lastError, version, enabled };
+// ── Updates status ───────────────────────────────────────────────────
+
+function apiBase() {
+  return String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001').trim().replace(/\/+$/, '');
 }
 
-async function waitForUpdatesStatus(expectedVersion, maxWaitMs = 2 * 60_000, pollIntervalMs = 20_000) {
+async function waitForUpdatesStatus(version, totalMs = 2 * 60_000, pollMs = 20_000) {
   if (process.env.MATRICA_RELEASE_SKIP_STATUS_WAIT === 'true') {
-    // eslint-disable-next-line no-console
-    console.log('updates/status wait skipped via MATRICA_RELEASE_SKIP_STATUS_WAIT=true');
-    return { ok: true, skipped: true };
+    console.log('updates/status wait skipped (MATRICA_RELEASE_SKIP_STATUS_WAIT)');
+    return true;
   }
-  const base =
-    String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001')
-      .trim()
-      .replace(/\/+$/, '');
-  const started = Date.now();
-  let lastSeen = { lastError: null, version: null };
-  // eslint-disable-next-line no-console
-  console.log(`Waiting for updates/status=${expectedVersion} (timeout=${Math.ceil(maxWaitMs / 1000)}s)`);
-  while (Date.now() - started < maxWaitMs) {
+  const base = apiBase();
+  const deadline = Date.now() + totalMs;
+  console.log(`Waiting for updates/status=${version} (timeout ${Math.ceil(totalMs / 1000)}s)...`);
+  while (Date.now() < deadline) {
     try {
-      lastSeen = fetchUpdatesStatus(base);
-      if (lastSeen.enabled === false || lastSeen.lastError === 'updates_dir_not_set') {
-        // updates/status is driven by update-torrent service; skip when disabled
-        // eslint-disable-next-line no-console
-        console.log('updates/status skipped: updates service disabled');
-        return { ok: true, skipped: true };
+      const s = JSON.parse(out(`curl -s ${base}/updates/status`))?.status ?? {};
+      if (s.enabled === false || s.lastError === 'updates_dir_not_set') {
+        console.log('updates service disabled, skipping');
+        return true;
       }
-      if (!lastSeen.lastError && expectedVersion && String(lastSeen.version) === String(expectedVersion)) {
-        // eslint-disable-next-line no-console
-        console.log(`updates/status ok: ${expectedVersion}`);
-        return { ok: true };
+      if (!s.lastError && String(s.latest?.version) === version) {
+        console.log(`updates/status ok: ${version}`);
+        return true;
       }
-      // eslint-disable-next-line no-console
-      console.log(
-        `updates/status tick: expected=${expectedVersion} current=${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
-      );
+      console.log(`  current=${s.latest?.version ?? 'null'} error=${s.lastError ?? 'null'}`);
     } catch (e) {
-      lastSeen = { lastError: String(e), version: null };
-      // eslint-disable-next-line no-console
-      console.log(`updates/status tick error: ${lastSeen.lastError}`);
+      console.log(`  error: ${e}`);
     }
-    await sleep(Math.max(1000, pollIntervalMs));
+    await sleep(pollMs);
   }
-  // eslint-disable-next-line no-console
-  console.log(
-    `updates/status not ready (background): expected ${expectedVersion}, got ${lastSeen.version ?? 'null'} error=${lastSeen.lastError ?? 'null'}`,
-  );
-  return { ok: false, ...lastSeen };
+  console.log('updates/status: timed out (continuing anyway)');
+  return false;
 }
 
-async function computeSha256(filePath) {
-  const hash = createHash('sha256');
-  return await new Promise((resolve, reject) => {
-    const stream = createReadStream(filePath);
-    stream.on('error', reject);
-    stream.on('data', (buf) => hash.update(buf));
-    stream.on('end', () => resolve(hash.digest('hex')));
-  });
-}
+// ── Ledger publish ───────────────────────────────────────────────────
 
 async function publishLedgerRelease({ version, filePath, fileName }) {
   const token = String(process.env.MATRICA_LEDGER_RELEASE_TOKEN ?? '').trim();
-  if (!token) {
-    // eslint-disable-next-line no-console
-    console.log('Ledger publish skipped: MATRICA_LEDGER_RELEASE_TOKEN not set');
-    return { ok: false, skipped: true };
-  }
-  const base =
-    String(process.env.MATRICA_PUBLIC_BASE_URL ?? process.env.MATRICA_API_URL ?? 'http://127.0.0.1:3001')
-      .trim()
-      .replace(/\/+$/, '');
-  const st = await stat(filePath);
-  const sha256 = await computeSha256(filePath);
+  if (!token) { console.log('Ledger publish skipped (no MATRICA_LEDGER_RELEASE_TOKEN)'); return; }
+  const s = await stat(filePath);
+  const hash = await sha256(filePath);
   const notes = String(process.env.MATRICA_LEDGER_RELEASE_NOTES ?? `release v${version}`).trim();
-  const payload = {
-    version,
-    notes,
-    fileName,
-    sha256,
-    size: st.size,
-  };
-  const res = await fetch(`${base}/ledger/releases/publish`, {
+  const res = await fetch(`${apiBase()}/ledger/releases/publish`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ version, notes, fileName, sha256: hash, size: s.size }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Ledger publish failed ${res.status}: ${text}`);
-  }
-  // eslint-disable-next-line no-console
+  if (!res.ok) throw new Error(`Ledger publish failed ${res.status}: ${await res.text().catch(() => '')}`);
   console.log(`Ledger release published: v${version} (${fileName})`);
-  return { ok: true };
 }
 
-function hasServerUpdatesSince(ref) {
-  return hasDiffSince(ref, ['backend-api', 'web-admin', 'shared']);
-}
+// ── Deploy server ────────────────────────────────────────────────────
 
 function deployServer() {
   run('pnpm install');
@@ -246,121 +164,71 @@ function deployServer() {
   run('sudo systemctl restart matricarmz-backend.service');
 }
 
+// ── Main ─────────────────────────────────────────────────────────────
+
 async function main() {
-  // Safety: must run from repo root
   const gitRoot = out('git rev-parse --show-toplevel');
   if (gitRoot !== process.cwd()) throw new Error(`Run from repo root: ${gitRoot}`);
 
-  const dirty = out('git status --porcelain=v1');
-  if (dirty) {
+  // Auto-commit dirty changes
+  if (out('git status --porcelain=v1')) {
     run('git add -A');
     run('git commit -m "chore: session updates"');
   }
 
-  const lastClientTag = (() => {
-    try {
-      return out('git describe --tags --match "v*.*.*" --abbrev=0');
-    } catch {
-      return null;
-    }
-  })();
-
-  const hasUpdates = hasDiffSince(lastClientTag, ['.']);
-  if (!hasUpdates) {
-    // eslint-disable-next-line no-console
-    console.log('Nothing to release: no client/backend updates detected.');
+  const prev = lastTag();
+  if (!hasDiffSince(prev, ['.'])) {
+    console.log('Nothing to release: no changes since last tag.');
     return;
   }
 
-  // Single version bump for all modules
-  const currentVersion = await readClientVersion();
-  if (!currentVersion) throw new Error('VERSION is empty');
-  const lastVersion = lastClientTag ? String(lastClientTag).replace(/^v/, '') : null;
-  if (lastVersion && lastVersion === currentVersion) {
-    run('pnpm version:bump');
-  } else {
-    run(`pnpm version:bump --set ${currentVersion}`);
-  }
-  const changed = out('git status --porcelain=v1');
-  const needsCommit = changed
-    .split('\n')
-    .some((l) => l.includes('VERSION') || l.includes('electron-app/package.json') || l.includes('backend-api/package.json'));
-  const version = await readClientVersion();
+  // Bump version
+  run('pnpm version:bump');
+  const version = await readVersion();
+  if (!version) throw new Error('VERSION is empty after bump');
   const tag = `v${version}`;
-  if (needsCommit) {
+
+  // Commit version bump
+  if (out('git status --porcelain=v1')) {
     run('git add VERSION electron-app/package.json backend-api/package.json shared/package.json web-admin/package.json');
-    run(`git commit -m "release: v${version}"`);
+    run(`git commit -m "release: ${tag}"`);
   }
   if (!tagExists(tag)) run(`git tag "${tag}"`);
   run('git push origin main --tags');
 
-  if (hasServerUpdatesSince(lastClientTag)) {
-    // eslint-disable-next-line no-console
-    console.log('Detected backend/web-admin/shared updates. Deploying...');
+  // Deploy backend if changed
+  if (hasDiffSince(prev, ['backend-api', 'web-admin', 'shared'])) {
+    console.log('Backend/shared/web-admin changed. Deploying...');
     deployServer();
   } else {
-    // eslint-disable-next-line no-console
-    console.log('No backend/web-admin/shared updates. Deploy skipped.');
+    console.log('No backend changes. Deploy skipped.');
   }
 
-  // Trigger Windows release build + download installer + validate updates status (best-effort).
-  if (hasGh()) {
-    try {
-      if (process.env.MATRICA_RELEASE_TRIGGER_WINDOWS_WORKFLOW === 'true') {
-        run(`gh workflow run release-electron-windows.yml --ref ${tag}`);
-      } else {
-        // eslint-disable-next-line no-console
-        console.log('Windows workflow trigger skipped (tag push already triggers workflow).');
-      }
-      const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 30_000);
-      const assetPollMs = envInt('MATRICA_RELEASE_ASSET_POLL_MS', 2_000);
-      const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
-      const statusPollMs = envInt('MATRICA_RELEASE_STATUS_POLL_MS', 5_000);
-      let assetName = null;
-      const maxAttempts = envInt('MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS', 6);
-      const downloadAttempts = envInt('MATRICA_RELEASE_DOWNLOAD_ATTEMPTS', 3);
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        // eslint-disable-next-line no-console
-        console.log(`Asset wait attempt ${attempt}/${maxAttempts}`);
-        assetName = await waitForReleaseAsset(tag, /\.exe$/i, assetWaitMs, assetPollMs);
-        if (assetName) break;
-      }
-      if (assetName) {
-        const destDir = '/opt/matricarmz/updates';
-        try {
-          const installerPath = downloadWindowsInstaller(tag, assetName, destDir, downloadAttempts);
-          await waitForUpdatesStatus(version, statusWaitMs, statusPollMs);
-          await publishLedgerRelease({
-            version,
-            filePath: installerPath,
-            fileName: assetName,
-          });
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.log(`Windows installer download failed: ${String(e)}`);
-          diagnoseWindowsRelease(tag);
-          throw e;
-        }
-      } else {
-        // eslint-disable-next-line no-console
-        console.log('Windows release asset not found within timeout. Investigate GitHub Actions status.');
-        diagnoseWindowsRelease(tag);
-        throw new Error('Windows release asset not found');
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.log(`Windows pipeline step skipped: ${String(e)}`);
+  // Windows build + download + ledger publish
+  if (!hasGh()) { console.log('gh not available, Windows pipeline skipped.'); return; }
+
+  try {
+    const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 3 * 60_000);
+    const assetPollMs = envInt('MATRICA_RELEASE_ASSET_POLL_MS', 5_000);
+    const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
+    const statusPollMs = envInt('MATRICA_RELEASE_STATUS_POLL_MS', 5_000);
+
+    const assetName = await waitForAsset(tag, /\.exe$/i, assetWaitMs, assetPollMs);
+    if (!assetName) {
+      console.log('Windows asset not found within timeout.');
+      diagnoseRelease(tag);
+      return;
     }
-  } else {
-    // eslint-disable-next-line no-console
-    console.log('Windows build trigger skipped (gh not available).');
+
+    const destDir = '/opt/matricarmz/updates';
+    await mkdir(destDir, { recursive: true }).catch(() => {});
+    const installerPath = downloadInstaller(tag, assetName, destDir);
+    await waitForUpdatesStatus(version, statusWaitMs, statusPollMs);
+    await publishLedgerRelease({ version, filePath: installerPath, fileName: assetName });
+  } catch (e) {
+    console.log(`Windows pipeline error: ${e}`);
+    diagnoseRelease(tag);
   }
 }
 
-main().catch((e) => {
-  // eslint-disable-next-line no-console
-  console.error(String(e));
-  process.exit(1);
-});
-
-
+main().catch((e) => { console.error(e); process.exit(1); });

@@ -2504,14 +2504,8 @@ export async function runSync(
       );
       emitStage('finalize', 'отправка диагностики', { service: 'diagnostics', progress: 0.85 });
       await sendDiagnosticsSnapshotImpl(db, currentApiBaseUrl, clientId, pullJson.server_cursor, syncRunId, fetchAuthed).catch(() => {});
-      if (fullPull) {
-        emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger', progress: 0.88 });
-        await syncLedgerBlocks(db, currentApiBaseUrl, (page, _height) => {
-          // Progress 0.88..0.97 during block sync (cap at 200 pages for calculation)
-          const blockProgress = 0.88 + Math.min(page / 200, 1) * 0.09;
-          emitStage('ledger', `блоки ledger: стр.${page}`, { service: 'ledger', progress: blockProgress });
-        }).catch(() => {});
-      }
+      // Ledger block sync is skipped: blocks are never read on the client and
+      // downloading ~44k blocks takes ~7 minutes of network time with no benefit.
       emitStage('finalize', 'завершение синхронизации', { service: 'sync', progress: 0.98 });
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);

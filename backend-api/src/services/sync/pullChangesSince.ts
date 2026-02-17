@@ -1,31 +1,162 @@
 /**
- * pullChangesSince -- incremental pull from ledgerTxIndex with privacy pre-filtering.
+ * pullChangesSince -- incremental pull from PostgreSQL (sync tables) + ledgerTxIndex (non-sync).
  *
- * Optimization: for non-admin users, chat_messages/chat_reads/notes/note_shares
- * are pre-filtered at the SQL level using payload_json extraction, avoiding
- * unnecessary JSON parsing in application code.
+ * For all SyncTable names the query goes directly against the canonical PG table
+ * using `last_server_seq > since`.  This avoids phantom UUIDs that exist in the
+ * in-memory ledger / ledger_tx_index but not in PG.
+ *
+ * Privacy pre-filtering for chat_messages / chat_reads / notes / note_shares is
+ * applied at the SQL level so non-admin users only receive rows they are allowed
+ * to see.
+ *
+ * Non-sync tables (e.g. release_registry) still fall through to ledger_tx_index.
  */
 import type { SyncPullResponse } from '@matricarmz/shared';
+import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
-import os from 'node:os';
 
 import { db } from '../../database/db.js';
-import { clientSettings, ledgerTxIndex, notes, noteShares } from '../../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  auditLog,
+  chatMessages,
+  chatReads,
+  clientSettings,
+  entities,
+  entityTypes,
+  ledgerTxIndex,
+  notes,
+  noteShares,
+  operations,
+  userPresence,
+} from '../../database/schema.js';
+import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
 import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 
-function withServerSeq(payloadJson: string, serverSeq: number): string {
-  try {
-    const parsed = JSON.parse(String(payloadJson ?? '')) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== 'object') return payloadJson;
-    parsed.last_server_seq = serverSeq;
-    return JSON.stringify(parsed);
-  } catch {
-    return payloadJson;
+// ── PG table map (same structure used by /state/snapshot) ────────────
+const PG_SYNC_TABLES: Record<
+  string,
+  { drizzle: any; toSyncRow: (r: any) => Record<string, unknown> }
+> = {
+  [SyncTableName.EntityTypes]: { drizzle: entityTypes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.EntityTypes, r) },
+  [SyncTableName.Entities]: { drizzle: entities, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Entities, r) },
+  [SyncTableName.AttributeDefs]: { drizzle: attributeDefs, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeDefs, r) },
+  [SyncTableName.AttributeValues]: { drizzle: attributeValues, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeValues, r) },
+  [SyncTableName.Operations]: { drizzle: operations, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Operations, r) },
+  [SyncTableName.AuditLog]: { drizzle: auditLog, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AuditLog, r) },
+  [SyncTableName.ChatMessages]: { drizzle: chatMessages, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatMessages, r) },
+  [SyncTableName.ChatReads]: { drizzle: chatReads, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatReads, r) },
+  [SyncTableName.UserPresence]: { drizzle: userPresence, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserPresence, r) },
+  [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
+  [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
+};
+
+/** Privacy-sensitive table names that need per-user filtering. */
+const PRIVACY_TABLES = new Set<string>([
+  SyncTableName.ChatMessages,
+  SyncTableName.ChatReads,
+  SyncTableName.Notes,
+  SyncTableName.NoteShares,
+]);
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/** Compute adaptive page-size limit based on backlog and drift. */
+async function computeSafeLimit(
+  requestedLimit: number,
+  effectiveSince: number,
+  serverLastSeq: number,
+  clientId: string | null | undefined,
+): Promise<number> {
+  let safeLimit = requestedLimit;
+  if (String(process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED ?? '1').trim() === '0') return safeLimit;
+
+  const backlog = Math.max(0, serverLastSeq - effectiveSince);
+  if (backlog >= 100_000) {
+    safeLimit = Math.max(safeLimit, 10_000);
+  } else if (backlog >= 20_000) {
+    safeLimit = Math.max(safeLimit, 7000);
+  }
+
+  const driftRows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(clientSettings)
+    .where(sql`${clientSettings.syncRequestType} is not null`)
+    .limit(1)
+    .catch(() => [{ count: 0 }]);
+  const driftClients = Number(driftRows?.[0]?.count ?? 0);
+  if (driftClients >= 10) {
+    safeLimit = Math.max(1000, Math.min(safeLimit, 3000));
+  }
+  if (clientId && backlog > 0 && backlog <= 5000 && driftClients >= 5) {
+    safeLimit = Math.max(500, Math.min(safeLimit, 2000));
+  }
+  return Math.max(1, Math.min(20_000, safeLimit));
+}
+
+type ChangeRow = SyncPullResponse['changes'][number];
+
+/** Convert a PG row to the standard change-row format used by the pull response. */
+function pgRowToChange(
+  tableName: string,
+  pgRow: Record<string, unknown>,
+  toSyncRow: (r: any) => Record<string, unknown>,
+): ChangeRow {
+  const dto = toSyncRow(pgRow);
+  const serverSeq = Number(pgRow.lastServerSeq ?? 0);
+  dto.last_server_seq = serverSeq;
+  const deletedAt = pgRow.deletedAt ?? null;
+  return {
+    table: tableName as ChangeRow['table'],
+    row_id: String(pgRow.id ?? ''),
+    op: deletedAt != null ? 'delete' : 'upsert',
+    payload_json: JSON.stringify(dto),
+    server_seq: serverSeq,
+  };
+}
+
+// ── Privacy filter helpers ───────────────────────────────────────────
+
+function privacyFilterForTable(
+  tableName: string,
+  pgTable: any,
+  actorId: string,
+  actorIsPending: boolean,
+): any | null {
+  switch (tableName) {
+    case SyncTableName.ChatMessages: {
+      const conditions = [
+        eq(pgTable.senderUserId, actorId),
+        eq(pgTable.recipientUserId, actorId),
+      ];
+      if (!actorIsPending) {
+        conditions.push(isNull(pgTable.recipientUserId));
+      }
+      return or(...conditions);
+    }
+    case SyncTableName.ChatReads:
+      return eq(pgTable.userId, actorId);
+    case SyncTableName.Notes:
+      return eq(pgTable.ownerUserId, actorId);
+    case SyncTableName.NoteShares:
+      return eq(pgTable.recipientUserId, actorId);
+    default:
+      return undefined;
   }
 }
 
-/** Privacy-sensitive table names. */
-const PRIVACY_TABLES = new Set(['chat_messages', 'chat_reads', 'notes', 'note_shares']);
+/** Fetch shared-note IDs for the actor so we can include notes shared with them. */
+async function getSharedNoteIds(actorId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ noteId: noteShares.noteId })
+    .from(noteShares)
+    .where(and(eq(noteShares.recipientUserId, actorId), isNull(noteShares.deletedAt), eq(noteShares.hidden, false)))
+    .limit(50_000);
+  return new Set(rows.map((r) => String(r.noteId)));
+}
+
+// ── Main function ────────────────────────────────────────────────────
 
 export async function pullChangesSince(
   since: number,
@@ -34,243 +165,157 @@ export async function pullChangesSince(
   opts?: { clientId?: string | null },
 ): Promise<SyncPullResponse> {
   const requestedLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
+
+  // Still keep LTI up-to-date for non-sync tables (release_registry etc.)
   await ensureLedgerTxIndexUpToDate().catch(() => null);
-  const maxSeqRow = await db.select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` }).from(ledgerTxIndex).limit(1);
-  const serverLastSeq = Number(maxSeqRow[0]?.max ?? 0);
+
+  // Determine the global "last seq" from both PG-based sync tables and ledger
+  const ltiMaxRow = await db
+    .select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` })
+    .from(ledgerTxIndex)
+    .limit(1);
+  const ltiLastSeq = Number(ltiMaxRow[0]?.max ?? 0);
+  const ledgerLastSeq = getLedgerLastSeq();
+  const serverLastSeq = Math.max(ltiLastSeq, ledgerLastSeq);
+
   const effectiveSince = Math.max(0, Math.min(Number(since ?? 0), serverLastSeq));
 
-  // Adaptive page size
-  let safeLimit = requestedLimit;
-  if (String(process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED ?? '1').trim() !== '0') {
-    const backlog = Math.max(0, serverLastSeq - effectiveSince);
-    if (backlog >= 100_000) {
-      safeLimit = Math.max(safeLimit, 10_000);
-    } else if (backlog >= 20_000) {
-      safeLimit = Math.max(safeLimit, 7000);
-    }
-    const driftRows = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(clientSettings)
-      .where(sql`${clientSettings.syncRequestType} is not null`)
-      .limit(1)
-      .catch(() => [{ count: 0 }]);
-    const driftClients = Number(driftRows?.[0]?.count ?? 0);
-    if (driftClients >= 10) {
-      safeLimit = Math.max(1000, Math.min(safeLimit, 3000));
-    }
-    if (opts?.clientId && backlog > 0 && backlog <= 5000 && driftClients >= 5) {
-      safeLimit = Math.max(500, Math.min(safeLimit, 2000));
-    }
-    safeLimit = Math.max(1, Math.min(20_000, safeLimit));
-  }
+  const safeLimit = await computeSafeLimit(requestedLimit, effectiveSince, serverLastSeq, opts?.clientId);
 
   const actorId = String(actor?.id ?? '');
   const actorRole = String(actor?.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const actorIsPending = actorRole === 'pending';
 
-  // ── Privacy-aware SQL query ──────────────────────────────
-  // For non-admin users, use SQL-level pre-filtering on privacy tables to avoid
-  // reading and parsing JSON for rows the user cannot access.
-  let rows;
-  if (actorIsAdmin) {
-    rows = await db
-      .select({
-        table: ledgerTxIndex.tableName,
-        rowId: ledgerTxIndex.rowId,
-        op: ledgerTxIndex.op,
-        payloadJson: ledgerTxIndex.payloadJson,
-        serverSeq: ledgerTxIndex.serverSeq,
-      })
-      .from(ledgerTxIndex)
-      .where(gt(ledgerTxIndex.serverSeq, effectiveSince))
-      .orderBy(asc(ledgerTxIndex.serverSeq))
-      .limit(safeLimit + 1);
-  } else {
-    // Build a WHERE clause that pre-filters privacy tables at SQL level:
-    // - Non-privacy tables: always include
-    // - chat_messages: sender_user_id or recipient_user_id matches actor
-    // - chat_reads: user_id matches actor
-    // - notes: owner_user_id matches actor (shared notes handled in post-filter)
-    // - note_shares: recipient_user_id matches actor (owner check in post-filter)
-    const privacyFilter = or(
-      // Non-privacy tables: always pass
-      sql`${ledgerTxIndex.tableName} NOT IN ('chat_messages', 'chat_reads', 'notes', 'note_shares')`,
-      // chat_messages: sender or recipient matches
-      and(
-        eq(ledgerTxIndex.tableName, 'chat_messages'),
-        or(
-          sql`${ledgerTxIndex.payloadJson}::jsonb->>'sender_user_id' = ${actorId}`,
-          sql`${ledgerTxIndex.payloadJson}::jsonb->>'recipient_user_id' = ${actorId}`,
-          // Broadcast messages (no recipient) - visible to non-pending users
-          ...(actorIsPending ? [] : [sql`${ledgerTxIndex.payloadJson}::jsonb->>'recipient_user_id' IS NULL`]),
-        ),
-      ),
-      // chat_reads: user_id matches
-      and(
-        eq(ledgerTxIndex.tableName, 'chat_reads'),
-        sql`${ledgerTxIndex.payloadJson}::jsonb->>'user_id' = ${actorId}`,
-      ),
-      // notes: own notes always visible; shared notes handled in post-filter
-      and(
-        eq(ledgerTxIndex.tableName, 'notes'),
-        sql`${ledgerTxIndex.payloadJson}::jsonb->>'owner_user_id' = ${actorId}`,
-      ),
-      // note_shares: recipient matches or note owner matches (owner check in post-filter)
-      and(
-        eq(ledgerTxIndex.tableName, 'note_shares'),
-        sql`${ledgerTxIndex.payloadJson}::jsonb->>'recipient_user_id' = ${actorId}`,
-      ),
-    );
+  // ── 1. Query PG sync tables ──────────────────────────────
+  // For each sync table, SELECT rows WHERE last_server_seq > since,
+  // applying privacy filters for non-admin users, then merge all results.
+  const allChanges: ChangeRow[] = [];
+  const sharedNoteIds = (!actorIsAdmin && !actorIsPending) ? await getSharedNoteIds(actorId) : new Set<string>();
 
-    rows = await db
-      .select({
-        table: ledgerTxIndex.tableName,
-        rowId: ledgerTxIndex.rowId,
-        op: ledgerTxIndex.op,
-        payloadJson: ledgerTxIndex.payloadJson,
-        serverSeq: ledgerTxIndex.serverSeq,
-      })
-      .from(ledgerTxIndex)
-      .where(and(gt(ledgerTxIndex.serverSeq, effectiveSince), privacyFilter))
-      .orderBy(asc(ledgerTxIndex.serverSeq))
-      .limit(safeLimit + 1);
-  }
+  for (const [tableName, entry] of Object.entries(PG_SYNC_TABLES)) {
+    const pgTable = entry.drizzle;
+    const isPrivacy = PRIVACY_TABLES.has(tableName);
 
-  // ── Post-filter for shared notes ─────────────────────────
-  // The SQL pre-filter catches direct ownership but not shared notes.
-  // We need a small post-filter for notes shared with the user.
-  let pageRows = rows.slice(0, safeLimit);
-  const hasMore = rows.length > safeLimit;
+    const conditions: any[] = [];
+    if ('lastServerSeq' in pgTable) {
+      conditions.push(gt(pgTable.lastServerSeq, effectiveSince));
+    }
 
-  if (!actorIsAdmin) {
-    // Check for notes shared with this user that may have been missed by owner-only SQL filter
-    const missedNoteIds = new Set<string>();
-    // Also collect note_shares rows that need owner verification
-    const noteShareNoteIds: string[] = [];
-
-    // Scan current batch for notes/note_shares that might need additional visibility
-    for (const r of pageRows) {
-      if (String(r.table) === 'note_shares') {
-        try {
-          const p = JSON.parse(String(r.payloadJson ?? '')) as Record<string, unknown>;
-          if (p?.note_id) noteShareNoteIds.push(String(p.note_id));
-        } catch {
-          continue;
+    // Privacy filtering for non-admin
+    if (!actorIsAdmin && isPrivacy) {
+      const pf = privacyFilterForTable(tableName, pgTable, actorId, actorIsPending);
+      if (pf) {
+        if (tableName === SyncTableName.Notes && sharedNoteIds.size > 0) {
+          // Include notes owned by actor OR shared with actor
+          const sharedArr = Array.from(sharedNoteIds);
+          conditions.push(or(pf, inArray(pgTable.id, sharedArr)));
+        } else {
+          conditions.push(pf);
         }
       }
     }
 
-    // For note_shares: verify the note owner is the actor (already included via recipient in SQL)
-    // This is handled by the SQL filter for recipient_user_id, but we need to add
-    // notes the user created that got shared -- those note_shares rows are already included
-    // because the SQL filters for recipient_user_id match.
+    // Pending users should not see most privacy tables at all
+    if (actorIsPending && isPrivacy) continue;
 
-    // For notes: add shared notes that the SQL filter missed (not owner but shared with)
-    const noteRows = pageRows.filter((r) => String(r.table) === 'notes');
-    if (noteRows.length === 0) {
-      // The SQL filter already filtered out notes not owned by the actor.
-      // We need to add back notes shared with the actor.
-      // This requires a separate query for notes shared with this user.
+    const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
+
+    const rows = await db
+      .select()
+      .from(pgTable)
+      .$dynamic()
+      .where(where)
+      .orderBy('lastServerSeq' in pgTable ? asc(pgTable.lastServerSeq) : asc(pgTable.id))
+      .limit(safeLimit);
+
+    for (const row of rows) {
+      allChanges.push(pgRowToChange(tableName, row as Record<string, unknown>, entry.toSyncRow));
     }
+  }
 
-    // Get IDs of notes shared with this user
-    const sharedNotesResult = await db
-      .select({ noteId: noteShares.noteId })
-      .from(noteShares)
-      .where(and(eq(noteShares.recipientUserId, actorId), isNull(noteShares.deletedAt), eq(noteShares.hidden, false)))
+  // For non-admin: add note_shares where actor is the note owner (not just recipient)
+  if (!actorIsAdmin && !actorIsPending) {
+    const ownedNoteRows = await db
+      .select({ id: notes.id })
+      .from(notes)
+      .where(and(eq(notes.ownerUserId, actorId), isNull(notes.deletedAt)))
       .limit(50_000);
-    const sharedNoteIds = new Set(sharedNotesResult.map((r) => String(r.noteId)));
+    const ownedNoteIdSet = new Set(ownedNoteRows.map((r) => String(r.id)));
 
-    // Add shared notes that were filtered out by the SQL-level owner check
-    if (sharedNoteIds.size > 0) {
-      const sharedNoteIdsArr = Array.from(sharedNoteIds);
-      const sharedNoteRows = await db
-        .select({
-          table: ledgerTxIndex.tableName,
-          rowId: ledgerTxIndex.rowId,
-          op: ledgerTxIndex.op,
-          payloadJson: ledgerTxIndex.payloadJson,
-          serverSeq: ledgerTxIndex.serverSeq,
-        })
-        .from(ledgerTxIndex)
-        .where(
-          and(
-            gt(ledgerTxIndex.serverSeq, effectiveSince),
-            eq(ledgerTxIndex.tableName, 'notes'),
-            inArray(ledgerTxIndex.rowId, sharedNoteIdsArr),
-          ),
-        )
-        .orderBy(asc(ledgerTxIndex.serverSeq))
+    if (ownedNoteIdSet.size > 0) {
+      const ownedArr = Array.from(ownedNoteIdSet);
+      const shareRows = await db
+        .select()
+        .from(noteShares)
+        .$dynamic()
+        .where(and(gt(noteShares.lastServerSeq, effectiveSince), inArray(noteShares.noteId, ownedArr)))
+        .orderBy(asc(noteShares.lastServerSeq))
         .limit(safeLimit);
 
-      // Merge shared note rows into pageRows (avoiding duplicates)
-      const existingSeqs = new Set(pageRows.map((r) => r.serverSeq));
-      for (const r of sharedNoteRows) {
-        if (!existingSeqs.has(r.serverSeq)) {
-          pageRows.push(r);
+      const existingIds = new Set(
+        allChanges.filter((c) => c.table === SyncTableName.NoteShares).map((c) => c.row_id),
+      );
+      for (const row of shareRows) {
+        const id = String((row as any).id ?? '');
+        if (!existingIds.has(id)) {
+          allChanges.push(
+            pgRowToChange(SyncTableName.NoteShares, row as Record<string, unknown>, PG_SYNC_TABLES[SyncTableName.NoteShares]!.toSyncRow),
+          );
         }
       }
-
-      // Re-sort by serverSeq
-      pageRows.sort((a, b) => a.serverSeq - b.serverSeq);
-    }
-
-    // Also check note_shares where actor is the note owner
-    if (noteShareNoteIds.length > 0) {
-      const uniqueNoteIds = Array.from(new Set(noteShareNoteIds));
-      const ownedNotes = await db
-        .select({ id: notes.id })
-        .from(notes)
-        .where(and(inArray(notes.id, uniqueNoteIds), eq(notes.ownerUserId, actorId)))
-        .limit(50_000);
-      const ownedNoteIdSet = new Set(ownedNotes.map((r) => String(r.id)));
-
-      // Get note_shares for owned notes that the SQL filter might have missed
-      const ownedShareRows = await db
-        .select({
-          table: ledgerTxIndex.tableName,
-          rowId: ledgerTxIndex.rowId,
-          op: ledgerTxIndex.op,
-          payloadJson: ledgerTxIndex.payloadJson,
-          serverSeq: ledgerTxIndex.serverSeq,
-        })
-        .from(ledgerTxIndex)
-        .where(
-          and(
-            gt(ledgerTxIndex.serverSeq, effectiveSince),
-            eq(ledgerTxIndex.tableName, 'note_shares'),
-            inArray(ledgerTxIndex.rowId, Array.from(ownedNoteIdSet)),
-          ),
-        )
-        .orderBy(asc(ledgerTxIndex.serverSeq))
-        .limit(safeLimit);
-
-      const existingSeqs2 = new Set(pageRows.map((r) => r.serverSeq));
-      for (const r of ownedShareRows) {
-        if (!existingSeqs2.has(r.serverSeq)) {
-          pageRows.push(r);
-        }
-      }
-
-      pageRows.sort((a, b) => a.serverSeq - b.serverSeq);
     }
   }
 
-  const last = pageRows.at(-1)?.serverSeq ?? effectiveSince;
+  // ── 2. Query ledger_tx_index for non-sync tables ─────────
+  // (e.g. release_registry)
+  {
+    const syncTableNames = Object.keys(PG_SYNC_TABLES);
+    const ltiRows = await db
+      .select({
+        table: ledgerTxIndex.tableName,
+        rowId: ledgerTxIndex.rowId,
+        op: ledgerTxIndex.op,
+        payloadJson: ledgerTxIndex.payloadJson,
+        serverSeq: ledgerTxIndex.serverSeq,
+      })
+      .from(ledgerTxIndex)
+      .where(
+        and(
+          gt(ledgerTxIndex.serverSeq, effectiveSince),
+          sql`${ledgerTxIndex.tableName} NOT IN (${sql.join(
+            syncTableNames.map((n) => sql`${n}`),
+            sql`, `,
+          )})`,
+        ),
+      )
+      .orderBy(asc(ledgerTxIndex.serverSeq))
+      .limit(safeLimit);
+
+    for (const r of ltiRows) {
+      allChanges.push({
+        table: r.table as ChangeRow['table'],
+        row_id: r.rowId,
+        op: r.op as 'upsert' | 'delete',
+        payload_json: r.payloadJson,
+        server_seq: r.serverSeq,
+      });
+    }
+  }
+
+  // ── 3. Sort, paginate, respond ─────────────────────────────
+  allChanges.sort((a, b) => a.server_seq - b.server_seq);
+
+  const hasMore = allChanges.length > safeLimit;
+  const pageChanges = allChanges.slice(0, safeLimit);
+  const lastSeq = pageChanges.at(-1)?.server_seq ?? effectiveSince;
 
   return {
     sync_protocol_version: 2,
     sync_mode: 'incremental',
-    server_cursor: last,
+    server_cursor: lastSeq,
     server_last_seq: serverLastSeq,
     has_more: hasMore,
-    changes: pageRows.map((r) => ({
-      table: r.table as SyncPullResponse['changes'][number]['table'],
-      row_id: r.rowId,
-      op: r.op as SyncPullResponse['changes'][number]['op'],
-      payload_json: withServerSeq(r.payloadJson, r.serverSeq),
-      server_seq: r.serverSeq,
-    })),
+    changes: pageChanges,
   };
 }
