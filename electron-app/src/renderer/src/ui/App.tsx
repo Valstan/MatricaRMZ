@@ -111,6 +111,9 @@ export function App() {
   });
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const trashButtonRef = useRef<HTMLDivElement | null>(null);
+  const trashPopupRef = useRef<HTMLDivElement | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
   function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
@@ -541,6 +544,27 @@ export function App() {
     | 'counterparty'
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
+  const menuLabels: Record<MenuTabId, string> = {
+    masterdata: 'Справочники',
+    contracts: 'Контракты',
+    changes: 'Изменения',
+    engines: 'Двигатели',
+    engine_brands: 'Марки двигателей',
+    counterparties: 'Контрагенты',
+    requests: 'Заявки',
+    work_orders: 'Наряды',
+    parts: 'Детали',
+    tools: 'Инструменты',
+    products: 'Товары',
+    services: 'Услуги',
+    employees: 'Сотрудники',
+    reports: 'Отчёты',
+    audit: 'Журнал',
+    admin: 'Админ',
+    auth: 'Вход',
+    notes: 'Заметки',
+    settings: 'Настройки',
+  };
 
   // Gate: без входа показываем только вкладку "Вход".
   useEffect(() => {
@@ -555,6 +579,18 @@ export function App() {
   useEffect(() => {
     if (!canAiAgent) setAiChatOpen(false);
   }, [canAiAgent]);
+
+  useEffect(() => {
+    if (!trashOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (trashPopupRef.current?.contains(target)) return;
+      if (trashButtonRef.current?.contains(target)) return;
+      setTrashOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [trashOpen]);
 
   // For pending users: open chat automatically.
   useEffect(() => {
@@ -636,6 +672,27 @@ export function App() {
     const userId = authStatus.user?.id;
     if (!userId) return;
     await window.matrica.settings.uiSet({ userId, tabsLayout: next }).catch(() => {});
+  }
+
+  function updateHiddenTabs(nextHidden: MenuTabId[]) {
+    void persistTabsLayout({
+      order: menuState.order,
+      hidden: nextHidden,
+      trashIndex: menuState.trashIndex,
+      ...(tabsLayout?.groupOrder ? { groupOrder: tabsLayout.groupOrder } : {}),
+      ...(tabsLayout?.collapsedGroups ? { collapsedGroups: tabsLayout.collapsedGroups } : {}),
+      ...(tabsLayout?.activeGroup != null ? { activeGroup: tabsLayout.activeGroup } : {}),
+    });
+  }
+
+  function restoreHiddenTab(id: MenuTabId) {
+    const nextHidden = menuState.hidden.filter((x) => x !== id);
+    updateHiddenTabs(nextHidden);
+  }
+
+  function restoreAllHiddenTabs() {
+    if (menuState.hidden.length === 0) return;
+    updateHiddenTabs([]);
   }
 
   async function persistChatSide(next: 'left' | 'right') {
@@ -1518,6 +1575,59 @@ export function App() {
         center={headerStatus}
         right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+          {authStatus.loggedIn && (
+            <div ref={trashButtonRef} style={{ position: 'relative' }}>
+              <Button
+                variant="ghost"
+                onClick={() => setTrashOpen((prev) => !prev)}
+                title="Корзина кнопок"
+              >
+                🗑 Корзина
+              </Button>
+              {trashOpen && (
+                <div
+                  ref={trashPopupRef}
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    right: 0,
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    boxShadow: '0 16px 40px rgba(15,23,42,0.18)',
+                    padding: 8,
+                    zIndex: 1900,
+                    minWidth: 220,
+                    maxWidth: 320,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ fontWeight: 700 }}>Скрытые кнопки</div>
+                    <Button variant="ghost" onClick={restoreAllHiddenTabs} disabled={menuState.hidden.length === 0}>
+                      Восстановить
+                    </Button>
+                  </div>
+                  {menuState.hiddenVisible.length === 0 ? (
+                    <div style={{ color: 'var(--muted)' }}>Нет скрытых кнопок</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {menuState.hiddenVisible.map((id) => (
+                        <Button
+                          key={id}
+                          variant="ghost"
+                          onClick={() => {
+                            restoreHiddenTab(id);
+                          }}
+                        >
+                          {menuLabels[id] ?? id}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {authStatus.loggedIn && !viewMode && (
             <>
               <Button
@@ -1564,6 +1674,18 @@ export function App() {
               ↻
             </Button>
           )}
+          <Button
+            variant="ghost"
+            onClick={() => setTab(userTab)}
+            style={{
+              border: tab === userTab ? '1px solid #1e40af' : '1px solid rgba(15, 23, 42, 0.22)',
+              background: tab === userTab ? '#e2e8f0' : '#f8fafc',
+              color: '#0f172a',
+              fontWeight: 700,
+            }}
+          >
+            {userLabel?.trim() ? userLabel.trim() : 'Вход'}
+          </Button>
         </div>
         }
       >

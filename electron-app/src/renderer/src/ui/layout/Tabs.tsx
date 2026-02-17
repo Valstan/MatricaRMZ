@@ -189,6 +189,17 @@ export function Tabs(props: {
     if (!activeGroup) return [];
     return menuItems.filter((id) => groupForTab(id) === activeGroup);
   }, [activeGroup, menuItems]);
+  const activeGroupIndex = useMemo(() => {
+    if (!activeGroup) return -1;
+    return groupsInUse.indexOf(activeGroup);
+  }, [activeGroup, groupsInUse]);
+  const activeGroupAnchorLeft = useMemo(() => {
+    if (activeGroupIndex < 0 || groupsInUse.length <= 0) return '50%';
+    const columnsCount = groupsInUse.length;
+    const gridGap = 8;
+    const gapTotal = (columnsCount - 1) * gridGap;
+    return `calc(((100% - ${gapTotal}px) / ${columnsCount}) * ${activeGroupIndex + 0.5} + ${activeGroupIndex * gridGap}px)`;
+  }, [activeGroupIndex, groupsInUse.length]);
   const menuItemsKey = groupMenuItems.join('|');
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -345,12 +356,18 @@ export function Tabs(props: {
                 boxShadow: '0 8px 18px rgba(15, 47, 114, 0.24)',
                 fontWeight: 800,
                 transform: 'scale(1.04)',
+                minHeight: 64,
+                padding: '8px 18px',
+                fontSize: 24,
               }
             : {
                 border: '1px solid rgba(71, 85, 105, 0.34)',
                 background: 'rgba(148, 163, 184, 0.35)',
                 color: '#111827',
                 boxShadow: '0 3px 10px rgba(15, 23, 42, 0.09)',
+                minHeight: 64,
+                padding: '8px 18px',
+                fontSize: 24,
               }
         }
       >
@@ -415,21 +432,6 @@ export function Tabs(props: {
     return () => document.removeEventListener('pointerdown', handler);
   }, [contextMenu, moveId, trashOpen]);
 
-  const authDot =
-    props.authStatus?.online == null ? null : (
-      <span
-        style={{
-          width: 10,
-          height: 10,
-          borderRadius: 999,
-          display: 'inline-block',
-          background: props.authStatus.online ? 'var(--success)' : 'var(--danger)',
-          boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
-        }}
-        title={props.authStatus.online ? 'В сети' : 'Не в сети'}
-      />
-    );
-
   return (
     <div style={{ position: 'relative' }}>
       <div
@@ -462,23 +464,25 @@ export function Tabs(props: {
                   isActive
                     ? {
                         width: '100%',
-                        minHeight: 76,
-                        padding: '10px 12px',
+                        minHeight: 152,
+                        padding: '5px 16px',
                         border: '1px solid #0b2d63',
                         background: 'linear-gradient(160deg, #143d86 0%, #0f2f72 55%, #0b254f 100%)',
                         color: '#ffffff',
                         fontWeight: 800,
+                        fontSize: 26,
                         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 10px rgba(15, 47, 114, 0.28)',
                         letterSpacing: 0.1,
                       }
                     : {
                         width: '100%',
-                        minHeight: 76,
-                        padding: '10px 12px',
+                        minHeight: 152,
+                        padding: '5px 16px',
                         border: '1px solid #8f99a7',
                         background: 'linear-gradient(160deg, #d5d9df 0%, #bec4cd 45%, #e8ebef 100%)',
                         color: '#111827',
                         fontWeight: 500,
+                        fontSize: 26,
                         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7), 0 2px 7px rgba(15, 23, 42, 0.14)',
                         letterSpacing: 0,
                       }
@@ -494,6 +498,7 @@ export function Tabs(props: {
                     wordBreak: 'break-word',
                     overflowWrap: 'anywhere',
                     hyphens: 'auto',
+                    fontSize: 26,
                   }}
                 >
                   {GROUP_LABELS[groupId]}
@@ -537,33 +542,48 @@ export function Tabs(props: {
 
       <div
         style={{
-          display: 'flex',
-          gap: 6,
-          rowGap: 6,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'center',
+          position: 'relative',
+          display: 'block',
           marginTop: 2,
           padding: '3px 6px',
           background: 'transparent',
           border: 'none',
-          minHeight: 38,
+          minHeight: 74,
         }}
       >
         {activeGroup == null ? (
-          <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
-        ) : null}
-        {groupMenuItems.map((id) => (
-          <div
-            key={id}
-            ref={(el) => {
-              itemRefs.current[id] = el;
-            }}
-            style={{ display: 'inline-flex' }}
-          >
-            {menuItemButton(id)}
+          <div>
+            <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
           </div>
-        ))}
+        ) : (
+          <div
+            style={{
+              position: 'absolute',
+              top: 5,
+              left: activeGroupAnchorLeft,
+              transform: 'translateX(-50%)',
+              display: 'inline-flex',
+              gap: 6,
+              flexWrap: 'nowrap',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              minHeight: 38,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {groupMenuItems.map((id) => (
+              <div
+                key={id}
+                ref={(el) => {
+                  itemRefs.current[id] = el;
+                }}
+                style={{ display: 'inline-flex' }}
+              >
+                {menuItemButton(id)}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {contextMenu && (
