@@ -1525,15 +1525,26 @@ export function App() {
               onClick={() => void runSyncNow({ showStatusMessage: true })}
               disabled={syncStatus?.state === 'syncing'}
               title="Запустить синхронизацию вручную"
+              aria-label="Синхронизировать сейчас"
               style={{
                 background: '#90ee90',
                 color: '#000000',
                 border: '1px solid #4b8a4b',
                 boxShadow: 'none',
                 fontWeight: 700,
+                width: 28,
+                height: 28,
+                minWidth: 28,
+                minHeight: 28,
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 16,
+                lineHeight: 1,
               }}
             >
-              Синхронизировать сейчас
+              ↻
             </Button>
           )}
         </div>
