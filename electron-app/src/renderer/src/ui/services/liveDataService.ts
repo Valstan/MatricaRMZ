@@ -5,6 +5,7 @@ type LiveDataPulseReason = 'interval' | 'focus' | 'visibility' | 'sync_done';
 export type LiveDataPulse = {
   at: number;
   reason: LiveDataPulseReason;
+  pulled?: number;
 };
 
 type PulseListener = (pulse: LiveDataPulse) => void;
@@ -16,8 +17,8 @@ class LiveDataService {
   private started = false;
   private readonly intervalMs = 5000;
 
-  private emit(reason: LiveDataPulseReason) {
-    const pulse: LiveDataPulse = { at: Date.now(), reason };
+  private emit(reason: LiveDataPulseReason, extras?: Partial<LiveDataPulse>) {
+    const pulse: LiveDataPulse = { at: Date.now(), reason, ...(extras ?? {}) };
     for (const listener of this.listeners) {
       listener(pulse);
     }
@@ -40,7 +41,7 @@ class LiveDataService {
     if (window.matrica?.sync?.onProgress) {
       this.unsubscribeSync = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
         if (!evt) return;
-        if (evt.state === 'done') this.emit('sync_done');
+        if (evt.state === 'done') this.emit('sync_done', { pulled: Number(evt.pulled ?? 0) });
       });
     }
   }

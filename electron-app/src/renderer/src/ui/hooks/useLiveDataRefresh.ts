@@ -55,7 +55,10 @@ export function useLiveDataRefresh(
     if (!enabled) return;
     const unsubscribe = subscribeLiveDataPulse((pulse: LiveDataPulse) => {
       if (!enabled) return;
-      if (pulse.reason === 'sync_done' && !refreshOnSyncDone) return;
+      if (pulse.reason === 'sync_done') {
+        if (!refreshOnSyncDone) return;
+        if (Number(pulse.pulled ?? 0) <= 0) return;
+      }
       if ((pulse.reason === 'focus' || pulse.reason === 'visibility') && !refreshOnFocus) return;
       if (pulse.reason === 'interval') {
         const elapsed = pulse.at - lastRefreshAtRef.current;

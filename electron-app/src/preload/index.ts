@@ -1,7 +1,122 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+type AnyFn = (...args: any[]) => any;
+
+function isReadLikeMethod(name: string) {
+  const n = String(name || '').toLowerCase();
+  if (!n || n.startsWith('on')) return false;
+  if (
+    /(create|update|delete|set|add|upsert|apply|reject|transition|upload|download|open|pick|run|reset|fullpull|logout|login|register|change|mark|send|export|rotate|enter|exit|save)/.test(
+      n,
+    )
+  ) {
+    return false;
+  }
+  return /(list|get|status|health|meta|scope|defs|preview|count|options|summary|report|permissions|delegations|hints)/.test(n);
+}
+
+function stableArgKey(args: unknown[]) {
+  try {
+    return JSON.stringify(args ?? []);
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function stableValueSignature(value: unknown): string {
+  if (value == null) return String(value);
+  if (typeof value !== 'object') return `${typeof value}:${String(value)}`;
+
+  if (Array.isArray(value)) {
+    const items = value as Array<Record<string, unknown>>;
+    const fastTrack = items.every(
+      (item) =>
+        !!item &&
+        typeof item === 'object' &&
+        ('id' in item || 'code' in item) &&
+        ('updatedAt' in item || 'updated_at' in item || 'syncStatus' in item || 'sync_status' in item),
+    );
+    if (fastTrack) {
+      const sig = items
+        .map((item) => {
+          const id = String(item.id ?? item.code ?? '');
+          const updatedAt = Number(item.updatedAt ?? item.updated_at ?? 0);
+          const syncStatus = String(item.syncStatus ?? item.sync_status ?? '');
+          return `${id}:${updatedAt}:${syncStatus}`;
+        })
+        .join('|');
+      return `arr-fast:${items.length}:${sig}`;
+    }
+  }
+
+  try {
+    return `json:${JSON.stringify(value)}`;
+  } catch {
+    return `opaque:${Object.prototype.toString.call(value)}`;
+  }
+}
+
+function createStableResultWrapper() {
+  const cache = new Map<string, { signature: string; value: unknown; at: number }>();
+  const maxEntries = 1200;
+  const ttlMs = 60_000;
+
+  function prune(now: number) {
+    for (const [key, entry] of cache) {
+      if (now - entry.at > ttlMs) cache.delete(key);
+    }
+    if (cache.size <= maxEntries) return;
+    const entries = Array.from(cache.entries()).sort((a, b) => a[1].at - b[1].at);
+    const toDelete = entries.slice(0, cache.size - maxEntries);
+    for (const [key] of toDelete) cache.delete(key);
+  }
+
+  return function stabilize(callKey: string, value: unknown) {
+    if (value == null || typeof value !== 'object') return value;
+    const now = Date.now();
+    prune(now);
+    const signature = stableValueSignature(value);
+    const prev = cache.get(callKey);
+    if (prev && prev.signature === signature) {
+      prev.at = now;
+      return prev.value;
+    }
+    cache.set(callKey, { signature, value, at: now });
+    return value;
+  };
+}
+
+const stabilizeResult = createStableResultWrapper();
+
+function wrapApiWithStableReads<T extends Record<string, any>>(source: T, path: string[] = []): T {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    const nextPath = [...path, key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      out[key] = wrapApiWithStableReads(value as Record<string, any>, nextPath);
+      continue;
+    }
+    if (typeof value !== 'function') {
+      out[key] = value;
+      continue;
+    }
+    const fn = value as AnyFn;
+    if (!isReadLikeMethod(key)) {
+      out[key] = fn;
+      continue;
+    }
+    out[key] = (...args: unknown[]) => {
+      const result = fn(...args);
+      if (!result || typeof (result as Promise<unknown>).then !== 'function') return result;
+      const callKey = `${nextPath.join('.')}::${stableArgKey(args)}`;
+      return (result as Promise<unknown>).then((resolved) => stabilizeResult(callKey, resolved));
+    };
+  }
+  return out as T;
+}
+
 // API, доступный в renderer. Дальше будем расширять CRUD и синхронизацию.
-contextBridge.exposeInMainWorld('matrica', {
+const matricaApi = {
   ping: async () => ipcRenderer.invoke('app:ping'),
   app: {
     version: async () => ipcRenderer.invoke('app:version'),
@@ -390,6 +505,8 @@ contextBridge.exposeInMainWorld('matrica', {
     nightlyRunNow: async () => ipcRenderer.invoke('backups:nightly:runNow'),
     exit: async () => ipcRenderer.invoke('backups:exit'),
   },
-});
+};
+
+contextBridge.exposeInMainWorld('matrica', wrapApiWithStableReads(matricaApi));
 
 

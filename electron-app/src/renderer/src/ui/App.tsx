@@ -115,6 +115,34 @@ export function App() {
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
+  function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
+    if (a === b) return true;
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      const left = a[i];
+      const right = b[i];
+      if (!left || !right) return false;
+      if (left.id !== right.id) return false;
+      if (Number(left.updatedAt ?? 0) !== Number(right.updatedAt ?? 0)) return false;
+      if (String(left.syncStatus ?? '') !== String(right.syncStatus ?? '')) return false;
+    }
+    return true;
+  }
+
+  function sameEngineDetails(a: EngineDetails | null, b: EngineDetails | null) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return (
+      a.id === b.id &&
+      a.typeId === b.typeId &&
+      Number(a.updatedAt ?? 0) === Number(b.updatedAt ?? 0) &&
+      Number(a.createdAt ?? 0) === Number(b.createdAt ?? 0) &&
+      Number(a.deletedAt ?? 0) === Number(b.deletedAt ?? 0) &&
+      String(a.syncStatus ?? '') === String(b.syncStatus ?? '')
+    );
+  }
+
   useEffect(() => {
     void refreshEngines();
     void window.matrica.auth
@@ -157,8 +185,10 @@ export function App() {
           return;
         }
         if (evt.state === 'done') {
-          void refreshEngines();
-          if (tab === 'engine') void reloadEngine();
+          if (Number(evt.pulled ?? 0) > 0) {
+            void refreshEngines();
+            if (tab === 'engine') void reloadEngine();
+          }
           setIncrementalSyncUi((prev) => ({
             active: false,
             progress: 1,
@@ -210,8 +240,10 @@ export function App() {
         return;
       }
       if (evt.state === 'done') {
-        void refreshEngines();
-        if (tab === 'engine') void reloadEngine();
+        if (Number(evt.pulled ?? 0) > 0) {
+          void refreshEngines();
+          if (tab === 'engine') void reloadEngine();
+        }
         setFullSyncUi((prev) => ({
           open: true,
           progress: 1,
@@ -641,7 +673,7 @@ export function App() {
   async function refreshEngines() {
     try {
       const list = await window.matrica.engines.list();
-      setEngines(list);
+      setEngines((prev) => (sameEngineList(prev, list) ? prev : list));
     } catch (e) {
       const message = String(e ?? '');
       if (message.includes('permission denied')) {
@@ -662,7 +694,7 @@ export function App() {
     setEngineLoading(true);
     try {
       const d = await window.matrica.engines.get(id);
-      setEngineDetails(d);
+      setEngineDetails((prev) => (sameEngineDetails(prev, d) ? prev : d));
     } catch (e) {
       setEngineDetails(null);
       setEngineOpenError(`Ошибка загрузки двигателя: ${String(e)}`);
@@ -1045,7 +1077,7 @@ export function App() {
     setEngineLoading(true);
     try {
       const d = await window.matrica.engines.get(selectedEngineId);
-      setEngineDetails(d);
+      setEngineDetails((prev) => (sameEngineDetails(prev, d) ? prev : d));
     } catch (e) {
       setEngineDetails(null);
       setEngineOpenError(`Ошибка загрузки двигателя: ${String(e)}`);
@@ -1403,61 +1435,70 @@ export function App() {
     );
   }
 
+  const headerInlineStatusText = incrementalSyncUi
+    ? `Синхронизация${incrementalSyncUi.progress != null ? ` ${Math.round(Math.max(0, Math.min(100, incrementalSyncUi.progress * 100)))}%` : ''}${incrementalSyncUi.activity ? ` • ${incrementalSyncUi.activity}` : ''}${incrementalSyncUi.error ? ` • ${incrementalSyncUi.error}` : ''}`
+    : postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg)
+      ? postLoginSyncMsg
+      : '';
+
   const headerStatus = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', justifyContent: 'flex-end' }}>
-      {showUpdateBanner ? (
+      <div
+        style={{
+          position: 'relative',
+          height: 16,
+          flex: '1 1 360px',
+          minWidth: 220,
+          maxWidth: 520,
+          background: showUpdateBanner ? 'rgba(148, 163, 184, 0.35)' : 'transparent',
+          overflow: 'hidden',
+          opacity: showUpdateBanner ? 1 : 0,
+          transition: 'opacity 140ms ease',
+        }}
+      >
         <div
           style={{
-            position: 'relative',
-            height: 16,
-            flex: '1 1 360px',
-            minWidth: 220,
-            maxWidth: 520,
-            background: 'rgba(148, 163, 184, 0.35)',
+            position: 'absolute',
+            inset: 0,
+            width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
+            background: '#2563eb',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 8px',
+            fontSize: 11,
+            color: '#ffffff',
+            textShadow: '0 1px 2px rgba(15, 23, 42, 0.8)',
+            whiteSpace: 'nowrap',
             overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}
         >
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
-              background: '#2563eb',
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0 8px',
-              fontSize: 11,
-              color: '#ffffff',
-              textShadow: '0 1px 2px rgba(15, 23, 42, 0.8)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {updateBannerText}
-            {updateStatus?.version ? ` v${String(updateStatus.version)}` : ''}
-          </div>
+          {showUpdateBanner ? `${updateBannerText}${updateStatus?.version ? ` v${String(updateStatus.version)}` : ''}` : ''}
         </div>
-      ) : null}
-      {incrementalSyncUi ? (
-        <div style={{ fontSize: 12, color: incrementalSyncUi.error ? '#fecaca' : '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 600 }}>
-          {`Синхронизация${incrementalSyncUi.progress != null ? ` ${Math.round(
-            Math.max(0, Math.min(100, incrementalSyncUi.progress * 100)),
-          )}%` : ''}${incrementalSyncUi.activity ? ` • ${incrementalSyncUi.activity}` : ''}${incrementalSyncUi.error ? ` • ${incrementalSyncUi.error}` : ''}`}
-        </div>
-      ) : null}
-      {postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? (
-        <div style={{ fontSize: 12, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 520 }}>
-          {postLoginSyncMsg}
-        </div>
-      ) : null}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: incrementalSyncUi?.error ? '#fecaca' : '#ffffff',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: 600,
+          minHeight: 16,
+          lineHeight: '16px',
+          opacity: headerInlineStatusText ? 1 : 0,
+          transition: 'opacity 140ms ease',
+        }}
+      >
+        {headerInlineStatusText || ' '}
+      </div>
     </div>
   );
   const edgeSide = uiPrefs.chatSide;

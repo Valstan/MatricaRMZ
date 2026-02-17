@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useStableArrayState } from '../hooks/useStableState.js';
 
 type Row = {
   id: string;
@@ -25,7 +26,7 @@ export function ToolPropertiesPage(props: {
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:tool_properties');
   const query = String(listState.query ?? '');
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useStableArrayState<Row>([]);
   const [status, setStatus] = useState<string>('');
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
