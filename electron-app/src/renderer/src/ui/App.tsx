@@ -1460,7 +1460,7 @@ export function App() {
           style={{
             position: 'absolute',
             inset: 0,
-            width: `${Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)))}%`,
+            width: `${Math.max(0, Math.min(100, Math.floor(updateStatus?.progress ?? 0)))}%`,
             background: '#2563eb',
           }}
         />
