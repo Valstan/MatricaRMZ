@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
-import { syncRowSchemaByTable } from '@matricarmz/shared';
+import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
+import { asc, gt, isNull } from 'drizzle-orm';
 import {
   createSignedCheckpoint,
   ensureLedgerBootstrap,
@@ -17,7 +18,20 @@ import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
-import { syncState } from '../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  auditLog,
+  chatMessages,
+  chatReads,
+  entities,
+  entityTypes,
+  notes,
+  noteShares,
+  operations,
+  syncState,
+  userPresence,
+} from '../database/schema.js';
 
 export const ledgerRouter = Router();
 
@@ -192,6 +206,21 @@ ledgerRouter.get('/state/query', (req, res) => {
   return res.json({ ok: true, rows });
 });
 
+// PG table mapping for snapshot (source of truth).
+const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Record<string, unknown> }> = {
+  [SyncTableName.EntityTypes]: { drizzle: entityTypes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.EntityTypes, r) },
+  [SyncTableName.Entities]: { drizzle: entities, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Entities, r) },
+  [SyncTableName.AttributeDefs]: { drizzle: attributeDefs, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeDefs, r) },
+  [SyncTableName.AttributeValues]: { drizzle: attributeValues, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeValues, r) },
+  [SyncTableName.Operations]: { drizzle: operations, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Operations, r) },
+  [SyncTableName.AuditLog]: { drizzle: auditLog, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AuditLog, r) },
+  [SyncTableName.ChatMessages]: { drizzle: chatMessages, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatMessages, r) },
+  [SyncTableName.ChatReads]: { drizzle: chatReads, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatReads, r) },
+  [SyncTableName.UserPresence]: { drizzle: userPresence, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserPresence, r) },
+  [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
+  [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
+};
+
 ledgerRouter.get('/state/snapshot', async (req, res) => {
   const actor = (req as AuthenticatedRequest).user;
   if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
@@ -205,6 +234,55 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
     .safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const limit = parsed.data.limit ?? 5000;
+  const tableName = String(parsed.data.table);
+
+  // Use PG as the source of truth for sync tables (avoids ledger state duplicates).
+  const pgEntry = PG_SYNC_TABLES[tableName];
+  if (pgEntry) {
+    const pgTable = pgEntry.drizzle;
+    const includeDeleted = parsed.data.include_deleted ?? false;
+    const cursorId = parsed.data.cursor_id ?? null;
+
+    let query = db
+      .select()
+      .from(pgTable)
+      .$dynamic();
+
+    const conditions: any[] = [];
+    if (!includeDeleted && 'deletedAt' in pgTable) {
+      conditions.push(isNull(pgTable.deletedAt));
+    }
+    if (cursorId && 'id' in pgTable) {
+      conditions.push(gt(pgTable.id, cursorId));
+    }
+    if (conditions.length === 1) {
+      query = query.where(conditions[0]);
+    } else if (conditions.length > 1) {
+      const { and } = await import('drizzle-orm');
+      query = query.where(and(...conditions));
+    }
+
+    if ('id' in pgTable) {
+      query = query.orderBy(asc(pgTable.id));
+    }
+
+    const dbRows = await query.limit(limit + 1);
+    const page = dbRows.slice(0, limit);
+    const hasMore = dbRows.length > limit;
+    const nextCursorId = hasMore ? String((page.at(-1) as any)?.id ?? '') : null;
+    const syncRows = page.map((r: any) => pgEntry.toSyncRow(r));
+
+    return res.json({
+      ok: true,
+      table: tableName,
+      rows: syncRows,
+      has_more: hasMore,
+      next_cursor_id: nextCursorId || null,
+      server_last_seq: getLedgerLastSeq(),
+    });
+  }
+
+  // Fallback to in-memory ledger state for non-sync tables (release_registry, etc.)
   const rows = queryState(parsed.data.table, {
     includeDeleted: parsed.data.include_deleted ?? false,
     sortBy: 'id',
