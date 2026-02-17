@@ -507,6 +507,6 @@ const matricaApi = {
   },
 };
 
-contextBridge.exposeInMainWorld('matrica', wrapApiWithStableReads(matricaApi));
+contextBridge.exposeInMainWorld('matrica', matricaApi);
 
 
