@@ -521,7 +521,6 @@ export function Tabs(props: {
               🗑 Корзина
             </Button>
           </div>
-          {authDot}
           <Button
             variant="ghost"
             onClick={() => props.onTab(props.userTab)}
