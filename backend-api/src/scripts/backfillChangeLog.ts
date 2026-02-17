@@ -1,3 +1,7 @@
+/**
+ * @deprecated The change_log table has been removed. This script is no longer needed.
+ * Sync data now flows exclusively through the ledger -> ledgerTxIndex pipeline.
+ */
 import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import { SyncTableName } from '@matricarmz/shared';

@@ -176,7 +176,12 @@ export const changeRequests = pgTable(
   }),
 );
 
-// Служебная таблица для инкрементальной синхронизации: монотонный server_seq.
+/**
+ * @deprecated The change_log table is no longer used.
+ * All sync data now flows through ledger -> ledgerTxIndex.
+ * This definition is kept for backward compatibility with existing drizzle migrations.
+ * The table will be dropped in a future migration.
+ */
 export const changeLog = pgTable('change_log', {
   serverSeq: bigserial('server_seq', { mode: 'number' }).primaryKey(),
   tableName: text('table_name').notNull(),

@@ -14,6 +14,7 @@ import {
 } from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
+import { idempotencyCache } from '../services/sync/idempotencyCache.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
 import { syncState } from '../database/schema.js';
@@ -37,9 +38,20 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
   const parsed = z
     .object({
       txs: z.array(txSchema).min(1).max(5000),
+      idempotency_key: z.string().uuid().optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  // ── Idempotency check ──────────────────────────────────
+  const idemKey = parsed.data.idempotency_key;
+  if (idemKey) {
+    const cached = idempotencyCache.get(idemKey);
+    if (cached !== undefined && cached !== null) {
+      // Replay the cached successful response
+      return res.json(cached);
+    }
+  }
 
   try {
     const txs = parsed.data.txs.map((tx) => ({
@@ -49,14 +61,21 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
       ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
     }));
     const result = await applyLedgerTxs(txs, { id: user.id, username: user.username, role: user.role });
-    return res.json({
+    const response = {
       ok: true,
       applied: result.ledgerApplied,
       db_applied: result.dbApplied,
       last_seq: result.lastSeq,
       block_height: result.blockHeight,
       applied_rows: result.appliedRows ?? [],
-    });
+    };
+
+    // Cache the successful response for idempotency replay
+    if (idemKey) {
+      idempotencyCache.set(idemKey, response);
+    }
+
+    return res.json(response);
   } catch (e) {
     return res.status(400).json({ ok: false, error: String(e) });
   }

@@ -1,6 +1,12 @@
+/**
+ * emitSyncSnapshot -- emit sync data from PG tables through the ledger pipeline.
+ *
+ * Replaces the old change_log-based snapshot with the unified write path.
+ * Uses SyncTableRegistry for row conversion.
+ */
 import { asc } from 'drizzle-orm';
 
-import { SyncTableName } from '@matricarmz/shared';
+import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import {
   attributeDefs,
@@ -10,214 +16,29 @@ import {
   noteShares,
   notes,
   operations,
-  changeLog,
 } from '../database/schema.js';
-
-type SyncRowPayload = Record<string, unknown>;
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 const BATCH_SIZE = Number(process.env.MATRICA_SNAPSHOT_BATCH_SIZE ?? 1000);
 
-function nowMs() {
-  return Date.now();
-}
+const SYSTEM_ACTOR = { id: 'system', username: 'system', role: 'admin' };
 
-function entityTypePayload(row: {
-  id: string;
-  code: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    code: String(row.code),
-    name: String(row.name),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function entityPayload(row: {
-  id: string;
-  typeId: string;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    type_id: String(row.typeId),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function attributeDefPayload(row: {
-  id: string;
-  entityTypeId: string;
-  code: string;
-  name: string;
-  dataType: string;
-  isRequired: boolean;
-  sortOrder: number;
-  metaJson: string | null;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    entity_type_id: String(row.entityTypeId),
-    code: String(row.code),
-    name: String(row.name),
-    data_type: String(row.dataType),
-    is_required: Boolean(row.isRequired),
-    sort_order: Number(row.sortOrder ?? 0),
-    meta_json: row.metaJson == null ? null : String(row.metaJson),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function attributeValuePayload(row: {
-  id: string;
-  entityId: string;
-  attributeDefId: string;
-  valueJson: string | null;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    entity_id: String(row.entityId),
-    attribute_def_id: String(row.attributeDefId),
-    value_json: row.valueJson == null ? null : String(row.valueJson),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function operationPayload(row: {
-  id: string;
-  engineEntityId: string;
-  operationType: string;
-  status: string;
-  note: string | null;
-  performedAt: number | null;
-  performedBy: string | null;
-  metaJson: string | null;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    engine_entity_id: String(row.engineEntityId),
-    operation_type: String(row.operationType),
-    status: String(row.status),
-    note: row.note == null ? null : String(row.note),
-    performed_at: row.performedAt == null ? null : Number(row.performedAt),
-    performed_by: row.performedBy == null ? null : String(row.performedBy),
-    meta_json: row.metaJson == null ? null : String(row.metaJson),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function notePayload(row: {
-  id: string;
-  ownerUserId: string;
-  title: string;
-  bodyJson: string | null;
-  importance: string;
-  dueAt: number | null;
-  sortOrder: number;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    owner_user_id: String(row.ownerUserId),
-    title: String(row.title),
-    body_json: row.bodyJson == null ? null : String(row.bodyJson),
-    importance: String(row.importance ?? 'normal'),
-    due_at: row.dueAt == null ? null : Number(row.dueAt),
-    sort_order: Number(row.sortOrder ?? 0),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function noteSharePayload(row: {
-  id: string;
-  noteId: string;
-  recipientUserId: string;
-  hidden: boolean;
-  sortOrder: number;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}): SyncRowPayload {
-  return {
-    id: String(row.id),
-    note_id: String(row.noteId),
-    recipient_user_id: String(row.recipientUserId),
-    hidden: !!row.hidden,
-    sort_order: Number(row.sortOrder ?? 0),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
-}
-
-function opFromPayload(payload: SyncRowPayload) {
-  return (payload as any)?.deleted_at ? 'delete' : 'upsert';
-}
-
-async function emitSnapshot<T>(
-  tableName: SyncTableName,
-  sourceTable: any,
-  payloadFn: (row: T) => SyncRowPayload,
-) {
+async function emitSnapshot(tableName: SyncTableName, sourceTable: any) {
   let offset = 0;
   let total = 0;
   for (;;) {
     const rows = await db.select().from(sourceTable).orderBy(asc(sourceTable.id)).limit(BATCH_SIZE).offset(offset);
     if (rows.length === 0) break;
-    const ts = nowMs();
-    const payloads = rows.map((r: T) => payloadFn(r));
-    await db.insert(changeLog).values(
-      payloads.map((p, idx) => ({
+    const changes = (rows as Record<string, unknown>[]).map((dbRow) => {
+      const payload = SyncTableRegistry.toSyncRow(tableName, dbRow);
+      return {
         tableName,
-        rowId: String((rows as any[])[idx]?.id ?? '') as any,
-        op: opFromPayload(p),
-        payloadJson: JSON.stringify(p),
-        createdAt: ts,
-      })),
-    );
+        rowId: String(dbRow.id ?? ''),
+        op: (payload.deleted_at ? 'delete' : 'upsert') as 'upsert' | 'delete',
+        payload,
+      };
+    });
+    await recordSyncChanges(SYSTEM_ACTOR, changes);
     total += rows.length;
     offset += rows.length;
     if (rows.length < BATCH_SIZE) break;
@@ -227,19 +48,19 @@ async function emitSnapshot<T>(
 
 async function run() {
   const tableArg = process.argv[2] ? String(process.argv[2]) : null;
-  const tables: Array<{ name: SyncTableName; table: any; payload: (row: any) => SyncRowPayload }> = [
-    { name: SyncTableName.EntityTypes, table: entityTypes, payload: entityTypePayload },
-    { name: SyncTableName.Entities, table: entities, payload: entityPayload },
-    { name: SyncTableName.AttributeDefs, table: attributeDefs, payload: attributeDefPayload },
-    { name: SyncTableName.AttributeValues, table: attributeValues, payload: attributeValuePayload },
-    { name: SyncTableName.Operations, table: operations, payload: operationPayload },
-    { name: SyncTableName.Notes, table: notes, payload: notePayload },
-    { name: SyncTableName.NoteShares, table: noteShares, payload: noteSharePayload },
+  const tables: Array<{ name: SyncTableName; table: any }> = [
+    { name: SyncTableName.EntityTypes, table: entityTypes },
+    { name: SyncTableName.Entities, table: entities },
+    { name: SyncTableName.AttributeDefs, table: attributeDefs },
+    { name: SyncTableName.AttributeValues, table: attributeValues },
+    { name: SyncTableName.Operations, table: operations },
+    { name: SyncTableName.Notes, table: notes },
+    { name: SyncTableName.NoteShares, table: noteShares },
   ];
   const list = tableArg ? tables.filter((t) => t.name === tableArg) : tables;
   if (tableArg && list.length === 0) throw new Error(`unknown table ${tableArg}`);
   for (const t of list) {
-    const count = await emitSnapshot(t.name, t.table, t.payload);
+    const count = await emitSnapshot(t.name, t.table);
     console.log(`snapshot ${t.name}: rows=${count}`);
   }
 }

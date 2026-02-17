@@ -12,9 +12,10 @@ import {
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { changeLog, changeRequests, entityTypes, entities, attributeDefs, attributeValues, operations, fileAssets } from '../database/schema.js';
+import { changeRequests, entityTypes, entities, attributeDefs, attributeValues, operations, fileAssets } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
+import { writeSyncChanges, type SyncWriteInput } from '../services/sync/syncWriteService.js';
 
 function nowMs() {
   return Date.now();
@@ -363,201 +364,72 @@ changesRouter.post('/:id/apply', async (req, res) => {
     if (!parsed.ok) return res.status(400).json({ ok: false, error: parsed.error });
 
     const ts = nowMs();
+    const r = parsed.row;
+    const updatedRow = { ...r, updated_at: Math.max(r.updated_at, ts) };
 
-    await db.transaction(async (tx) => {
-      async function touchEntity(entityId: string) {
-        const cur = await tx.select().from(entities).where(eq(entities.id, entityId as any)).limit(1);
-        const e = cur[0] as any;
-        if (!e) return;
-        await tx.update(entities).set({ updatedAt: ts, syncStatus: 'synced' }).where(eq(entities.id, entityId as any));
-        const payload = {
-          id: String(e.id),
-          type_id: String(e.typeId),
-          created_at: Number(e.createdAt),
-          updated_at: ts,
-          deleted_at: e.deletedAt == null ? null : Number(e.deletedAt),
-          sync_status: 'synced',
-        };
-        await tx.insert(changeLog).values({
-          tableName: SyncTableName.Entities,
-          rowId: e.id,
-          op: payload.deleted_at ? 'delete' : 'upsert',
-          payloadJson: JSON.stringify(payload),
-          createdAt: ts,
+    // Build sync write inputs. For attribute_values/operations, also touch the parent entity.
+    const inputs: SyncWriteInput[] = [
+      {
+        type: updatedRow.deleted_at ? 'delete' : 'upsert',
+        table: parsed.syncTable as SyncTableName,
+        row: updatedRow,
+        row_id: String(updatedRow.id ?? cr.rowId),
+      },
+    ];
+
+    if (parsed.syncTable === SyncTableName.AttributeValues && updatedRow.entity_id) {
+      const cur = await db.select().from(entities).where(eq(entities.id, updatedRow.entity_id as any)).limit(1);
+      const e = cur[0] as any;
+      if (e) {
+        inputs.push({
+          type: 'upsert',
+          table: SyncTableName.Entities,
+          row: {
+            id: String(e.id),
+            type_id: String(e.typeId),
+            created_at: Number(e.createdAt),
+            updated_at: ts,
+            deleted_at: e.deletedAt == null ? null : Number(e.deletedAt),
+            sync_status: 'synced',
+          },
+          row_id: String(e.id),
         });
       }
+    }
 
-      // Apply to base table (upsert) + write change_log for pull.
-      switch (parsed.syncTable) {
-        case SyncTableName.EntityTypes: {
-          const r = parsed.row;
-          await tx
-            .insert(entityTypes)
-            .values({
-              id: r.id,
-              code: r.code,
-              name: r.name,
-              createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, ts),
-              deletedAt: r.deleted_at ?? null,
-              syncStatus: 'synced',
-            })
-            .onConflictDoUpdate({
-              target: entityTypes.id,
-              set: {
-                code: r.code,
-                name: r.name,
-                updatedAt: Math.max(r.updated_at, ts),
-                deletedAt: r.deleted_at ?? null,
-                syncStatus: 'synced',
-              },
-            });
-          break;
-        }
-        case SyncTableName.Entities: {
-          const r = parsed.row;
-          await tx
-            .insert(entities)
-            .values({
-              id: r.id,
-              typeId: r.type_id,
-              createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, ts),
-              deletedAt: r.deleted_at ?? null,
-              syncStatus: 'synced',
-            })
-            .onConflictDoUpdate({
-              target: entities.id,
-              set: {
-                typeId: r.type_id,
-                updatedAt: Math.max(r.updated_at, ts),
-                deletedAt: r.deleted_at ?? null,
-                syncStatus: 'synced',
-              },
-            });
-          break;
-        }
-        case SyncTableName.AttributeDefs: {
-          const r = parsed.row;
-          await tx
-            .insert(attributeDefs)
-            .values({
-              id: r.id,
-              entityTypeId: r.entity_type_id,
-              code: r.code,
-              name: r.name,
-              dataType: r.data_type,
-              isRequired: r.is_required,
-              sortOrder: r.sort_order,
-              metaJson: r.meta_json ?? null,
-              createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, ts),
-              deletedAt: r.deleted_at ?? null,
-              syncStatus: 'synced',
-            })
-            .onConflictDoUpdate({
-              target: attributeDefs.id,
-              set: {
-                entityTypeId: r.entity_type_id,
-                code: r.code,
-                name: r.name,
-                dataType: r.data_type,
-                isRequired: r.is_required,
-                sortOrder: r.sort_order,
-                metaJson: r.meta_json ?? null,
-                updatedAt: Math.max(r.updated_at, ts),
-                deletedAt: r.deleted_at ?? null,
-                syncStatus: 'synced',
-              },
-            });
-          break;
-        }
-        case SyncTableName.AttributeValues: {
-          const r = parsed.row;
-          await tx
-            .insert(attributeValues)
-            .values({
-              id: r.id,
-              entityId: r.entity_id,
-              attributeDefId: r.attribute_def_id,
-              valueJson: r.value_json ?? null,
-              createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, ts),
-              deletedAt: r.deleted_at ?? null,
-              syncStatus: 'synced',
-            })
-            .onConflictDoUpdate({
-              target: attributeValues.id,
-              set: {
-                entityId: r.entity_id,
-                attributeDefId: r.attribute_def_id,
-                valueJson: r.value_json ?? null,
-                updatedAt: Math.max(r.updated_at, ts),
-                deletedAt: r.deleted_at ?? null,
-                syncStatus: 'synced',
-              },
-            });
-          await touchEntity(String(r.entity_id));
-          break;
-        }
-        case SyncTableName.Operations: {
-          const r = parsed.row;
-          await tx
-            .insert(operations)
-            .values({
-              id: r.id,
-              engineEntityId: r.engine_entity_id,
-              operationType: r.operation_type,
-              status: r.status,
-              note: r.note ?? null,
-              performedAt: r.performed_at ?? null,
-              performedBy: r.performed_by ?? null,
-              metaJson: r.meta_json ?? null,
-              createdAt: r.created_at,
-              updatedAt: Math.max(r.updated_at, ts),
-              deletedAt: r.deleted_at ?? null,
-              syncStatus: 'synced',
-            })
-            .onConflictDoUpdate({
-              target: operations.id,
-              set: {
-                engineEntityId: r.engine_entity_id,
-                operationType: r.operation_type,
-                status: r.status,
-                note: r.note ?? null,
-                performedAt: r.performed_at ?? null,
-                performedBy: r.performed_by ?? null,
-                metaJson: r.meta_json ?? null,
-                updatedAt: Math.max(r.updated_at, ts),
-                deletedAt: r.deleted_at ?? null,
-                syncStatus: 'synced',
-              },
-            });
-          await touchEntity(String(r.engine_entity_id));
-          break;
-        }
-        default:
-          throw new Error(`unsupported table: ${parsed.syncTable}`);
+    if (parsed.syncTable === SyncTableName.Operations && updatedRow.engine_entity_id) {
+      const cur = await db.select().from(entities).where(eq(entities.id, updatedRow.engine_entity_id as any)).limit(1);
+      const e = cur[0] as any;
+      if (e) {
+        inputs.push({
+          type: 'upsert',
+          table: SyncTableName.Entities,
+          row: {
+            id: String(e.id),
+            type_id: String(e.typeId),
+            created_at: Number(e.createdAt),
+            updated_at: ts,
+            deleted_at: e.deletedAt == null ? null : Number(e.deletedAt),
+            sync_status: 'synced',
+          },
+          row_id: String(e.id),
+        });
       }
+    }
 
-      await tx.insert(changeLog).values({
-        tableName: parsed.syncTable,
-        rowId: (parsed.row.id as any) ?? (cr.rowId as any),
-        op: parsed.row.deleted_at ? 'delete' : 'upsert',
-        payloadJson: JSON.stringify(parsed.row),
-        createdAt: ts,
-      });
+    // Write through the unified ledger path
+    await writeSyncChanges(inputs, { id: actor.id, username: actor.username, role: actor.role });
 
-      await tx
-        .update(changeRequests)
-        .set({
-          status: 'applied',
-          decidedAt: ts,
-          decidedByUserId: actor.id as any,
-          decidedByUsername: actor.username,
-        })
-        .where(and(eq(changeRequests.id, id as any), eq(changeRequests.status, 'pending')));
-    });
+    // Mark change request as applied
+    await db
+      .update(changeRequests)
+      .set({
+        status: 'applied',
+        decidedAt: ts,
+        decidedByUserId: actor.id as any,
+        decidedByUsername: actor.username,
+      })
+      .where(and(eq(changeRequests.id, id as any), eq(changeRequests.status, 'pending')));
 
     return res.json({ ok: true });
   } catch (e) {

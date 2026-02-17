@@ -27,7 +27,6 @@ import {
   chatMessages,
   chatReads,
   diagnosticsSnapshots,
-  changeLog,
   entities,
   entityTypes,
   notes,
@@ -70,9 +69,10 @@ export type AppliedSyncChange = {
 
 type ApplyPushOptions = {
   collectChanges?: AppliedSyncChange[];
+  /** @deprecated No longer used. Change log has been removed. Kept for API compat. */
   skipChangeLog?: boolean;
-  // Recovery mode for server-side replay from canonical ledger state.
-  // In this mode stale/older rows are dropped, but batch does not fail.
+  /** Recovery mode for server-side replay from canonical ledger state.
+   * In this mode stale/older rows are dropped, but batch does not fail. */
   allowSyncConflicts?: boolean;
 };
 
@@ -195,22 +195,47 @@ export async function applyPushBatch(
             syncStatus: 'synced',
           },
         });
-      await insertChangeLogAndUpdateSeq(userPresence, SyncTableName.UserPresence, [presencePayload]);
+      await updateSeqAndCollect(userPresence, SyncTableName.UserPresence, [presencePayload]);
       applied += 1;
     }
 
-    async function ensureOwner(tableName: string, rowId: string, owner: { userId: string | null; username: string | null }) {
-      await tx
-        .insert(rowOwners)
-        .values({
-          id: randomUUID(),
-          tableName,
-          rowId: rowId as any,
-          ownerUserId: owner.userId ? (owner.userId as any) : null,
-          ownerUsername: owner.username ?? null,
-          createdAt: appliedAt,
-        })
-        .onConflictDoNothing();
+    // Deferred ownership records -- collected during the transaction, flushed in one bulk INSERT.
+    const pendingOwners: Array<{
+      tableName: string;
+      rowId: string;
+      ownerUserId: string | null;
+      ownerUsername: string | null;
+    }> = [];
+
+    function queueOwner(tableName: string, rowId: string, owner: { userId: string | null; username: string | null }) {
+      pendingOwners.push({
+        tableName,
+        rowId,
+        ownerUserId: owner.userId || null,
+        ownerUsername: owner.username ?? null,
+      });
+    }
+
+    async function flushOwners() {
+      if (pendingOwners.length === 0) return;
+      // Chunk to avoid exceeding PG parameter limits (~65535 params, 6 params per row -> max ~10000 per chunk)
+      const CHUNK = 5000;
+      for (let i = 0; i < pendingOwners.length; i += CHUNK) {
+        const chunk = pendingOwners.slice(i, i + CHUNK);
+        await tx
+          .insert(rowOwners)
+          .values(
+            chunk.map((o) => ({
+              id: randomUUID(),
+              tableName: o.tableName,
+              rowId: o.rowId as any,
+              ownerUserId: o.ownerUserId ? (o.ownerUserId as any) : null,
+              ownerUsername: o.ownerUsername,
+              createdAt: appliedAt,
+            })),
+          )
+          .onConflictDoNothing();
+      }
     }
 
     async function ensureSupplyRequestsContainer() {
@@ -238,7 +263,7 @@ export async function applyPushBatch(
           deleted_at: null,
           sync_status: 'synced',
         };
-        await insertChangeLogAndUpdateSeq(entityTypes, SyncTableName.EntityTypes, [payload]);
+        await updateSeqAndCollect(entityTypes, SyncTableName.EntityTypes, [payload]);
       }
 
       // 2) entity (idempotent)
@@ -263,7 +288,7 @@ export async function applyPushBatch(
           deleted_at: null,
           sync_status: 'synced',
         };
-        await insertChangeLogAndUpdateSeq(entities, SyncTableName.Entities, [payload]);
+        await updateSeqAndCollect(entities, SyncTableName.Entities, [payload]);
       }
     }
 
@@ -291,7 +316,7 @@ export async function applyPushBatch(
           deleted_at: null,
           sync_status: 'synced',
         };
-        await insertChangeLogAndUpdateSeq(entityTypes, SyncTableName.EntityTypes, [payload]);
+        await updateSeqAndCollect(entityTypes, SyncTableName.EntityTypes, [payload]);
       }
 
       const insertedEntity = await tx
@@ -315,7 +340,7 @@ export async function applyPushBatch(
           deleted_at: null,
           sync_status: 'synced',
         };
-        await insertChangeLogAndUpdateSeq(entities, SyncTableName.Entities, [payload]);
+        await updateSeqAndCollect(entities, SyncTableName.Entities, [payload]);
       }
     }
 
@@ -395,32 +420,15 @@ export async function applyPushBatch(
       await tx.update(table).set({ lastServerSeq: caseExpr }).where(inArray(table.id, ids as any));
     }
 
-    async function insertChangeLogAndUpdateSeq(table: any, tableName: SyncTableName, rows: any[]) {
+    async function updateSeqAndCollect(table: any, tableName: SyncTableName, rows: any[]) {
       if (rows.length === 0) return;
-      if (!applyOpts?.skipChangeLog) {
-        const inserted = await tx
-          .insert(changeLog)
-          .values(
-            rows.map((r) => ({
-              tableName,
-              rowId: r.id as any,
-              op: normalizeOpFromRow(r),
-              payloadJson: JSON.stringify(r),
-              createdAt: appliedAt,
-            })),
-          )
-          .returning({ rowId: changeLog.rowId, serverSeq: changeLog.serverSeq });
-        const pairs = inserted.map((r) => ({ rowId: String(r.rowId), serverSeq: Number(r.serverSeq) }));
-        await applyLastServerSeq(table, pairs);
-      } else {
-        const pairs = rows
-          .map((r) => ({
-            rowId: String(r.id),
-            serverSeq: Number(r.last_server_seq ?? r.lastServerSeq ?? NaN),
-          }))
-          .filter((p) => Number.isFinite(p.serverSeq));
-        if (pairs.length > 0) await applyLastServerSeq(table, pairs);
-      }
+      const pairs = rows
+        .map((r) => ({
+          rowId: String(r.id),
+          serverSeq: Number(r.last_server_seq ?? r.lastServerSeq ?? NaN),
+        }))
+        .filter((p) => Number.isFinite(p.serverSeq));
+      if (pairs.length > 0) await applyLastServerSeq(table, pairs);
       if (collected) {
         for (const r of rows) {
           collected.push({
@@ -529,13 +537,13 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(entityTypes, SyncTableName.EntityTypes, allowed);
+        await updateSeqAndCollect(entityTypes, SyncTableName.EntityTypes, allowed);
         applied += allowed.length;
 
-        // Ownership for newly created rows
+        // Ownership for newly created rows (deferred batch insert)
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            await ensureOwner(SyncTableName.EntityTypes, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.EntityTypes, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -609,12 +617,12 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(entities, SyncTableName.Entities, allowed);
+        await updateSeqAndCollect(entities, SyncTableName.Entities, allowed);
         applied += allowed.length;
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            await ensureOwner(SyncTableName.Entities, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.Entities, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -779,12 +787,12 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(attributeDefs, SyncTableName.AttributeDefs, allowed);
+        await updateSeqAndCollect(attributeDefs, SyncTableName.AttributeDefs, allowed);
         applied += allowed.length;
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            await ensureOwner(SyncTableName.AttributeDefs, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.AttributeDefs, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -919,13 +927,13 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(attributeValues, SyncTableName.AttributeValues, allowedDeduped);
+        await updateSeqAndCollect(attributeValues, SyncTableName.AttributeValues, allowedDeduped);
         applied += allowedDeduped.length;
 
         // Ownership for newly created attribute_values is inherited from parent entity.
         for (const r of allowedDeduped) {
           if (!existingMap.get(String(r.id))) {
-            await ensureOwner(SyncTableName.AttributeValues, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.AttributeValues, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -1025,12 +1033,12 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(operations, SyncTableName.Operations, allowed);
+        await updateSeqAndCollect(operations, SyncTableName.Operations, allowed);
         applied += allowed.length;
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            await ensureOwner(SyncTableName.Operations, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.Operations, String(r.id), { userId: actor.id || null, username: actor.username });
           }
         }
       }
@@ -1071,7 +1079,7 @@ export async function applyPushBatch(
               syncStatus: 'synced',
             },
           });
-        await insertChangeLogAndUpdateSeq(auditLog, SyncTableName.AuditLog, rows);
+        await updateSeqAndCollect(auditLog, SyncTableName.AuditLog, rows);
         applied += rows.length;
       }
     }
@@ -1160,7 +1168,7 @@ export async function applyPushBatch(
                 syncStatus: 'synced',
               },
             });
-          await insertChangeLogAndUpdateSeq(chatMessages, SyncTableName.ChatMessages, allowed);
+          await updateSeqAndCollect(chatMessages, SyncTableName.ChatMessages, allowed);
           applied += allowed.length;
 
           for (const r of allowed) {
@@ -1229,7 +1237,7 @@ export async function applyPushBatch(
                 syncStatus: 'synced',
               },
             });
-          await insertChangeLogAndUpdateSeq(chatReads, SyncTableName.ChatReads, allowed);
+          await updateSeqAndCollect(chatReads, SyncTableName.ChatReads, allowed);
           applied += allowed.length;
         }
       }
@@ -1302,7 +1310,7 @@ export async function applyPushBatch(
                 syncStatus: 'synced',
               },
             });
-          await insertChangeLogAndUpdateSeq(notes, SyncTableName.Notes, allowed);
+          await updateSeqAndCollect(notes, SyncTableName.Notes, allowed);
           applied += allowed.length;
         }
       }
@@ -1397,11 +1405,14 @@ export async function applyPushBatch(
                 syncStatus: 'synced',
               },
             });
-          await insertChangeLogAndUpdateSeq(noteShares, SyncTableName.NoteShares, allowed);
+          await updateSeqAndCollect(noteShares, SyncTableName.NoteShares, allowed);
           applied += allowed.length;
         }
       }
     }
+
+    // Flush all deferred ownership records in one batch INSERT.
+    await flushOwners();
 
     if (skipCounters.size > 0) {
       const metrics = Array.from(skipCounters.entries()).map(([key, count]) => {

@@ -1,5 +1,12 @@
+/**
+ * pullChangesSince -- incremental pull from ledgerTxIndex with privacy pre-filtering.
+ *
+ * Optimization: for non-admin users, chat_messages/chat_reads/notes/note_shares
+ * are pre-filtered at the SQL level using payload_json extraction, avoiding
+ * unnecessary JSON parsing in application code.
+ */
 import type { SyncPullResponse } from '@matricarmz/shared';
-import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import os from 'node:os';
 
 import { db } from '../../database/db.js';
@@ -8,7 +15,7 @@ import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 
 function withServerSeq(payloadJson: string, serverSeq: number): string {
   try {
-    const parsed = JSON.parse(String(payloadJson ?? '')) as any;
+    const parsed = JSON.parse(String(payloadJson ?? '')) as Record<string, unknown>;
     if (!parsed || typeof parsed !== 'object') return payloadJson;
     parsed.last_server_seq = serverSeq;
     return JSON.stringify(parsed);
@@ -16,6 +23,9 @@ function withServerSeq(payloadJson: string, serverSeq: number): string {
     return payloadJson;
   }
 }
+
+/** Privacy-sensitive table names. */
+const PRIVACY_TABLES = new Set(['chat_messages', 'chat_reads', 'notes', 'note_shares']);
 
 export async function pullChangesSince(
   since: number,
@@ -27,20 +37,16 @@ export async function pullChangesSince(
   await ensureLedgerTxIndexUpToDate().catch(() => null);
   const maxSeqRow = await db.select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` }).from(ledgerTxIndex).limit(1);
   const serverLastSeq = Number(maxSeqRow[0]?.max ?? 0);
-  // Self-heal for clients that carry an out-of-range cursor after index maintenance/rebuild.
   const effectiveSince = Math.max(0, Math.min(Number(since ?? 0), serverLastSeq));
+
+  // Adaptive page size
   let safeLimit = requestedLimit;
   if (String(process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED ?? '1').trim() !== '0') {
     const backlog = Math.max(0, serverLastSeq - effectiveSince);
-    const cores = Math.max(1, Number((os as any).availableParallelism?.() ?? os.cpus()?.length ?? 1));
-    const load = Number(os.loadavg?.()[0] ?? 0);
     if (backlog >= 100_000) {
       safeLimit = Math.max(safeLimit, 10_000);
     } else if (backlog >= 20_000) {
       safeLimit = Math.max(safeLimit, 7000);
-    }
-    if (load > cores * 1.2) {
-      safeLimit = Math.max(1500, Math.min(safeLimit, Math.floor(safeLimit * 0.5)));
     }
     const driftRows = await db
       .select({ count: sql<number>`count(*)` })
@@ -57,118 +63,200 @@ export async function pullChangesSince(
     }
     safeLimit = Math.max(1, Math.min(20_000, safeLimit));
   }
-  const rows = await db
-    .select({
-      table: ledgerTxIndex.tableName,
-      rowId: ledgerTxIndex.rowId,
-      op: ledgerTxIndex.op,
-      payloadJson: ledgerTxIndex.payloadJson,
-      serverSeq: ledgerTxIndex.serverSeq,
-    })
-    .from(ledgerTxIndex)
-    .where(gt(ledgerTxIndex.serverSeq, effectiveSince))
-    .orderBy(asc(ledgerTxIndex.serverSeq))
-    .limit(safeLimit + 1);
-  const pageRows = rows.slice(0, safeLimit);
-  const hasMore = rows.length > safeLimit;
 
   const actorId = String(actor?.id ?? '');
   const actorRole = String(actor?.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const actorIsPending = actorRole === 'pending';
 
-  let sharedNoteIds = new Set<string>();
-  let noteOwnerById = new Map<string, string>();
+  // ── Privacy-aware SQL query ──────────────────────────────
+  // For non-admin users, use SQL-level pre-filtering on privacy tables to avoid
+  // reading and parsing JSON for rows the user cannot access.
+  let rows;
+  if (actorIsAdmin) {
+    rows = await db
+      .select({
+        table: ledgerTxIndex.tableName,
+        rowId: ledgerTxIndex.rowId,
+        op: ledgerTxIndex.op,
+        payloadJson: ledgerTxIndex.payloadJson,
+        serverSeq: ledgerTxIndex.serverSeq,
+      })
+      .from(ledgerTxIndex)
+      .where(gt(ledgerTxIndex.serverSeq, effectiveSince))
+      .orderBy(asc(ledgerTxIndex.serverSeq))
+      .limit(safeLimit + 1);
+  } else {
+    // Build a WHERE clause that pre-filters privacy tables at SQL level:
+    // - Non-privacy tables: always include
+    // - chat_messages: sender_user_id or recipient_user_id matches actor
+    // - chat_reads: user_id matches actor
+    // - notes: owner_user_id matches actor (shared notes handled in post-filter)
+    // - note_shares: recipient_user_id matches actor (owner check in post-filter)
+    const privacyFilter = or(
+      // Non-privacy tables: always pass
+      sql`${ledgerTxIndex.tableName} NOT IN ('chat_messages', 'chat_reads', 'notes', 'note_shares')`,
+      // chat_messages: sender or recipient matches
+      and(
+        eq(ledgerTxIndex.tableName, 'chat_messages'),
+        or(
+          sql`${ledgerTxIndex.payloadJson}::jsonb->>'sender_user_id' = ${actorId}`,
+          sql`${ledgerTxIndex.payloadJson}::jsonb->>'recipient_user_id' = ${actorId}`,
+          // Broadcast messages (no recipient) - visible to non-pending users
+          ...(actorIsPending ? [] : [sql`${ledgerTxIndex.payloadJson}::jsonb->>'recipient_user_id' IS NULL`]),
+        ),
+      ),
+      // chat_reads: user_id matches
+      and(
+        eq(ledgerTxIndex.tableName, 'chat_reads'),
+        sql`${ledgerTxIndex.payloadJson}::jsonb->>'user_id' = ${actorId}`,
+      ),
+      // notes: own notes always visible; shared notes handled in post-filter
+      and(
+        eq(ledgerTxIndex.tableName, 'notes'),
+        sql`${ledgerTxIndex.payloadJson}::jsonb->>'owner_user_id' = ${actorId}`,
+      ),
+      // note_shares: recipient matches or note owner matches (owner check in post-filter)
+      and(
+        eq(ledgerTxIndex.tableName, 'note_shares'),
+        sql`${ledgerTxIndex.payloadJson}::jsonb->>'recipient_user_id' = ${actorId}`,
+      ),
+    );
+
+    rows = await db
+      .select({
+        table: ledgerTxIndex.tableName,
+        rowId: ledgerTxIndex.rowId,
+        op: ledgerTxIndex.op,
+        payloadJson: ledgerTxIndex.payloadJson,
+        serverSeq: ledgerTxIndex.serverSeq,
+      })
+      .from(ledgerTxIndex)
+      .where(and(gt(ledgerTxIndex.serverSeq, effectiveSince), privacyFilter))
+      .orderBy(asc(ledgerTxIndex.serverSeq))
+      .limit(safeLimit + 1);
+  }
+
+  // ── Post-filter for shared notes ─────────────────────────
+  // The SQL pre-filter catches direct ownership but not shared notes.
+  // We need a small post-filter for notes shared with the user.
+  let pageRows = rows.slice(0, safeLimit);
+  const hasMore = rows.length > safeLimit;
 
   if (!actorIsAdmin) {
-    const noteRows = pageRows.filter((r) => String(r.table) === 'notes');
-    const noteShareRows = pageRows.filter((r) => String(r.table) === 'note_shares');
+    // Check for notes shared with this user that may have been missed by owner-only SQL filter
+    const missedNoteIds = new Set<string>();
+    // Also collect note_shares rows that need owner verification
+    const noteShareNoteIds: string[] = [];
 
-    if (noteRows.length > 0) {
-      const noteIds = noteRows.map((r) => String(r.rowId));
-      const shares = await db
-        .select({ noteId: noteShares.noteId, hidden: noteShares.hidden })
-        .from(noteShares)
-        .where(and(eq(noteShares.recipientUserId, actorId), inArray(noteShares.noteId, noteIds as any), isNull(noteShares.deletedAt)))
-        .limit(50_000);
-      sharedNoteIds = new Set(shares.filter((s) => !s.hidden).map((s) => String(s.noteId)));
-    }
-
-    if (noteShareRows.length > 0) {
-      const noteIds: string[] = [];
-      for (const r of noteShareRows) {
+    // Scan current batch for notes/note_shares that might need additional visibility
+    for (const r of pageRows) {
+      if (String(r.table) === 'note_shares') {
         try {
-          const p = JSON.parse(String(r.payloadJson ?? '')) as any;
-          if (p?.note_id) noteIds.push(String(p.note_id));
+          const p = JSON.parse(String(r.payloadJson ?? '')) as Record<string, unknown>;
+          if (p?.note_id) noteShareNoteIds.push(String(p.note_id));
         } catch {
           continue;
         }
       }
-      const uniqueIds = Array.from(new Set(noteIds));
-      if (uniqueIds.length === 0) {
-        noteOwnerById = new Map();
-      } else {
-      const owners = await db
-        .select({ id: notes.id, ownerUserId: notes.ownerUserId })
-        .from(notes)
-        .where(inArray(notes.id, uniqueIds as any))
-        .limit(50_000);
-        noteOwnerById = new Map(owners.map((r) => [String(r.id), String(r.ownerUserId)]));
+    }
+
+    // For note_shares: verify the note owner is the actor (already included via recipient in SQL)
+    // This is handled by the SQL filter for recipient_user_id, but we need to add
+    // notes the user created that got shared -- those note_shares rows are already included
+    // because the SQL filters for recipient_user_id match.
+
+    // For notes: add shared notes that the SQL filter missed (not owner but shared with)
+    const noteRows = pageRows.filter((r) => String(r.table) === 'notes');
+    if (noteRows.length === 0) {
+      // The SQL filter already filtered out notes not owned by the actor.
+      // We need to add back notes shared with the actor.
+      // This requires a separate query for notes shared with this user.
+    }
+
+    // Get IDs of notes shared with this user
+    const sharedNotesResult = await db
+      .select({ noteId: noteShares.noteId })
+      .from(noteShares)
+      .where(and(eq(noteShares.recipientUserId, actorId), isNull(noteShares.deletedAt), eq(noteShares.hidden, false)))
+      .limit(50_000);
+    const sharedNoteIds = new Set(sharedNotesResult.map((r) => String(r.noteId)));
+
+    // Add shared notes that were filtered out by the SQL-level owner check
+    if (sharedNoteIds.size > 0) {
+      const sharedNoteIdsArr = Array.from(sharedNoteIds);
+      const sharedNoteRows = await db
+        .select({
+          table: ledgerTxIndex.tableName,
+          rowId: ledgerTxIndex.rowId,
+          op: ledgerTxIndex.op,
+          payloadJson: ledgerTxIndex.payloadJson,
+          serverSeq: ledgerTxIndex.serverSeq,
+        })
+        .from(ledgerTxIndex)
+        .where(
+          and(
+            gt(ledgerTxIndex.serverSeq, effectiveSince),
+            eq(ledgerTxIndex.tableName, 'notes'),
+            inArray(ledgerTxIndex.rowId, sharedNoteIdsArr),
+          ),
+        )
+        .orderBy(asc(ledgerTxIndex.serverSeq))
+        .limit(safeLimit);
+
+      // Merge shared note rows into pageRows (avoiding duplicates)
+      const existingSeqs = new Set(pageRows.map((r) => r.serverSeq));
+      for (const r of sharedNoteRows) {
+        if (!existingSeqs.has(r.serverSeq)) {
+          pageRows.push(r);
+        }
       }
+
+      // Re-sort by serverSeq
+      pageRows.sort((a, b) => a.serverSeq - b.serverSeq);
+    }
+
+    // Also check note_shares where actor is the note owner
+    if (noteShareNoteIds.length > 0) {
+      const uniqueNoteIds = Array.from(new Set(noteShareNoteIds));
+      const ownedNotes = await db
+        .select({ id: notes.id })
+        .from(notes)
+        .where(and(inArray(notes.id, uniqueNoteIds), eq(notes.ownerUserId, actorId)))
+        .limit(50_000);
+      const ownedNoteIdSet = new Set(ownedNotes.map((r) => String(r.id)));
+
+      // Get note_shares for owned notes that the SQL filter might have missed
+      const ownedShareRows = await db
+        .select({
+          table: ledgerTxIndex.tableName,
+          rowId: ledgerTxIndex.rowId,
+          op: ledgerTxIndex.op,
+          payloadJson: ledgerTxIndex.payloadJson,
+          serverSeq: ledgerTxIndex.serverSeq,
+        })
+        .from(ledgerTxIndex)
+        .where(
+          and(
+            gt(ledgerTxIndex.serverSeq, effectiveSince),
+            eq(ledgerTxIndex.tableName, 'note_shares'),
+            inArray(ledgerTxIndex.rowId, Array.from(ownedNoteIdSet)),
+          ),
+        )
+        .orderBy(asc(ledgerTxIndex.serverSeq))
+        .limit(safeLimit);
+
+      const existingSeqs2 = new Set(pageRows.map((r) => r.serverSeq));
+      for (const r of ownedShareRows) {
+        if (!existingSeqs2.has(r.serverSeq)) {
+          pageRows.push(r);
+        }
+      }
+
+      pageRows.sort((a, b) => a.serverSeq - b.serverSeq);
     }
   }
 
-  const filtered = pageRows.filter((r) => {
-    const table = String(r.table);
-    if (table === 'chat_messages') {
-      if (actorIsAdmin) return true;
-      try {
-        const p = JSON.parse(String(r.payloadJson ?? '')) as any;
-        const senderId = String(p?.sender_user_id ?? '');
-        const recipientId = p?.recipient_user_id == null ? null : String(p?.recipient_user_id);
-        if (!recipientId) return actorIsPending ? false : true;
-        return senderId === actorId || recipientId === actorId;
-      } catch {
-        return false;
-      }
-    }
-    if (table === 'chat_reads') {
-      if (actorIsAdmin) return true;
-      try {
-        const p = JSON.parse(String(r.payloadJson ?? '')) as any;
-        const userId = String(p?.user_id ?? '');
-        return userId === actorId;
-      } catch {
-        return false;
-      }
-    }
-    if (table === 'notes') {
-      if (actorIsAdmin) return true;
-      try {
-        const p = JSON.parse(String(r.payloadJson ?? '')) as any;
-        const ownerId = String(p?.owner_user_id ?? '');
-        if (ownerId === actorId) return true;
-        return sharedNoteIds.has(String(r.rowId));
-      } catch {
-        return false;
-      }
-    }
-    if (table === 'note_shares') {
-      if (actorIsAdmin) return true;
-      try {
-        const p = JSON.parse(String(r.payloadJson ?? '')) as any;
-        const recipientId = String(p?.recipient_user_id ?? '');
-        if (recipientId === actorId) return true;
-        const ownerId = noteOwnerById.get(String(p?.note_id ?? ''));
-        return ownerId === actorId;
-      } catch {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  // IMPORTANT: cursor must reflect the real last server_seq we observed.
   const last = pageRows.at(-1)?.serverSeq ?? effectiveSince;
 
   return {
@@ -177,14 +265,12 @@ export async function pullChangesSince(
     server_cursor: last,
     server_last_seq: serverLastSeq,
     has_more: hasMore,
-    changes: filtered.map((r) => ({
-      table: r.table as any,
+    changes: pageRows.map((r) => ({
+      table: r.table as SyncPullResponse['changes'][number]['table'],
       row_id: r.rowId,
-      op: r.op as any,
+      op: r.op as SyncPullResponse['changes'][number]['op'],
       payload_json: withServerSeq(r.payloadJson, r.serverSeq),
       server_seq: r.serverSeq,
     })),
   };
 }
-
-

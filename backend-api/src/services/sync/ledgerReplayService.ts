@@ -1,21 +1,8 @@
-import { LedgerTableName } from '@matricarmz/ledger';
-import { SyncTableName } from '@matricarmz/shared';
+import type { LedgerTableName } from '@matricarmz/ledger';
+import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 
 import { queryState } from '../../ledger/ledgerService.js';
 import { applyPushBatch } from './applyPushBatch.js';
-
-const SYNC_TABLES: Array<{ ledger: LedgerTableName; sync: SyncTableName }> = [
-  { ledger: LedgerTableName.EntityTypes, sync: SyncTableName.EntityTypes },
-  { ledger: LedgerTableName.Entities, sync: SyncTableName.Entities },
-  { ledger: LedgerTableName.AttributeDefs, sync: SyncTableName.AttributeDefs },
-  { ledger: LedgerTableName.AttributeValues, sync: SyncTableName.AttributeValues },
-  { ledger: LedgerTableName.Operations, sync: SyncTableName.Operations },
-  { ledger: LedgerTableName.AuditLog, sync: SyncTableName.AuditLog },
-  { ledger: LedgerTableName.ChatMessages, sync: SyncTableName.ChatMessages },
-  { ledger: LedgerTableName.UserPresence, sync: SyncTableName.UserPresence },
-  { ledger: LedgerTableName.Notes, sync: SyncTableName.Notes },
-  { ledger: LedgerTableName.NoteShares, sync: SyncTableName.NoteShares },
-];
 
 const PAGE_LIMIT = 5000;
 
@@ -90,13 +77,13 @@ export async function replayLedgerToDb(actor: { id: string; username: string; ro
     throw new Error('actor is required');
   }
   const upserts: { table: SyncTableName; rows: any[] }[] = [];
-  for (const entry of SYNC_TABLES) {
-    const rows = await loadAllRows(entry.ledger);
+  for (const regEntry of SyncTableRegistry.entries()) {
+    const rows = await loadAllRows(regEntry.ledgerName as LedgerTableName);
     if (rows.length === 0) continue;
     const normalized = rows
-      .map((row) => normalizeRow(entry.sync, row as Record<string, unknown>))
+      .map((row) => normalizeRow(regEntry.syncName, row as Record<string, unknown>))
       .filter((row): row is Record<string, unknown> => !!row);
-    if (normalized.length > 0) upserts.push({ table: entry.sync, rows: normalized });
+    if (normalized.length > 0) upserts.push({ table: regEntry.syncName, rows: normalized });
   }
 
   if (upserts.length === 0) {

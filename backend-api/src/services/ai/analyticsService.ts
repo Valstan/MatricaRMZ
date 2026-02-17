@@ -58,7 +58,7 @@ function buildAccessPolicy(perms: Record<string, boolean>): AccessPolicy {
   if (can('files.view')) allow('file_assets');
   if (can('clients.manage')) {
     allow('sync_state');
-    allow('change_log');
+    allow('ledger_tx_index');
     allow('client_settings');
   }
   return { allowedTables };

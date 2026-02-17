@@ -2,6 +2,7 @@ import { LedgerStore } from '@matricarmz/ledger';
 import {
   EntityTypeCode,
   SyncTableName,
+  SyncTableRegistry,
   attributeValueRowSchema,
   auditLogRowSchema,
   attributeDefRowSchema,
@@ -21,7 +22,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { getSqliteHandle } from '../database/db.js';
 import {
@@ -42,8 +43,22 @@ import { authRefresh, clearSession, getSession } from './authService.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
+import { encryptRowSensitive, decryptRowSensitive, isE2eEnabled, getE2eKeys } from './sync/e2eCrypto.js';
+import {
+  markPendingError,
+  dropPendingChatReads as dropPendingChatReadsRecovery,
+  isChatReadsDuplicateError,
+  isDependencyMissingError,
+  isConflictError,
+  isInvalidRowError,
+  isNotFoundSyncError,
+  markAllEntityTypesPending,
+  markAllAttributeDefsPending,
+} from './sync/errorRecovery.js';
+import { buildDiagnosticsSnapshot, sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
+import { createProgressEmitter, nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
-import { getKeyRing, keyRingToBuffers } from './e2eKeyService.js';
+// getKeyRing/keyRingToBuffers now imported in sync/e2eCrypto.ts
 
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
@@ -83,13 +98,9 @@ const FULL_STATE_SYNC_TABLES: SyncTableName[] = [
   SyncTableName.NoteShares,
 ];
 
-function nowMs() {
-  return Date.now();
-}
+// Moved to sync/progressEmitter.ts
 
-function yieldToEventLoop() {
-  return new Promise<void>((resolve) => setTimeout(resolve, 0));
-}
+// Moved to sync/progressEmitter.ts
 
 function logSync(message: string) {
   try {
@@ -355,75 +366,17 @@ function getClientLedgerStore(): LedgerStore {
   return clientLedgerStore;
 }
 
-function isE2eEnabled(): boolean {
-  return String(process.env[LEDGER_E2E_ENV] ?? '') === '1';
-}
+// Moved to sync/e2eCrypto.ts
 
-function getE2eKeys(): { primary: Buffer | null; all: Buffer[] } {
-  if (!isE2eEnabled()) return { primary: null, all: [] };
-  const ring = getKeyRing();
-  const all = keyRingToBuffers(ring);
-  const primary = all[0] ?? null;
-  return { primary, all };
-}
+// getE2eKeys: Moved to sync/e2eCrypto.ts
 
-function encryptTextE2e(value: string, key: Buffer): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `enc:e2e:v1:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
-}
+// Moved to sync/e2eCrypto.ts
 
-function decryptTextE2e(value: string, key: Buffer): string {
-  if (!value.startsWith('enc:e2e:v1:')) return value;
-  const parts = value.split(':');
-  if (parts.length !== 6) return value;
-  const ivPart = parts[3];
-  const tagPart = parts[4];
-  const dataPart = parts[5];
-  if (!ivPart || !tagPart || !dataPart) return value;
-  const iv = Buffer.from(ivPart, 'base64');
-  const tag = Buffer.from(tagPart, 'base64');
-  const data = Buffer.from(dataPart, 'base64');
-  const decipher = createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-  return decrypted.toString('utf8');
-}
+// Moved to sync/e2eCrypto.ts
 
-function encryptRowSensitive(row: Record<string, unknown>, key: Buffer | null) {
-  if (!key) return row;
-  const next = { ...row };
-  for (const field of ['meta_json', 'payload_json']) {
-    const val = next[field];
-    if (typeof val === 'string' && val.length > 0 && !val.startsWith('enc:e2e:v1:')) {
-      next[field] = encryptTextE2e(val, key);
-    }
-  }
-  return next;
-}
+// Moved to sync/e2eCrypto.ts
 
-function decryptRowSensitive(row: Record<string, unknown>, keys: Buffer[]) {
-  if (!keys.length) return row;
-  const next = { ...row };
-  for (const field of ['meta_json', 'payload_json']) {
-    const val = next[field];
-    if (typeof val === 'string' && val.startsWith('enc:e2e:v1:')) {
-      let decrypted: string | null = null;
-      for (const key of keys) {
-        try {
-          decrypted = decryptTextE2e(val, key);
-          break;
-        } catch {
-          decrypted = null;
-        }
-      }
-      if (decrypted != null) next[field] = decrypted;
-    }
-  }
-  return next;
-}
+// Moved to sync/e2eCrypto.ts
 
 async function safeBodyText(r: Response): Promise<string> {
   try {
@@ -454,349 +407,65 @@ type SnapshotSection = {
   pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
 };
 
-function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: number | null) {
-  const raw = `${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`;
-  return createHash('md5').update(raw).digest('hex');
-}
+// hashSnapshot: Moved to sync/diagnosticsReporter.ts
 
-async function snapshotTable(
-  db: BetterSQLite3Database,
-  table: typeof entityTypes | typeof entities | typeof attributeDefs | typeof attributeValues | typeof operations,
-): Promise<SnapshotSection> {
-  const row = await db
-    .select({
-      count: sql<number>`count(*)`,
-      maxUpdatedAt: sql<number | null>`max(${table.updatedAt})`,
-      sumUpdatedAt: sql<number | null>`sum(${table.updatedAt})`,
-    })
-    .from(table)
-    .where(isNull(table.deletedAt))
-    .limit(1);
-  const statusRow = await db
-    .select({
-      pendingCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'pending' then 1 else 0 end), 0)`,
-      errorCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'error' then 1 else 0 end), 0)`,
-    })
-    .from(table)
-    .where(isNull(table.deletedAt))
-    .limit(1);
-  const r = row[0];
-  const count = Number(r?.count ?? 0);
-  const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
-  const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
-  const s = statusRow[0];
-  const pendingCount = Number(s?.pendingCount ?? 0);
-  const errorCount = Number(s?.errorCount ?? 0);
-  return {
-    count,
-    maxUpdatedAt,
-    checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
-    pendingCount,
-    errorCount,
-  };
-}
+// snapshotTable: Moved to sync/diagnosticsReporter.ts
 
-async function snapshotEntityType(db: BetterSQLite3Database, typeId: string): Promise<SnapshotSection> {
-  const row = await db
-    .select({
-      count: sql<number>`count(*)`,
-      maxUpdatedAt: sql<number | null>`max(${entities.updatedAt})`,
-      sumUpdatedAt: sql<number | null>`sum(${entities.updatedAt})`,
-    })
-    .from(entities)
-    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
-    .limit(1);
-  const statusRow = await db
-    .select({
-      pendingCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'pending' then 1 else 0 end), 0)`,
-      errorCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'error' then 1 else 0 end), 0)`,
-    })
-    .from(entities)
-    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
-    .limit(1);
-  const r = row[0];
-  const count = Number(r?.count ?? 0);
-  const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
-  const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
-  const s = statusRow[0];
-  const pendingCount = Number(s?.pendingCount ?? 0);
-  const errorCount = Number(s?.errorCount ?? 0);
-  return {
-    count,
-    maxUpdatedAt,
-    checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
-    pendingCount,
-    errorCount,
-  };
-}
+// snapshotEntityType: Moved to sync/diagnosticsReporter.ts
 
-function safeJsonParseValue(raw: string | null | undefined): unknown {
-  if (raw == null) return null;
-  try {
-    return JSON.parse(String(raw));
-  } catch {
-    return raw;
-  }
-}
+// safeJsonParseValue: Moved to sync/diagnosticsReporter.ts
 
-async function findLabelDefId(db: BetterSQLite3Database, typeId: string): Promise<string | null> {
-  const rows = await db
-    .select({ id: attributeDefs.id, code: attributeDefs.code })
-    .from(attributeDefs)
-    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)))
-    .limit(200);
-  const byCode = new Map<string, string>();
-  for (const r of rows as any[]) byCode.set(String(r.code), String(r.id));
-  for (const key of ['name', 'number', 'engine_number', 'full_name']) {
-    const id = byCode.get(key);
-    if (id) return id;
-  }
-  return null;
-}
+// findLabelDefId: Moved to sync/diagnosticsReporter.ts
 
-async function loadLabelMap(db: BetterSQLite3Database, entityIds: string[], labelDefId: string | null) {
-  if (!labelDefId || entityIds.length === 0) return new Map<string, string>();
-  const rows = await db
-    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(and(inArray(attributeValues.entityId, entityIds as any), eq(attributeValues.attributeDefId, labelDefId as any), isNull(attributeValues.deletedAt)))
-    .limit(50_000);
-  const map = new Map<string, string>();
-  for (const r of rows as any[]) {
-    const id = String(r.entityId ?? '');
-    if (!id || map.has(id)) continue;
-    const parsed = safeJsonParseValue(r.valueJson == null ? null : String(r.valueJson));
-    if (parsed == null || parsed === '') continue;
-    map.set(id, String(parsed));
-  }
-  return map;
-}
+// loadLabelMap: Moved to sync/diagnosticsReporter.ts
 
-async function listPendingEntities(db: BetterSQLite3Database, typeId: string, limit = 5) {
-  const rows = await db
-    .select({ id: entities.id, updatedAt: entities.updatedAt, syncStatus: entities.syncStatus })
-    .from(entities)
-    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt), inArray(entities.syncStatus, ['pending', 'error'] as any)))
-    .orderBy(sql`${entities.updatedAt} desc`)
-    .limit(limit);
-  if (!rows.length) return [];
-  const ids = rows.map((r) => String(r.id));
-  const labelDefId = await findLabelDefId(db, typeId);
-  const labelMap = await loadLabelMap(db, ids, labelDefId);
-  return rows.map((r: any) => {
-    const id = String(r.id);
-    const label = labelMap.get(id) ?? id.slice(0, 8);
-    const status = r.syncStatus === 'error' ? 'error' : 'pending';
-    const updatedAt = r.updatedAt == null ? null : Number(r.updatedAt);
-    return { id, label, status, updatedAt };
-  });
-}
+// listPendingEntities: Moved to sync/diagnosticsReporter.ts
 
-async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
-  const tables: Record<string, SnapshotSection> = {
-    entity_types: await snapshotTable(db, entityTypes),
-    entities: await snapshotTable(db, entities),
-    attribute_defs: await snapshotTable(db, attributeDefs),
-    attribute_values: await snapshotTable(db, attributeValues),
-    operations: await snapshotTable(db, operations),
-  };
-  const types = await db
-    .select({ id: entityTypes.id, code: entityTypes.code })
-    .from(entityTypes)
-    .where(isNull(entityTypes.deletedAt))
-    .limit(5000);
-  const typeByCode: Record<string, string> = {};
-  for (const t of types as any[]) {
-    const code = String(t.code);
-    if (['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee'].includes(code)) {
-      typeByCode[code] = String(t.id);
-    }
-  }
-  const entityTypesSnapshot: Record<string, SnapshotSection> = {};
-  for (const code of ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee']) {
-    const typeId = typeByCode[code];
-    if (!typeId) {
-      entityTypesSnapshot[code] = { count: 0, maxUpdatedAt: null, checksum: null };
-      continue;
-    }
-    const snapshot = await snapshotEntityType(db, typeId);
-    const pendingItems = (await listPendingEntities(db, typeId, 5)).map((item) => ({
-      ...item,
-      status: (item.status === 'error' ? 'error' : 'pending') as 'error' | 'pending',
-    }));
-    entityTypesSnapshot[code] = pendingItems.length > 0 ? { ...snapshot, pendingItems } : snapshot;
-  }
-  return { tables, entityTypes: entityTypesSnapshot };
-}
+// buildDiagnosticsSnapshot: Moved to sync/diagnosticsReporter.ts
 
-async function sendDiagnosticsSnapshot(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  clientId: string,
-  serverSeq: number,
-  syncRunId: string,
-) {
-  const lastSentAt = await getSyncStateNumber(db, SettingsKey.DiagnosticsLastSentAt, 0);
-  const now = nowMs();
-  if (now - lastSentAt < DIAGNOSTICS_SEND_INTERVAL_MS) return;
-  const snapshot = await buildDiagnosticsSnapshot(db);
-  const url = `${apiBaseUrl}/diagnostics/consistency/report`;
-  const r = await fetchAuthed(
-    db,
-    apiBaseUrl,
-    url,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId, syncRunId, serverSeq, tables: snapshot.tables, entityTypes: snapshot.entityTypes }),
-    },
-    { attempts: 3, timeoutMs: 60_000, label: 'push' },
-  );
-  if (r.ok) {
-    await setSyncStateNumber(db, SettingsKey.DiagnosticsLastSentAt, now);
-  }
-}
+// sendDiagnosticsSnapshot: Moved to sync/diagnosticsReporter.ts
 
-function isChatReadsDuplicateError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('chat_reads_message_user_uq') || text.includes('chat_reads_message_user_uq'.toLowerCase());
-}
+// isChatReadsDuplicateError: Moved to sync/errorRecovery.ts
 
-function isDependencyMissingError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_dependency_missing');
-}
+// isDependencyMissingError: Moved to sync/errorRecovery.ts
 
-function isConflictError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_conflict');
-}
+// isConflictError: Moved to sync/errorRecovery.ts
 
-function isInvalidAttributeDefError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('attribute_defs');
-}
+// isInvalidAttributeDefError: Moved to sync/errorRecovery.ts
 
-function isInvalidEntityError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('entities');
-}
+// isInvalidEntityError: Moved to sync/errorRecovery.ts
 
-function isInvalidChatMessageError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('chat_messages');
-}
+// isInvalidChatMessageError: Moved to sync/errorRecovery.ts
 
-function isInvalidChatReadError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('chat_reads');
-}
+// isInvalidChatReadError: Moved to sync/errorRecovery.ts
 
-function isInvalidAttributeValueError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('attribute_values');
-}
+// isInvalidAttributeValueError: Moved to sync/errorRecovery.ts
 
-function isInvalidNotesError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('notes');
-}
+// isInvalidNotesError: Moved to sync/errorRecovery.ts
 
-function isInvalidOperationsError(body: string): boolean {
-  const text = String(body ?? '').toLowerCase();
-  return text.includes('sync_invalid_row') && text.includes('operations');
-}
+// isInvalidOperationsError: Moved to sync/errorRecovery.ts
 
-async function dropPendingChatReads(db: BetterSQLite3Database, messageIds: string[], userId: string | null) {
-  const ids = (messageIds ?? []).map((id) => String(id)).filter(Boolean);
-  if (ids.length === 0) return 0;
-  const pending = 'pending';
-  const whereUser = userId ? eq(chatReads.userId, userId) : undefined;
-  if (whereUser) {
-    const res = await db
-      .delete(chatReads)
-      .where(and(eq(chatReads.syncStatus, pending), whereUser, inArray(chatReads.messageId, ids)));
-    return Number((res as any)?.changes ?? 0);
-  }
-  const res = await db.delete(chatReads).where(and(eq(chatReads.syncStatus, pending), inArray(chatReads.messageId, ids)));
-  return Number((res as any)?.changes ?? 0);
-}
+// dropPendingChatReads: Moved to sync/errorRecovery.ts
 
-async function markPendingAttributeDefsError(db: BetterSQLite3Database) {
-  await db.update(attributeDefs).set({ syncStatus: 'error' }).where(eq(attributeDefs.syncStatus, 'pending'));
-}
+// markPendingAttributeDefsError: Moved to sync/errorRecovery.ts
 
-async function markPendingEntitiesError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(entities).set({ syncStatus: 'error' }).where(inArray(entities.id, ids));
-    return;
-  }
-  await db.update(entities).set({ syncStatus: 'error' }).where(eq(entities.syncStatus, 'pending'));
-}
+// markPendingEntitiesError: Moved to sync/errorRecovery.ts
 
-async function markPendingChatMessagesError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(chatMessages).set({ syncStatus: 'error' }).where(inArray(chatMessages.id, ids));
-    return;
-  }
-  await db.update(chatMessages).set({ syncStatus: 'error' }).where(eq(chatMessages.syncStatus, 'pending'));
-}
+// markPendingChatMessagesError: Moved to sync/errorRecovery.ts
 
-async function markPendingOperationsError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(operations).set({ syncStatus: 'error' }).where(inArray(operations.id, ids));
-    return;
-  }
-  await db.update(operations).set({ syncStatus: 'error' }).where(eq(operations.syncStatus, 'pending'));
-}
+// markPendingOperationsError: Moved to sync/errorRecovery.ts
 
-async function markPendingChatReadsError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(chatReads).set({ syncStatus: 'error' }).where(inArray(chatReads.id, ids));
-    return;
-  }
-  await db.update(chatReads).set({ syncStatus: 'error' }).where(eq(chatReads.syncStatus, 'pending'));
-}
+// markPendingChatReadsError: Moved to sync/errorRecovery.ts
 
-async function markPendingAttributeValuesError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(attributeValues).set({ syncStatus: 'error' }).where(inArray(attributeValues.id, ids));
-    return;
-  }
-  await db.update(attributeValues).set({ syncStatus: 'error' }).where(eq(attributeValues.syncStatus, 'pending'));
-}
+// markPendingAttributeValuesError: Moved to sync/errorRecovery.ts
 
-async function markPendingNotesError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(notes).set({ syncStatus: 'error' }).where(inArray(notes.id, ids));
-    return;
-  }
-  await db.update(notes).set({ syncStatus: 'error' }).where(eq(notes.syncStatus, 'pending'));
-}
+// markPendingNotesError: Moved to sync/errorRecovery.ts
 
-async function markPendingNoteSharesError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(noteShares).set({ syncStatus: 'error' }).where(inArray(noteShares.id, ids));
-    return;
-  }
-  await db.update(noteShares).set({ syncStatus: 'error' }).where(eq(noteShares.syncStatus, 'pending'));
-}
+// markPendingNoteSharesError: Moved to sync/errorRecovery.ts
 
-async function markPendingAuditLogError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(auditLog).set({ syncStatus: 'error' }).where(inArray(auditLog.id, ids));
-    return;
-  }
-  await db.update(auditLog).set({ syncStatus: 'error' }).where(eq(auditLog.syncStatus, 'pending'));
-}
+// markPendingAuditLogError: Moved to sync/errorRecovery.ts
 
-async function markPendingUserPresenceError(db: BetterSQLite3Database, ids?: string[]) {
-  if (ids && ids.length > 0) {
-    await db.update(userPresence).set({ syncStatus: 'error' }).where(inArray(userPresence.id, ids));
-    return;
-  }
-  await db.update(userPresence).set({ syncStatus: 'error' }).where(eq(userPresence.syncStatus, 'pending'));
-}
+// markPendingUserPresenceError: Moved to sync/errorRecovery.ts
 
 async function fetchWithRetryLogged(
   url: string,
@@ -1019,7 +688,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingEntitiesError(db, invalidIds);
+      await markPendingError(db, SyncTableName.Entities, invalidIds);
       logSync(`push drop invalid entities count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.Entities, valid);
@@ -1082,7 +751,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingAttributeValuesError(db, invalidIds);
+      await markPendingError(db, SyncTableName.AttributeValues, invalidIds);
       logSync(`push drop invalid attribute_values count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.AttributeValues, valid);
@@ -1105,7 +774,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingOperationsError(db, invalidIds);
+      await markPendingError(db, SyncTableName.Operations, invalidIds);
       logSync(`push drop invalid operations count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.Operations, valid);
@@ -1128,7 +797,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingAuditLogError(db, invalidIds);
+      await markPendingError(db, SyncTableName.AuditLog, invalidIds);
       logSync(`push drop invalid audit_log count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.AuditLog, valid);
@@ -1151,7 +820,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingChatMessagesError(db, invalidIds);
+      await markPendingError(db, SyncTableName.ChatMessages, invalidIds);
       logSync(`push drop invalid chat_messages count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.ChatMessages, valid);
@@ -1174,7 +843,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingChatReadsError(db, invalidIds);
+      await markPendingError(db, SyncTableName.ChatReads, invalidIds);
       logSync(`push drop invalid chat_reads count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.ChatReads, valid);
@@ -1197,7 +866,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingNotesError(db, invalidIds);
+      await markPendingError(db, SyncTableName.Notes, invalidIds);
       logSync(`push drop invalid notes count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.Notes, valid);
@@ -1220,7 +889,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingNoteSharesError(db, invalidIds);
+      await markPendingError(db, SyncTableName.NoteShares, invalidIds);
       logSync(`push drop invalid note_shares count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.NoteShares, valid);
@@ -1243,7 +912,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await markPendingUserPresenceError(db, invalidIds);
+      await markPendingError(db, SyncTableName.UserPresence, invalidIds);
       logSync(`push drop invalid user_presence count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.UserPresence, valid);
@@ -1252,184 +921,15 @@ async function collectPending(db: BetterSQLite3Database) {
   return packs;
 }
 
+/** Convert DB row (camelCase) -> DTO row (snake_case) using the shared registry. */
 function toSyncRow(table: SyncTableName, row: any): any {
-  // Приводим к структуре shared/src/sync/dto.ts (snake_case).
-  // Не делаем “умный” deep-convert: нам нужны только известные поля.
-  switch (table) {
-    case SyncTableName.EntityTypes:
-      return {
-        id: row.id,
-        code: row.code,
-        name: row.name,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.Entities:
-      return {
-        id: row.id,
-        type_id: row.typeId,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.AttributeDefs:
-      return {
-        id: row.id,
-        entity_type_id: row.entityTypeId,
-        code: row.code,
-        name: row.name,
-        data_type: row.dataType,
-        is_required: !!row.isRequired,
-        sort_order: row.sortOrder ?? 0,
-        meta_json: row.metaJson ?? null,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.AttributeValues:
-      return {
-        id: row.id,
-        entity_id: row.entityId,
-        attribute_def_id: row.attributeDefId,
-        value_json: row.valueJson ?? null,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.Operations:
-      return {
-        id: row.id,
-        engine_entity_id: row.engineEntityId,
-        operation_type: row.operationType,
-        status: row.status,
-        note: row.note ?? null,
-        performed_at: row.performedAt ?? null,
-        performed_by: row.performedBy ?? null,
-        meta_json: row.metaJson ?? null,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.AuditLog:
-      return {
-        id: row.id,
-        actor: row.actor,
-        action: row.action,
-        entity_id: row.entityId ?? null,
-        table_name: row.tableName ?? null,
-        payload_json: row.payloadJson ?? null,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.ChatMessages:
-      return {
-        id: row.id,
-        sender_user_id: row.senderUserId,
-        sender_username: row.senderUsername,
-        recipient_user_id: row.recipientUserId ?? null,
-        message_type: row.messageType,
-        body_text: row.bodyText ?? null,
-        payload_json: row.payloadJson ?? null,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.ChatReads:
-      return {
-        id: row.id,
-        message_id: row.messageId,
-        user_id: row.userId,
-        read_at: row.readAt,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.Notes:
-      return {
-        id: row.id,
-        owner_user_id: row.ownerUserId,
-        title: row.title,
-        body_json: row.bodyJson ?? null,
-        importance: row.importance,
-        due_at: row.dueAt ?? null,
-        sort_order: row.sortOrder ?? 0,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.NoteShares:
-      return {
-        id: row.id,
-        note_id: row.noteId,
-        recipient_user_id: row.recipientUserId,
-        hidden: !!row.hidden,
-        sort_order: row.sortOrder ?? 0,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-    case SyncTableName.UserPresence:
-      return {
-        id: row.id,
-        user_id: row.userId,
-        last_activity_at: row.lastActivityAt,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-        last_server_seq: row.lastServerSeq ?? null,
-        deleted_at: row.deletedAt ?? null,
-        sync_status: row.syncStatus,
-      };
-  }
+  return SyncTableRegistry.toSyncRow(table, row as Record<string, unknown>);
 }
 
-function isSyncRow(table: SyncTableName, row: any): boolean {
+/** Check if a row is already in snake_case DTO format (vs camelCase DB format). */
+function isSyncRow(_table: SyncTableName, row: any): boolean {
   if (!row || typeof row !== 'object') return false;
-  switch (table) {
-    case SyncTableName.EntityTypes:
-      return 'created_at' in row && 'code' in row;
-    case SyncTableName.Entities:
-      return 'created_at' in row && 'type_id' in row;
-    case SyncTableName.AttributeDefs:
-      return 'created_at' in row && 'entity_type_id' in row;
-    case SyncTableName.AttributeValues:
-      return 'created_at' in row && 'attribute_def_id' in row;
-    case SyncTableName.Operations:
-      return 'created_at' in row && 'engine_entity_id' in row;
-    case SyncTableName.AuditLog:
-      return 'created_at' in row && 'table_name' in row;
-    case SyncTableName.ChatMessages:
-      return 'created_at' in row && 'sender_user_id' in row;
-    case SyncTableName.ChatReads:
-      return 'created_at' in row && 'message_id' in row;
-    case SyncTableName.Notes:
-      return 'created_at' in row && 'owner_user_id' in row;
-    case SyncTableName.NoteShares:
-      return 'created_at' in row && 'note_id' in row;
-    case SyncTableName.UserPresence:
-      return 'created_at' in row && 'user_id' in row;
-  }
+  return 'created_at' in row;
 }
 
 function toLedgerTx(table: SyncTableName, row: any) {
@@ -1490,13 +990,9 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
   }
 }
 
-async function markAllEntityTypesPending(db: BetterSQLite3Database) {
-  await db.update(entityTypes).set({ syncStatus: 'pending' });
-}
+// markAllEntityTypesPending: Moved to sync/errorRecovery.ts
 
-async function markAllAttributeDefsPending(db: BetterSQLite3Database) {
-  await db.update(attributeDefs).set({ syncStatus: 'pending' });
-}
+// markAllAttributeDefsPending: Moved to sync/errorRecovery.ts
 
 async function applyPulledChanges(
   db: BetterSQLite3Database,
@@ -2361,10 +1857,7 @@ function normalizeApiBaseUrl(raw: string): string {
   return String(raw ?? '').trim().replace(/\/+$/, '');
 }
 
-function isNotFoundSyncError(err: string): boolean {
-  const text = String(err ?? '');
-  return text.includes('HTTP 404') || text.includes('status=404');
-}
+// isNotFoundSyncError: Moved to sync/errorRecovery.ts
 
 async function probeServerHealth(baseUrl: string): Promise<boolean> {
   const safeBase = normalizeApiBaseUrl(baseUrl);
@@ -2756,7 +2249,8 @@ export async function runSync(
             });
           }
           const ledgerTxs = pushedPacks.flatMap((pack) => (pack.rows as any[]).map((row) => toLedgerTx(pack.table, row)));
-          const pushBody = { txs: ledgerTxs };
+          const idempotencyKey = randomUUID();
+          const pushBody = { txs: ledgerTxs, idempotency_key: idempotencyKey };
           const pushUrl = `${currentApiBaseUrl}/ledger/tx/submit`;
           const r = await fetchAuthed(
             db,
@@ -2775,7 +2269,7 @@ export async function runSync(
                 ?.map((row) => String((row as any).message_id ?? (row as any).messageId ?? ''))
                 .filter(Boolean);
               const session = await getSession(db).catch(() => null);
-              const dropped = await dropPendingChatReads(db, messageIds ?? [], session?.user?.id ?? null);
+              const dropped = await dropPendingChatReadsRecovery(db, messageIds ?? [], session?.user?.id ?? null);
               logRecovery('duplicate_chat_reads', { dropped, status: r.status });
               attemptedChatReadsFix = true;
               pushedPacks = await collectPending(db);
@@ -2785,10 +2279,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidAttrDefs && isInvalidAttributeDefError(body)) {
+            if (!attemptedInvalidAttrDefs && isInvalidRowError(body, 'attribute_defs')) {
               attemptedInvalidAttrDefs = true;
               logRecovery('invalid_attribute_defs_mark_error');
-              await markPendingAttributeDefsError(db);
+              await markPendingError(db, SyncTableName.AttributeDefs);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2796,10 +2290,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidEntities && isInvalidEntityError(body)) {
+            if (!attemptedInvalidEntities && isInvalidRowError(body, 'entities')) {
               attemptedInvalidEntities = true;
               logRecovery('invalid_entities_mark_error');
-              await markPendingEntitiesError(db);
+              await markPendingError(db, SyncTableName.Entities);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2807,10 +2301,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidChatMessages && isInvalidChatMessageError(body)) {
+            if (!attemptedInvalidChatMessages && isInvalidRowError(body, 'chat_messages')) {
               attemptedInvalidChatMessages = true;
               logRecovery('invalid_chat_messages_mark_error');
-              await markPendingChatMessagesError(db);
+              await markPendingError(db, SyncTableName.ChatMessages);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2818,10 +2312,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidChatReads && isInvalidChatReadError(body)) {
+            if (!attemptedInvalidChatReads && isInvalidRowError(body, 'chat_reads')) {
               attemptedInvalidChatReads = true;
               logRecovery('invalid_chat_reads_mark_error');
-              await markPendingChatReadsError(db);
+              await markPendingError(db, SyncTableName.ChatReads);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2829,10 +2323,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidAttributeValues && isInvalidAttributeValueError(body)) {
+            if (!attemptedInvalidAttributeValues && isInvalidRowError(body, 'attribute_values')) {
               attemptedInvalidAttributeValues = true;
               logRecovery('invalid_attribute_values_mark_error');
-              await markPendingAttributeValuesError(db);
+              await markPendingError(db, SyncTableName.AttributeValues);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2840,10 +2334,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidNotes && isInvalidNotesError(body)) {
+            if (!attemptedInvalidNotes && isInvalidRowError(body, 'notes')) {
               attemptedInvalidNotes = true;
               logRecovery('invalid_notes_mark_error');
-              await markPendingNotesError(db);
+              await markPendingError(db, SyncTableName.Notes);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2851,10 +2345,10 @@ export async function runSync(
               }
               continue;
             }
-            if (!attemptedInvalidOperations && isInvalidOperationsError(body)) {
+            if (!attemptedInvalidOperations && isInvalidRowError(body, 'operations')) {
               attemptedInvalidOperations = true;
               logRecovery('invalid_operations_mark_error');
-              await markPendingOperationsError(db);
+              await markPendingError(db, SyncTableName.Operations);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2990,7 +2484,7 @@ export async function runSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
       emitStage('finalize', 'отправка диагностики', { service: 'diagnostics' });
-      await sendDiagnosticsSnapshot(db, currentApiBaseUrl, clientId, pullJson.server_cursor, syncRunId).catch(() => {});
+      await sendDiagnosticsSnapshotImpl(db, currentApiBaseUrl, clientId, pullJson.server_cursor, syncRunId, fetchAuthed).catch(() => {});
       if (fullPull) {
         emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger' });
         await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});

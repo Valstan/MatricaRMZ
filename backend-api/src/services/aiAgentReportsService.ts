@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { db, pool } from '../database/db.js';
-import { chatMessages, changeLog } from '../database/schema.js';
+import { chatMessages } from '../database/schema.js';
 import { getSuperadminUserId, listEmployeesAuth } from './employeeAuthService.js';
 import { SyncTableName } from '@matricarmz/shared';
+import { recordSyncChanges } from './sync/syncChangeService.js';
 import { logError, logInfo } from '../utils/logger.js';
 
 const DEFAULT_TIME_ZONE = 'Europe/Moscow';
@@ -345,13 +346,10 @@ async function sendReportToSuperadmin(text: string) {
     deleted_at: null,
     sync_status: 'synced',
   };
-  await db.insert(changeLog).values({
-    tableName: SyncTableName.ChatMessages,
-    rowId: id as any,
-    op: 'upsert',
-    payloadJson: JSON.stringify(payload),
-    createdAt: ts,
-  });
+  await recordSyncChanges(
+    { id: String(senderId), username: senderName },
+    [{ tableName: SyncTableName.ChatMessages, rowId: id, op: 'upsert', payload, ts }],
+  );
 }
 
 async function getUserIdByLogin(login: string) {
