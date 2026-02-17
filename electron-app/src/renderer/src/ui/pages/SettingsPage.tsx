@@ -196,7 +196,7 @@ export function SettingsPage(props: {
 
   async function refreshServerHealth(baseUrlOverride?: string) {
     setServerStatus('Проверяю сервер...');
-    const base = (baseUrlOverride ?? apiBaseUrl || '').trim();
+    const base = (baseUrlOverride ?? apiBaseUrl ?? '').trim();
     const r = await window.matrica.server.health().catch((e) => ({ ok: false as const, url: base, error: String(e) }));
     setServerInfo(r);
     setServerStatus(r.ok ? '' : `Ошибка: ${r.error}`);
