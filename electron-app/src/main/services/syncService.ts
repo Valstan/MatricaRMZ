@@ -358,6 +358,23 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
   }
 }
 
+async function clearLocalSyncTablesForFullPull(db: BetterSQLite3Database) {
+  // Important: clear tables in child -> parent order so referential links do not
+  // keep stale IDs from old corrupted states.
+  await db.delete(chatReads);
+  await db.delete(noteShares);
+  await db.delete(attributeValues);
+  await db.delete(operations);
+  await db.delete(userPresence);
+  await db.delete(chatMessages);
+  await db.delete(notes);
+  await db.delete(auditLog);
+  await db.delete(entities);
+  await db.delete(attributeDefs);
+  await db.delete(entityTypes);
+  logSync('full pull pre-clean: local sync tables cleared');
+}
+
 let clientLedgerStore: LedgerStore | null = null;
 function getClientLedgerStore(): LedgerStore {
   if (clientLedgerStore) return clientLedgerStore;
@@ -2442,6 +2459,16 @@ export async function runSync(
       }
       if (fullPull && upserts.length === 0) {
         emitStage('push', 'локальных изменений нет', { counts: { batch: 0 }, service: 'sync', progress: 0.03 });
+      }
+
+      if (fullPull) {
+        emitStage('prepare', 'очистка локальной базы перед полной синхронизацией', {
+          service: 'sync',
+          progress: 0.04,
+        });
+        await clearLocalSyncTablesForFullPull(db).catch((e) => {
+          logSync(`full pull pre-clean failed err=${formatError(e)}`);
+        });
       }
 
       let since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);

@@ -289,15 +289,18 @@ function computeStreaks(signal: AutohealSignal, history: AutohealSignal[]) {
 function chooseAction(signal: AutohealSignal, history: AutohealSignal[]): AutohealAction | null {
   const { criticalStreak, degradedStreak, observeStreak } = computeStreaks(signal, history);
 
+  // Critical drift must heal even when lagAbs is 0 (cursor is up-to-date but data is wrong).
   if (
-    deepRepairEnabled() &&
     signal.level === 'critical' &&
     criticalStreak >= criticalConsecutiveThreshold() &&
-    signal.lagAbs > 15_000 &&
     signal.driftRatio >= criticalThresholdRatio()
   ) {
-    return 'deep_repair';
+    if (deepRepairEnabled() && signal.lagAbs > 15_000) {
+      return 'deep_repair';
+    }
+    return 'reset_sync_state_and_pull';
   }
+
   if (compareAtLeast(signal.level, 'degraded') && degradedStreak >= resetConsecutiveThreshold()) {
     if (signal.lagAbs <= 4_000 && signal.driftRatio < degradedThresholdRatio()) return null;
     return 'reset_sync_state_and_pull';
