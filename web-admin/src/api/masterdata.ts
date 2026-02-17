@@ -1,6 +1,8 @@
 import { apiJson } from './client.js';
 
-export const MASTERDATA_READ_SOURCE = 'ledger' as const;
+const RAW_READ_SOURCE = String((import.meta as any).env?.VITE_MASTERDATA_READ_SOURCE ?? 'server').toLowerCase();
+const USE_LEDGER_READ = RAW_READ_SOURCE === 'ledger';
+export const MASTERDATA_READ_SOURCE = (USE_LEDGER_READ ? 'ledger' : 'server') as 'ledger' | 'server';
 
 function parseValueJson(raw: unknown): unknown {
   if (raw == null) return null;
@@ -44,6 +46,9 @@ async function ledgerQuery(args: {
 }
 
 export function listEntityTypes() {
+  if (!USE_LEDGER_READ) {
+    return apiJson('/admin/masterdata/entity-types', { method: 'GET' });
+  }
   return (async () => {
     const r = await ledgerQuery({
       table: 'entity_types',
@@ -89,6 +94,9 @@ export function deleteEntityType(id: string, args: { deleteEntities: boolean; de
 }
 
 export function listAttributeDefs(entityTypeId: string) {
+  if (!USE_LEDGER_READ) {
+    return apiJson(`/admin/masterdata/attribute-defs?entityTypeId=${encodeURIComponent(entityTypeId)}`, { method: 'GET' });
+  }
   return (async () => {
     const r = await ledgerQuery({
       table: 'attribute_defs',
@@ -151,6 +159,9 @@ export function deleteAttributeDef(id: string, args: { deleteValues: boolean }) 
 }
 
 export function listEntities(entityTypeId: string) {
+  if (!USE_LEDGER_READ) {
+    return apiJson(`/admin/masterdata/entities?entityTypeId=${encodeURIComponent(entityTypeId)}`, { method: 'GET' });
+  }
   return (async () => {
     const [entitiesRes, defsRes] = await Promise.all([
       ledgerQuery({
@@ -223,6 +234,9 @@ export function createEntity(entityTypeId: string) {
 }
 
 export function getEntity(id: string) {
+  if (!USE_LEDGER_READ) {
+    return apiJson(`/admin/masterdata/entities/${encodeURIComponent(id)}`, { method: 'GET' });
+  }
   return (async () => {
     const entityRes = await ledgerQuery({
       table: 'entities',
