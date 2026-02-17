@@ -524,7 +524,11 @@ async function fetchAuthed(
   return first;
 }
 
-async function syncLedgerBlocks(db: BetterSQLite3Database, apiBaseUrl: string) {
+async function syncLedgerBlocks(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  onProgress?: (page: number, lastHeight: number) => void,
+) {
   const store = getClientLedgerStore();
   let lastHeight = store.loadIndex().lastHeight;
   for (let i = 0; i < 1000; i += 1) {
@@ -548,6 +552,9 @@ async function syncLedgerBlocks(db: BetterSQLite3Database, apiBaseUrl: string) {
     }
     if (json.last_height === lastHeight) break;
     lastHeight = json.last_height;
+    onProgress?.(i + 1, lastHeight);
+    // Yield to the event loop every few pages so Electron UI stays responsive.
+    if (i % 3 === 2) await yieldToEventLoop();
   }
 }
 
@@ -2109,14 +2116,26 @@ export async function runSync(
       const pullFullState = async () => {
         let totalPulled = 0;
         let serverSeq = 0;
-        for (const table of FULL_STATE_SYNC_TABLES) {
+        const tableCount = FULL_STATE_SYNC_TABLES.length;
+        for (let tableIdx = 0; tableIdx < tableCount; tableIdx += 1) {
+          const table = FULL_STATE_SYNC_TABLES[tableIdx];
+          // Progress 0.05..0.80 spread across tables
+          const tableBaseProgress = 0.05 + (tableIdx / tableCount) * 0.75;
+          const tableNextProgress = 0.05 + ((tableIdx + 1) / tableCount) * 0.75;
           let cursorId: string | null = null;
           for (let page = 0; page < 20_000; page += 1) {
             const statePage = await pullStatePage(table, cursorId);
             serverSeq = Math.max(serverSeq, Number(statePage.server_last_seq ?? 0));
             const rows = Array.isArray(statePage.rows) ? statePage.rows : [];
             if (rows.length > 0) {
-              emitStage('pull', `state ${table}: ${rows.length}`, { counts: { batch: rows.length }, service: 'sync' });
+              const pageProgress = statePage.has_more
+                ? tableBaseProgress + ((page + 1) / Math.max(page + 2, 10)) * (tableNextProgress - tableBaseProgress)
+                : tableNextProgress;
+              emitStage('pull', `state ${table}: ${rows.length}`, {
+                counts: { batch: rows.length },
+                service: 'sync',
+                progress: pageProgress,
+              });
               const changes = rows.map((row) => {
                 const payload = { ...row, last_server_seq: serverSeq };
                 const rowId = String((payload as any).id ?? '');
@@ -2132,7 +2151,7 @@ export async function runSync(
                 ...(progressEmitter ? { onProgress: (info: any) => emitSyncProgress('progress', info) } : {}),
               });
               totalPulled += changes.length;
-              emitSyncProgress('progress', { pulled: totalPulled });
+              emitSyncProgress('progress', { pulled: totalPulled, progress: pageProgress });
             }
             if (!statePage.has_more || !statePage.next_cursor_id) break;
             cursorId = statePage.next_cursor_id;
@@ -2422,7 +2441,7 @@ export async function runSync(
         }
       }
       if (fullPull && upserts.length === 0) {
-        emitStage('push', 'локальных изменений нет', { counts: { batch: 0 }, service: 'sync' });
+        emitStage('push', 'локальных изменений нет', { counts: { batch: 0 }, service: 'sync', progress: 0.03 });
       }
 
       let since = await getSyncStateNumber(db, SettingsKey.LastPulledServerSeq, 0);
@@ -2483,13 +2502,17 @@ export async function runSync(
       logSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
-      emitStage('finalize', 'отправка диагностики', { service: 'diagnostics' });
+      emitStage('finalize', 'отправка диагностики', { service: 'diagnostics', progress: 0.85 });
       await sendDiagnosticsSnapshotImpl(db, currentApiBaseUrl, clientId, pullJson.server_cursor, syncRunId, fetchAuthed).catch(() => {});
       if (fullPull) {
-        emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger' });
-        await syncLedgerBlocks(db, currentApiBaseUrl).catch(() => {});
+        emitStage('ledger', 'синхронизация блоков ledger', { service: 'ledger', progress: 0.88 });
+        await syncLedgerBlocks(db, currentApiBaseUrl, (page, _height) => {
+          // Progress 0.88..0.97 during block sync (cap at 200 pages for calculation)
+          const blockProgress = 0.88 + Math.min(page / 200, 1) * 0.09;
+          emitStage('ledger', `блоки ledger: стр.${page}`, { service: 'ledger', progress: blockProgress });
+        }).catch(() => {});
       }
-      emitStage('finalize', 'завершение синхронизации', { service: 'sync' });
+      emitStage('finalize', 'завершение синхронизации', { service: 'sync', progress: 0.98 });
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});
