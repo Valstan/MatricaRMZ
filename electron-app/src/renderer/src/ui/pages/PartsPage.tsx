@@ -6,7 +6,6 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import { useStableArrayState } from '../hooks/useStableState.js';
 
 type Row = {
   id: string;
@@ -29,7 +28,7 @@ export function PartsPage(props: {
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:parts');
   const query = String(listState.query ?? '');
-  const [rows, setRows] = useStableArrayState<Row>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;

@@ -6,7 +6,6 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import { useStableArrayState } from '../hooks/useStableState.js';
 
 type Row = {
   id: string;
@@ -58,7 +57,7 @@ export function SupplyRequestsPage(props: {
   const { containerRef, onScroll } = usePersistedScrollTop('list:supply_requests');
   const query = String(listState.query ?? '');
   const month = String(listState.month ?? '');
-  const [rows, setRows] = useStableArrayState<Row>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
   const twoCol = width >= 1600;

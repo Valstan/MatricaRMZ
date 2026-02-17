@@ -6,7 +6,6 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import { useStableArrayState } from '../hooks/useStableState.js';
 
 type Row = {
   id: string;
@@ -21,7 +20,7 @@ export function ServicesPage(props: {
   canDelete: boolean;
   canViewMasterData: boolean;
 }) {
-  const [rows, setRows] = useStableArrayState<Row>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const { state: listState, patchState } = useListUiState('list:services', {
     query: '',

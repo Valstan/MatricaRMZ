@@ -6,7 +6,6 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import { useStableArrayState } from '../hooks/useStableState.js';
 
 type Row = {
   id: string;
@@ -44,7 +43,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
-  const [rows, setRows] = useStableArrayState<Row>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
   const width = useWindowWidth();
   const twoCol = width >= 1400;
