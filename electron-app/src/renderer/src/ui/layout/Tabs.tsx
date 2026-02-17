@@ -434,60 +434,75 @@ export function Tabs(props: {
     <div style={{ position: 'relative' }}>
       <div
         style={{
-          display: 'flex',
+          display: 'grid',
           gap: 8,
-          rowGap: 8,
-          flexWrap: 'wrap',
-          alignItems: 'center',
           marginTop: 4,
           padding: '4px 6px',
           background: '#ffffff',
           border: '1px solid rgba(148, 163, 184, 0.24)',
         }}
       >
-        {groupsInUse.map((groupId) => {
-          const isActive = activeGroup === groupId && !collapsedGroups.has(groupId);
-          const isCollapsed = collapsedGroups.has(groupId);
-          return (
-            <Button
-              key={groupId}
-              variant="ghost"
-              onClick={() => toggleGroup(groupId)}
-              style={
-                isActive
-                  ? {
-                      width: 124,
-                      minHeight: 74,
-                      padding: '8px 10px',
-                      border: '1px solid #8a6842',
-                      background: 'linear-gradient(150deg, #f7deb4 0%, #efd3a7 35%, #f5e3c3 70%, #e2bc84 100%)',
-                      color: '#4f2c12',
-                      fontWeight: 800,
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.55), 0 4px 10px rgba(70, 42, 18, 0.28)',
-                      textShadow: '0 1px 0 rgba(255, 237, 205, 0.75)',
-                      letterSpacing: 0.2,
-                    }
-                  : {
-                      width: 124,
-                      minHeight: 74,
-                      padding: '8px 10px',
-                      border: '1px solid #9a764d',
-                      background: 'linear-gradient(150deg, #fae8c7 0%, #f0d7ad 45%, #f7e7cb 75%, #e5c18c 100%)',
-                      color: '#64371a',
-                      fontWeight: 760,
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 8px rgba(70, 42, 18, 0.2)',
-                      textShadow: '0 1px 0 rgba(255, 237, 205, 0.6)',
-                      letterSpacing: 0.2,
-                    }
-              }
-              title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
-            >
-              <span style={{ display: 'block', textAlign: 'center', lineHeight: 1.15 }}>{GROUP_LABELS[groupId]}</span>
-            </Button>
-          );
-        })}
-        <span style={{ flex: 1 }} />
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.max(1, groupsInUse.length)}, minmax(0, 1fr))`,
+            gap: 8,
+            alignItems: 'stretch',
+          }}
+        >
+          {groupsInUse.map((groupId) => {
+            const isActive = activeGroup === groupId && !collapsedGroups.has(groupId);
+            const isCollapsed = collapsedGroups.has(groupId);
+            return (
+              <Button
+                key={groupId}
+                variant="ghost"
+                onClick={() => toggleGroup(groupId)}
+                style={
+                  isActive
+                    ? {
+                        width: '100%',
+                        minHeight: 76,
+                        padding: '10px 12px',
+                        border: '1px solid #0b2d63',
+                        background: 'linear-gradient(160deg, #143d86 0%, #0f2f72 55%, #0b254f 100%)',
+                        color: '#ffffff',
+                        fontWeight: 800,
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 10px rgba(15, 47, 114, 0.28)',
+                        letterSpacing: 0.1,
+                      }
+                    : {
+                        width: '100%',
+                        minHeight: 76,
+                        padding: '10px 12px',
+                        border: '1px solid #8f99a7',
+                        background: 'linear-gradient(160deg, #d5d9df 0%, #bec4cd 45%, #e8ebef 100%)',
+                        color: '#111827',
+                        fontWeight: 500,
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7), 0 2px 7px rgba(15, 23, 42, 0.14)',
+                        letterSpacing: 0,
+                      }
+                }
+                title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
+              >
+                <span
+                  style={{
+                    display: 'block',
+                    textAlign: 'center',
+                    lineHeight: 1.2,
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                    hyphens: 'auto',
+                  }}
+                >
+                  {GROUP_LABELS[groupId]}
+                </span>
+              </Button>
+            );
+          })}
+        </div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <div ref={trashButtonRef}>
             <Button
               variant="ghost"
@@ -516,8 +531,8 @@ export function Tabs(props: {
           >
             {props.userLabel?.trim() ? props.userLabel.trim() : 'Вход'}
           </Button>
+          {props.right}
         </div>
-        {props.right}
       </div>
 
       <div

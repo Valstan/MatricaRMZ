@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -249,7 +250,7 @@ export function CounterpartyDetailsPage(props: {
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
           <DraggableFieldList
             items={mainFields}
             getKey={(f) => f.code}
@@ -281,7 +282,7 @@ export function CounterpartyDetailsPage(props: {
               </div>
             )}
           />
-        </div>
+        </SectionCard>
       </div>
     </div>
   );

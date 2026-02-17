@@ -7,6 +7,7 @@ import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -662,7 +663,7 @@ export function SupplyRequestDetailsPage(props: {
         </div>
       ) : null}
 
-      <div className="card-panel" style={{ marginTop: 12, borderRadius: 12, padding: 12 }}>
+      <SectionCard style={{ marginTop: 12, borderRadius: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -771,7 +772,7 @@ export function SupplyRequestDetailsPage(props: {
           <div style={{ flex: 1 }} />
           {props.canEdit && <div style={{ color: '#64748b', fontSize: 12 }}>Автосохранение: изменения сохраняются автоматически.</div>}
         </div>
-      </div>
+      </SectionCard>
 
       <div style={{ marginTop: 14 }}>
         <h2 style={{ margin: '8px 0' }}>Список деталей</h2>

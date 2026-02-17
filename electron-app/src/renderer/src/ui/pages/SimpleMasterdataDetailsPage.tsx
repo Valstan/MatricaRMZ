@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -543,6 +544,7 @@ export function SimpleMasterdataDetailsPage(props: {
   return (
     <EntityCardShell
       title={headerTitle}
+      layout="two-column"
       actions={
         <RowActions>
           {props.canEdit && (
@@ -562,7 +564,7 @@ export function SimpleMasterdataDetailsPage(props: {
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
     >
-        <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
           <DraggableFieldList
             items={mainFields}
             getKey={(f) => f.code}
@@ -602,7 +604,7 @@ export function SimpleMasterdataDetailsPage(props: {
               </div>
             )}
           />
-        </div>
+        </SectionCard>
       
       {uploadFlow.renameDialog}
     </EntityCardShell>

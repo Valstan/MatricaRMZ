@@ -9,6 +9,7 @@ import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -877,6 +878,7 @@ export function PartDetailsPage(props: {
   return (
     <EntityCardShell
       title={headerTitle}
+      layout="two-column"
       actions={
         <RowActions>
           {props.canEdit && (
@@ -896,21 +898,21 @@ export function PartDetailsPage(props: {
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
     >
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        {status && <div style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div className="entity-card-span-full" style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
+        <div className="entity-card-span-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         {/* Core */}
-        <div className="card-panel" style={{ borderRadius: 12, padding: 16 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-            <strong>Основное</strong>
-            <span style={{ flex: 1 }} />
-            {props.canEdit && (
+        <SectionCard
+          title="Основное"
+          style={{ borderRadius: 12, padding: 16 }}
+          actions={
+            props.canEdit ? (
               <Button variant="ghost" tone="success" onClick={() => void saveCore()}>
                 Сохранить
               </Button>
-            )}
-          </div>
+            ) : undefined
+          }
+        >
 
           <DraggableFieldList
             items={mainFields}
@@ -951,11 +953,10 @@ export function PartDetailsPage(props: {
               </div>
             )}
           />
-        </div>
+        </SectionCard>
 
         {/* Meta / placeholders for next steps */}
-        <div className="card-panel" style={{ borderRadius: 12, padding: 16 }}>
-          <strong>Карточка</strong>
+        <SectionCard title="Карточка" style={{ borderRadius: 12, padding: 16 }}>
           <div style={{ marginTop: 10, color: '#6b7280', fontSize: 13 }}>
             <div>
               <span style={{ color: '#111827' }}>ID:</span> {part.id}
@@ -1016,7 +1017,7 @@ export function PartDetailsPage(props: {
               </div>
             </div>
           </div>
-        </div>
+        </SectionCard>
 
         {/* Attachments */}
         <div style={{ gridColumn: '1 / -1' }}>
@@ -1324,7 +1325,6 @@ export function PartDetailsPage(props: {
           )}
         </div>
         </div>
-      </div>
     </EntityCardShell>
   );
 }

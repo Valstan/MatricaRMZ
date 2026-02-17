@@ -5,7 +5,6 @@ import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '@matric
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
-import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { theme } from '../theme.js';
@@ -64,7 +63,6 @@ function parseDueColor(dueAt: number | null, now: number) {
 export function NotesPage(props: {
   meUserId: string;
   canEdit: boolean;
-  currentLink: ChatDeepLinkPayload | null;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onSendToChat: (note: NoteDraft) => Promise<void>;
   onBurningCountChange?: (count: number) => void;
@@ -78,6 +76,7 @@ export function NotesPage(props: {
   const [sharePickerOpen, setSharePickerOpen] = useState<Record<string, boolean>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [noteStatus, setNoteStatus] = useState<Record<string, { text: string; tone: 'ok' | 'error' }>>({});
   const [now, setNow] = useState(() => nowMs());
   const uploadFlow = useFileUploadFlow();
 
@@ -114,18 +113,34 @@ export function NotesPage(props: {
   }, []);
 
   useEffect(() => {
-    const map: Record<string, NoteDraft> = {};
-    for (const n of notes) {
-      map[n.id] = {
-        id: n.id,
-        title: n.title,
-        body: n.body ?? [],
-        importance: n.importance ?? 'normal',
-        dueAt: n.dueAt ?? null,
-      };
-    }
-    setDrafts(map);
-  }, [notes]);
+    setDrafts((prev) => {
+      const next: Record<string, NoteDraft> = { ...prev };
+      const aliveIds = new Set<string>();
+      for (const n of notes) {
+        aliveIds.add(n.id);
+        if (!prev[n.id] || !dirty[n.id]) {
+          next[n.id] = {
+            id: n.id,
+            title: n.title,
+            body: n.body ?? [],
+            importance: n.importance ?? 'normal',
+            dueAt: n.dueAt ?? null,
+          };
+        }
+      }
+      for (const id of Object.keys(next)) {
+        if (!aliveIds.has(id)) delete next[id];
+      }
+      return next;
+    });
+    setDirty((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const n of notes) {
+        if (prev[n.id]) next[n.id] = true;
+      }
+      return next;
+    });
+  }, [notes, dirty]);
 
   useEffect(() => {
     const visible = notesVisible;
@@ -180,6 +195,18 @@ export function NotesPage(props: {
     setDirty((prev) => ({ ...prev, [id]: true }));
   }
 
+  function setPerNoteStatus(noteId: string, text: string, tone: 'ok' | 'error') {
+    setNoteStatus((prev) => ({ ...prev, [noteId]: { text, tone } }));
+    window.setTimeout(() => {
+      setNoteStatus((prev) => {
+        if (!prev[noteId]) return prev;
+        const next = { ...prev };
+        delete next[noteId];
+        return next;
+      });
+    }, 2800);
+  }
+
   async function saveDraft(id: string) {
     const draft = drafts[id];
     if (!draft) return;
@@ -217,18 +244,33 @@ export function NotesPage(props: {
   }
 
   async function shareNote(noteId: string, recipientUserId: string) {
-    await window.matrica.notes.share({ noteId, recipientUserId });
-    await refresh();
+    const r = await window.matrica.notes.share({ noteId, recipientUserId }).catch(() => null);
+    if ((r as any)?.ok) {
+      setPerNoteStatus(noteId, 'Доступ выдан', 'ok');
+      await refresh();
+      return;
+    }
+    setPerNoteStatus(noteId, `Ошибка выдачи доступа: ${String((r as any)?.error ?? 'unknown')}`, 'error');
   }
 
   async function unshareNote(noteId: string, recipientUserId: string) {
-    await window.matrica.notes.unshare({ noteId, recipientUserId });
-    await refresh();
+    const r = await window.matrica.notes.unshare({ noteId, recipientUserId }).catch(() => null);
+    if ((r as any)?.ok) {
+      setPerNoteStatus(noteId, 'Доступ убран', 'ok');
+      await refresh();
+      return;
+    }
+    setPerNoteStatus(noteId, `Ошибка удаления доступа: ${String((r as any)?.error ?? 'unknown')}`, 'error');
   }
 
   async function toggleHidden(noteId: string, hidden: boolean) {
-    await window.matrica.notes.hide({ noteId, hidden });
-    await refresh();
+    const r = await window.matrica.notes.hide({ noteId, hidden }).catch(() => null);
+    if ((r as any)?.ok) {
+      setPerNoteStatus(noteId, hidden ? 'Заметка скрыта' : 'Заметка показана', 'ok');
+      await refresh();
+      return;
+    }
+    setPerNoteStatus(noteId, `Ошибка: ${String((r as any)?.error ?? 'unknown')}`, 'error');
   }
 
   async function reorderNotes(list: NoteView[]) {
@@ -253,14 +295,6 @@ export function NotesPage(props: {
     const url = window.prompt('Введите ссылку (URL)');
     if (!url) return;
     const block: NoteBlock = { id: newId(), kind: 'link', url: String(url).trim() };
-    updateDraft(noteId, { body: [...draft.body, block] });
-  }
-
-  function addAppLinkBlock(noteId: string) {
-    const draft = drafts[noteId];
-    if (!draft) return;
-    if (!props.currentLink) return;
-    const block: NoteBlock = { id: newId(), kind: 'link', appLink: props.currentLink };
     updateDraft(noteId, { body: [...draft.body, block] });
   }
 
@@ -305,7 +339,19 @@ export function NotesPage(props: {
     uploadFlow.setStatusWithTimeout('Успешно: изображение прикреплено', 1400);
   }
 
-  function renderNote(note: NoteView) {
+  async function moveNote(noteId: string, list: NoteView[], dir: -1 | 1) {
+    const index = list.findIndex((n) => n.id === noteId);
+    if (index < 0) return;
+    const nextIndex = index + dir;
+    if (nextIndex < 0 || nextIndex >= list.length) return;
+    const next = [...list];
+    const [moved] = next.splice(index, 1);
+    if (!moved) return;
+    next.splice(nextIndex, 0, moved);
+    await reorderNotes(next);
+  }
+
+  function renderNote(note: NoteView, list: NoteView[], listIndex: number) {
     const draft = drafts[note.id];
     const share = note.shared ? note.share : null;
     const isExpanded = !!expanded[note.id];
@@ -439,9 +485,6 @@ export function NotesPage(props: {
                 <Button variant="ghost" onClick={() => addUrlBlock(note.id)}>
                   Добавить ссылку (URL)
                 </Button>
-                <Button variant="ghost" disabled={!props.currentLink} onClick={() => addAppLinkBlock(note.id)}>
-                  Ссылка на текущий раздел
-                </Button>
                 <Button variant="ghost" onClick={() => void addImageBlock(note.id)}>
                   Добавить изображение
                 </Button>
@@ -471,6 +514,16 @@ export function NotesPage(props: {
               <Button variant="ghost" onClick={() => void props.onSendToChat(draft)}>
                 Отправить в чат
               </Button>
+              {props.canEdit && (
+                <>
+                  <Button variant="ghost" disabled={listIndex === 0} onClick={() => void moveNote(note.id, list, -1)}>
+                    Выше
+                  </Button>
+                  <Button variant="ghost" disabled={listIndex >= list.length - 1} onClick={() => void moveNote(note.id, list, 1)}>
+                    Ниже
+                  </Button>
+                </>
+              )}
               {!note.shared && props.canEdit && (
                 <Button variant="ghost" onClick={() => void deleteNote(note.id)}>
                   Удалить заметку
@@ -530,6 +583,16 @@ export function NotesPage(props: {
                     </Button>
                   </div>
                 )}
+                {sharePickerOpen[note.id] && availableUsers.length === 0 && (
+                  <div style={{ color: theme.colors.muted, fontSize: 12 }}>
+                    Нет доступных пользователей для выдачи доступа.
+                  </div>
+                )}
+              </div>
+            )}
+            {noteStatus[note.id] && (
+              <div style={{ fontSize: 12, color: noteStatus[note.id]?.tone === 'error' ? 'var(--danger)' : 'var(--success)' }}>
+                {noteStatus[note.id]?.text}
               </div>
             )}
           </div>
@@ -543,29 +606,29 @@ export function NotesPage(props: {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontWeight: 900 }}>{title}</div>
-        <DraggableFieldList
-          items={list}
-          getKey={(n) => n.id}
-          canDrag={props.canEdit}
-          onReorder={(next) => void reorderNotes(next)}
-          renderItem={(item, itemProps, _dragHandleProps, state) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 10 }}>
+          {list.map((item, idx) => (
             <div
-              {...itemProps}
+              key={item.id}
               className="card-row"
               style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr',
-                gap: 8,
-                alignItems: 'start',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
                 padding: '4px 6px',
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
-                background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
+                border: '1px solid var(--card-row-border)',
               }}
             >
-              {renderNote(item)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: theme.colors.muted, fontSize: 12 }}>
+                  {idx + 1} / {list.length}
+                </span>
+                {dirty[item.id] ? <span style={{ color: 'var(--warn)', fontSize: 12, fontWeight: 700 }}>Есть несохраненные изменения</span> : null}
+              </div>
+              {renderNote(item, list, idx)}
             </div>
-          )}
-        />
+          ))}
+        </div>
       </div>
     );
   }

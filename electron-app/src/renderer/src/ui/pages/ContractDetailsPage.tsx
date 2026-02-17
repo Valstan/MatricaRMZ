@@ -7,6 +7,8 @@ import { FormField } from '../components/FormField.js';
 import { NumericField } from '../components/NumericField.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
+import { SectionCard } from '../components/SectionCard.js';
+import { DataTable } from '../components/DataTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import {
@@ -202,16 +204,17 @@ function SectionBlock(props: {
   const primarySection = isPrimary ? (section as ContractPrimarySection) : null;
 
   return (
-    <div className="card-panel" style={{ borderRadius: 12, padding: 16, minWidth: 0, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-        <strong>{title}</strong>
-        <span style={{ flex: 1 }} />
-        {onRemove && canEdit && (
+    <SectionCard
+      title={title}
+      style={{ borderRadius: 12, padding: 16, minWidth: 0, overflow: 'hidden' }}
+      actions={
+        onRemove && canEdit ? (
           <Button variant="ghost" tone="danger" size="sm" onClick={onRemove}>
             Удалить ДС
           </Button>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
 
       <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
         <FormGrid columns="repeat(2, minmax(220px, 1fr))" gap={10}>
@@ -272,21 +275,27 @@ function SectionBlock(props: {
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label style={{ fontSize: 12, color: '#6b7280' }}>Марки двигателей</label>
+            <label className="ui-muted">Марки двигателей</label>
             {canEdit && (
               <Button variant="ghost" size="sm" onClick={addEngineBrand}>
                 + Строка
               </Button>
             )}
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+          <DataTable>
+              <colgroup>
+                <col />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 130 }} />
+                <col style={{ width: 140 }} />
+                {canEdit && <col style={{ width: 44 }} />}
+              </colgroup>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Марка</th>
-                  <th style={{ width: 92, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Кол-во</th>
-                  <th style={{ width: 110, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Цена</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Сумма</th>
+                  <th className="num">Кол-во</th>
+                  <th className="num">Цена</th>
+                  <th className="num">Сумма</th>
                   {canEdit && <th style={{ width: 40 }} />}
                 </tr>
               </thead>
@@ -316,25 +325,25 @@ function SectionBlock(props: {
                           label
                         )}
                       </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
+                      <td className="num">
                         <NumericField
                           min={0}
                           value={row.qty}
                           disabled={!canEdit}
                           onChange={(next) => updateEngineBrand(idx, { qty: next })}
-                          width={70}
+                          width={90}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
+                      <td className="num">
                         <NumericField
                           min={0}
                           value={row.unitPrice}
                           disabled={!canEdit}
                           onChange={(next) => updateEngineBrand(idx, { unitPrice: next })}
-                          width={90}
+                          width={110}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
+                      <td className="num" style={{ fontWeight: 700 }}>
                         {rowSum(row.qty, row.unitPrice).toLocaleString('ru-RU')}
                       </td>
                       {canEdit && (
@@ -355,27 +364,32 @@ function SectionBlock(props: {
                   </tr>
                 )}
               </tbody>
-            </table>
-          </div>
+          </DataTable>
         </div>
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label style={{ fontSize: 12, color: '#6b7280' }}>Детали</label>
+            <label className="ui-muted">Детали</label>
             {canEdit && (
               <Button variant="ghost" size="sm" onClick={addPart}>
                 + Строка
               </Button>
             )}
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+          <DataTable>
+              <colgroup>
+                <col />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 130 }} />
+                <col style={{ width: 140 }} />
+                {canEdit && <col style={{ width: 44 }} />}
+              </colgroup>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Деталь</th>
-                  <th style={{ width: 92, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Кол-во</th>
-                  <th style={{ width: 110, textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Цена</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Сумма</th>
+                  <th className="num">Кол-во</th>
+                  <th className="num">Цена</th>
+                  <th className="num">Сумма</th>
                   {canEdit && <th style={{ width: 40 }} />}
                 </tr>
               </thead>
@@ -405,25 +419,25 @@ function SectionBlock(props: {
                           label
                         )}
                       </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
+                      <td className="num">
                         <NumericField
                           min={0}
                           value={row.qty}
                           disabled={!canEdit}
                           onChange={(next) => updatePart(idx, { qty: next })}
-                          width={70}
+                          width={90}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
+                      <td className="num">
                         <NumericField
                           min={0}
                           value={row.unitPrice}
                           disabled={!canEdit}
                           onChange={(next) => updatePart(idx, { unitPrice: next })}
-                          width={90}
+                          width={110}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f3f4f6' }}>
+                      <td className="num" style={{ fontWeight: 700 }}>
                         {rowSum(row.qty, row.unitPrice).toLocaleString('ru-RU')}
                       </td>
                       {canEdit && (
@@ -444,11 +458,10 @@ function SectionBlock(props: {
                   </tr>
                 )}
               </tbody>
-            </table>
-          </div>
+            </DataTable>
         </div>
       </div>
-    </div>
+    </SectionCard>
   );
 }
 
@@ -717,6 +730,7 @@ export function ContractDetailsPage(props: {
   return (
     <EntityCardShell
       title={headerTitle}
+      layout="two-column"
       actions={
         <RowActions>
           {props.canEditMasterData && (
@@ -739,7 +753,7 @@ export function ContractDetailsPage(props: {
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div> : null}
     >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, minWidth: 0, width: '100%', maxWidth: 1400 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 16, minWidth: 0, width: '100%' }}>
           <SectionBlock
             title="Первичный контракт"
             section={sections.primary}
@@ -774,15 +788,14 @@ export function ContractDetailsPage(props: {
           ))}
 
           {props.canEdit && (
-            <div className="card-panel" style={{ borderRadius: 12, padding: 16, alignSelf: 'start', minWidth: 0 }}>
+            <SectionCard style={{ borderRadius: 12, padding: 16, alignSelf: 'start', minWidth: 0 }}>
               <Button variant="outline" tone="neutral" onClick={addAddon} style={{ width: '100%' }}>
                 + Добавить ДС
               </Button>
-            </div>
+            </SectionCard>
           )}
 
-          <div className="card-panel" style={{ gridColumn: '1 / -1', borderRadius: 12, padding: 16 }}>
-            <strong>Сводка</strong>
+          <SectionCard className="entity-card-span-full" title="Сводка" style={{ borderRadius: 12, padding: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginTop: 12 }}>
               <div>
                 <div style={{ fontSize: 12, color: '#6b7280' }}>Кол-во</div>
@@ -820,9 +833,9 @@ export function ContractDetailsPage(props: {
                 />
               </div>
             </div>
-          </div>
+          </SectionCard>
 
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div className="entity-card-span-full">
             <AttachmentsPanel
               title="Вложения к контракту"
               value={contract.attributes?.attachments}
@@ -836,7 +849,7 @@ export function ContractDetailsPage(props: {
           </div>
 
           {fileDefs.length > 0 && (
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div className="entity-card-span-full">
               {fileDefs.map((def) => {
                 const meta = parseMetaJson(def.metaJson);
                 const category = typeof meta?.category === 'string' && meta.category.trim() ? String(meta.category) : def.code;

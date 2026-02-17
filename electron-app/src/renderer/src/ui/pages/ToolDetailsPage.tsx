@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -427,8 +428,8 @@ export function ToolDetailsPage(props: {
 
       {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+      <SectionCard>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Табельный номер</div>
           <Input
             value={toolNumber}
@@ -437,7 +438,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Наименование</div>
           <SearchSelectWithCreate
             value={toolCatalogId || null}
@@ -468,7 +469,7 @@ export function ToolDetailsPage(props: {
             }}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Серийный номер</div>
           <Input
             value={serialNumber}
@@ -477,7 +478,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Описание</div>
           <Input
             value={description}
@@ -486,7 +487,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Подразделение</div>
           <SearchSelectWithCreate
             value={departmentId}
@@ -508,7 +509,7 @@ export function ToolDetailsPage(props: {
             }}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Дата поступления</div>
           <Input
             type="date"
@@ -518,7 +519,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Дата снятия</div>
           <Input
             type="date"
@@ -528,7 +529,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Причина снятия</div>
           <Input
             value={retireReason}
@@ -537,13 +538,12 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-      </div>
+      </SectionCard>
 
-      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <strong>Свойства инструмента</strong>
-          <span style={{ flex: 1 }} />
-          {props.canEdit && (
+      <SectionCard
+        title="Свойства инструмента"
+        actions={
+          props.canEdit ? (
             <Button
               variant="ghost"
               onClick={() => {
@@ -553,13 +553,14 @@ export function ToolDetailsPage(props: {
             >
               Добавить свойство
             </Button>
-          )}
-        </div>
+          ) : undefined
+        }
+      >
         {properties.length === 0 && <div style={{ color: '#6b7280' }}>Нет свойств.</div>}
         {properties.map((row, idx) => {
           const hints = row.propertyId ? propertyValueHints[row.propertyId] ?? [] : [];
           return (
-            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr 80px', gap: 8, padding: '4px 6px' }}>
+            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(220px, 1fr) minmax(220px, 1fr) 80px', gap: 8, padding: '4px 6px' }}>
               <div>Свойство</div>
               <SearchSelectWithCreate
                 value={row.propertyId}
@@ -614,11 +615,10 @@ export function ToolDetailsPage(props: {
             </div>
           );
         })}
-      </div>
+      </SectionCard>
 
-      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
-        <strong>Движение инструмента</strong>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+      <SectionCard title="Движение инструмента">
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 140px) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Дата</div>
           <Input type="date" value={newMoveDate} onChange={(e) => setNewMoveDate(e.target.value)} disabled={!props.canEdit} />
           <select
@@ -638,7 +638,7 @@ export function ToolDetailsPage(props: {
             onChange={(next) => setNewMoveEmployeeId(next ?? '')}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 140px) minmax(160px, 1fr) minmax(220px, 1fr)', gap: 8, padding: '4px 6px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => setNewMoveConfirmed(e.target.checked)} disabled={!props.canEdit} />
             Подтверждено
@@ -747,7 +747,7 @@ export function ToolDetailsPage(props: {
             </tbody>
           </table>
         </div>
-      </div>
+      </SectionCard>
 
       <AttachmentsPanel
         title="Фото инструмента"

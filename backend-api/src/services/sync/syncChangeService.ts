@@ -6,6 +6,7 @@
  */
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 
+import { signAndAppendDetailed, type LedgerTxPayload } from '../../ledger/ledgerService.js';
 import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor } from './syncWriteService.js';
 
 type SyncActor = { id: string; username: string; role?: string };
@@ -74,10 +75,30 @@ export async function recordSyncChanges(actor: SyncActor, changes: SyncChange[])
  */
 export function appendLedgerChanges(actor: SyncActor, changes: SyncChangeJson[]) {
   if (!changes.length) return { applied: 0, lastSeq: 0, blockHeight: 0 };
-  // Delegate to the async version but callers must await if they want PG consistency.
-  // For backward compat we return a minimal result -- the sync now goes through writeSyncChanges.
-  void recordSyncChangesJson(actor, changes);
-  return { applied: changes.length, lastSeq: 0, blockHeight: 0 };
+
+  const payloads: LedgerTxPayload[] = [];
+  for (const ch of changes) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(ch.payloadJson) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    payloads.push({
+      type: ch.op,
+      table: SyncTableRegistry.toLedgerName(ch.tableName),
+      row: payload,
+      row_id: ch.rowId,
+      actor: {
+        userId: actor.id,
+        username: actor.username,
+        role: actor.role ?? 'user',
+      },
+      ts: Number(payload.updated_at ?? Date.now()),
+    });
+  }
+  if (payloads.length === 0) return { applied: 0, lastSeq: 0, blockHeight: 0 };
+  return signAndAppendDetailed(payloads);
 }
 
 /**

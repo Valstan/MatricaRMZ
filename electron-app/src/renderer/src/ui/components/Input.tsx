@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 
+import { UnifiedDateInput } from './UnifiedDateInput.js';
+
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>((props, ref) => {
+  const inputType = String(props.type ?? 'text');
+  if (inputType === 'date' || inputType === 'datetime-local') {
+    return <UnifiedDateInput {...props} ref={ref} />;
+  }
+
   const [focused, setFocused] = useState(false);
   return (
     <input

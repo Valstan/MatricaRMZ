@@ -221,13 +221,12 @@ export async function pullChangesSince(
 
     const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
 
-    const rows = await db
+    const baseQuery = db
       .select()
       .from(pgTable)
-      .$dynamic()
-      .where(where)
-      .orderBy('lastServerSeq' in pgTable ? asc(pgTable.lastServerSeq) : asc(pgTable.id))
-      .limit(safeLimit);
+      .orderBy('lastServerSeq' in pgTable ? asc(pgTable.lastServerSeq) : asc(pgTable.id));
+    const filteredQuery = where ? baseQuery.where(where) : baseQuery;
+    const rows = await filteredQuery.limit(safeLimit);
 
     for (const row of rows) {
       allChanges.push(pgRowToChange(tableName, row as Record<string, unknown>, entry.toSyncRow));
@@ -248,7 +247,6 @@ export async function pullChangesSince(
       const shareRows = await db
         .select()
         .from(noteShares)
-        .$dynamic()
         .where(and(gt(noteShares.lastServerSeq, effectiveSince), inArray(noteShares.noteId, ownedArr)))
         .orderBy(asc(noteShares.lastServerSeq))
         .limit(safeLimit);

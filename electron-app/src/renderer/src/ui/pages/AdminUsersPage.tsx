@@ -226,7 +226,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
           <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
             <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Создать пользователя</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
                 <Input value={newUser.login} onChange={(e) => setNewUser((p) => ({ ...p, login: e.target.value }))} placeholder="логин" />
                 <Input value={newUser.fullName} onChange={(e) => setNewUser((p) => ({ ...p, fullName: e.target.value }))} placeholder="ФИО (опц.)" />
                 <Input

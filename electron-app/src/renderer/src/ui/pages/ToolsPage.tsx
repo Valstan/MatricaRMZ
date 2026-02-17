@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SuggestInput } from '../components/SuggestInput.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
@@ -323,14 +324,13 @@ export function ToolsPage(props: {
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
       {reportOpen && (
-        <div className="card-panel" style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          <strong>Сводный отчет по инструментам (подразделение)</strong>
-          <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+        <SectionCard title="Сводный отчет по инструментам (подразделение)" style={{ marginTop: 10 }}>
+          <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(180px, 1fr) minmax(180px, 1fr)', gap: 8, padding: '4px 6px' }}>
             <div>Интервал</div>
             <Input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} />
             <Input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} />
           </div>
-          <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+          <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(180px, 1fr) minmax(180px, 1fr)', gap: 8, padding: '4px 6px' }}>
             <div>Фильтры</div>
             <SuggestInput
               value={reportName}
@@ -345,7 +345,7 @@ export function ToolsPage(props: {
               <option value="unknown">Неизвестно</option>
             </select>
           </div>
-          <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: 8, padding: '4px 6px' }}>
+          <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(180px, 1fr) minmax(180px, 1fr)', gap: 8, padding: '4px 6px' }}>
             <div>Свойства</div>
             <SearchSelect
               value={reportPropertyId}
@@ -412,7 +412,7 @@ export function ToolsPage(props: {
               </tbody>
             </table>
           </div>
-        </div>
+        </SectionCard>
       )}
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>

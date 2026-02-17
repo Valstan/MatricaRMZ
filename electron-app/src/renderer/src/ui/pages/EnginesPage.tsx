@@ -368,7 +368,7 @@ export function EnginesPage(props: {
         <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr', gap: 10, alignItems: 'center' }}>
             <div style={{ color: '#6b7280' }}>Период (создание)</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
               <Input type="date" value={periodFrom} onChange={(e) => patchState({ periodFrom: e.target.value })} />
               <Input type="date" value={periodTo} onChange={(e) => patchState({ periodTo: e.target.value })} />
             </div>
@@ -380,13 +380,13 @@ export function EnginesPage(props: {
             <MultiSearchSelect values={brandIds} options={brandOptions} placeholder="Все" onChange={(next) => patchState({ brandIds: next })} />
 
             <div style={{ color: '#6b7280' }}>Дата прихода</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
               <Input type="date" value={arrivalFrom} onChange={(e) => patchState({ arrivalFrom: e.target.value })} />
               <Input type="date" value={arrivalTo} onChange={(e) => patchState({ arrivalTo: e.target.value })} />
             </div>
 
             <div style={{ color: '#6b7280' }}>Дата отгрузки</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
               <Input type="date" value={shippingFrom} onChange={(e) => patchState({ shippingFrom: e.target.value })} />
               <Input type="date" value={shippingTo} onChange={(e) => patchState({ shippingTo: e.target.value })} />
             </div>

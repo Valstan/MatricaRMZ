@@ -10,6 +10,7 @@ export function NumericField(props: {
   disabled?: boolean;
   width?: number;
 }) {
+  const widthStyle = typeof props.width === 'number' ? `min(100%, ${props.width}px)` : '100%';
   return (
     <Input
       type="number"
@@ -18,7 +19,7 @@ export function NumericField(props: {
       disabled={props.disabled}
       value={props.value}
       onChange={(e) => props.onChange(Number(e.target.value) || 0)}
-      style={{ width: props.width ?? 100, textAlign: 'right' }}
+      style={{ width: widthStyle, textAlign: 'right' }}
     />
   );
 }

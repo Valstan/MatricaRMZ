@@ -7,6 +7,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -570,6 +571,7 @@ export function EngineDetailsPage(props: {
   return (
     <EntityCardShell
       title={headerTitle}
+      layout="two-column"
       actions={
         <RowActions>
           {props.canEditEngines && (
@@ -611,7 +613,7 @@ export function EngineDetailsPage(props: {
       }
       status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div> : null}
     >
-        <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -666,7 +668,7 @@ export function EngineDetailsPage(props: {
             </div>
           )}
         </div>
-      </div>
+      </SectionCard>
 
       {props.canViewOperations && (
         <RepairChecklistPanel
@@ -719,13 +721,15 @@ export function EngineDetailsPage(props: {
         />
       )}
 
-      <AttachmentsPanel
-        title="Вложения к двигателю"
-        value={props.engine.attributes?.attachments}
-        canView={props.canViewFiles}
-        canUpload={props.canUploadFiles && props.canEditEngines}
-        onChange={saveAttachments}
-      />
+      <div className="entity-card-span-full">
+        <AttachmentsPanel
+          title="Вложения к двигателю"
+          value={props.engine.attributes?.attachments}
+          canView={props.canViewFiles}
+          canUpload={props.canUploadFiles && props.canEditEngines}
+          onChange={saveAttachments}
+        />
+      </div>
     </EntityCardShell>
   );
 }

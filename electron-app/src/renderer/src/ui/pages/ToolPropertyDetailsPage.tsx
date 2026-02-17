@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SuggestInput } from '../components/SuggestInput.js';
+import { SectionCard } from '../components/SectionCard.js';
 
 export function ToolPropertyDetailsPage(props: {
   id: string;
@@ -66,8 +67,8 @@ export function ToolPropertyDetailsPage(props: {
 
       {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div className="card-panel" style={{ display: 'grid', gap: 8 }}>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, padding: '4px 6px' }}>
+      <SectionCard>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Наименование свойства</div>
           <Input
             value={name}
@@ -77,7 +78,7 @@ export function ToolPropertyDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
           <div>Параметры свойства</div>
           <SuggestInput
             value={params}
@@ -88,7 +89,7 @@ export function ToolPropertyDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-      </div>
+      </SectionCard>
     </div>
   );
 }

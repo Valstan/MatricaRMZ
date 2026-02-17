@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -274,7 +275,7 @@ export function EngineBrandDetailsPage(props: {
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 200px) 1fr', gap: 8 }}>
           <div style={{ color: '#6b7280' }}>Название</div>
           <Input
@@ -303,18 +304,19 @@ export function EngineBrandDetailsPage(props: {
             }}
           />
         </div>
-      </div>
+      </SectionCard>
 
-      <div className="card-panel" style={{ marginTop: 14, borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <div style={{ fontWeight: 600 }}>Детали для марки</div>
-          <div style={{ flex: 1 }} />
-          {props.canEdit && props.canViewParts && props.canEditParts && (
+      <SectionCard
+        title="Детали для марки"
+        style={{ marginTop: 14, borderRadius: 12, padding: 12 }}
+        actions={
+          props.canEdit && props.canViewParts && props.canEditParts ? (
             <Button variant="ghost" onClick={() => setShowAddPart((v) => !v)}>
               + Добавить деталь
             </Button>
-          )}
-        </div>
+          ) : undefined
+        }
+      >
 
         {showAddPart && props.canViewParts && props.canEditParts && (
           <div style={{ marginBottom: 10 }}>
@@ -381,7 +383,7 @@ export function EngineBrandDetailsPage(props: {
         )}
 
         {partsStatus && <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>{partsStatus}</div>}
-      </div>
+      </SectionCard>
 
       <AttachmentsPanel
         title="Чертежи"

@@ -1112,7 +1112,7 @@ export function MasterdataPage(props: {
                       </Button>
                     </div>
 
-                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
                       <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                         <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
                         {outgoingLinks.length === 0 ? (
@@ -1798,7 +1798,7 @@ function NewAttrDefForm(props: {
   return (
     <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
       <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить свойство</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="code (например: passport_details)" />
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="название (например: Паспорт)" />
         <select

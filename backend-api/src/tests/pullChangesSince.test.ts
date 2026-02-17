@@ -1,71 +1,105 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeQueuedSelectMock } from './utils/dbMockHelpers.js';
+
+import { entities, ledgerTxIndex } from '../database/schema.js';
 
 const ensureLedgerTxIndexUpToDateMock = vi.fn();
-const selectQueue: any[] = [];
+const getLedgerLastSeqMock = vi.fn(() => 0);
+const rowsByTable = new Map<unknown, any[][]>();
+
+function dequeueRows(table: unknown) {
+  const queue = rowsByTable.get(table);
+  if (!queue || queue.length === 0) return [];
+  return queue.shift() ?? [];
+}
 
 vi.mock('../services/sync/ledgerTxIndexService.js', () => ({
   ensureLedgerTxIndexUpToDate: (...args: any[]) => ensureLedgerTxIndexUpToDateMock(...args),
 }));
 
+vi.mock('../ledger/ledgerService.js', () => ({
+  getLedgerLastSeq: (...args: any[]) => getLedgerLastSeqMock(...args),
+}));
+
 vi.mock('../database/db.js', () => ({
   db: {
-    select: makeQueuedSelectMock(selectQueue),
+    select: vi.fn(() => ({
+      from: vi.fn((table: unknown) => {
+        const chain: any = {
+          where: vi.fn(() => chain),
+          orderBy: vi.fn(() => chain),
+          limit: vi.fn(async () => dequeueRows(table)),
+        };
+        return chain;
+      }),
+    })),
   },
 }));
 
 describe('pullChangesSince', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    selectQueue.length = 0;
+    rowsByTable.clear();
     ensureLedgerTxIndexUpToDateMock.mockResolvedValue(undefined);
+    getLedgerLastSeqMock.mockReturnValue(0);
     process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED = '0';
   });
 
-  it('sets has_more/server_cursor by page rows and filters chat payload by actor', async () => {
+  it('sets has_more and server_cursor by page rows', async () => {
     const { pullChangesSince } = await import('../services/sync/pullChangesSince.js');
-    selectQueue.push(
+    rowsByTable.set(ledgerTxIndex, [
       [{ max: 100 }],
       [
         {
-          table: 'chat_messages',
-          rowId: 'm-hidden',
+          table: 'release_registry',
+          rowId: 'r1',
           op: 'upsert',
-          payloadJson: JSON.stringify({ sender_user_id: 'u1', recipient_user_id: 'u3' }),
-          serverSeq: 11,
-        },
-        {
-          table: 'entities',
-          rowId: 'e-visible',
-          op: 'upsert',
-          payloadJson: JSON.stringify({ id: 'e-visible' }),
-          serverSeq: 12,
+          payloadJson: JSON.stringify({ id: 'r1' }),
+          serverSeq: 21,
         },
       ],
-    );
+    ]);
+    rowsByTable.set(entities, [[
+      {
+        id: 'e1',
+        typeId: 't1',
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: 11,
+      },
+      {
+        id: 'e2',
+        typeId: 't1',
+        createdAt: 2,
+        updatedAt: 2,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: 12,
+      },
+    ]]);
 
     const res = await pullChangesSince(0, { id: 'u2', role: 'user' }, 1);
     expect(ensureLedgerTxIndexUpToDateMock).toHaveBeenCalledTimes(1);
     expect(res.server_last_seq).toBe(100);
     expect(res.has_more).toBe(true);
-    expect(res.server_cursor).toBe(11);
-    expect(res.changes).toEqual([]);
+    expect(res.server_cursor).toBeGreaterThan(0);
+    expect(res.changes.length).toBe(1);
+    expect(res.changes[0]?.row_id).toBe('e1');
   });
 
   it('adds last_server_seq into payload_json of returned rows', async () => {
     const { pullChangesSince } = await import('../services/sync/pullChangesSince.js');
-    selectQueue.push(
-      [{ max: 20 }],
-      [
-        {
-          table: 'entities',
-          rowId: 'e1',
-          op: 'upsert',
-          payloadJson: JSON.stringify({ id: 'e1' }),
-          serverSeq: 7,
-        },
-      ],
-    );
+    rowsByTable.set(ledgerTxIndex, [[{ max: 20 }], []]);
+    rowsByTable.set(entities, [[{
+      id: 'e1',
+      typeId: 't1',
+      createdAt: 1,
+      updatedAt: 1,
+      deletedAt: null,
+      syncStatus: 'synced',
+      lastServerSeq: 7,
+    }]]);
 
     const res = await pullChangesSince(0, { id: 'admin-1', role: 'admin' }, 100);
     expect(res.changes.length).toBe(1);

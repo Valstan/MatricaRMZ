@@ -59,7 +59,6 @@ export function ChatPanel(props: {
   canAdminViewAll: boolean;
   onHide: () => void;
   onToggleSide: () => void;
-  onSendLink: () => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
@@ -380,9 +379,6 @@ export function ChatPanel(props: {
             {adminMode ? 'Обычный режим' : 'Админ режим'}
           </Button>
         )}
-        <Button variant="ghost" onClick={props.onSendLink} title="Отправить ссылку на текущий раздел">
-          Отправить ссылку
-        </Button>
         {!adminMode && (
           <div>
             <Button ref={othersButtonRef} variant="ghost" onClick={() => setOthersOpen((v) => !v)}>

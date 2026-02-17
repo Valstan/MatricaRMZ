@@ -42,9 +42,10 @@ describe('diagnostics autoheal', () => {
 
   it('skips when server snapshot is unknown', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    const now = Date.now();
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'unknown', serverSeq: null },
-      clients: [{ clientId: 'c1', status: 'drift', diffs: [] }],
+      clients: [{ clientId: 'c1', status: 'drift', snapshotAt: now, diffs: [] }],
     });
     const r = await evaluateAutohealForClient('c1');
     expect(r.queued).toBe(false);
@@ -66,6 +67,7 @@ describe('diagnostics autoheal', () => {
         {
           clientId: 'c1',
           status: 'drift',
+          snapshotAt: now,
           lastPulledServerSeq: 1000,
           diffs: [
             { kind: 'table', name: 'entities', status: 'drift' },
@@ -94,6 +96,7 @@ describe('diagnostics autoheal', () => {
         {
           clientId: 'c1',
           status: 'drift',
+          snapshotAt: now,
           lastPulledServerSeq: 1000,
           diffs: [
             { kind: 'table', name: 'entities', status: 'drift' },
@@ -110,10 +113,19 @@ describe('diagnostics autoheal', () => {
 
   it('does not enqueue for isolated weak drift (below action threshold)', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    const now = Date.now();
     selectQueue.push([], []);
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'ledger', serverSeq: 1000 },
-      clients: [{ clientId: 'c1', status: 'drift', lastPulledServerSeq: 990, diffs: [{ kind: 'table', name: 'entities', status: 'drift' }] }],
+      clients: [
+        {
+          clientId: 'c1',
+          status: 'drift',
+          snapshotAt: now,
+          lastPulledServerSeq: 990,
+          diffs: [{ kind: 'table', name: 'entities', status: 'drift' }],
+        },
+      ],
     });
     const r = await evaluateAutohealForClient('c1');
     expect(r.queued).toBe(false);
@@ -136,6 +148,7 @@ describe('diagnostics autoheal', () => {
         {
           clientId: 'c1',
           status: 'warning',
+          snapshotAt: now,
           lastPulledServerSeq: 6000,
           diffs: [
             { kind: 'table', name: 'entities', status: 'drift' },
@@ -157,9 +170,10 @@ describe('diagnostics autoheal', () => {
 
   it('does not enqueue when report status is ok', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    const now = Date.now();
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'ledger', serverSeq: 1000 },
-      clients: [{ clientId: 'c1', status: 'ok', lastPulledServerSeq: 1000, diffs: [] }],
+      clients: [{ clientId: 'c1', status: 'ok', snapshotAt: now, lastPulledServerSeq: 1000, diffs: [] }],
     });
     const r = await evaluateAutohealForClient('c1');
     expect(r.queued).toBe(false);
@@ -169,6 +183,7 @@ describe('diagnostics autoheal', () => {
 
   it('does not enqueue for warning-only signal without streak', async () => {
     const { evaluateAutohealForClient } = await import('../services/diagnosticsAutohealService.js');
+    const now = Date.now();
     selectQueue.push([], []);
     getConsistencyReportMock.mockResolvedValue({
       server: { source: 'ledger', serverSeq: 5000 },
@@ -176,6 +191,7 @@ describe('diagnostics autoheal', () => {
         {
           clientId: 'c1',
           status: 'warning',
+          snapshotAt: now,
           lastPulledServerSeq: 4990,
           diffs: [
             { kind: 'table', name: 'entities', status: 'warning' },

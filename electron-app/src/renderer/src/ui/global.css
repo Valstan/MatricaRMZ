@@ -16,6 +16,15 @@ body {
 }
 
 :root {
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-title-size: 18px;
+  --ui-section-size: 15px;
+  --ui-body-size: 13px;
+  --ui-muted-size: 12px;
   --app-bg-from: #e2e8f0;
   --app-bg-via: #f8fafc;
   --app-bg-to: #e0f2fe;
@@ -281,6 +290,9 @@ table.list-table.list-table--catalog {
 .card-panel {
   background: var(--card-panel-bg);
   border: 1px solid var(--card-panel-border);
+  padding: var(--ui-space-4);
+  display: grid;
+  gap: var(--ui-space-3);
 }
 
 .card-row-list {
@@ -292,6 +304,7 @@ table.list-table.list-table--catalog {
   background: var(--card-row-bg);
   border: 1px solid var(--card-row-border);
   padding: var(--card-row-padding-y) var(--card-row-padding-x);
+  min-width: 0;
 }
 
 .card-row:hover {
@@ -330,6 +343,89 @@ table.list-table.list-table--catalog {
 
 .notes-tab-blink {
   animation: notesBlink 1s infinite;
+}
+
+.matrica-datepicker-input {
+  width: 100%;
+}
+
+.matrica-datepicker-popper {
+  z-index: 12000 !important;
+}
+
+.matrica-datepicker-calendar {
+  transform: scale(2);
+  transform-origin: top left;
+  font-size: 14px;
+}
+
+.matrica-datepicker-calendar .react-datepicker__month-container {
+  float: none;
+}
+
+.entity-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.entity-card-grid > * {
+  min-width: 0;
+}
+
+.entity-card-span-full {
+  grid-column: 1 / -1;
+}
+
+.ui-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  margin-bottom: var(--ui-space-2);
+}
+
+.ui-section-title {
+  margin: 0;
+  font-size: var(--ui-section-size);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ui-muted {
+  color: var(--muted);
+  font-size: var(--ui-muted-size);
+  line-height: 1.3;
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: var(--ui-body-size);
+}
+
+.ui-table th,
+.ui-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  vertical-align: middle;
+}
+
+.ui-table th {
+  text-align: left;
+  font-weight: 700;
+}
+
+.ui-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+  .entity-card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 

@@ -36,7 +36,6 @@ import { NotesPage } from './pages/NotesPage.js';
 import { SuperadminAuditPage } from './pages/SuperadminAuditPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
-import { Input } from './components/Input.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
@@ -74,7 +73,6 @@ export function App() {
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
   const [notesAlertCount, setNotesAlertCount] = useState<number>(0);
-  const [sendLinkDialog, setSendLinkDialog] = useState<{ open: boolean; title: string }>({ open: false, title: 'Ссылка на раздел' });
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
@@ -647,10 +645,6 @@ export function App() {
     await window.matrica.settings.uiSet({ userId, chatSide: next }).catch(() => {});
   }
 
-  function openSendLinkDialog() {
-    setSendLinkDialog({ open: true, title: 'Ссылка на раздел' });
-  }
-
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -1027,6 +1021,20 @@ export function App() {
     if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
   }
 
+  async function saveCurrentPositionToNotes() {
+    if (!authStatus.loggedIn || viewMode) return;
+    const title = buildChatBreadcrumbs().join(' / ').trim() || 'Ссылка на раздел';
+    const body = [{ id: crypto.randomUUID(), kind: 'link' as const, appLink: currentAppLink as any }];
+    const r = await window.matrica.notes.upsert({ title, body, importance: 'normal' }).catch(() => null);
+    if ((r as any)?.ok) {
+      setPostLoginSyncMsg('Ссылка на текущий раздел сохранена в заметки.');
+      if (!viewMode) void window.matrica.sync.run().catch(() => {});
+    } else {
+      setPostLoginSyncMsg(`Не удалось сохранить ссылку: ${String((r as any)?.error ?? 'unknown')}`);
+    }
+    setTimeout(() => setPostLoginSyncMsg(''), 6000);
+  }
+
   function noteToChatText(note: { title: string; body: Array<any> }) {
     const lines: string[] = [];
     lines.push(note.title || 'Заметка');
@@ -1060,15 +1068,6 @@ export function App() {
       .sendText({ recipientUserId: chatContext.selectedUserId ?? null, text })
       .catch(() => null);
     if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
-  }
-
-  async function sendCurrentLinkToNotes() {
-    if (!authStatus.loggedIn || viewMode) return;
-    const title = sendLinkDialog.title.trim() || 'Ссылка на раздел';
-    const body = [{ id: crypto.randomUUID(), kind: 'link' as const, appLink: currentAppLink as any }];
-    const r = await window.matrica.notes.upsert({ title, body, importance: 'normal' }).catch(() => null);
-    if ((r as any)?.ok && !viewMode) void window.matrica.sync.run().catch(() => {});
-    setSendLinkDialog({ open: false, title: 'Ссылка на раздел' });
   }
 
   async function reloadEngine() {
@@ -1519,6 +1518,24 @@ export function App() {
         center={headerStatus}
         right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+          {authStatus.loggedIn && !viewMode && (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => void sendCurrentPositionToChat()}
+                title="Отправить ссылку на текущий раздел в чат"
+              >
+                Кинуть в чат
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void saveCurrentPositionToNotes()}
+                title="Сохранить ссылку на текущий раздел в заметки"
+              >
+                Сохранить в заметки
+              </Button>
+            </>
+          )}
           {authStatus.loggedIn && caps.canUseSync && !viewMode && (
             <Button
               variant="ghost"
@@ -1575,7 +1592,6 @@ export function App() {
               chatSide="left"
               onHide={() => setChatOpen(false)}
               onToggleSide={() => void persistChatSide('right')}
-              onSendLink={openSendLinkDialog}
               onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
@@ -1974,7 +1990,6 @@ export function App() {
           <NotesPage
             meUserId={authStatus.user?.id ?? ''}
             canEdit={authStatus.loggedIn && !viewMode}
-            currentLink={currentAppLink as any}
             onNavigate={(link) => {
               void navigateDeepLink(link);
             }}
@@ -2075,7 +2090,6 @@ export function App() {
               chatSide="right"
               onHide={() => setChatOpen(false)}
               onToggleSide={() => void persistChatSide('left')}
-              onSendLink={openSendLinkDialog}
               onChatContextChange={(ctx) => setChatContext(ctx)}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
@@ -2118,46 +2132,6 @@ export function App() {
         </div>
       )}
       </div>
-
-      {sendLinkDialog.open && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 2000,
-          }}
-        >
-          <div style={{ background: theme.colors.surface, border: `1px solid ${theme.colors.border}`, borderRadius: 12, padding: 16, width: 440 }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>Отправить ссылку</div>
-            <Input
-              value={sendLinkDialog.title}
-              onChange={(e) => setSendLinkDialog((prev) => ({ ...prev, title: e.target.value }))}
-              placeholder="Заголовок заметки (для заметок)"
-              onKeyDown={(e: any) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void sendCurrentLinkToNotes();
-                }
-              }}
-            />
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <Button variant="ghost" onClick={() => void sendCurrentPositionToChat().then(() => setSendLinkDialog({ open: false, title: 'Ссылка на раздел' }))}>
-                Отправить в чат
-              </Button>
-              <Button variant="primary" onClick={() => void sendCurrentLinkToNotes()}>
-                Создать заметку
-              </Button>
-              <Button variant="ghost" onClick={() => setSendLinkDialog({ open: false, title: 'Ссылка на раздел' })}>
-                Отмена
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {canAiAgent && (
         <>

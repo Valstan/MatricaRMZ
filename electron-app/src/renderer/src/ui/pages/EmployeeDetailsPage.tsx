@@ -8,6 +8,7 @@ import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -1011,6 +1012,7 @@ export function EmployeeDetailsPage(props: {
   return (
     <EntityCardShell
       title={headerTitle}
+      layout="two-column"
       actions={
         <RowActions>
           {props.canEdit && (
@@ -1030,8 +1032,7 @@ export function EmployeeDetailsPage(props: {
       }
       status={departmentLabel ? <span style={{ color: '#6b7280' }}>{departmentLabel}</span> : null}
     >
-      <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-      <div className="card-panel" style={{ borderRadius: 12, padding: 12, maxWidth: 900 }}>
+      <SectionCard style={{ borderRadius: 12, padding: 12 }}>
       <DraggableFieldList
         items={mainFields}
         getKey={(f) => f.code}
@@ -1064,17 +1065,13 @@ export function EmployeeDetailsPage(props: {
           </div>
         )}
       />
-      </div>
+      </SectionCard>
 
-      <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <strong>Переводы</strong>
-          <span style={{ flex: 1 }} />
-        </div>
+      <SectionCard title="Переводы" style={{ border: '1px solid #e5e7eb' }}>
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
           {transfers.length === 0 && <div style={{ color: '#6b7280' }}>Переводов нет</div>}
           {transfers.map((t) => (
-            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '160px 140px 1fr 120px', gap: 8, alignItems: 'center' }}>
+            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, alignItems: 'center' }}>
               <div style={{ color: '#111827' }}>{t.kind === 'department' ? 'Подразделение' : 'Должность'}</div>
               <div style={{ color: '#6b7280' }}>{t.date ? new Date(t.date).toLocaleDateString('ru-RU') : '—'}</div>
               <div style={{ color: '#111827' }}>{t.value || '—'}</div>
@@ -1093,7 +1090,7 @@ export function EmployeeDetailsPage(props: {
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '160px 180px 1fr 140px', gap: 8, alignItems: 'center' }}>
+        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, alignItems: 'center' }}>
           <select
             value={transferKind}
             onChange={(e) => setTransferKind(e.target.value)}
@@ -1128,29 +1125,33 @@ export function EmployeeDetailsPage(props: {
             Добавить
           </Button>
         </div>
+      </SectionCard>
+
+      <div className="entity-card-span-full">
+        <AttachmentsPanel
+          title="Вложения сотрудника"
+          value={attachments}
+          canView={props.canViewFiles}
+          canUpload={props.canUploadFiles}
+          scope={{ ownerType: 'employee', ownerId: props.employeeId, category: 'attachments' }}
+          onChange={async (next) => {
+            setAttachments(next);
+            const r = await window.matrica.employees.setAttr(props.employeeId, 'attachments', next);
+            return r.ok ? { ok: true as const } : { ok: false as const, error: r.error ?? 'unknown' };
+          }}
+        />
       </div>
 
-      <AttachmentsPanel
-        title="Вложения сотрудника"
-        value={attachments}
-        canView={props.canViewFiles}
-        canUpload={props.canUploadFiles}
-        scope={{ ownerType: 'employee', ownerId: props.employeeId, category: 'attachments' }}
-        onChange={async (next) => {
-          setAttachments(next);
-          const r = await window.matrica.employees.setAttr(props.employeeId, 'attachments', next);
-          return r.ok ? { ok: true as const } : { ok: false as const, error: r.error ?? 'unknown' };
-        }}
-      />
-
-      <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <strong>Дополнительные поля</strong>
-          <span style={{ flex: 1 }} />
+      <SectionCard
+        className="entity-card-span-full"
+        title="Дополнительные поля"
+        style={{ border: '1px solid #e5e7eb' }}
+        actions={
           <Button variant="ghost" onClick={() => void loadCustomDefs()}>
             Обновить
           </Button>
-        </div>
+        }
+      >
 
         <div style={{ marginTop: 10 }}>
           {customDefs.length === 0 ? (
@@ -1268,7 +1269,7 @@ export function EmployeeDetailsPage(props: {
             {customStatus && <div style={{ marginTop: 8, color: customStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{customStatus}</div>}
           </div>
         )}
-      </div>
+      </SectionCard>
 
       <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1546,7 +1547,6 @@ export function EmployeeDetailsPage(props: {
           {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{accountStatus}</div>}
         </div>
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
-      </div>
     </EntityCardShell>
   );
 }

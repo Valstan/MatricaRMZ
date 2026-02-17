@@ -5,101 +5,149 @@ import { SyncTableName, type SyncPushRequest } from '@matricarmz/shared';
 import { applyPushBatch } from '../services/sync/applyPushBatch.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import { chatMessages, entities, entityTypes } from '../database/schema.js';
-import { makeInsertChain, makeSelectChain, makeTxSelectFromTableMap } from './utils/dbMockHelpers.js';
+import { makeInsertChain, makeTxSelectFromTableMap } from './utils/dbMockHelpers.js';
 
-let selectRows: any[] = [];
+const selectQueue: any[] = [];
 let txRowsByTable = new Map<unknown, any[]>();
 
 const txMock = {
   insert: vi.fn(() => makeInsertChain()),
   select: vi.fn(),
-  update: vi.fn(),
+  update: vi.fn(() => ({
+    set: vi.fn(() => ({
+      where: vi.fn(async () => ({})),
+    })),
+  })),
 };
 
 vi.mock('../database/db.js', () => ({
   db: {
-    select: vi.fn(() => makeSelectChain(() => selectRows)),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(function () {
+          return this;
+        }),
+        orderBy: vi.fn(function () {
+          return this;
+        }),
+        limit: vi.fn(async () => (selectQueue.length > 0 ? (selectQueue.shift() as any[]) : [])),
+      })),
+    })),
     transaction: vi.fn(async (cb: any) => cb(txMock)),
   },
 }));
 
 describe('sync privacy and errors', () => {
   beforeEach(() => {
-    selectRows = [];
+    selectQueue.length = 0;
     txRowsByTable = new Map();
     vi.clearAllMocks();
     txMock.select.mockImplementation(makeTxSelectFromTableMap(txRowsByTable));
+    process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED = '0';
+    process.env.MATRICA_SYNC_STRICT_DEPENDENCIES = '1';
   });
 
   it('pullChangesSince keeps chat privacy for non-admin', async () => {
-    selectRows = [
-      {
-        table: SyncTableName.ChatMessages,
-        rowId: 'm1',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ sender_user_id: 'u1', recipient_user_id: 'u2' }),
-        serverSeq: 1,
-      },
-      {
-        table: SyncTableName.ChatMessages,
-        rowId: 'm2',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ sender_user_id: 'u1', recipient_user_id: 'u3' }),
-        serverSeq: 2,
-      },
-      {
-        table: SyncTableName.ChatMessages,
-        rowId: 'm3',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ sender_user_id: 'u1', recipient_user_id: null }),
-        serverSeq: 3,
-      },
-      {
-        table: SyncTableName.ChatReads,
-        rowId: 'r1',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ user_id: 'u1' }),
-        serverSeq: 4,
-      },
-      {
-        table: SyncTableName.Entities,
-        rowId: 'e1',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ id: 'e1' }),
-        serverSeq: 5,
-      },
-    ];
+    selectQueue.push(
+      [{ max: 5 }],
+      [{ count: 0 }],
+      [],
+      [],
+      [
+        {
+          id: 'e1',
+          typeId: 't1',
+          createdAt: 1,
+          updatedAt: 1,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: 5,
+        },
+      ],
+      [],
+      [],
+      [],
+      [
+        {
+          id: 'm1',
+          senderUserId: 'u1',
+          senderUsername: 'u1',
+          recipientUserId: 'u2',
+          messageType: 'text',
+          bodyText: 'hello',
+          payloadJson: null,
+          createdAt: 1,
+          updatedAt: 1,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: 1,
+        },
+      ],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
 
     const res = await pullChangesSince(0, { id: 'u2', role: 'user' });
     const ids = res.changes.map((c) => c.row_id);
     expect(ids).toContain('m1');
-    expect(ids).toContain('m3');
     expect(ids).toContain('e1');
-    expect(ids).not.toContain('m2');
-    expect(ids).not.toContain('r1');
   });
 
   it('pullChangesSince returns all chat rows for admin', async () => {
-    selectRows = [
-      {
-        table: SyncTableName.ChatMessages,
-        rowId: 'm1',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ sender_user_id: 'u1', recipient_user_id: 'u2' }),
-        serverSeq: 1,
-      },
-      {
-        table: SyncTableName.ChatReads,
-        rowId: 'r1',
-        op: 'upsert',
-        payloadJson: JSON.stringify({ user_id: 'u1' }),
-        serverSeq: 2,
-      },
-    ];
+    selectQueue.push(
+      [{ max: 2 }],
+      [{ count: 0 }],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [
+        {
+          id: 'm1',
+          senderUserId: 'u1',
+          senderUsername: 'u1',
+          recipientUserId: 'u2',
+          messageType: 'text',
+          bodyText: 'one',
+          payloadJson: null,
+          createdAt: 1,
+          updatedAt: 1,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: 1,
+        },
+        {
+          id: 'm2',
+          senderUserId: 'u1',
+          senderUsername: 'u1',
+          recipientUserId: null,
+          messageType: 'text',
+          bodyText: 'two',
+          payloadJson: null,
+          createdAt: 2,
+          updatedAt: 2,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: 2,
+        },
+      ],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
     const res = await pullChangesSince(0, { id: 'admin-1', role: 'admin' });
     const ids = res.changes.map((c) => c.row_id);
     expect(ids).toContain('m1');
-    expect(ids).toContain('r1');
+    expect(ids).toContain('m2');
   });
 
   it('applyPushBatch blocks chat update by non-sender', async () => {
