@@ -5,8 +5,9 @@
  * The change_log table is no longer written to.
  */
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
+import type { LedgerTxPayload } from '@matricarmz/ledger';
 
-import { signAndAppendDetailed, type LedgerTxPayload } from '../../ledger/ledgerService.js';
+import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
 import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor } from './syncWriteService.js';
 
 type SyncActor = { id: string; username: string; role?: string };
@@ -86,7 +87,7 @@ export function appendLedgerChanges(actor: SyncActor, changes: SyncChangeJson[])
     }
     payloads.push({
       type: ch.op,
-      table: SyncTableRegistry.toLedgerName(ch.tableName),
+      table: SyncTableRegistry.toLedgerName(ch.tableName) as LedgerTxPayload['table'],
       row: payload,
       row_id: ch.rowId,
       actor: {

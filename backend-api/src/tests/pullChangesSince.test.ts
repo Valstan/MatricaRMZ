@@ -17,7 +17,7 @@ vi.mock('../services/sync/ledgerTxIndexService.js', () => ({
 }));
 
 vi.mock('../ledger/ledgerService.js', () => ({
-  getLedgerLastSeq: (...args: any[]) => getLedgerLastSeqMock(...args),
+  getLedgerLastSeq: () => getLedgerLastSeqMock(),
 }));
 
 vi.mock('../database/db.js', () => ({

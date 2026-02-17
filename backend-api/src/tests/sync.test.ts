@@ -23,15 +23,14 @@ const txMock = {
 vi.mock('../database/db.js', () => ({
   db: {
     select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(function () {
-          return this;
-        }),
-        orderBy: vi.fn(function () {
-          return this;
-        }),
-        limit: vi.fn(async () => (selectQueue.length > 0 ? (selectQueue.shift() as any[]) : [])),
-      })),
+      from: vi.fn(() => {
+        const chain: any = {
+          where: vi.fn(() => chain),
+          orderBy: vi.fn(() => chain),
+          limit: vi.fn(async () => (selectQueue.length > 0 ? (selectQueue.shift() as any[]) : [])),
+        };
+        return chain;
+      }),
     })),
     transaction: vi.fn(async (cb: any) => cb(txMock)),
   },
