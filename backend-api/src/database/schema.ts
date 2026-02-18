@@ -376,6 +376,7 @@ export const clientSettings = pgTable('client_settings', {
   torrentEnabled: boolean('torrent_enabled').notNull().default(true),
   loggingEnabled: boolean('logging_enabled').notNull().default(true),
   loggingMode: text('logging_mode').notNull().default('dev'),
+  uiDisplayPrefs: text('ui_display_prefs'),
 
   syncRequestId: text('sync_request_id'),
   syncRequestType: text('sync_request_type'),
@@ -393,6 +394,53 @@ export const clientSettings = pgTable('client_settings', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 });
+
+// -----------------------------
+// Statistics: audit analytics (server-side only)
+// -----------------------------
+export const statisticsAuditEvents = pgTable(
+  'statistics_audit_events',
+  {
+    sourceAuditId: uuid('source_audit_id').primaryKey(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    actor: text('actor').notNull(),
+    action: text('action').notNull(),
+    actionType: text('action_type').notNull(),
+    section: text('section').notNull(),
+    actionText: text('action_text').notNull(),
+    documentLabel: text('document_label'),
+    clientId: text('client_id'),
+    tableName: text('table_name'),
+    processedAt: bigint('processed_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    createdIdx: index('statistics_audit_events_created_idx').on(t.createdAt),
+    actorCreatedIdx: index('statistics_audit_events_actor_created_idx').on(t.actor, t.createdAt),
+    typeCreatedIdx: index('statistics_audit_events_type_created_idx').on(t.actionType, t.createdAt),
+    sectionCreatedIdx: index('statistics_audit_events_section_created_idx').on(t.section, t.createdAt),
+  }),
+);
+
+export const statisticsAuditDaily = pgTable(
+  'statistics_audit_daily',
+  {
+    id: uuid('id').primaryKey(),
+    summaryDate: text('summary_date').notNull(), // YYYY-MM-DD
+    cutoffHour: integer('cutoff_hour').notNull(),
+    login: text('login').notNull(),
+    fullName: text('full_name').notNull(),
+    onlineMs: bigint('online_ms', { mode: 'number' }).notNull(),
+    createdCount: integer('created_count').notNull(),
+    updatedCount: integer('updated_count').notNull(),
+    deletedCount: integer('deleted_count').notNull(),
+    totalChanged: integer('total_changed').notNull(),
+    generatedAt: bigint('generated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    summaryLoginUq: uniqueIndex('statistics_audit_daily_summary_login_uq').on(t.summaryDate, t.cutoffHour, t.login),
+    summaryDateIdx: index('statistics_audit_daily_summary_date_idx').on(t.summaryDate, t.cutoffHour),
+  }),
+);
 
 // -----------------------------
 // Diagnostics snapshots (server-side only)

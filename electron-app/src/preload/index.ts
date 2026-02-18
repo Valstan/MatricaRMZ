@@ -375,7 +375,27 @@ const matricaApi = {
   },
   settings: {
     uiGet: async (args?: { userId?: string }) => ipcRenderer.invoke('ui:prefs:get', args),
-    uiSet: async (args: { theme?: string; chatSide?: string; enterAsTab?: boolean; userId?: string; tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null }) =>
+    uiSet: async (args: {
+      theme?: string;
+      chatSide?: string;
+      enterAsTab?: boolean;
+      userId?: string;
+      displayPrefs?: {
+        selectedTarget?: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
+        selectedButtonState?: 'active' | 'inactive';
+        departmentButtons?: {
+          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+        };
+        sectionButtons?: {
+          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+        };
+        listFontSize?: number;
+        cardFontSize?: number;
+      } | null;
+      tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+    }) =>
       ipcRenderer.invoke('ui:prefs:set', args),
   },
   e2eKeys: {

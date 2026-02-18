@@ -1,197 +1,139 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import type { AuditItem } from '@matricarmz/shared';
-
+import { dailyAuditSummary, listAudit } from '../api/audit.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
 
-export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<void>; status?: string }) {
-  const [fromDate, setFromDate] = useState<string>(''); // YYYY-MM-DD
-  const [toDate, setToDate] = useState<string>(''); // YYYY-MM-DD
-  const [actorFilter, setActorFilter] = useState<string | null>(null);
-  const [sectionFilter, setSectionFilter] = useState<string | null>(null);
+type ActionType = 'create' | 'update' | 'delete' | 'session' | 'other';
+type AuditRow = {
+  id: string;
+  createdAt: number;
+  actor: string;
+  action: string;
+  actionType: ActionType;
+  section: string;
+  actionText: string;
+  documentLabel: string;
+  clientId: string | null;
+  tableName: string | null;
+};
+type DailyRow = {
+  login: string;
+  fullName: string;
+  onlineMs: number;
+  onlineHours: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  totalChanged: number;
+};
 
-  function sectionOf(a: AuditItem): string {
-    const action = String(a.action ?? '');
-    if (action.startsWith('ui.supply_request.')) return 'Заявки';
-    if (action.startsWith('ui.engine.')) return 'Двигатели';
-    if (action.startsWith('engine.')) return 'Двигатели';
-    if (action.startsWith('supply_request.')) return 'Заявки';
-    if (action.startsWith('part.')) return 'Детали';
-    if (action.startsWith('auth.')) return 'Вход';
-    if (action.startsWith('sync.')) return 'Синхронизация';
-    if (action.startsWith('admin.')) return 'Администрирование';
-    if (action.startsWith('masterdata.')) return 'Справочники';
-    if (action.startsWith('files.')) return 'Файлы';
-    if (action.startsWith('updates.')) return 'Изменения';
-    return a.tableName ? String(a.tableName) : 'Прочее';
-  }
+function todayIsoDate() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
-  function parsePayload(a: AuditItem): any | null {
-    try {
-      if (!a.payloadJson) return null;
-      return JSON.parse(a.payloadJson);
-    } catch {
-      return null;
-    }
-  }
+function dateStartMs(localDate: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(localDate ?? '').trim());
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0).getTime();
+}
 
-  function contextRu(a: AuditItem): string {
-    const p = parsePayload(a);
-    const section = sectionOf(a);
-    if (section === 'Заявки') {
-      const n = p?.requestNumber ? String(p.requestNumber) : '';
-      return n ? `Заявки / ${n}` : 'Заявки';
-    }
-    if (section === 'Двигатели') {
-      const n = p?.engineNumber ? String(p.engineNumber) : '';
-      return n ? `Двигатели / ${n}` : 'Двигатели';
-    }
-    if (section === 'Детали') {
-      const name = p?.name ? String(p.name) : '';
-      const article = p?.article ? String(p.article) : '';
-      const label = [name, article].filter(Boolean).join(' / ');
-      return label ? `Детали / ${label}` : 'Детали';
-    }
-    return section;
-  }
+function dateEndMs(localDate: string): number | null {
+  const start = dateStartMs(localDate);
+  if (start == null) return null;
+  return start + 24 * 60 * 60 * 1000 - 1;
+}
 
-  function actionRu(a: AuditItem): string {
-    const p = parsePayload(a);
-    switch (String(a.action ?? '')) {
-      case 'ui.supply_request.edit_done':
-        return p?.summaryRu ? `Завершил редактирование заявки. ${String(p.summaryRu)}` : 'Завершил редактирование заявки';
-      case 'ui.engine.edit_done':
-        return p?.summaryRu ? `Завершил редактирование двигателя. ${String(p.summaryRu)}` : 'Завершил редактирование двигателя';
-      case 'engine.create':
-        return 'Создал двигатель';
-      case 'supply_request.create':
-        return 'Создал заявку';
-      case 'supply_request.delete':
-        return 'Удалил заявку';
-      case 'supply_request.transition':
-        return p?.fromStatus && p?.toStatus
-          ? `Изменил статус заявки: ${String(p.fromStatus)} → ${String(p.toStatus)}`
-          : 'Изменил статус заявки';
-      case 'part.create':
-        return 'Создал деталь';
-      case 'part.update_attribute':
-        return 'Изменил атрибут детали';
-      case 'part.delete':
-        return 'Удалил деталь';
-      case 'part.attribute_def.create':
-        return 'Создал атрибут детали';
-      default:
-        return String(a.action ?? '');
-    }
-  }
+function formatOnlineHours(ms: number) {
+  const totalMin = Math.round(Math.max(0, Number(ms ?? 0)) / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h} ч ${String(m).padStart(2, '0')} мин`;
+}
 
-  function localDayStartMs(dateStr: string): number | null {
-    const s = String(dateStr || '').trim();
-    if (!s) return null;
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-    if (!m) return null;
-    const y = Number(m[1]);
-    const mo = Number(m[2]) - 1;
-    const d = Number(m[3]);
-    const dt = new Date(y, mo, d, 0, 0, 0, 0);
-    const ms = dt.getTime();
-    return Number.isFinite(ms) ? ms : null;
-  }
-
-  const filtered = useMemo(() => {
-    const fromMs = localDayStartMs(fromDate);
-    const toStartMs = localDayStartMs(toDate);
-    const toMs = toStartMs == null ? null : toStartMs + (24 * 60 * 60 * 1000 - 1);
-
-    return props.audit.filter((a) => {
-      const createdAt = Number(a.createdAt ?? 0) || 0;
-      if (fromMs != null && createdAt < fromMs) return false;
-      if (toMs != null && createdAt > toMs) return false;
-      if (actorFilter && String(a.actor ?? '') !== actorFilter) return false;
-      if (sectionFilter && sectionOf(a) !== sectionFilter) return false;
-
-      // Show only high-level events (reduce noise).
-      const action = String(a.action ?? '');
-      const allow =
-        action === 'engine.create' ||
-        action === 'supply_request.create' ||
-        action === 'supply_request.delete' ||
-        action === 'supply_request.transition' ||
-        action === 'ui.supply_request.edit_done' ||
-        action === 'ui.engine.edit_done' ||
-        action === 'part.create' ||
-        action === 'part.delete';
-      if (!allow) return false;
-
-      return true;
-    });
-  }, [props.audit, fromDate, toDate, actorFilter, sectionFilter]);
+export function AuditPage() {
+  const [fromDate, setFromDate] = useState<string>(todayIsoDate());
+  const [toDate, setToDate] = useState<string>(todayIsoDate());
+  const [reportDate, setReportDate] = useState<string>(todayIsoDate());
+  const [actor, setActor] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<string | null>(null);
+  const [section, setSection] = useState<string | null>(null);
+  const [rows, setRows] = useState<AuditRow[]>([]);
+  const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
+  const [status, setStatus] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
 
   const actorOptions = useMemo(() => {
-    const uniq = Array.from(new Set(props.audit.map((a) => String(a.actor ?? '')).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b, 'ru'),
-    );
+    const uniq = Array.from(new Set(rows.map((r) => String(r.actor ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
     return uniq.map((id) => ({ id, label: id }));
-  }, [props.audit]);
-
+  }, [rows]);
   const sectionOptions = useMemo(() => {
-    const uniq = Array.from(new Set(props.audit.map((a) => sectionOf(a)).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b, 'ru'),
-    );
+    const uniq = Array.from(new Set(rows.map((r) => String(r.section ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
     return uniq.map((id) => ({ id, label: id }));
-  }, [props.audit]);
-
-  const tableHeader = (
-    <thead>
-      <tr style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 120%)', color: '#fff' }}>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Время</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Логин</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Действие</th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Раздел</th>
-      </tr>
-    </thead>
+  }, [rows]);
+  const actionTypeOptions = useMemo(
+    () => [
+      { id: 'session', label: 'Сессии (включил/выключил)' },
+      { id: 'create', label: 'Создание' },
+      { id: 'update', label: 'Изменение' },
+      { id: 'delete', label: 'Удаление' },
+      { id: 'other', label: 'Прочее' },
+    ],
+    [],
   );
+  const filteredRows = useMemo(() => {
+    if (!section) return rows;
+    return rows.filter((r) => String(r.section ?? '') === section);
+  }, [rows, section]);
 
-  function renderTable(items: AuditItem[]) {
-    return (
-      <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          {tableHeader}
-          <tbody>
-            {items.map((a) => (
-              <tr key={a.id}>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{new Date(a.createdAt).toLocaleString('ru-RU')}</td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{a.actor}</td>
-                <td
-                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}
-                  title={[a.action ? `action=${a.action}` : '', a.entityId ? `entityId=${a.entityId}` : '', a.tableName ? `table=${a.tableName}` : '']
-                    .filter(Boolean)
-                    .join(' | ')}
-                >
-                  {actionRu(a)}
-                </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{contextRu(a)}</td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={4}>
-                  Пусто
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    );
+  async function loadAll() {
+    setLoading(true);
+    setStatus('');
+    try {
+      const fromMs = fromDate ? dateStartMs(fromDate) : null;
+      const toMs = toDate ? dateEndMs(toDate) : null;
+      const [listRes, summaryRes] = await Promise.all([
+        listAudit({
+          limit: 4000,
+          ...(fromMs != null ? { fromMs } : {}),
+          ...(toMs != null ? { toMs } : {}),
+          ...(actor ? { actor } : {}),
+          ...(actionType ? { actionType: actionType as ActionType } : {}),
+        }),
+        dailyAuditSummary({ date: reportDate, cutoffHour: 21 }),
+      ]);
+      if (!listRes?.ok) throw new Error(String((listRes as any)?.error ?? 'list error'));
+      if (!summaryRes?.ok) throw new Error(String((summaryRes as any)?.error ?? 'daily summary error'));
+      setRows(Array.isArray((listRes as any).rows) ? ((listRes as any).rows as AuditRow[]) : []);
+      setDailyRows(Array.isArray((summaryRes as any).rows) ? ((summaryRes as any).rows as DailyRow[]) : []);
+      setStatus('Журнал и сводка обновлены.');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
   }
+
+  useEffect(() => {
+    void loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>
+      <div style={{ marginBottom: 8, color: 'var(--muted)' }}>
+        Раздел доступен только суперадминистратору. Здесь видно кто, где и что изменил, а также сводка по всем клиентам на 21:00.
+      </div>
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Button onClick={props.onRefresh}>Обновить</Button>
+        <Button onClick={loadAll} disabled={loading}>
+          {loading ? 'Обновление...' : 'Обновить'}
+        </Button>
         <div style={{ width: 160 }}>
           <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>с даты</div>
@@ -200,27 +142,114 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
           <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>по дату</div>
         </div>
-        <div style={{ minWidth: 200 }}>
-          <SearchSelect
-            placeholder="Пользователь"
-            options={actorOptions}
-            value={actorFilter}
-            onChange={setActorFilter}
-          />
+        <div style={{ width: 260 }}>
+          <SearchSelect value={actor} options={actorOptions} placeholder="Аккаунт" onChange={setActor} />
         </div>
-        <div style={{ minWidth: 200 }}>
-          <SearchSelect
-            placeholder="Раздел"
-            options={sectionOptions}
-            value={sectionFilter}
-            onChange={setSectionFilter}
-          />
+        <div style={{ width: 260 }}>
+          <SearchSelect value={actionType} options={actionTypeOptions} placeholder="Тип действия" onChange={setActionType} />
         </div>
+        <div style={{ width: 220 }}>
+          <SearchSelect value={section} options={sectionOptions} placeholder="Раздел" onChange={setSection} />
+        </div>
+        {(actor || actionType || section) && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setActor(null);
+              setActionType(null);
+              setSection(null);
+            }}
+          >
+            Сбросить фильтры
+          </Button>
+        )}
       </div>
 
-      {props.status && <div style={{ marginTop: 8, color: props.status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{props.status}</div>}
+      <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ width: 160 }}>
+          <Input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+        </div>
+        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Сводка на 21:00</div>
+      </div>
 
-      <div style={{ marginTop: 10 }}>{renderTable(filtered)}</div>
+      {status && (
+        <div style={{ marginTop: 8, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>
+          {status}
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: 10, fontWeight: 700, background: '#f8fafc' }}>Сводный отчет по клиентам (21:00)</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#0f172a', color: '#fff' }}>
+              <th style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>ФИО</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Онлайн</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Создано</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Изменено</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Удалено</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Всего изменений</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dailyRows.map((r) => (
+              <tr key={r.login}>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.login}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.fullName || '-'}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{formatOnlineHours(r.onlineMs)}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.created}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.updated}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.deleted}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.totalChanged}</td>
+              </tr>
+            ))}
+            {dailyRows.length === 0 && (
+              <tr>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={7}>
+                  Нет данных за выбранный день.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: 10, fontWeight: 700, background: '#f8fafc' }}>Журнал действий пользователей</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#334155', color: '#fff' }}>
+              <th style={{ textAlign: 'left', padding: 8 }}>Время</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Действие</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Раздел/документ</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Клиент</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((r) => (
+              <tr key={r.id}>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{new Date(r.createdAt).toLocaleString('ru-RU')}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.actor}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.actionText}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
+                  {r.section}
+                  {r.documentLabel ? ` / ${r.documentLabel}` : ''}
+                </td>
+                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.clientId ?? '-'}</td>
+              </tr>
+            ))}
+            {filteredRows.length === 0 && (
+              <tr>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={5}>
+                  Действий не найдено.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

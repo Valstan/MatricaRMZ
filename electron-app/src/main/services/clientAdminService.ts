@@ -23,6 +23,7 @@ export type RemoteClientSettings = {
   torrentEnabled: boolean;
   loggingEnabled: boolean;
   loggingMode: 'dev' | 'prod';
+  uiDisplayPrefs: string | null;
 };
 
 type SyncProgressEvent = {
@@ -55,6 +56,7 @@ type RemoteSettingsResponse = {
     torrentEnabled?: boolean;
     loggingEnabled?: boolean;
     loggingMode?: 'dev' | 'prod';
+    uiDisplayPrefs?: string | null;
     syncRequestId?: string | null;
     syncRequestType?:
       | 'sync_now'
@@ -113,7 +115,8 @@ export async function getCachedClientSettings(db: BetterSQLite3Database): Promis
   const loggingEnabled = await settingsGetBoolean(db, SettingsKey.LoggingEnabled, true);
   const rawMode = await settingsGetString(db, SettingsKey.LoggingMode);
   const loggingMode = rawMode ? (rawMode === 'dev' ? 'dev' : 'prod') : 'dev';
-  return { updatesEnabled, torrentEnabled, loggingEnabled, loggingMode };
+  const uiDisplayPrefs = (await settingsGetString(db, SettingsKey.UiDisplayPrefs)) ?? null;
+  return { updatesEnabled, torrentEnabled, loggingEnabled, loggingMode, uiDisplayPrefs };
 }
 
 export async function applyRemoteClientSettings(args: {
@@ -147,9 +150,13 @@ export async function applyRemoteClientSettings(args: {
     const torrentEnabled = json.settings.torrentEnabled !== false;
     const loggingEnabled = json.settings.loggingEnabled === true;
     const loggingMode = json.settings.loggingMode === 'dev' ? 'dev' : 'prod';
+    const uiDisplayPrefs = json.settings.uiDisplayPrefs == null ? null : String(json.settings.uiDisplayPrefs);
 
     await settingsSetBoolean(db, SettingsKey.UpdatesEnabled, updatesEnabled);
     await settingsSetBoolean(db, SettingsKey.TorrentEnabled, torrentEnabled);
+    if (uiDisplayPrefs != null) {
+      await settingsSetString(db, SettingsKey.UiDisplayPrefs, uiDisplayPrefs).catch(() => {});
+    }
 
     await logMessageSetEnabled(db, loggingEnabled, apiBaseUrl);
     await logMessageSetMode(db, loggingMode);
@@ -272,7 +279,7 @@ export async function applyRemoteClientSettings(args: {
       }
     }
 
-    return { updatesEnabled, torrentEnabled, loggingEnabled, loggingMode };
+    return { updatesEnabled, torrentEnabled, loggingEnabled, loggingMode, uiDisplayPrefs };
   } catch (e) {
     args.log?.(`remote settings fetch error: ${String(e)}`);
     return await getCachedClientSettings(db);

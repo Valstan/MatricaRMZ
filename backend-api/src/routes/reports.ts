@@ -403,6 +403,7 @@ const TABLES: TableSpec[] = [
       { id: 'torrentEnabled', label: 'Torrent', type: 'boolean', col: clientSettings.torrentEnabled },
       { id: 'loggingEnabled', label: 'Logging', type: 'boolean', col: clientSettings.loggingEnabled },
       { id: 'loggingMode', label: 'Logging mode', type: 'string', col: clientSettings.loggingMode },
+      { id: 'uiDisplayPrefs', label: 'UI display prefs', type: 'string', col: clientSettings.uiDisplayPrefs },
       { id: 'lastSeenAt', label: 'Last seen', type: 'datetime', col: clientSettings.lastSeenAt },
       { id: 'lastVersion', label: 'Last version', type: 'string', col: clientSettings.lastVersion },
       { id: 'lastIp', label: 'Last IP', type: 'string', col: clientSettings.lastIp },

@@ -11,13 +11,13 @@ import { AuditPage } from './AuditPage.js';
 import { AdminUsersPage } from './AdminUsersPage.js';
 import { ClientAdminPage } from './ClientAdminPage.js';
 import { DiagnosticsPage } from './DiagnosticsPage.js';
+import { StatisticsPage } from './StatisticsPage.js';
 import { ChatPanel } from './ChatPanel.js';
 import { sendText } from '../api/chat.js';
 import { ContractsPage } from './ContractsPage.js';
 import { EnginesPage } from './EnginesPage.js';
 import { NotesPage } from './NotesPage.js';
 import { listNotes } from '../api/notes.js';
-import { listAudit } from '../api/audit.js';
 import { Button } from './components/Button.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { Input } from './components/Input.js';
@@ -74,8 +74,6 @@ export function App() {
   const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => resolveTheme(loadPrefs().theme));
   const [masterdataTypes, setMasterdataTypes] = useState<MasterdataTypeRow[]>([]);
-  const [audit, setAudit] = useState<any[]>([]);
-  const [auditStatus, setAuditStatus] = useState<string>('');
   const [notesAlertCount, setNotesAlertCount] = useState<number>(0);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
     selectedUserId: null,
@@ -235,6 +233,7 @@ export function App() {
   }
 
   const caps = deriveCaps(permissions);
+  const isSuperadmin = String(user?.role ?? '').toLowerCase() === 'superadmin';
   const userTab = user ? 'settings' : 'auth';
   const userLabel = user ? user.username : 'Вход';
   const masterdataTabPrefix = 'masterdata:';
@@ -259,11 +258,14 @@ export function App() {
     ...(caps.canManageUsers ? ([{ id: 'admin', label: 'Админ' }] as const) : []),
     ...(caps.canManageClients ? ([{ id: 'clients', label: 'Клиенты' }] as const) : []),
     ...(caps.canManageClients ? ([{ id: 'diagnostics', label: 'Диагностика' }] as const) : []),
+    ...(caps.canManageClients && isSuperadmin ? ([{ id: 'statistics', label: 'Статистика' }] as const) : []),
     ...(caps.canChatUse ? ([{ id: 'chat', label: 'Чат' }] as const) : []),
     ...(user ? ([{ id: 'notes', label: 'Заметки' }] as const) : []),
     ...(caps.canViewAudit ? ([{ id: 'audit', label: 'Журнал' }] as const) : []),
   ];
   const visibleTabIds = visibleTabs.map((t) => t.id).join('|');
+  const masterdataReadSource = masterdata.MASTERDATA_READ_SOURCE;
+  const masterdataReadSourceLabel = masterdataReadSource === 'ledger' ? 'Ledger' : 'Server DB';
 
   useEffect(() => {
     if (!user && tab !== 'auth') setTab('auth');
@@ -296,26 +298,6 @@ export function App() {
       alive = false;
     };
   }, [user?.id, caps.canViewMasterData]);
-
-  async function refreshAudit() {
-    if (!caps.canViewAudit) return;
-    try {
-      setAuditStatus('Загрузка…');
-      const r = await listAudit({ limit: 2000 });
-      if (!r?.ok) {
-        setAuditStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
-        return;
-      }
-      setAudit(r.rows ?? []);
-      setAuditStatus('');
-    } catch (e) {
-      setAuditStatus(`Ошибка: ${String(e)}`);
-    }
-  }
-
-  useEffect(() => {
-    if (tab === 'audit') void refreshAudit();
-  }, [tab, user?.id, caps.canViewAudit]);
 
   function noteToChatText(note: { title: string; body: Array<any> }) {
     const lines: string[] = [];
@@ -394,6 +376,29 @@ export function App() {
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ fontWeight: 800 }}>MatricaRMZ Admin</div>
+            {user && caps.canViewMasterData && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: masterdataReadSource === 'ledger' ? '1px solid #b45309' : '1px solid #166534',
+                  background: masterdataReadSource === 'ledger' ? '#fef3c7' : '#dcfce7',
+                  color: masterdataReadSource === 'ledger' ? '#92400e' : '#166534',
+                }}
+                title={
+                  masterdataReadSource === 'ledger'
+                    ? 'Мастер-данные читаются из ledger-state'
+                    : 'Мастер-данные читаются напрямую из серверной БД'
+                }
+              >
+                Data source: {masterdataReadSourceLabel}
+              </span>
+            )}
             <span style={{ flex: 1 }} />
             <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               {presence ? (
@@ -477,7 +482,8 @@ export function App() {
           )}
           {tab === 'clients' && <ClientAdminPage />}
           {tab === 'diagnostics' && <DiagnosticsPage />}
-          {tab === 'audit' && <AuditPage audit={audit} onRefresh={refreshAudit} status={auditStatus} />}
+          {tab === 'statistics' && <StatisticsPage />}
+          {tab === 'audit' && <AuditPage />}
           {tab === 'chat' && user && (
             <div style={{ flex: '1 1 auto', minHeight: 0 }}>
               <ChatPanel

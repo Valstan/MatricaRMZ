@@ -6,7 +6,13 @@ export function listClients() {
 
 export function updateClient(
   clientId: string,
-  args: { updatesEnabled?: boolean; torrentEnabled?: boolean; loggingEnabled?: boolean; loggingMode?: 'dev' | 'prod' },
+  args: {
+    updatesEnabled?: boolean;
+    torrentEnabled?: boolean;
+    loggingEnabled?: boolean;
+    loggingMode?: 'dev' | 'prod';
+    uiDisplayPrefs?: string | null;
+  },
 ) {
   return apiJson(`/admin/clients/${encodeURIComponent(clientId)}`, {
     method: 'PATCH',

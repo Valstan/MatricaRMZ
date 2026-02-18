@@ -197,6 +197,20 @@
       "when": 1771171205000,
       "tag": "0030_erp_strict_core",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1771430400000,
+      "tag": "0031_client_settings_ui_display_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1771434000000,
+      "tag": "0032_statistics_audit",
+      "breakpoints": true
     }
   ]
 }

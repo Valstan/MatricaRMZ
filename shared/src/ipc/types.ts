@@ -490,6 +490,20 @@ export type MatricaApi = {
           theme: string;
           chatSide: string;
           enterAsTab?: boolean;
+          displayPrefs?: {
+            selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
+            selectedButtonState: 'active' | 'inactive';
+            departmentButtons: {
+              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+            };
+            sectionButtons: {
+              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+            };
+            listFontSize: number;
+            cardFontSize: number;
+          };
           tabsLayout?: {
             order?: string[];
             hidden?: string[];
@@ -506,6 +520,20 @@ export type MatricaApi = {
       chatSide?: string;
       enterAsTab?: boolean;
       userId?: string;
+      displayPrefs?: {
+        selectedTarget?: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
+        selectedButtonState?: 'active' | 'inactive';
+        departmentButtons?: {
+          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+        };
+        sectionButtons?: {
+          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
+        };
+        listFontSize?: number;
+        cardFontSize?: number;
+      } | null;
       tabsLayout?: {
         order?: string[];
         hidden?: string[];
@@ -520,6 +548,20 @@ export type MatricaApi = {
           theme: string;
           chatSide: string;
           enterAsTab?: boolean;
+          displayPrefs?: {
+            selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
+            selectedButtonState: 'active' | 'inactive';
+            departmentButtons: {
+              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+            };
+            sectionButtons: {
+              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
+            };
+            listFontSize: number;
+            cardFontSize: number;
+          };
           tabsLayout?: {
             order?: string[];
             hidden?: string[];

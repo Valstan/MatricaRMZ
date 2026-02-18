@@ -63,6 +63,7 @@ export function SuperadminAuditPage() {
   const [reportDate, setReportDate] = useState<string>(todayIsoDate());
   const [actor, setActor] = useState<string | null>(null);
   const [actionType, setActionType] = useState<string | null>(null);
+  const [section, setSection] = useState<string | null>(null);
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
   const [status, setStatus] = useState<string>('');
@@ -83,6 +84,15 @@ export function SuperadminAuditPage() {
     ],
     [],
   );
+  const sectionOptions = useMemo(() => {
+    const uniq = Array.from(new Set(rows.map((r) => String(r.section ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
+    return uniq.map((id) => ({ id, label: id }));
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (!section) return rows;
+    return rows.filter((r) => String(r.section ?? '') === section);
+  }, [rows, section]);
 
   async function loadAll() {
     setLoading(true);
@@ -141,12 +151,16 @@ export function SuperadminAuditPage() {
         <div style={{ width: 260 }}>
           <SearchSelect value={actionType} options={actionTypeOptions} placeholder="Тип действия" onChange={setActionType} />
         </div>
-        {(actor || actionType) && (
+        <div style={{ width: 220 }}>
+          <SearchSelect value={section} options={sectionOptions} placeholder="Раздел" onChange={setSection} />
+        </div>
+        {(actor || actionType || section) && (
           <Button
             variant="ghost"
             onClick={() => {
               setActor(null);
               setActionType(null);
+              setSection(null);
             }}
           >
             Сбросить фильтры
@@ -217,7 +231,7 @@ export function SuperadminAuditPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {filteredRows.map((r) => (
               <tr key={r.id}>
                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{new Date(r.createdAt).toLocaleString('ru-RU')}</td>
                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.actor}</td>
@@ -229,7 +243,7 @@ export function SuperadminAuditPage() {
                 <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.clientId ?? '-'}</td>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {filteredRows.length === 0 && (
               <tr>
                 <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={5}>
                   Действий не найдено.

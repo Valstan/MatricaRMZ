@@ -5,7 +5,9 @@ import { clientSettings } from '../database/schema.js';
 
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
-type ClientSettingsPatch = Partial<Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode'>>;
+type ClientSettingsPatch = Partial<
+  Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiDisplayPrefs'>
+>;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
 type ClientSyncAck = { requestId: string; status: 'ok' | 'error'; error?: string | null; at?: number };
 
@@ -28,6 +30,7 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     torrentEnabled: true,
     loggingEnabled: true,
     loggingMode: 'dev',
+    uiDisplayPrefs: null,
     syncRequestId: null,
     syncRequestType: null,
     syncRequestAt: null,
@@ -53,6 +56,7 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
     torrentEnabled: defaults.torrentEnabled,
     loggingEnabled: defaults.loggingEnabled,
     loggingMode: defaults.loggingMode,
+    uiDisplayPrefs: defaults.uiDisplayPrefs,
     syncRequestId: defaults.syncRequestId,
     syncRequestType: defaults.syncRequestType,
     syncRequestAt: defaults.syncRequestAt,
@@ -112,6 +116,7 @@ export async function updateClientSettings(clientId: string, patch: ClientSettin
       ...(patch.torrentEnabled !== undefined ? { torrentEnabled: patch.torrentEnabled } : {}),
       ...(patch.loggingEnabled !== undefined ? { loggingEnabled: patch.loggingEnabled } : {}),
       ...(patch.loggingMode !== undefined ? { loggingMode: patch.loggingMode } : {}),
+      ...(patch.uiDisplayPrefs !== undefined ? { uiDisplayPrefs: patch.uiDisplayPrefs } : {}),
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));

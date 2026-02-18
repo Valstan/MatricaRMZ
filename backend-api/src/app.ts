@@ -28,6 +28,7 @@ import { ledgerRouter } from './routes/ledger.js';
 import { notesRouter } from './routes/notes.js';
 import { reportsRouter } from './routes/reports.js';
 import { erpRouter } from './routes/erp.js';
+import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -39,6 +40,10 @@ export function createApp() {
   app.use(cors());
   // Согласовано с nginx client_max_body_size (см. /etc/nginx/conf.d/matricarmz-backend.conf).
   app.use(express.json({ limit: '20mb' }));
+  app.use((_req, _res, next) => {
+    noteStatisticsRequestActivity();
+    next();
+  });
 
   app.use('/health', healthRouter);
   app.use('/auth', authRouter);

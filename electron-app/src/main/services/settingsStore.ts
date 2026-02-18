@@ -40,6 +40,7 @@ export const SettingsKey = {
   UiChatSide: 'ui.chatSide',
   UiEnterAsTab: 'ui.enterAsTab',
   UiTabsLayout: 'ui.tabs.layout',
+  UiDisplayPrefs: 'ui.displayPrefs',
 
   // Remote admin controls
   UpdatesEnabled: 'updates.enabled',

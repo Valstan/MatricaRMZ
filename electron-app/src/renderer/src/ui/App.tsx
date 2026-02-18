@@ -44,6 +44,39 @@ import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { theme } from './theme.js';
 
+type UiDisplayTarget = 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
+type UiDisplayButtonState = 'active' | 'inactive';
+type UiDisplayButtonStyle = {
+  fontSize: number;
+  width: number;
+  height: number;
+  paddingX: number;
+  paddingY: number;
+  gap: number;
+};
+type UiDisplayPrefs = {
+  selectedTarget: UiDisplayTarget;
+  selectedButtonState: UiDisplayButtonState;
+  departmentButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
+  sectionButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
+  listFontSize: number;
+  cardFontSize: number;
+};
+const DEFAULT_UI_DISPLAY_PREFS: UiDisplayPrefs = {
+  selectedTarget: 'departmentButtons',
+  selectedButtonState: 'active',
+  departmentButtons: {
+    active: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
+    inactive: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
+  },
+  sectionButtons: {
+    active: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
+    inactive: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
+  },
+  listFontSize: 14,
+  cardFontSize: 14,
+};
+
 export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
@@ -104,10 +137,16 @@ export function App() {
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
   const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
   const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
-  const [uiPrefs, setUiPrefs] = useState<{ theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean }>({
+  const [uiPrefs, setUiPrefs] = useState<{
+    theme: 'auto' | 'light' | 'dark';
+    chatSide: 'left' | 'right';
+    enterAsTab: boolean;
+    displayPrefs: UiDisplayPrefs;
+  }>({
     theme: 'auto',
     chatSide: 'right',
     enterAsTab: false,
+    displayPrefs: DEFAULT_UI_DISPLAY_PREFS,
   });
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
@@ -158,7 +197,14 @@ export function App() {
       .catch(() => {})
       .finally(() => setAuthReady(true));
     void window.matrica.settings.uiGet().then((r: any) => {
-      if (r?.ok) setUiPrefs({ theme: r.theme ?? 'auto', chatSide: r.chatSide ?? 'right', enterAsTab: r.enterAsTab === true });
+      if (r?.ok) {
+        setUiPrefs({
+          theme: r.theme ?? 'auto',
+          chatSide: r.chatSide ?? 'right',
+          enterAsTab: r.enterAsTab === true,
+          displayPrefs: r.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS,
+        });
+      }
     });
   }, []);
 
@@ -453,6 +499,14 @@ export function App() {
       // ignore
     }
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const listSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.listFontSize ?? DEFAULT_UI_DISPLAY_PREFS.listFontSize)));
+    const cardSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.cardFontSize ?? DEFAULT_UI_DISPLAY_PREFS.cardFontSize)));
+    root.style.setProperty('--ui-list-font-size', `${listSize}px`);
+    root.style.setProperty('--ui-card-font-size', `${cardSize}px`);
+  }, [uiPrefs.displayPrefs]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) {
@@ -1498,14 +1552,13 @@ export function App() {
       : '';
 
   const headerStatus = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', justifyContent: 'flex-end' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0, overflow: 'hidden', justifyContent: 'center' }}>
       <div
         style={{
           position: 'relative',
           height: 16,
-          flex: '1 1 360px',
-          minWidth: 220,
-          maxWidth: 520,
+          flex: '1 1 auto',
+          minWidth: 0,
           background: showUpdateBanner ? 'rgba(148, 163, 184, 0.35)' : 'transparent',
           overflow: 'hidden',
           opacity: showUpdateBanner ? 1 : 0,
@@ -1541,12 +1594,14 @@ export function App() {
       </div>
       <div
         style={{
+          flex: '1 1 auto',
+          minWidth: 0,
           fontSize: 12,
           color: incrementalSyncUi?.error ? '#fecaca' : '#ffffff',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          maxWidth: 600,
+          textAlign: 'center',
           minHeight: 16,
           lineHeight: '16px',
           opacity: headerInlineStatusText ? 1 : 0,
@@ -1763,6 +1818,7 @@ export function App() {
               onLayoutChange={persistTabsLayout}
               userLabel={userLabel}
               userTab={userTab}
+              displayPrefs={uiPrefs.displayPrefs}
               {...(presence ? { authStatus: { online: presence.online } } : {})}
               notesAlertCount={notesAlertCount}
             />

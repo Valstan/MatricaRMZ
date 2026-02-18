@@ -8,6 +8,7 @@ import { startConsistencyDiagnostics } from './services/diagnosticsConsistencySe
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
+import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
 import { createApp } from './app.js';
@@ -48,6 +49,7 @@ async function bootstrap() {
   if (reportsEnabled) {
     startAiAgentReportsScheduler();
   }
+  startAuditStatisticsScheduler();
   startAiAgentChatLearningService();
   startSyncPipelineSupervisorService();
 

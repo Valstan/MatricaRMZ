@@ -25,6 +25,8 @@ body {
   --ui-section-size: 15px;
   --ui-body-size: 13px;
   --ui-muted-size: 12px;
+  --ui-list-font-size: 14px;
+  --ui-card-font-size: 14px;
   --app-bg-from: #e2e8f0;
   --app-bg-via: #f8fafc;
   --app-bg-to: #e0f2fe;
@@ -230,6 +232,7 @@ table {
 table.list-table {
   width: 100%;
   border-collapse: collapse;
+  font-size: var(--ui-list-font-size);
 }
 
 table.list-table tbody tr {
@@ -277,6 +280,7 @@ table.list-table.list-table--catalog {
   background: var(--list-row-bg);
   border-bottom: 1px solid var(--list-row-border);
   padding: var(--list-row-padding-y) var(--list-row-padding-x);
+  font-size: var(--ui-list-font-size);
 }
 
 .list-row:nth-child(even) {
@@ -293,6 +297,7 @@ table.list-table.list-table--catalog {
   padding: var(--ui-space-4);
   display: grid;
   gap: var(--ui-space-3);
+  font-size: var(--ui-card-font-size);
 }
 
 .card-row-list {
@@ -305,6 +310,7 @@ table.list-table.list-table--catalog {
   border: 1px solid var(--card-row-border);
   padding: var(--card-row-padding-y) var(--card-row-padding-x);
   min-width: 0;
+  font-size: var(--ui-card-font-size);
 }
 
 .card-row:hover {
