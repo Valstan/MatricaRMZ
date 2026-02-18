@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { theme } from '../theme.js';
@@ -245,9 +245,12 @@ export function Tabs(props: {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const movePopupRef = useRef<HTMLDivElement | null>(null);
+  const sectionsViewportRef = useRef<HTMLDivElement | null>(null);
+  const sectionsTrackRef = useRef<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<{ id: MenuItemId; x: number; y: number } | null>(null);
   const [moveId, setMoveId] = useState<MenuItemId | null>(null);
   const [moveRect, setMoveRect] = useState<DOMRect | null>(null);
+  const [sectionsLeftPx, setSectionsLeftPx] = useState<number | null>(null);
 
   const labels: Record<MenuTabId, string> = {
     masterdata: 'Справочники',
@@ -451,6 +454,42 @@ export function Tabs(props: {
     return () => document.removeEventListener('pointerdown', handler);
   }, [contextMenu, moveId]);
 
+  useLayoutEffect(() => {
+    if (!activeGroup || activeGroupIndex < 0 || groupsInUse.length <= 0) {
+      setSectionsLeftPx(null);
+      return;
+    }
+    const viewport = sectionsViewportRef.current;
+    const track = sectionsTrackRef.current;
+    if (!viewport || !track) {
+      setSectionsLeftPx(null);
+      return;
+    }
+
+    const recalc = () => {
+      const viewportWidth = Math.max(0, viewport.clientWidth);
+      const trackWidth = Math.max(0, track.scrollWidth);
+      if (viewportWidth <= 0 || trackWidth <= 0) {
+        setSectionsLeftPx(0);
+        return;
+      }
+      const columnsCount = groupsInUse.length;
+      const gap = departmentButtonsGap;
+      const totalGap = Math.max(0, (columnsCount - 1) * gap);
+      const colWidth = Math.max(0, (viewportWidth - totalGap) / Math.max(1, columnsCount));
+      const desiredCenter = colWidth * (activeGroupIndex + 0.5) + gap * activeGroupIndex;
+      const unclampedLeft = desiredCenter - trackWidth / 2;
+      const minLeft = 0;
+      const maxLeft = Math.max(0, viewportWidth - trackWidth);
+      const clampedLeft = Math.max(minLeft, Math.min(maxLeft, unclampedLeft));
+      setSectionsLeftPx(clampedLeft);
+    };
+
+    recalc();
+    window.addEventListener('resize', recalc);
+    return () => window.removeEventListener('resize', recalc);
+  }, [activeGroup, activeGroupIndex, groupsInUse.length, departmentButtonsGap, menuItemsKey]);
+
   return (
     <div style={{ position: 'relative' }}>
       <div
@@ -531,6 +570,7 @@ export function Tabs(props: {
       </div>
 
       <div
+        ref={sectionsViewportRef}
         style={{
           position: 'relative',
           display: 'block',
@@ -547,11 +587,12 @@ export function Tabs(props: {
           </div>
         ) : (
           <div
+            ref={sectionsTrackRef}
             style={{
               position: 'absolute',
               top: 5,
-              left: activeGroupAnchorLeft,
-              transform: 'translateX(-50%)',
+              left: sectionsLeftPx != null ? `${sectionsLeftPx}px` : activeGroupAnchorLeft,
+              transform: sectionsLeftPx != null ? 'none' : 'translateX(-50%)',
               display: 'inline-flex',
               gap: sectionButtonsGap,
               flexWrap: 'nowrap',
