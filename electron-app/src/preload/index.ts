@@ -394,7 +394,15 @@ const matricaApi = {
         listFontSize?: number;
         cardFontSize?: number;
       } | null;
-      tabsLayout?: { order?: string[]; hidden?: string[]; trashIndex?: number | null } | null;
+      tabsLayout?: {
+        order?: string[];
+        hidden?: string[];
+        trashIndex?: number | null;
+        groupOrder?: string[];
+        hiddenGroups?: string[];
+        collapsedGroups?: string[];
+        activeGroup?: string | null;
+      } | null;
     }) =>
       ipcRenderer.invoke('ui:prefs:set', args),
   },

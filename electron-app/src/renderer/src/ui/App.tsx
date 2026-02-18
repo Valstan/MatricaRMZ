@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, deriveMenuState } from './layout/Tabs.js';
+import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
 import { EnginesPage } from './pages/EnginesPage.js';
 import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
 import { EngineBrandsPage } from './pages/EngineBrandsPage.js';
@@ -734,6 +734,19 @@ export function App() {
       hidden: nextHidden,
       trashIndex: menuState.trashIndex,
       ...(tabsLayout?.groupOrder ? { groupOrder: tabsLayout.groupOrder } : {}),
+      ...(tabsLayout?.hiddenGroups ? { hiddenGroups: tabsLayout.hiddenGroups } : {}),
+      ...(tabsLayout?.collapsedGroups ? { collapsedGroups: tabsLayout.collapsedGroups } : {}),
+      ...(tabsLayout?.activeGroup != null ? { activeGroup: tabsLayout.activeGroup } : {}),
+    });
+  }
+
+  function updateHiddenGroups(nextHiddenGroups: MenuGroupId[]) {
+    void persistTabsLayout({
+      order: menuState.order,
+      hidden: menuState.hidden,
+      trashIndex: menuState.trashIndex,
+      ...(tabsLayout?.groupOrder ? { groupOrder: tabsLayout.groupOrder } : {}),
+      ...(nextHiddenGroups.length > 0 ? { hiddenGroups: nextHiddenGroups } : {}),
       ...(tabsLayout?.collapsedGroups ? { collapsedGroups: tabsLayout.collapsedGroups } : {}),
       ...(tabsLayout?.activeGroup != null ? { activeGroup: tabsLayout.activeGroup } : {}),
     });
@@ -747,6 +760,16 @@ export function App() {
   function restoreAllHiddenTabs() {
     if (menuState.hidden.length === 0) return;
     updateHiddenTabs([]);
+  }
+
+  function restoreHiddenGroup(id: MenuGroupId) {
+    const nextHiddenGroups = menuState.hiddenGroups.filter((x) => x !== id);
+    updateHiddenGroups(nextHiddenGroups);
+  }
+
+  function restoreAllHiddenGroups() {
+    if (menuState.hiddenGroups.length === 0) return;
+    updateHiddenGroups([]);
   }
 
   async function persistChatSide(next: 'left' | 'right') {
@@ -1146,26 +1169,24 @@ export function App() {
     setTimeout(() => setPostLoginSyncMsg(''), 6000);
   }
 
-  function noteToChatText(note: { title: string; body: Array<any> }) {
+  function noteToChatText(note: { body: Array<any> }) {
     const lines: string[] = [];
-    lines.push(note.title || 'Заметка');
-    lines.push('');
     for (const b of note.body ?? []) {
       if (b?.kind === 'text') lines.push(String(b.text ?? ''));
       if (b?.kind === 'link') {
         if (b.url) lines.push(String(b.url));
         if (b.appLink?.tab) lines.push(`app:${String(b.appLink.tab)}`);
       }
-      if (b?.kind === 'image') lines.push(`[image:${String(b.name ?? b.fileId ?? '')}]`);
     }
     return lines.join('\n').trim();
   }
 
-  async function sendNoteToChat(note: { title: string; body: Array<any> }) {
+  async function sendNoteToChat(note: { body: Array<any> }, recipientUserIds: string[]) {
     if (!authStatus.loggedIn || !canChat) return;
-    if (!chatOpen) {
-      setPostLoginSyncMsg('Чат закрыт: откройте чат и выберите диалог.');
-      setTimeout(() => setPostLoginSyncMsg(''), 6000);
+    const recipients = Array.from(new Set((recipientUserIds ?? []).map((x) => String(x).trim()).filter(Boolean)));
+    if (recipients.length === 0) {
+      setPostLoginSyncMsg('Не выбраны получатели.');
+      setTimeout(() => setPostLoginSyncMsg(''), 4500);
       return;
     }
     if (chatContext.adminMode) {
@@ -1174,11 +1195,37 @@ export function App() {
       return;
     }
     const text = noteToChatText(note);
-    if (!text) return;
-    const r = await window.matrica.chat
-      .sendText({ recipientUserId: chatContext.selectedUserId ?? null, text })
-      .catch(() => null);
-    if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
+    const imageFileIds = Array.from(
+      new Set((note.body ?? []).filter((b) => b?.kind === 'image' && b?.fileId).map((b) => String(b.fileId))),
+    );
+    let sentCount = 0;
+    let failedCount = 0;
+    for (const recipientUserId of recipients) {
+      if (text) {
+        const sentText = await window.matrica.chat.sendText({ recipientUserId, text }).catch(() => null);
+        if (sentText && (sentText as any).ok) sentCount += 1;
+        else failedCount += 1;
+      }
+      for (const fileId of imageFileIds) {
+        const downloaded = await window.matrica.files.download({ fileId }).catch(() => null);
+        if (!downloaded || !(downloaded as any).ok || !(downloaded as any).localPath) {
+          failedCount += 1;
+          continue;
+        }
+        const sentFile = await window.matrica.chat
+          .sendFile({ recipientUserId, path: String((downloaded as any).localPath) })
+          .catch(() => null);
+        if (sentFile && (sentFile as any).ok) sentCount += 1;
+        else failedCount += 1;
+      }
+    }
+    if (!viewMode && sentCount > 0) void window.matrica.sync.run().catch(() => {});
+    setPostLoginSyncMsg(
+      failedCount > 0
+        ? `Частично отправлено: успешно ${sentCount}, с ошибкой ${failedCount}`
+        : `Отправлено: ${sentCount}`,
+    );
+    setTimeout(() => setPostLoginSyncMsg(''), 6000);
   }
 
   async function reloadEngine() {
@@ -1675,6 +1722,29 @@ export function App() {
                           }}
                         >
                           {menuLabels[id] ?? id}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 6 }}>
+                    <div style={{ fontWeight: 700 }}>Скрытые отделы</div>
+                    <Button variant="ghost" onClick={restoreAllHiddenGroups} disabled={menuState.hiddenGroups.length === 0}>
+                      Восстановить
+                    </Button>
+                  </div>
+                  {menuState.hiddenGroupsVisible.length === 0 ? (
+                    <div style={{ color: 'var(--muted)' }}>Нет скрытых отделов</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {menuState.hiddenGroupsVisible.map((id) => (
+                        <Button
+                          key={`group-${id}`}
+                          variant="ghost"
+                          onClick={() => {
+                            restoreHiddenGroup(id);
+                          }}
+                        >
+                          {GROUP_LABELS[id] ?? id}
                         </Button>
                       ))}
                     </div>

@@ -509,6 +509,7 @@ export type MatricaApi = {
             hidden?: string[];
             trashIndex?: number | null;
             groupOrder?: string[];
+            hiddenGroups?: string[];
             collapsedGroups?: string[];
             activeGroup?: string | null;
           } | null;
@@ -539,6 +540,7 @@ export type MatricaApi = {
         hidden?: string[];
         trashIndex?: number | null;
         groupOrder?: string[];
+        hiddenGroups?: string[];
         collapsedGroups?: string[];
         activeGroup?: string | null;
       } | null;
@@ -567,6 +569,7 @@ export type MatricaApi = {
             hidden?: string[];
             trashIndex?: number | null;
             groupOrder?: string[];
+            hiddenGroups?: string[];
             collapsedGroups?: string[];
             activeGroup?: string | null;
           } | null;

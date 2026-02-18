@@ -11,6 +11,7 @@ type TabsLayoutPrefs = {
   hidden?: string[];
   trashIndex?: number | null;
   groupOrder?: string[];
+  hiddenGroups?: string[];
   collapsedGroups?: string[];
   activeGroup?: string | null;
 };
@@ -156,6 +157,7 @@ function safeTabsLayout(value: unknown): TabsLayoutPrefs | null {
   const order = Array.isArray(raw.order) ? raw.order.map((x) => String(x)) : undefined;
   const hidden = Array.isArray(raw.hidden) ? raw.hidden.map((x) => String(x)) : undefined;
   const groupOrder = Array.isArray(raw.groupOrder) ? raw.groupOrder.map((x) => String(x)) : undefined;
+  const hiddenGroups = Array.isArray(raw.hiddenGroups) ? raw.hiddenGroups.map((x) => String(x)) : undefined;
   const collapsedGroups = Array.isArray(raw.collapsedGroups) ? raw.collapsedGroups.map((x) => String(x)) : undefined;
   const trashIndex = raw.trashIndex == null ? null : Number(raw.trashIndex);
   const activeGroup = raw.activeGroup == null ? null : String(raw.activeGroup);
@@ -163,6 +165,7 @@ function safeTabsLayout(value: unknown): TabsLayoutPrefs | null {
     ...(order ? { order } : {}),
     ...(hidden ? { hidden } : {}),
     ...(groupOrder ? { groupOrder } : {}),
+    ...(hiddenGroups ? { hiddenGroups } : {}),
     ...(collapsedGroups ? { collapsedGroups } : {}),
     ...(activeGroup != null ? { activeGroup } : {}),
     trashIndex: Number.isFinite(trashIndex ?? NaN) ? trashIndex : null,

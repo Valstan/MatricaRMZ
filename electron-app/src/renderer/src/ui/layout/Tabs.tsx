@@ -58,6 +58,7 @@ export type TabsLayoutPrefs = {
   hidden?: MenuTabId[];
   trashIndex?: number | null;
   groupOrder?: MenuGroupId[];
+  hiddenGroups?: MenuGroupId[];
   collapsedGroups?: MenuGroupId[];
   activeGroup?: MenuGroupId | null;
 };
@@ -95,7 +96,9 @@ const DEFAULT_UI_DISPLAY_PREFS: UiDisplayPrefs = {
   cardFontSize: 14,
 };
 
-type MenuItemId = MenuTabId | 'trash';
+type ContextTarget =
+  | { kind: 'tab'; id: MenuTabId }
+  | { kind: 'group'; id: MenuGroupId };
 export type MenuGroupId =
   | 'production'
   | 'supply'
@@ -105,7 +108,7 @@ export type MenuGroupId =
   | 'interaction'
   | 'admin';
 
-const GROUP_LABELS: Record<MenuGroupId, string> = {
+export const GROUP_LABELS: Record<MenuGroupId, string> = {
   production: 'Производство',
   supply: 'Снабжение и склад',
   business: 'Договоры и контрагенты',
@@ -143,8 +146,25 @@ export function deriveMenuState(availableTabs: MenuTabId[], layout?: TabsLayoutP
   const hiddenSet = new Set(hidden);
   const visibleOrdered = order.filter((t) => !hiddenSet.has(t));
   const hiddenVisible = order.filter((t) => hiddenSet.has(t));
+  const visibleByGroup: Record<MenuGroupId, MenuTabId[]> = {
+    production: [],
+    supply: [],
+    business: [],
+    people: [],
+    control: [],
+    interaction: [],
+    admin: [],
+  };
+  for (const tab of visibleOrdered) {
+    visibleByGroup[groupForTab(tab)].push(tab);
+  }
+  const groupsWithTabs = DEFAULT_GROUP_ORDER.filter((groupId) => visibleByGroup[groupId].length > 0);
+  const hiddenGroupsRaw = Array.isArray(layout?.hiddenGroups) ? layout?.hiddenGroups ?? [] : [];
+  const hiddenGroups = hiddenGroupsRaw.filter((g): g is MenuGroupId => isGroupId(String(g)));
+  const hiddenGroupsSet = new Set(hiddenGroups);
+  const hiddenGroupsVisible = groupsWithTabs.filter((g) => hiddenGroupsSet.has(g));
   const trashIndex = clamp(layout?.trashIndex ?? visibleOrdered.length, 0, visibleOrdered.length);
-  return { order, hidden, hiddenSet, visibleOrdered, hiddenVisible, trashIndex };
+  return { order, hidden, hiddenSet, visibleOrdered, hiddenVisible, hiddenGroups, hiddenGroupsSet, hiddenGroupsVisible, trashIndex };
 }
 
 function isGroupId(value: string): value is MenuGroupId {
@@ -179,6 +199,10 @@ export function Tabs(props: {
   const departmentButtonsGap = Math.max(0, Number(departmentButtonActiveStyle.gap ?? 8));
   const sectionButtonsGap = Math.max(0, Number(sectionButtonActiveStyle.gap ?? 6));
   const menuState = deriveMenuState(props.availableTabs, props.layout);
+  const hiddenGroupsSet = useMemo(() => {
+    const raw = Array.isArray(props.layout?.hiddenGroups) ? props.layout?.hiddenGroups ?? [] : [];
+    return new Set(raw.filter((x): x is MenuGroupId => isGroupId(String(x))));
+  }, [props.layout?.hiddenGroups]);
   const collapsedGroups = useMemo(() => {
     const raw = Array.isArray(props.layout?.collapsedGroups) ? props.layout?.collapsedGroups ?? [] : [];
     return new Set(raw.filter((x): x is MenuGroupId => isGroupId(String(x))));
@@ -206,9 +230,10 @@ export function Tabs(props: {
     }
     return mapped;
   }, [menuState.visibleOrdered]);
+  const groupsWithTabs = useMemo(() => groupOrder.filter((groupId) => visibleByGroup[groupId].length > 0), [groupOrder, visibleByGroup]);
   const groupsInUse = useMemo(
-    () => groupOrder.filter((groupId) => visibleByGroup[groupId].length > 0),
-    [groupOrder, visibleByGroup],
+    () => groupsWithTabs.filter((groupId) => !hiddenGroupsSet.has(groupId)),
+    [groupsWithTabs, hiddenGroupsSet],
   );
   const preferredGroupByTab = useMemo(() => {
     if (!menuState.visibleOrdered.includes(props.tab as MenuTabId)) return null;
@@ -247,10 +272,14 @@ export function Tabs(props: {
   const movePopupRef = useRef<HTMLDivElement | null>(null);
   const sectionsViewportRef = useRef<HTMLDivElement | null>(null);
   const sectionsTrackRef = useRef<HTMLDivElement | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ id: MenuItemId; x: number; y: number } | null>(null);
-  const [moveId, setMoveId] = useState<MenuItemId | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ target: ContextTarget; x: number; y: number } | null>(null);
+  const [moveId, setMoveId] = useState<ContextTarget | null>(null);
   const [moveRect, setMoveRect] = useState<DOMRect | null>(null);
   const [sectionsLeftPx, setSectionsLeftPx] = useState<number | null>(null);
+
+  function keyOfTarget(target: ContextTarget) {
+    return `${target.kind}:${target.id}`;
+  }
 
   const labels: Record<MenuTabId, string> = {
     masterdata: 'Справочники',
@@ -291,18 +320,33 @@ export function Tabs(props: {
       hidden: nextHidden,
       trashIndex,
       ...(props.layout?.groupOrder ? { groupOrder: props.layout.groupOrder } : {}),
+      ...(props.layout?.hiddenGroups ? { hiddenGroups: props.layout.hiddenGroups } : {}),
       ...(props.layout?.collapsedGroups ? { collapsedGroups: props.layout.collapsedGroups } : {}),
       ...(props.layout?.activeGroup != null ? { activeGroup: props.layout.activeGroup } : {}),
     });
   }
 
-  function updateGroupPrefs(next: { activeGroup?: MenuGroupId | null; collapsedGroups?: MenuGroupId[] }) {
+  function updateGroupPrefs(next: {
+    activeGroup?: MenuGroupId | null;
+    collapsedGroups?: MenuGroupId[];
+    groupOrder?: MenuGroupId[];
+    hiddenGroups?: MenuGroupId[];
+  }) {
     props.onLayoutChange({
       order: menuState.order,
       hidden: menuState.hidden,
       trashIndex: menuState.trashIndex,
-      ...(props.layout?.groupOrder ? { groupOrder: props.layout.groupOrder } : {}),
-      ...(next.collapsedGroups ? { collapsedGroups: next.collapsedGroups } : props.layout?.collapsedGroups ? { collapsedGroups: props.layout.collapsedGroups } : {}),
+      ...(next.groupOrder !== undefined ? { groupOrder: next.groupOrder } : props.layout?.groupOrder !== undefined ? { groupOrder: props.layout.groupOrder } : {}),
+      ...(next.hiddenGroups !== undefined
+        ? { hiddenGroups: next.hiddenGroups }
+        : props.layout?.hiddenGroups !== undefined
+          ? { hiddenGroups: props.layout.hiddenGroups }
+          : {}),
+      ...(next.collapsedGroups !== undefined
+        ? { collapsedGroups: next.collapsedGroups }
+        : props.layout?.collapsedGroups !== undefined
+          ? { collapsedGroups: props.layout.collapsedGroups }
+          : {}),
       ...(next.activeGroup !== undefined
         ? { activeGroup: next.activeGroup }
         : props.layout?.activeGroup !== undefined
@@ -323,6 +367,15 @@ export function Tabs(props: {
     });
   }
 
+  function hideGroup(groupId: MenuGroupId) {
+    const nextHiddenGroups = Array.from(new Set([...(props.layout?.hiddenGroups ?? []), groupId])).filter((g): g is MenuGroupId => isGroupId(String(g)));
+    const nextActive = activeGroup === groupId ? groupsInUse.find((g) => g !== groupId) ?? null : activeGroup;
+    updateGroupPrefs({
+      activeGroup: nextActive,
+      hiddenGroups: nextHiddenGroups,
+    });
+  }
+
   useEffect(() => {
     if (!preferredGroupByTab) return;
     if (activeGroup === preferredGroupByTab) return;
@@ -335,10 +388,10 @@ export function Tabs(props: {
     });
   }, [activeGroup, collapsedGroups, preferredGroupByTab, props.layout?.activeGroup]);
 
-  function openContextMenu(id: MenuItemId, e: React.MouseEvent) {
+  function openContextMenu(target: ContextTarget, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ id, x: e.clientX, y: e.clientY });
+    setContextMenu({ target, x: e.clientX, y: e.clientY });
   }
 
   function hideTab(id: MenuTabId) {
@@ -346,33 +399,37 @@ export function Tabs(props: {
     updateLayout(menuState.visibleOrdered, menuState.trashIndex, nextHidden);
   }
 
-  function restoreTab(id: MenuTabId) {
-    const nextHidden = menuState.hidden.filter((t) => t !== id);
-    updateLayout(menuState.visibleOrdered, menuState.trashIndex, nextHidden);
-    setTrashOpen(false);
-  }
-
-  function restoreAllTabs() {
-    if (menuState.hidden.length === 0) return;
-    updateLayout(menuState.visibleOrdered, menuState.trashIndex, []);
-    setTrashOpen(false);
-  }
-
-  function startMove(id: MenuItemId) {
+  function startMove(target: ContextTarget) {
     setContextMenu(null);
-    setMoveId(id);
+    setMoveId(target);
   }
 
   function moveItem(delta: -1 | 1) {
-    if (!moveId || moveId === 'trash') return;
-    const currentIndex = menuItems.indexOf(moveId);
+    if (!moveId) return;
+    if (moveId.kind === 'tab') {
+      const currentIndex = menuItems.indexOf(moveId.id);
+      const nextIndex = currentIndex + delta;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= menuItems.length) return;
+      const nextItems = [...menuItems];
+      const [item] = nextItems.splice(currentIndex, 1);
+      if (!item) return;
+      nextItems.splice(nextIndex, 0, item);
+      updateLayout(nextItems, menuState.trashIndex, menuState.hidden);
+      return;
+    }
+    const currentIndex = groupsInUse.indexOf(moveId.id);
     const nextIndex = currentIndex + delta;
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= menuItems.length) return;
-    const nextItems = [...menuItems];
-    const [item] = nextItems.splice(currentIndex, 1);
-    if (!item) return;
-    nextItems.splice(nextIndex, 0, item);
-    updateLayout(nextItems, menuState.trashIndex, menuState.hidden);
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= groupsInUse.length) return;
+    const leftGroup = groupsInUse[currentIndex];
+    const rightGroup = groupsInUse[nextIndex];
+    if (!leftGroup || !rightGroup) return;
+    const nextGroupOrder = [...groupOrder];
+    const leftPos = nextGroupOrder.indexOf(leftGroup);
+    const rightPos = nextGroupOrder.indexOf(rightGroup);
+    if (leftPos < 0 || rightPos < 0) return;
+    nextGroupOrder[leftPos] = rightGroup;
+    nextGroupOrder[rightPos] = leftGroup;
+    updateGroupPrefs({ groupOrder: nextGroupOrder });
   }
 
   function tabButton(id: MenuTabId, label: string, opts?: { onContextMenu?: (e: React.MouseEvent) => void }) {
@@ -422,15 +479,15 @@ export function Tabs(props: {
   }
 
   function menuItemButton(id: MenuTabId) {
-    return tabButton(id, labels[id], { onContextMenu: (e) => openContextMenu(id, e) });
+    return tabButton(id, labels[id], { onContextMenu: (e) => openContextMenu({ kind: 'tab', id }, e) });
   }
 
   useEffect(() => {
     if (!moveId) return;
-    const el = itemRefs.current[moveId];
+    const el = itemRefs.current[keyOfTarget(moveId)];
     if (el) setMoveRect(el.getBoundingClientRect());
     const sync = () => {
-      const nextEl = itemRefs.current[moveId];
+      const nextEl = itemRefs.current[keyOfTarget(moveId)];
       if (nextEl) setMoveRect(nextEl.getBoundingClientRect());
     };
     window.addEventListener('resize', sync);
@@ -439,7 +496,7 @@ export function Tabs(props: {
       window.removeEventListener('resize', sync);
       window.removeEventListener('scroll', sync, true);
     };
-  }, [moveId, menuItemsKey]);
+  }, [moveId, menuItemsKey, groupsInUse.join('|')]);
 
   useEffect(() => {
     if (!contextMenu && !moveId) return;
@@ -514,11 +571,17 @@ export function Tabs(props: {
             const isActive = activeGroup === groupId && !collapsedGroups.has(groupId);
             const isCollapsed = collapsedGroups.has(groupId);
             return (
-              <Button
+              <div
                 key={groupId}
-                variant="ghost"
-                onClick={() => toggleGroup(groupId)}
-                style={
+                ref={(el) => {
+                  itemRefs.current[keyOfTarget({ kind: 'group', id: groupId })] = el;
+                }}
+              >
+                <Button
+                  variant="ghost"
+                  onClick={() => toggleGroup(groupId)}
+                  onContextMenu={(e) => openContextMenu({ kind: 'group', id: groupId }, e)}
+                  style={
                   isActive
                     ? {
                         width: '100%',
@@ -547,9 +610,9 @@ export function Tabs(props: {
                         letterSpacing: 0,
                       }
                 }
-                title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
-              >
-                <span
+                  title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
+                >
+                  <span
                   style={{
                     display: 'block',
                     textAlign: 'center',
@@ -560,10 +623,11 @@ export function Tabs(props: {
                     hyphens: 'auto',
                     fontSize: isActive ? departmentButtonActiveStyle.fontSize : departmentButtonInactiveStyle.fontSize,
                   }}
-                >
-                  {GROUP_LABELS[groupId]}
-                </span>
-              </Button>
+                  >
+                    {GROUP_LABELS[groupId]}
+                  </span>
+                </Button>
+              </div>
             );
           })}
         </div>
@@ -606,7 +670,7 @@ export function Tabs(props: {
               <div
                 key={id}
                 ref={(el) => {
-                  itemRefs.current[id] = el;
+                  itemRefs.current[keyOfTarget({ kind: 'tab', id })] = el;
                 }}
                 style={{ display: 'inline-flex' }}
               >
@@ -636,21 +700,20 @@ export function Tabs(props: {
             minWidth: 160,
           }}
         >
-          {contextMenu.id !== 'trash' && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                hideTab(contextMenu.id as MenuTabId);
-                setContextMenu(null);
-              }}
-            >
-              Скрыть
-            </Button>
-          )}
           <Button
             variant="ghost"
             onClick={() => {
-              startMove(contextMenu.id);
+              if (contextMenu.target.kind === 'tab') hideTab(contextMenu.target.id);
+              else hideGroup(contextMenu.target.id);
+              setContextMenu(null);
+            }}
+          >
+            Скрыть
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              startMove(contextMenu.target);
             }}
           >
             Переместить
@@ -675,13 +738,21 @@ export function Tabs(props: {
             zIndex: 1950,
           }}
         >
-          <Button variant="ghost" onClick={() => moveItem(-1)} disabled={menuItems.indexOf(moveId) <= 0}>
+          <Button
+            variant="ghost"
+            onClick={() => moveItem(-1)}
+            disabled={moveId.kind === 'tab' ? menuItems.indexOf(moveId.id) <= 0 : groupsInUse.indexOf(moveId.id) <= 0}
+          >
             ←
           </Button>
           <Button
             variant="ghost"
             onClick={() => moveItem(1)}
-            disabled={menuItems.indexOf(moveId) >= menuItems.length - 1}
+            disabled={
+              moveId.kind === 'tab'
+                ? menuItems.indexOf(moveId.id) >= menuItems.length - 1
+                : groupsInUse.indexOf(moveId.id) >= groupsInUse.length - 1
+            }
           >
             →
           </Button>
