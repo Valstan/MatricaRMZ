@@ -149,7 +149,7 @@ export function App() {
     root.style.setProperty('--entity-card-min-width', `${safe.directories.entityCardMinWidth}px`);
     root.style.setProperty('--ui-datepicker-scale', String(safe.misc.datePickerScale));
     root.style.setProperty('--ui-datepicker-font-size', `${safe.misc.datePickerFontSize}px`);
-  }, [applyEffectiveUiSettings]);
+  }, []);
 
   function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
     if (a === b) return true;
