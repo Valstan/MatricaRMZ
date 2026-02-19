@@ -300,11 +300,11 @@ export function MasterdataPage(props: {
       if (!opts?.silent) setStatus('Подгружаем справочник с сервера…');
       const r = await window.matrica.admin.entityTypes.resyncFromServer(targetTypeId);
       if (!r?.ok) {
-        setStatus(`Ошибка подгрузки: ${r?.error ?? 'unknown'}`);
+        if (!opts?.silent) setStatus(`Ошибка подгрузки: ${r?.error ?? 'unknown'}`);
         return;
       }
       if (r.sync && r.sync.ok === false) {
-        setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
+        if (!opts?.silent) setStatus(`Синхронизация не завершилась: ${r.sync.error ?? 'unknown'}`);
         return;
       }
       const resolvedId = r?.resync?.resolvedId ? String(r.resync.resolvedId) : null;
@@ -321,7 +321,7 @@ export function MasterdataPage(props: {
         setTimeout(() => setStatus(''), 1200);
       }
     } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      if (!opts?.silent) setStatus(`Ошибка: ${String(e)}`);
     }
   }
 
