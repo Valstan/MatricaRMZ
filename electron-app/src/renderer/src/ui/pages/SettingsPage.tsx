@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { UiDisplayButtonState, UiDisplayPrefs, UiDisplayTarget } from '@matricarmz/shared';
-import { DEFAULT_UI_DISPLAY_PREFS } from '@matricarmz/shared';
+import type { UiDisplayPrefs } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -27,12 +26,6 @@ export function SettingsPage(props: {
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [enterAsTab, setEnterAsTab] = useState<boolean>(props.uiPrefs.enterAsTab === true);
-  const [uiDisplayPrefs, setUiDisplayPrefs] = useState<UiDisplayPrefs>(props.uiPrefs.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS);
-  const [displayTarget, setDisplayTarget] = useState<UiDisplayTarget>((props.uiPrefs.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS).selectedTarget);
-  const [displayButtonState, setDisplayButtonState] = useState<UiDisplayButtonState>(
-    (props.uiPrefs.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS).selectedButtonState,
-  );
-  const [displayStatus, setDisplayStatus] = useState<string>('');
   const [pwCurrent, setPwCurrent] = useState<string>('');
   const [pwNew, setPwNew] = useState<string>('');
   const [pwRepeat, setPwRepeat] = useState<string>('');
@@ -241,10 +234,6 @@ export function SettingsPage(props: {
     setUiTheme(props.uiPrefs.theme);
     setChatSide(props.uiPrefs.chatSide);
     setEnterAsTab(props.uiPrefs.enterAsTab === true);
-    const nextDisplayPrefs = props.uiPrefs.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS;
-    setUiDisplayPrefs(nextDisplayPrefs);
-    setDisplayTarget(nextDisplayPrefs.selectedTarget);
-    setDisplayButtonState(nextDisplayPrefs.selectedButtonState);
   }, [props.uiPrefs]);
 
   async function handleToggleLogging() {
@@ -315,90 +304,13 @@ export function SettingsPage(props: {
         theme: (r as any).theme,
         chatSide: (r as any).chatSide,
         enterAsTab: (r as any).enterAsTab === true,
-        displayPrefs: ((r as any).displayPrefs as UiDisplayPrefs | undefined) ?? uiDisplayPrefs,
+        displayPrefs: props.uiPrefs.displayPrefs,
       });
       setStatus('Настройки интерфейса сохранены.');
       setTimeout(() => setStatus(''), 2000);
     } else {
       setStatus(`Ошибка: ${formatError((r as any)?.error ?? 'unknown error')}`);
     }
-  }
-
-  function clampNumber(raw: number, min: number, max: number) {
-    if (!Number.isFinite(raw)) return min;
-    if (raw < min) return min;
-    if (raw > max) return max;
-    return Math.round(raw);
-  }
-
-  function isButtonTarget(target: UiDisplayTarget): target is 'departmentButtons' | 'sectionButtons' {
-    return target === 'departmentButtons' || target === 'sectionButtons';
-  }
-
-  function updateDisplayStyleField(field: keyof UiDisplayButtonStyle, value: number) {
-    if (!isButtonTarget(displayTarget)) return;
-    const minMax: Record<keyof UiDisplayButtonStyle, { min: number; max: number }> = {
-      fontSize: { min: 10, max: 48 },
-      width: { min: 60, max: 480 },
-      height: { min: 24, max: 280 },
-      paddingX: { min: 0, max: 60 },
-      paddingY: { min: 0, max: 40 },
-      gap: { min: 0, max: 60 },
-    };
-    const clamped = clampNumber(value, minMax[field].min, minMax[field].max);
-    setUiDisplayPrefs((prev) => ({
-      ...prev,
-      selectedTarget: displayTarget,
-      selectedButtonState: displayButtonState,
-      [displayTarget]: {
-        ...prev[displayTarget],
-        [displayButtonState]: {
-          ...prev[displayTarget][displayButtonState],
-          [field]: clamped,
-        },
-      },
-    }));
-  }
-
-  function updateFontTargetSize(target: 'listFont' | 'cardFont', value: number) {
-    const clamped = clampNumber(value, 10, 48);
-    setUiDisplayPrefs((prev) => ({
-      ...prev,
-      selectedTarget: displayTarget,
-      selectedButtonState: displayButtonState,
-      ...(target === 'listFont' ? { listFontSize: clamped } : { cardFontSize: clamped }),
-    }));
-  }
-
-  async function handleApplyDisplayPrefs(next: UiDisplayPrefs) {
-    setDisplayStatus('Сохранение...');
-    const payload: UiDisplayPrefs = {
-      ...next,
-      selectedTarget: displayTarget,
-      selectedButtonState: displayButtonState,
-    };
-    const r = await window.matrica.settings.uiSet({ displayPrefs: payload }).catch((e) => ({ ok: false as const, error: formatError(e) }));
-    if (r && (r as any).ok) {
-      const saved = ((r as any).displayPrefs as UiDisplayPrefs | undefined) ?? payload;
-      setUiDisplayPrefs(saved);
-      setDisplayTarget(saved.selectedTarget);
-      setDisplayButtonState(saved.selectedButtonState);
-      props.onUiPrefsChange({
-        theme: props.uiPrefs.theme,
-        chatSide: props.uiPrefs.chatSide,
-        enterAsTab: props.uiPrefs.enterAsTab,
-        displayPrefs: saved,
-      });
-      setDisplayStatus('Настройки отображения применены.');
-      setTimeout(() => setDisplayStatus(''), 2500);
-    } else {
-      setDisplayStatus(`Ошибка: ${formatError((r as any)?.error ?? 'unknown error')}`);
-    }
-  }
-
-  function currentButtonStyle(): UiDisplayButtonStyle {
-    if (!isButtonTarget(displayTarget)) return uiDisplayPrefs.sectionButtons.active;
-    return uiDisplayPrefs[displayTarget][displayButtonState];
   }
 
   async function handleLogout() {
@@ -543,145 +455,14 @@ export function SettingsPage(props: {
         </div>
 
         <div style={{ ...sectionBaseStyle, background: 'rgba(14, 165, 233, 0.1)' }}>
-          <h3 style={{ marginTop: 0, marginBottom: 10 }}>Отображение интерфейса клиента</h3>
-          <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
-            Настройка кнопок отделов/разделов и размеров шрифта списков и карточек.
+          <h3 style={{ marginTop: 0, marginBottom: 10 }}>Центр управления интерфейсом</h3>
+          <p style={{ color: 'var(--muted)', marginBottom: 0 }}>
+            Настройки кнопок, списков и карточек перенесены в отдельную вкладку
+            {' '}
+            <strong>UI Control Center</strong>.
+            {' '}
+            Там доступны персональные и глобальные параметры (глобальные доступны только суперадминистратору).
           </p>
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div>
-              <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Что редактировать</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button
-                  variant={displayTarget === 'departmentButtons' ? 'primary' : 'ghost'}
-                  onClick={() => setDisplayTarget('departmentButtons')}
-                >
-                  Кнопки отделов
-                </Button>
-                <Button variant={displayTarget === 'sectionButtons' ? 'primary' : 'ghost'} onClick={() => setDisplayTarget('sectionButtons')}>
-                  Кнопки разделов
-                </Button>
-                <Button variant={displayTarget === 'listFont' ? 'primary' : 'ghost'} onClick={() => setDisplayTarget('listFont')}>
-                  Шрифт списков
-                </Button>
-                <Button variant={displayTarget === 'cardFont' ? 'primary' : 'ghost'} onClick={() => setDisplayTarget('cardFont')}>
-                  Шрифт карточек
-                </Button>
-              </div>
-            </div>
-
-            <div>
-              <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Режим кнопки</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button
-                  variant={displayButtonState === 'active' ? 'primary' : 'ghost'}
-                  disabled={!isButtonTarget(displayTarget)}
-                  onClick={() => setDisplayButtonState('active')}
-                >
-                  Активная кнопка
-                </Button>
-                <Button
-                  variant={displayButtonState === 'inactive' ? 'primary' : 'ghost'}
-                  disabled={!isButtonTarget(displayTarget)}
-                  onClick={() => setDisplayButtonState('inactive')}
-                >
-                  Неактивная кнопка
-                </Button>
-                {!isButtonTarget(displayTarget) && <span style={{ color: 'var(--muted)', fontSize: 12 }}>Для шрифтов режим кнопки не используется</span>}
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center' }}>
-              <div style={{ color: 'var(--muted)' }}>Размер шрифта (px)</div>
-              <input
-                type="number"
-                min={10}
-                max={48}
-                value={isButtonTarget(displayTarget) ? currentButtonStyle().fontSize : displayTarget === 'listFont' ? uiDisplayPrefs.listFontSize : uiDisplayPrefs.cardFontSize}
-                onChange={(e) => {
-                  const next = Number(e.target.value);
-                  if (isButtonTarget(displayTarget)) updateDisplayStyleField('fontSize', next);
-                  else updateFontTargetSize(displayTarget, next);
-                }}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-              />
-
-              <div style={{ color: 'var(--muted)' }}>Ширина кнопки (px)</div>
-              <input
-                type="number"
-                min={60}
-                max={480}
-                disabled={!isButtonTarget(displayTarget)}
-                value={isButtonTarget(displayTarget) ? currentButtonStyle().width : 0}
-                onChange={(e) => updateDisplayStyleField('width', Number(e.target.value))}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-              />
-
-              <div style={{ color: 'var(--muted)' }}>Высота кнопки (px)</div>
-              <input
-                type="number"
-                min={24}
-                max={280}
-                disabled={!isButtonTarget(displayTarget)}
-                value={isButtonTarget(displayTarget) ? currentButtonStyle().height : 0}
-                onChange={(e) => updateDisplayStyleField('height', Number(e.target.value))}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-              />
-
-              <div style={{ color: 'var(--muted)' }}>Отступ по горизонтали (px)</div>
-              <input
-                type="number"
-                min={0}
-                max={60}
-                disabled={!isButtonTarget(displayTarget)}
-                value={isButtonTarget(displayTarget) ? currentButtonStyle().paddingX : 0}
-                onChange={(e) => updateDisplayStyleField('paddingX', Number(e.target.value))}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-              />
-
-              <div style={{ color: 'var(--muted)' }}>Отступ по вертикали (px)</div>
-              <input
-                type="number"
-                min={0}
-                max={40}
-                disabled={!isButtonTarget(displayTarget)}
-                value={isButtonTarget(displayTarget) ? currentButtonStyle().paddingY : 0}
-                onChange={(e) => updateDisplayStyleField('paddingY', Number(e.target.value))}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-              />
-
-              <div style={{ color: 'var(--muted)' }}>Расстояние между кнопками (px)</div>
-              <input
-                type="number"
-                min={0}
-                max={60}
-                disabled={!isButtonTarget(displayTarget)}
-                value={isButtonTarget(displayTarget) ? currentButtonStyle().gap : 0}
-                onChange={(e) => updateDisplayStyleField('gap', Number(e.target.value))}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Button variant="primary" onClick={() => void handleApplyDisplayPrefs(uiDisplayPrefs)}>
-                Применить
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  const next = {
-                    ...DEFAULT_UI_DISPLAY_PREFS,
-                    selectedTarget: displayTarget,
-                    selectedButtonState: displayButtonState,
-                  };
-                  setUiDisplayPrefs(next);
-                  void handleApplyDisplayPrefs(next);
-                }}
-              >
-                Сбросить настройки по-умолчанию
-              </Button>
-              {displayStatus && <span style={{ color: 'var(--muted)', fontSize: 12 }}>{displayStatus}</span>}
-            </div>
-          </div>
         </div>
 
         <div style={{ ...sectionBaseStyle, background: 'rgba(168, 85, 247, 0.1)' }}>
