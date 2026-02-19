@@ -16,6 +16,10 @@ const PRESET_BUTTON_HEIGHTS = [28, 32, 36, 40, 44, 48, 56, 64, 80, 96, 120, 152]
 const PRESET_BUTTON_PADDING = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24];
 const PRESET_ENTITY_CARD_WIDTHS = [260, 320, 360, 420, 480, 520, 560, 640, 720, 840, 960, 1080];
 const PRESET_DATE_PICKER_SCALE = [1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4, 2.6, 2.8, 3];
+const PRESET_SECTION_ALT_STRENGTH = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 30];
+const PRESET_INPUT_AUTO_GROW_MIN_CHARS = [3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20];
+const PRESET_INPUT_AUTO_GROW_MAX_CHARS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 80];
+const PRESET_INPUT_AUTO_GROW_EXTRA_CHARS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12];
 
 function parseNumericInput(raw: string, allowDecimal: boolean): number | null {
   const trimmed = String(raw ?? '').trim();
@@ -309,6 +313,98 @@ export function UiControlCenterPage(props: {
         </div>
       </SectionCard>
 
+      <SectionCard title="Поля ввода (авто-расширение)">
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+          Резиновые поля: ширина растёт по количеству символов и не обрезает длинные числа.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Button
+            size="sm"
+            variant={draft.inputs.autoGrowAllFields ? 'primary' : 'ghost'}
+            onClick={() =>
+              patch((p) => ({
+                ...p,
+                inputs: { ...p.inputs, autoGrowAllFields: true },
+              }))
+            }
+          >
+            Авто-расширение для всех полей
+          </Button>
+          <Button
+            size="sm"
+            variant={!draft.inputs.autoGrowAllFields ? 'primary' : 'ghost'}
+            onClick={() =>
+              patch((p) => ({
+                ...p,
+                inputs: { ...p.inputs, autoGrowAllFields: false },
+              }))
+            }
+          >
+            Только для числовых полей
+          </Button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 8 }}>
+          <label>
+            Минимальная ширина поля (символов)
+            <NumericPresetInput
+              listId="ui-control-input-autogrow-min"
+              value={draft.inputs.autoGrowMinChars}
+              presets={PRESET_INPUT_AUTO_GROW_MIN_CHARS}
+              onValueChange={(next) =>
+                patch((p) => {
+                  const min = Math.max(3, Math.round(next));
+                  return {
+                    ...p,
+                    inputs: {
+                      ...p.inputs,
+                      autoGrowMinChars: min,
+                      autoGrowMaxChars: Math.max(min, Math.round(p.inputs.autoGrowMaxChars)),
+                    },
+                  };
+                })
+              }
+            />
+          </label>
+          <label>
+            Максимальная ширина поля (символов)
+            <NumericPresetInput
+              listId="ui-control-input-autogrow-max"
+              value={draft.inputs.autoGrowMaxChars}
+              presets={PRESET_INPUT_AUTO_GROW_MAX_CHARS}
+              onValueChange={(next) =>
+                patch((p) => {
+                  const max = Math.max(Math.round(p.inputs.autoGrowMinChars), Math.round(next));
+                  return {
+                    ...p,
+                    inputs: {
+                      ...p.inputs,
+                      autoGrowMaxChars: max,
+                    },
+                  };
+                })
+              }
+            />
+          </label>
+          <label>
+            Дополнительный запас (символов)
+            <NumericPresetInput
+              listId="ui-control-input-autogrow-extra"
+              value={draft.inputs.autoGrowExtraChars}
+              presets={PRESET_INPUT_AUTO_GROW_EXTRA_CHARS}
+              onValueChange={(next) =>
+                patch((p) => ({
+                  ...p,
+                  inputs: {
+                    ...p.inputs,
+                    autoGrowExtraChars: Math.max(0, Math.round(next)),
+                  },
+                }))
+              }
+            />
+          </label>
+        </div>
+      </SectionCard>
+
       <SectionCard title="Отображение интерфейса клиента">
         <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
           Настройка кнопок отделов/разделов и размеров шрифта списков и карточек.
@@ -430,6 +526,32 @@ export function UiControlCenterPage(props: {
         <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
           Точные параметры, которые меняют плотность строк, шрифты таблиц и масштаб календаря.
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Button
+            size="sm"
+            variant={draft.cards.sectionAltBackgrounds ? 'primary' : 'ghost'}
+            onClick={() =>
+              patch((p) => ({
+                ...p,
+                cards: { ...p.cards, sectionAltBackgrounds: true },
+              }))
+            }
+          >
+            Разнотонные блоки включены
+          </Button>
+          <Button
+            size="sm"
+            variant={!draft.cards.sectionAltBackgrounds ? 'primary' : 'ghost'}
+            onClick={() =>
+              patch((p) => ({
+                ...p,
+                cards: { ...p.cards, sectionAltBackgrounds: false },
+              }))
+            }
+          >
+            Однотонные блоки
+          </Button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
           <label>
             Шрифт карточек (px)
@@ -484,6 +606,21 @@ export function UiControlCenterPage(props: {
               value={draft.misc.datePickerFontSize}
               presets={PRESET_FONT_SIZES}
               onValueChange={(next) => patch((p) => ({ ...p, misc: { ...p.misc, datePickerFontSize: next } }))}
+            />
+          </label>
+          <label>
+            Сила разнотона блоков (%)
+            <NumericPresetInput
+              listId="ui-control-cards-section-alt-strength"
+              value={draft.cards.sectionAltStrength}
+              presets={PRESET_SECTION_ALT_STRENGTH}
+              disabled={!draft.cards.sectionAltBackgrounds}
+              onValueChange={(next) =>
+                patch((p) => ({
+                  ...p,
+                  cards: { ...p.cards, sectionAltStrength: Math.max(0, Math.round(next)) },
+                }))
+              }
             />
           </label>
         </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import type { NoteItem, NoteShareItem } from '@matricarmz/shared';
+import { DEFAULT_UI_CONTROL_SETTINGS, sanitizeUiControlSettings, type NoteItem, type NoteShareItem } from '@matricarmz/shared';
 
-import { login, logout, me, register } from '../api/auth.js';
+import { login, logout, me, register, uiSettingsGet } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
 import { presenceMe } from '../api/presence.js';
 import * as masterdata from '../api/masterdata.js';
@@ -23,6 +23,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
 import { UserSettingsPage, type UiPrefs } from './UserSettingsPage.js';
+import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 
 type AuthUser = { id: string; username: string; role: string };
 type MasterdataTypeRow = { id: string; code: string; name: string };
@@ -64,6 +65,15 @@ function resolveTheme(theme: UiPrefs['theme']) {
   return mq?.matches ? 'dark' : 'light';
 }
 
+function applyUiControlToDocument(rawSettings: unknown) {
+  const safe = sanitizeUiControlSettings(rawSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+  const root = document.documentElement;
+  root.style.setProperty('--ui-input-autogrow-min-ch', String(safe.inputs.autoGrowMinChars));
+  root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
+  root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
+  root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
+}
+
 export function App() {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -79,6 +89,7 @@ export function App() {
     selectedUserId: null,
     adminMode: false,
   });
+  useAutoGrowInputs();
 
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -143,6 +154,7 @@ export function App() {
   async function refreshMe() {
     const r = await me();
     if (!r?.ok) {
+      applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
       setUser(null);
       setPermissions({});
       setLoading(false);
@@ -153,6 +165,7 @@ export function App() {
     if (!u) {
       setAuthError('Не удалось получить пользователя.');
       clearTokens();
+      applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
       setUser(null);
       setPermissions({});
       setLoading(false);
@@ -162,6 +175,7 @@ export function App() {
     if (role !== 'admin' && role !== 'superadmin' && role !== 'pending') {
       setAuthError('Доступ только для администраторов или ожидающих одобрения.');
       clearTokens();
+      applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
       setUser(null);
       setPermissions({});
       setLoading(false);
@@ -169,10 +183,17 @@ export function App() {
     }
     setUser(u);
     setPermissions(perms);
+    const uiSettingsRes = await uiSettingsGet().catch(() => null);
+    if (uiSettingsRes?.ok) {
+      applyUiControlToDocument(uiSettingsRes.effective ?? uiSettingsRes.globalDefaults ?? DEFAULT_UI_CONTROL_SETTINGS);
+    } else {
+      applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
+    }
     setLoading(false);
   }
 
   useEffect(() => {
+    applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
     void refreshMe();
   }, []);
 
@@ -227,6 +248,7 @@ export function App() {
 
   async function doLogout() {
     await logout();
+    applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
     setUser(null);
     setPermissions({});
     setTab('auth');

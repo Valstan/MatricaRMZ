@@ -47,6 +47,8 @@ export type UiControlSettings = {
     rowGap: number;
     rowPaddingY: number;
     rowPaddingX: number;
+    sectionAltBackgrounds: boolean;
+    sectionAltStrength: number;
   };
   lists: {
     fontSize: number;
@@ -60,6 +62,12 @@ export type UiControlSettings = {
   misc: {
     datePickerScale: number;
     datePickerFontSize: number;
+  };
+  inputs: {
+    autoGrowAllFields: boolean;
+    autoGrowMinChars: number;
+    autoGrowMaxChars: number;
+    autoGrowExtraChars: number;
   };
 };
 
@@ -109,6 +117,8 @@ export const DEFAULT_UI_CONTROL_SETTINGS: UiControlSettings = {
     rowGap: 4,
     rowPaddingY: 4,
     rowPaddingX: 6,
+    sectionAltBackgrounds: true,
+    sectionAltStrength: 8,
   },
   lists: {
     fontSize: DEFAULT_UI_DISPLAY_PREFS.listFontSize,
@@ -123,12 +133,24 @@ export const DEFAULT_UI_CONTROL_SETTINGS: UiControlSettings = {
     datePickerScale: 2,
     datePickerFontSize: 14,
   },
+  inputs: {
+    autoGrowAllFields: true,
+    autoGrowMinChars: 10,
+    autoGrowMaxChars: 48,
+    autoGrowExtraChars: 2,
+  },
 };
 
 function clampNumber(raw: unknown, fallback: number, min: number, max: number): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
+}
+
+function clampBoolean(raw: unknown, fallback: boolean): boolean {
+  if (raw === true) return true;
+  if (raw === false) return false;
+  return fallback;
 }
 
 function safeButtonStyle(raw: unknown, fallback: UiDisplayButtonStyle): UiDisplayButtonStyle {
@@ -180,6 +202,7 @@ export function sanitizeUiControlSettings(raw: unknown): UiControlSettings {
   const listsRaw = value.lists && typeof value.lists === 'object' ? (value.lists as Record<string, unknown>) : {};
   const directoriesRaw = value.directories && typeof value.directories === 'object' ? (value.directories as Record<string, unknown>) : {};
   const miscRaw = value.misc && typeof value.misc === 'object' ? (value.misc as Record<string, unknown>) : {};
+  const inputsRaw = value.inputs && typeof value.inputs === 'object' ? (value.inputs as Record<string, unknown>) : {};
 
   const menuDisplay = sanitizeUiDisplayPrefs({
     selectedTarget: menuButtonsRaw.selectedTarget,
@@ -189,6 +212,10 @@ export function sanitizeUiControlSettings(raw: unknown): UiControlSettings {
     listFontSize: base.lists.fontSize,
     cardFontSize: base.cards.fontSize,
   });
+
+  const autoGrowMinChars = clampNumber(inputsRaw.autoGrowMinChars, base.inputs.autoGrowMinChars, 3, 40);
+  const autoGrowMaxCharsRaw = clampNumber(inputsRaw.autoGrowMaxChars, base.inputs.autoGrowMaxChars, 6, 80);
+  const autoGrowMaxChars = Math.max(autoGrowMinChars, autoGrowMaxCharsRaw);
 
   return {
     global: {
@@ -213,6 +240,8 @@ export function sanitizeUiControlSettings(raw: unknown): UiControlSettings {
       rowGap: clampNumber(cardsRaw.rowGap, base.cards.rowGap, 0, 30),
       rowPaddingY: clampNumber(cardsRaw.rowPaddingY, base.cards.rowPaddingY, 0, 30),
       rowPaddingX: clampNumber(cardsRaw.rowPaddingX, base.cards.rowPaddingX, 0, 30),
+      sectionAltBackgrounds: clampBoolean(cardsRaw.sectionAltBackgrounds, base.cards.sectionAltBackgrounds),
+      sectionAltStrength: clampNumber(cardsRaw.sectionAltStrength, base.cards.sectionAltStrength, 0, 30),
     },
     lists: {
       fontSize: clampNumber(listsRaw.fontSize, base.lists.fontSize, 10, 48),
@@ -226,6 +255,12 @@ export function sanitizeUiControlSettings(raw: unknown): UiControlSettings {
     misc: {
       datePickerScale: clampNumber(miscRaw.datePickerScale, base.misc.datePickerScale, 1, 3),
       datePickerFontSize: clampNumber(miscRaw.datePickerFontSize, base.misc.datePickerFontSize, 10, 28),
+    },
+    inputs: {
+      autoGrowAllFields: clampBoolean(inputsRaw.autoGrowAllFields, base.inputs.autoGrowAllFields),
+      autoGrowMinChars,
+      autoGrowMaxChars,
+      autoGrowExtraChars: clampNumber(inputsRaw.autoGrowExtraChars, base.inputs.autoGrowExtraChars, 0, 12),
     },
   };
 }
@@ -252,6 +287,7 @@ export function mergeUiControlSettings(base: UiControlSettings, overlay?: unknow
     lists: { ...b.lists, ...o.lists },
     directories: { ...b.directories, ...o.directories },
     misc: { ...b.misc, ...o.misc },
+    inputs: { ...b.inputs, ...o.inputs },
   };
 }
 

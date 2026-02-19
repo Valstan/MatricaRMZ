@@ -43,6 +43,9 @@ body {
   --ui-input-padding: 4px 6px;
   --ui-input-height: 28px;
   --ui-input-font-size: 13px;
+  --ui-input-autogrow-min-ch: 10;
+  --ui-input-autogrow-max-ch: 48;
+  --ui-input-autogrow-extra-ch: 2;
   --app-bg-from: #e2e8f0;
   --app-bg-via: #f8fafc;
   --app-bg-to: #e0f2fe;
@@ -86,6 +89,9 @@ body {
 
   --card-panel-bg: #eff6ff;
   --card-panel-border: rgba(37, 99, 235, 0.28);
+  --ui-section-card-alt-color: #93c5fd;
+  --ui-section-card-alt-odd: 4%;
+  --ui-section-card-alt-even: 8%;
   --card-row-bg: #e0f2fe;
   --card-row-bg-hover: #dbeafe;
   --card-row-border: rgba(37, 99, 235, 0.25);
@@ -171,6 +177,7 @@ body {
 
   --card-panel-bg: rgba(30, 58, 138, 0.22);
   --card-panel-border: rgba(96, 165, 250, 0.4);
+  --ui-section-card-alt-color: #3b82f6;
   --card-row-bg: rgba(14, 116, 144, 0.22);
   --card-row-bg-hover: rgba(14, 116, 144, 0.32);
   --card-row-border: rgba(56, 189, 248, 0.3);
@@ -314,6 +321,22 @@ table.list-table.list-table--catalog {
   display: grid;
   gap: var(--ui-space-3);
   font-size: var(--ui-card-font-size);
+}
+
+.card-panel.ui-section-card {
+  background: color-mix(
+    in srgb,
+    var(--card-panel-bg) calc(100% - var(--ui-section-card-alt-odd)),
+    var(--ui-section-card-alt-color) var(--ui-section-card-alt-odd)
+  );
+}
+
+.card-panel.ui-section-card:nth-child(even) {
+  background: color-mix(
+    in srgb,
+    var(--card-panel-bg) calc(100% - var(--ui-section-card-alt-even)),
+    var(--ui-section-card-alt-color) var(--ui-section-card-alt-even)
+  );
 }
 
 .card-row-list {

@@ -43,6 +43,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
+import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { theme } from './theme.js';
 
@@ -118,6 +119,7 @@ export function App() {
     displayPrefs: DEFAULT_UI_DISPLAY_PREFS,
   });
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
+  useAutoGrowInputs();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
@@ -145,10 +147,19 @@ export function App() {
     root.style.setProperty('--card-row-gap', `${safe.cards.rowGap}px`);
     root.style.setProperty('--card-row-padding-y', `${safe.cards.rowPaddingY}px`);
     root.style.setProperty('--card-row-padding-x', `${safe.cards.rowPaddingX}px`);
+    const sectionAltStrength = Math.max(0, Math.min(30, Math.round(Number(safe.cards.sectionAltStrength ?? 0))));
+    const sectionAltOdd = safe.cards.sectionAltBackgrounds ? Math.max(0, Math.floor(sectionAltStrength / 2)) : 0;
+    const sectionAltEven = safe.cards.sectionAltBackgrounds ? sectionAltStrength : 0;
+    root.style.setProperty('--ui-section-card-alt-odd', `${sectionAltOdd}%`);
+    root.style.setProperty('--ui-section-card-alt-even', `${sectionAltEven}%`);
     root.style.setProperty('--ui-table-size', `${safe.directories.tableFontSize}px`);
     root.style.setProperty('--entity-card-min-width', `${safe.directories.entityCardMinWidth}px`);
     root.style.setProperty('--ui-datepicker-scale', String(safe.misc.datePickerScale));
     root.style.setProperty('--ui-datepicker-font-size', `${safe.misc.datePickerFontSize}px`);
+    root.style.setProperty('--ui-input-autogrow-min-ch', String(safe.inputs.autoGrowMinChars));
+    root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
+    root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
+    root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
   }, []);
 
   function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {

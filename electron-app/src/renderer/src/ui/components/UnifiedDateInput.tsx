@@ -108,7 +108,7 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
         props.onKeyDown?.(e as unknown as React.KeyboardEvent<HTMLInputElement>);
       }}
       autoComplete="off"
-      customInput={<input ref={ref} style={inputStyle} />}
+      customInput={<input ref={ref} style={inputStyle} data-autogrow="off" />}
     />
   );
 });
