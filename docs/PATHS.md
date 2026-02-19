@@ -56,6 +56,7 @@
  
  ## ENV (ключевые)
  - Backend:
+   - Учётные данные PostgreSQL: `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` — хранятся в `backend-api/.env` (подхватываются через `EnvironmentFile` в systemd). Миграции нужно запускать от пользователя, которому принадлежат таблицы (обычно тот же `PGUSER`); иначе возможна ошибка «must be owner of table». См. `docs/TROUBLESHOOTING.md` (раздел про миграции и владельца БД).
    - `MATRICA_JWT_SECRET`
    - `MATRICA_LEDGER_DIR`
    - `MATRICA_LEDGER_DATA_KEY`

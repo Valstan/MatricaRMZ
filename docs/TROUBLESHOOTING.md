@@ -107,6 +107,35 @@ curl -sS -i -X POST http://127.0.0.1:3001/auth/login \
 
 ---
 
+## 2.2) Миграции БД: `must be owner of table`
+
+### Симптом
+При запуске `pnpm --filter @matricarmz/backend-api db:migrate` падает с:
+- `error: must be owner of table <имя_таблицы>` (код 42501).
+
+### Причина
+Миграции подключаются к PostgreSQL под пользователем из `backend-api/.env` (`PGUSER`/`PGPASSWORD`). Если часть таблиц была создана от другого пользователя (например `postgres`), текущий пользователь не может выполнять над ними DDL.
+
+### Где хранятся учётные данные БД
+- Имя и пароль пользователя БД: в `backend-api/.env` (`PGUSER`, `PGPASSWORD`). Этот же файл подхватывается systemd через `EnvironmentFile`. См. `docs/PATHS.md` (раздел ENV).
+
+### Решение
+1. Узнать владельца проблемной таблицы (на VPS):
+   ```bash
+   sudo -u postgres psql -d matricarmz -t -c "SELECT tablename, tableowner FROM pg_tables WHERE schemaname='public' AND tablename='<имя_таблицы>';"
+   ```
+2. Либо передать владение таблиц(ами) пользователю из `.env` (обычно тот же, под которым крутится backend), чтобы миграции могли выполняться без смены пользователя:
+   ```bash
+   sudo -u postgres psql -d matricarmz -c "ALTER TABLE <имя_таблицы> OWNER TO <PGUSER из .env>;"
+   ```
+   После этого снова запустить миграции от обычного пользователя (с тем же `.env`):
+   ```bash
+   cd /home/valstan/MatricaRMZ && pnpm --filter @matricarmz/backend-api db:migrate
+   ```
+3. Либо запускать миграции от системного пользователя `postgres` (тогда нужен доступ к репозиторию и учётные данные БД для пользователя `postgres`, если не используется peer-аутентификация).
+
+---
+
 ## 3) HTTPS на Windows падает schannel `0x80092013`
 
 ### Симптом

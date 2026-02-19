@@ -1,12 +1,109 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { UiControlSettings, UiDisplayButtonState, UiDisplayButtonStyle, UiDisplayTarget } from '@matricarmz/shared';
-import { DEFAULT_UI_CONTROL_SETTINGS, sanitizeUiControlSettings } from '@matricarmz/shared';
+import { DEFAULT_UI_CONTROL_SETTINGS, mergeUiControlSettings, sanitizeUiControlSettings } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
 
 type Mode = 'global' | 'user';
+
+const PRESET_TITLE_FONT_SIZES = [16, 18, 20, 22, 24, 26, 28, 30, 32];
+const PRESET_FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28];
+const PRESET_SPACES = [0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 28, 32];
+const PRESET_BUTTON_WIDTHS = [120, 140, 160, 180, 200, 220, 240, 260, 280, 320];
+const PRESET_BUTTON_HEIGHTS = [28, 32, 36, 40, 44, 48, 56, 64, 80, 96, 120, 152];
+const PRESET_BUTTON_PADDING = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24];
+const PRESET_ENTITY_CARD_WIDTHS = [260, 320, 360, 420, 480, 520, 560, 640, 720, 840, 960, 1080];
+const PRESET_DATE_PICKER_SCALE = [1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4, 2.6, 2.8, 3];
+
+function parseNumericInput(raw: string, allowDecimal: boolean): number | null {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(',', '.');
+  const valid = allowDecimal ? /^\d*(?:\.\d*)?$/.test(normalized) : /^\d+$/.test(normalized);
+  if (!valid) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return allowDecimal ? parsed : Math.round(parsed);
+}
+
+function NumericPresetInput(props: {
+  listId: string;
+  value: number;
+  presets: number[];
+  disabled?: boolean;
+  allowDecimal?: boolean;
+  onValueChange: (next: number) => void;
+}) {
+  const [text, setText] = useState(String(props.value ?? ''));
+  const [focused, setFocused] = useState(false);
+  const allowDecimal = props.allowDecimal === true;
+
+  useEffect(() => {
+    if (!focused) setText(String(props.value ?? ''));
+  }, [focused, props.value]);
+
+  const options = Array.from(new Set(props.presets.map((v) => (allowDecimal ? Number(v) : Math.round(v))))).sort((a, b) => a - b);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(96px, 120px)', gap: 6, alignItems: 'center' }}>
+      <Input
+        type="text"
+        inputMode={allowDecimal ? 'decimal' : 'numeric'}
+        pattern={allowDecimal ? '^\\d*(?:[\\.,]\\d*)?$' : '^\\d+$'}
+        value={text}
+        disabled={props.disabled}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => {
+          const nextText = String(e.target.value ?? '');
+          setText(nextText);
+          const parsed = parseNumericInput(nextText, allowDecimal);
+          if (parsed != null) props.onValueChange(parsed);
+        }}
+        onBlur={() => {
+          setFocused(false);
+          const parsed = parseNumericInput(text, allowDecimal);
+          if (parsed == null) {
+            setText(String(props.value ?? ''));
+            return;
+          }
+          props.onValueChange(parsed);
+          setText(String(parsed));
+        }}
+      />
+      <select
+        disabled={props.disabled}
+        value=""
+        onChange={(e) => {
+          const raw = String(e.target.value ?? '');
+          if (!raw) return;
+          const parsed = parseNumericInput(raw, allowDecimal);
+          if (parsed == null) return;
+          props.onValueChange(parsed);
+          setText(String(parsed));
+        }}
+        style={{
+          width: '100%',
+          minHeight: 28,
+          padding: '4px 6px',
+          border: '1px solid var(--input-border)',
+          background: props.disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
+          color: 'var(--text)',
+          fontSize: 'var(--ui-input-font-size, 13px)',
+        }}
+        title="Популярные значения"
+      >
+        <option value="">Пресет</option>
+        {options.map((v) => (
+          <option key={`${props.listId}-preset-${v}`} value={String(v)}>
+            {String(v)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 export function UiControlCenterPage(props: {
   canEditGlobal: boolean;
@@ -20,12 +117,18 @@ export function UiControlCenterPage(props: {
   const [userSettings, setUserSettings] = useState<UiControlSettings | null>(null);
   const [effective, setEffective] = useState<UiControlSettings>(DEFAULT_UI_CONTROL_SETTINGS);
   const [draft, setDraft] = useState<UiControlSettings>(DEFAULT_UI_CONTROL_SETTINGS);
+  const [autoApplyReady, setAutoApplyReady] = useState(false);
 
   const editTarget = useMemo(() => (mode === 'global' ? globalDefaults : userSettings ?? effective), [effective, globalDefaults, mode, userSettings]);
 
   useEffect(() => {
     setDraft(sanitizeUiControlSettings(editTarget));
   }, [editTarget]);
+
+  useEffect(() => {
+    if (!autoApplyReady) return;
+    props.onApplyEffective(draft);
+  }, [autoApplyReady, draft, props.onApplyEffective]);
 
   async function load() {
     setLoading(true);
@@ -45,6 +148,7 @@ export function UiControlCenterPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     } finally {
+      setAutoApplyReady(true);
       setLoading(false);
     }
   }
@@ -85,15 +189,9 @@ export function UiControlCenterPage(props: {
     }));
   }
 
-  function applyPreview() {
-    props.onApplyEffective(draft);
-    setStatus('Предпросмотр применён локально');
-  }
-
   function resetToDefaults() {
     const next = mode === 'global' ? DEFAULT_UI_CONTROL_SETTINGS : globalDefaults;
     setDraft(sanitizeUiControlSettings(next));
-    props.onApplyEffective(next);
     setStatus(mode === 'global' ? 'Сброшено к базовым глобальным настройкам' : 'Сброшено к глобальным настройкам');
   }
 
@@ -109,7 +207,13 @@ export function UiControlCenterPage(props: {
         setStatus(`Ошибка сохранения: ${String((res as any)?.error ?? 'unknown')}`);
         return;
       }
-      setGlobalDefaults(sanitizeUiControlSettings(res.globalDefaults ?? draft));
+      const nextGlobal = sanitizeUiControlSettings(res.globalDefaults ?? draft);
+      setGlobalDefaults(nextGlobal);
+      const nextEffective = sanitizeUiControlSettings(
+        userSettings ? mergeUiControlSettings(nextGlobal, userSettings) : nextGlobal,
+      );
+      setEffective(nextEffective);
+      props.onApplyEffective(nextEffective);
       setUiDefaultsVersion(Number(res.uiDefaultsVersion ?? uiDefaultsVersion + 1));
       setStatus('Глобальные настройки сохранены');
     } else {
@@ -159,23 +263,48 @@ export function UiControlCenterPage(props: {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 8 }}>
           <label>
             Размер заголовка страницы (px)
-            <Input type="number" value={draft.global.titleFontSize} onChange={(e) => patch((p) => ({ ...p, global: { ...p.global, titleFontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-global-title-size"
+              value={draft.global.titleFontSize}
+              presets={PRESET_TITLE_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, global: { ...p.global, titleFontSize: next } }))}
+            />
           </label>
           <label>
             Размер заголовков секций (px)
-            <Input type="number" value={draft.global.sectionFontSize} onChange={(e) => patch((p) => ({ ...p, global: { ...p.global, sectionFontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-global-section-size"
+              value={draft.global.sectionFontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, global: { ...p.global, sectionFontSize: next } }))}
+            />
           </label>
           <label>
             Размер основного текста (px)
-            <Input type="number" value={draft.global.bodyFontSize} onChange={(e) => patch((p) => ({ ...p, global: { ...p.global, bodyFontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-global-body-size"
+              value={draft.global.bodyFontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, global: { ...p.global, bodyFontSize: next } }))}
+            />
           </label>
           <label>
             Размер вторичного текста (px)
-            <Input type="number" value={draft.global.mutedFontSize} onChange={(e) => patch((p) => ({ ...p, global: { ...p.global, mutedFontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-global-muted-size"
+              value={draft.global.mutedFontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, global: { ...p.global, mutedFontSize: next } }))}
+            />
           </label>
           <label>
             Базовый отступ уровня 4 (px)
-            <Input type="number" value={draft.global.space4} onChange={(e) => patch((p) => ({ ...p, global: { ...p.global, space4: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-global-space4"
+              value={draft.global.space4}
+              presets={PRESET_SPACES}
+              onValueChange={(next) => patch((p) => ({ ...p, global: { ...p.global, space4: next } }))}
+            />
           </label>
         </div>
       </SectionCard>
@@ -232,8 +361,8 @@ export function UiControlCenterPage(props: {
 
           <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'center' }}>
             <div style={{ color: 'var(--muted)' }}>Размер шрифта (px)</div>
-            <Input
-              type="number"
+            <NumericPresetInput
+              listId="ui-control-menu-font-size"
               value={
                 isButtonTarget(draft.menuButtons.selectedTarget)
                   ? currentButtonStyle().fontSize
@@ -241,8 +370,8 @@ export function UiControlCenterPage(props: {
                     ? draft.lists.fontSize
                     : draft.cards.fontSize
               }
-              onChange={(e) => {
-                const next = Number(e.target.value);
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => {
                 if (isButtonTarget(draft.menuButtons.selectedTarget)) updateButtonStyleField('fontSize', next);
                 else if (draft.menuButtons.selectedTarget === 'listFont') patch((p) => ({ ...p, lists: { ...p.lists, fontSize: next } }));
                 else patch((p) => ({ ...p, cards: { ...p.cards, fontSize: next } }));
@@ -250,19 +379,49 @@ export function UiControlCenterPage(props: {
             />
 
             <div style={{ color: 'var(--muted)' }}>Ширина кнопки (px)</div>
-            <Input type="number" disabled={!isButtonTarget(draft.menuButtons.selectedTarget)} value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().width : 0} onChange={(e) => updateButtonStyleField('width', Number(e.target.value))} />
+            <NumericPresetInput
+              listId="ui-control-menu-button-width"
+              disabled={!isButtonTarget(draft.menuButtons.selectedTarget)}
+              value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().width : 0}
+              presets={PRESET_BUTTON_WIDTHS}
+              onValueChange={(next) => updateButtonStyleField('width', next)}
+            />
 
             <div style={{ color: 'var(--muted)' }}>Высота кнопки (px)</div>
-            <Input type="number" disabled={!isButtonTarget(draft.menuButtons.selectedTarget)} value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().height : 0} onChange={(e) => updateButtonStyleField('height', Number(e.target.value))} />
+            <NumericPresetInput
+              listId="ui-control-menu-button-height"
+              disabled={!isButtonTarget(draft.menuButtons.selectedTarget)}
+              value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().height : 0}
+              presets={PRESET_BUTTON_HEIGHTS}
+              onValueChange={(next) => updateButtonStyleField('height', next)}
+            />
 
             <div style={{ color: 'var(--muted)' }}>Отступ по горизонтали (px)</div>
-            <Input type="number" disabled={!isButtonTarget(draft.menuButtons.selectedTarget)} value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().paddingX : 0} onChange={(e) => updateButtonStyleField('paddingX', Number(e.target.value))} />
+            <NumericPresetInput
+              listId="ui-control-menu-button-padding-x"
+              disabled={!isButtonTarget(draft.menuButtons.selectedTarget)}
+              value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().paddingX : 0}
+              presets={PRESET_BUTTON_PADDING}
+              onValueChange={(next) => updateButtonStyleField('paddingX', next)}
+            />
 
             <div style={{ color: 'var(--muted)' }}>Отступ по вертикали (px)</div>
-            <Input type="number" disabled={!isButtonTarget(draft.menuButtons.selectedTarget)} value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().paddingY : 0} onChange={(e) => updateButtonStyleField('paddingY', Number(e.target.value))} />
+            <NumericPresetInput
+              listId="ui-control-menu-button-padding-y"
+              disabled={!isButtonTarget(draft.menuButtons.selectedTarget)}
+              value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().paddingY : 0}
+              presets={PRESET_BUTTON_PADDING}
+              onValueChange={(next) => updateButtonStyleField('paddingY', next)}
+            />
 
             <div style={{ color: 'var(--muted)' }}>Расстояние между кнопками (px)</div>
-            <Input type="number" disabled={!isButtonTarget(draft.menuButtons.selectedTarget)} value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().gap : 0} onChange={(e) => updateButtonStyleField('gap', Number(e.target.value))} />
+            <NumericPresetInput
+              listId="ui-control-menu-button-gap"
+              disabled={!isButtonTarget(draft.menuButtons.selectedTarget)}
+              value={isButtonTarget(draft.menuButtons.selectedTarget) ? currentButtonStyle().gap : 0}
+              presets={PRESET_SPACES}
+              onValueChange={(next) => updateButtonStyleField('gap', next)}
+            />
           </div>
         </div>
       </SectionCard>
@@ -274,35 +433,63 @@ export function UiControlCenterPage(props: {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
           <label>
             Шрифт карточек (px)
-            <Input type="number" value={draft.cards.fontSize} onChange={(e) => patch((p) => ({ ...p, cards: { ...p.cards, fontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-cards-font-size"
+              value={draft.cards.fontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, cards: { ...p.cards, fontSize: next } }))}
+            />
           </label>
           <label>
             Шрифт списков (px)
-            <Input type="number" value={draft.lists.fontSize} onChange={(e) => patch((p) => ({ ...p, lists: { ...p.lists, fontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-lists-font-size"
+              value={draft.lists.fontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, lists: { ...p.lists, fontSize: next } }))}
+            />
           </label>
           <label>
             Шрифт таблиц справочников (px)
-            <Input type="number" value={draft.directories.tableFontSize} onChange={(e) => patch((p) => ({ ...p, directories: { ...p.directories, tableFontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-directories-table-font-size"
+              value={draft.directories.tableFontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, directories: { ...p.directories, tableFontSize: next } }))}
+            />
           </label>
           <label>
             Ширина карточки по умолчанию (px)
-            <Input type="number" value={draft.directories.entityCardMinWidth} onChange={(e) => patch((p) => ({ ...p, directories: { ...p.directories, entityCardMinWidth: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-directories-card-width"
+              value={draft.directories.entityCardMinWidth}
+              presets={PRESET_ENTITY_CARD_WIDTHS}
+              onValueChange={(next) => patch((p) => ({ ...p, directories: { ...p.directories, entityCardMinWidth: next } }))}
+            />
           </label>
           <label>
             Масштаб календаря
-            <Input type="number" step="0.1" value={draft.misc.datePickerScale} onChange={(e) => patch((p) => ({ ...p, misc: { ...p.misc, datePickerScale: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-misc-datepicker-scale"
+              value={draft.misc.datePickerScale}
+              presets={PRESET_DATE_PICKER_SCALE}
+              allowDecimal
+              onValueChange={(next) => patch((p) => ({ ...p, misc: { ...p.misc, datePickerScale: next } }))}
+            />
           </label>
           <label>
             Размер шрифта календаря (px)
-            <Input type="number" value={draft.misc.datePickerFontSize} onChange={(e) => patch((p) => ({ ...p, misc: { ...p.misc, datePickerFontSize: Number(e.target.value) } }))} />
+            <NumericPresetInput
+              listId="ui-control-misc-datepicker-font-size"
+              value={draft.misc.datePickerFontSize}
+              presets={PRESET_FONT_SIZES}
+              onValueChange={(next) => patch((p) => ({ ...p, misc: { ...p.misc, datePickerFontSize: next } }))}
+            />
           </label>
         </div>
       </SectionCard>
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <Button variant="ghost" onClick={applyPreview}>
-          Предпросмотр
-        </Button>
         <Button variant="ghost" onClick={resetToDefaults}>
           Сбросить настройки по-умолчанию
         </Button>

@@ -709,12 +709,13 @@ export function RepairChecklistPanel(props: {
         <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>
           {activeTemplate.items.map((it) => {
             const a: any = (answers as any)[it.id];
+            const isDefectResultsTable = props.stage === 'defect' && it.kind === 'table' && it.id === 'defect_items';
             return (
               <React.Fragment key={it.id}>
-                <div style={{ color: '#334155' }}>
+                <div style={{ color: '#334155', ...(isDefectResultsTable ? { gridColumn: '1 / -1' } : {}) }}>
                   {it.label} {it.required ? <span style={{ color: '#b91c1c' }}>*</span> : null}
                 </div>
-                <div>
+                <div style={isDefectResultsTable ? { gridColumn: '1 / -1' } : undefined}>
                   {it.kind === 'text' && (
                     <Input
                       value={a?.kind === 'text' ? a.value : ''}
@@ -813,6 +814,7 @@ export function RepairChecklistPanel(props: {
 
                   {it.kind === 'table' && (
                     <TableEditor
+                      tableId={it.id}
                       canEdit={props.canEdit}
                       columns={it.columns ?? []}
                       rows={a?.kind === 'table' ? (a.rows ?? []) : []}
@@ -940,6 +942,7 @@ export function RepairChecklistPanel(props: {
 }
 
 function TableEditor(props: {
+  tableId?: string;
   canEdit: boolean;
   columns: { id: string; label: string; kind?: 'text' | 'boolean' | 'number' }[];
   rows: Record<string, string | boolean | number>[];
@@ -957,6 +960,14 @@ function TableEditor(props: {
 }) {
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
+  const isDefectItemsTable = props.tableId === 'defect_items';
+
+  function getColumnSizing(columnId: string): React.CSSProperties | undefined {
+    if (!isDefectItemsTable) return undefined;
+    if (columnId === 'part_number') return { minWidth: 220 };
+    if (columnId === 'repairable_qty' || columnId === 'scrap_qty') return { minWidth: 170 };
+    return undefined;
+  }
 
   function setCell(rowIdx: number, colId: string, value: string | boolean | number, save = false) {
     const next = rows.map((r, i) => (i === rowIdx ? { ...r, [colId]: value } : r));
@@ -976,12 +987,20 @@ function TableEditor(props: {
   }
 
   return (
-    <div style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflow: 'hidden' }}>
+    <div style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflowX: 'auto', overflowY: 'hidden' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 120%)', color: '#fff' }}>
             {cols.map((c) => (
-              <th key={c.id} style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>
+              <th
+                key={c.id}
+                style={{
+                  textAlign: 'left',
+                  borderBottom: '1px solid rgba(255,255,255,0.25)',
+                  padding: 10,
+                  ...(getColumnSizing(c.id) ?? {}),
+                }}
+              >
                 {c.label}
               </th>
             ))}
@@ -996,7 +1015,7 @@ function TableEditor(props: {
               {cols.map((c) => {
                 const renderer = props.cellRenderers?.[c.id];
                 return (
-                <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
+                <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8, ...(getColumnSizing(c.id) ?? {}) }}>
                   {renderer ? (
                     renderer({ rowIdx: idx, columnId: c.id, value: (r as any)[c.id], setValue: setCell })
                   ) : c.kind === 'boolean' ? (
@@ -1021,6 +1040,7 @@ function TableEditor(props: {
                         inputMode="numeric"
                         pattern="[0-9]*"
                         value={String((r as any)[c.id] ?? '')}
+                        style={{ minWidth: 72 }}
                         disabled={!props.canEdit}
                         onChange={(e) => {
                           const raw = e.target.value;
@@ -1037,28 +1057,7 @@ function TableEditor(props: {
                           props.onSave(rows);
                         }}
                       />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!props.canEdit) return;
-                            const next = toNumberValue((rows[idx] as any)?.[c.id]) + 1;
-                            setCell(idx, c.id, next, true);
-                          }}
-                          style={{
-                            width: 28,
-                            height: 24,
-                            borderRadius: 6,
-                            border: '1px solid var(--input-border)',
-                            background: 'var(--input-bg)',
-                            color: 'var(--text)',
-                            cursor: props.canEdit ? 'pointer' : 'not-allowed',
-                          }}
-                          aria-label="Увеличить"
-                          disabled={!props.canEdit}
-                        >
-                          +
-                        </button>
+                      <div style={{ display: 'flex', flexDirection: 'row', gap: 4 }}>
                         <button
                           type="button"
                           onClick={() => {
@@ -1067,8 +1066,8 @@ function TableEditor(props: {
                             setCell(idx, c.id, next, true);
                           }}
                           style={{
-                            width: 28,
-                            height: 24,
+                            width: 30,
+                            height: 28,
                             borderRadius: 6,
                             border: '1px solid var(--input-border)',
                             background: 'var(--input-bg)',
@@ -1080,11 +1079,33 @@ function TableEditor(props: {
                         >
                           -
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!props.canEdit) return;
+                            const next = toNumberValue((rows[idx] as any)?.[c.id]) + 1;
+                            setCell(idx, c.id, next, true);
+                          }}
+                          style={{
+                            width: 30,
+                            height: 28,
+                            borderRadius: 6,
+                            border: '1px solid var(--input-border)',
+                            background: 'var(--input-bg)',
+                            color: 'var(--text)',
+                            cursor: props.canEdit ? 'pointer' : 'not-allowed',
+                          }}
+                          aria-label="Увеличить"
+                          disabled={!props.canEdit}
+                        >
+                          +
+                        </button>
                       </div>
                     </div>
                   ) : (
                     <Input
                       value={String((r as any)[c.id] ?? '')}
+                      style={isDefectItemsTable && c.id === 'part_number' ? { minWidth: 180 } : undefined}
                       disabled={!props.canEdit}
                       onChange={(e) => setCell(idx, c.id, e.target.value)}
                       onBlur={() => props.canEdit && props.onSave(rows)}

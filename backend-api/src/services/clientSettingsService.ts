@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { DEFAULT_UI_CONTROL_SETTINGS, UI_DEFAULTS_VERSION, sanitizeUiControlSettings } from '@matricarmz/shared';
 
-import { db } from '../database/db.js';
+import { db, pool } from '../database/db.js';
 import { clientSettings } from '../database/schema.js';
+import { logWarn } from '../utils/logger.js';
 
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
@@ -11,6 +12,54 @@ type ClientSettingsPatch = Partial<
 >;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
 type ClientSyncAck = { requestId: string; status: 'ok' | 'error'; error?: string | null; at?: number };
+
+let clientSettingsSchemaReadyPromise: Promise<void> | null = null;
+let clientSettingsSchemaReadyLogged = false;
+
+async function ensureClientSettingsSchemaReady() {
+  if (!clientSettingsSchemaReadyPromise) {
+    clientSettingsSchemaReadyPromise = (async () => {
+      // Compatibility self-heal: protects API from 500 on nodes where some
+      // historical client_settings migrations were skipped.
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS "client_settings" (
+          "client_id" text PRIMARY KEY NOT NULL,
+          "updates_enabled" boolean DEFAULT true NOT NULL,
+          "torrent_enabled" boolean DEFAULT true NOT NULL,
+          "logging_enabled" boolean DEFAULT false NOT NULL,
+          "logging_mode" text DEFAULT 'prod' NOT NULL,
+          "last_seen_at" bigint,
+          "last_version" text,
+          "created_at" bigint NOT NULL,
+          "updated_at" bigint NOT NULL
+        );
+      `);
+      await pool.query(`
+        ALTER TABLE "client_settings"
+          ADD COLUMN IF NOT EXISTS "last_ip" text,
+          ADD COLUMN IF NOT EXISTS "last_hostname" text,
+          ADD COLUMN IF NOT EXISTS "last_platform" text,
+          ADD COLUMN IF NOT EXISTS "last_arch" text,
+          ADD COLUMN IF NOT EXISTS "sync_request_id" text,
+          ADD COLUMN IF NOT EXISTS "sync_request_type" text,
+          ADD COLUMN IF NOT EXISTS "sync_request_at" bigint,
+          ADD COLUMN IF NOT EXISTS "sync_request_payload" text,
+          ADD COLUMN IF NOT EXISTS "last_username" text,
+          ADD COLUMN IF NOT EXISTS "ui_display_prefs" text,
+          ADD COLUMN IF NOT EXISTS "ui_global_settings_json" text,
+          ADD COLUMN IF NOT EXISTS "ui_defaults_version" integer NOT NULL DEFAULT 1;
+      `);
+      if (!clientSettingsSchemaReadyLogged) {
+        clientSettingsSchemaReadyLogged = true;
+        logWarn('client_settings schema compatibility check completed');
+      }
+    })().catch((e) => {
+      clientSettingsSchemaReadyPromise = null;
+      throw e;
+    });
+  }
+  await clientSettingsSchemaReadyPromise;
+}
 
 function nowMs() {
   return Date.now();
@@ -51,6 +100,7 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
 const GLOBAL_CLIENT_SETTINGS_ID = '__global_ui_defaults__';
 
 export async function getOrCreateClientSettings(clientId: string): Promise<ClientSettingsRow> {
+  await ensureClientSettingsSchemaReady();
   const rows = await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1);
   if (rows[0]) return rows[0];
   const ts = nowMs();
@@ -110,6 +160,7 @@ export async function touchClientSettings(
 }
 
 export async function listClientSettings(): Promise<ClientSettingsRow[]> {
+  await ensureClientSettingsSchemaReady();
   return await db.select().from(clientSettings);
 }
 
