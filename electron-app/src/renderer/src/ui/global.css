@@ -25,8 +25,24 @@ body {
   --ui-section-size: 15px;
   --ui-body-size: 13px;
   --ui-muted-size: 12px;
+  --ui-table-size: 13px;
   --ui-list-font-size: 14px;
   --ui-card-font-size: 14px;
+  --entity-card-min-width: 520px;
+  --ui-datepicker-scale: 2;
+  --ui-datepicker-font-size: 14px;
+  --ui-button-sm-padding: 4px 8px;
+  --ui-button-sm-height: 26px;
+  --ui-button-sm-font-size: 12px;
+  --ui-button-md-padding: 5px 9px;
+  --ui-button-md-height: 28px;
+  --ui-button-md-font-size: 13px;
+  --ui-button-lg-padding: 8px 12px;
+  --ui-button-lg-height: 34px;
+  --ui-button-lg-font-size: 14px;
+  --ui-input-padding: 4px 6px;
+  --ui-input-height: 28px;
+  --ui-input-font-size: 13px;
   --app-bg-from: #e2e8f0;
   --app-bg-via: #f8fafc;
   --app-bg-to: #e0f2fe;
@@ -360,9 +376,9 @@ table.list-table.list-table--catalog {
 }
 
 .matrica-datepicker-calendar {
-  transform: scale(2);
+  transform: scale(var(--ui-datepicker-scale));
   transform-origin: top left;
-  font-size: 14px;
+  font-size: var(--ui-datepicker-font-size);
 }
 
 .matrica-datepicker-calendar .react-datepicker__month-container {
@@ -371,13 +387,20 @@ table.list-table.list-table--catalog {
 
 .entity-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--entity-card-min-width)), 1fr));
   gap: 12px;
   align-items: start;
 }
 
 .entity-card-grid > * {
   min-width: 0;
+}
+
+.entity-card-grid input,
+.entity-card-grid select,
+.entity-card-grid textarea {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .entity-card-span-full {
@@ -408,7 +431,7 @@ table.list-table.list-table--catalog {
   width: 100%;
   border-collapse: collapse;
   table-layout: auto;
-  font-size: var(--ui-body-size);
+  font-size: var(--ui-table-size, var(--ui-body-size));
 }
 
 .ui-table th,

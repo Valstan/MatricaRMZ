@@ -186,13 +186,18 @@ app.whenReady().then(() => {
   // Инициализируем SQLite + IPC асинхронно (до создания окна).
   void (async () => {
     try {
-      const { openSqlite } = await import('./database/db.js');
-      const { migrateSqlite } = await import('./database/migrate.js');
-      const { seedIfNeeded } = await import('./database/seed.js');
-      const { registerIpc } = await import('./ipc/registerIpc.js');
-      const { SettingsKey, settingsGetString, settingsSetString } = await import('./services/settingsStore.js');
-      const { getSession } = await import('./services/authService.js');
-      const { addAudit } = await import('./services/auditService.js');
+      const { loadRuntimeInitDeps } = await import('./bootstrap/runtimeInitDeps.js');
+      const {
+        openSqlite,
+        migrateSqlite,
+        seedIfNeeded,
+        registerIpc,
+        SettingsKey,
+        settingsGetString,
+        settingsSetString,
+        getSession,
+        addAudit,
+      } = loadRuntimeInitDeps();
 
       const userData = app.getPath('userData');
       mkdirSync(userData, { recursive: true });

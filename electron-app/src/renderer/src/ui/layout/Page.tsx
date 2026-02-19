@@ -2,6 +2,8 @@ import React from 'react';
 
 import { theme } from '../theme.js';
 
+const RMZ_LOGO_SRC = 'file:///home/valstan/MatricaRMZ/docs/logo_rmz.png';
+
 export function Page(props: {
   title: string;
   center?: React.ReactNode;
@@ -50,7 +52,15 @@ export function Page(props: {
             borderBottom: '1px solid rgba(255,255,255,0.14)',
           }}
         >
-          <div style={{ flex: '0 1 42%', minWidth: 180 }}>
+          <div style={{ flex: '0 1 42%', minWidth: 180, display: 'flex', alignItems: 'center', gap: 8, minHeight: 24 }}>
+            <img
+              src={RMZ_LOGO_SRC}
+              alt="RMZ"
+              style={{ height: 18, width: 'auto', objectFit: 'contain', flex: '0 0 auto' }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
             <h1
               style={{
                 margin: 0,

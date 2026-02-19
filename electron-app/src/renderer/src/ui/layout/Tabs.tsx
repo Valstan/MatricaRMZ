@@ -1,4 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { UiDisplayPrefs } from '@matricarmz/shared';
+import { DEFAULT_UI_DISPLAY_PREFS } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { theme } from '../theme.js';
@@ -35,7 +37,8 @@ export type TabId =
   | 'admin'
   | 'audit'
   | 'notes'
-  | 'settings';
+  | 'settings'
+  | 'ui_control';
 
 export type MenuTabId = Exclude<
   TabId,
@@ -61,39 +64,6 @@ export type TabsLayoutPrefs = {
   hiddenGroups?: MenuGroupId[];
   collapsedGroups?: MenuGroupId[];
   activeGroup?: MenuGroupId | null;
-};
-
-type UiDisplayButtonStyle = {
-  fontSize: number;
-  width: number;
-  height: number;
-  paddingX: number;
-  paddingY: number;
-  gap: number;
-};
-
-type UiDisplayPrefs = {
-  selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-  selectedButtonState: 'active' | 'inactive';
-  departmentButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
-  sectionButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
-  listFontSize: number;
-  cardFontSize: number;
-};
-
-const DEFAULT_UI_DISPLAY_PREFS: UiDisplayPrefs = {
-  selectedTarget: 'departmentButtons',
-  selectedButtonState: 'active',
-  departmentButtons: {
-    active: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-    inactive: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-  },
-  sectionButtons: {
-    active: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-    inactive: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-  },
-  listFontSize: 14,
-  cardFontSize: 14,
 };
 
 type ContextTarget =
@@ -124,7 +94,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
-  control: ['reports', 'changes', 'audit'],
+  control: ['reports', 'changes', 'audit', 'ui_control'],
   interaction: ['notes'],
   admin: ['masterdata'],
 };
@@ -301,6 +271,7 @@ export function Tabs(props: {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
+    ui_control: 'UI Control Center',
   };
 
   function updateLayout(nextVisibleOrder: MenuTabId[], trashIndex: number, nextHidden: MenuTabId[]) {

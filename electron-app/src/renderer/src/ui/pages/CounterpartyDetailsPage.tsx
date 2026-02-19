@@ -147,7 +147,7 @@ export function CounterpartyDetailsPage(props: {
   }
 
   if (!entity) {
-    return <div>{status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}</div>;
+    return <div>{status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}</div>;
   }
 
   const mainFields = orderFieldsByDefs(
@@ -230,10 +230,10 @@ export function CounterpartyDetailsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
-        {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
+        {status && <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{status}</div>}
         {props.canEdit && (
           <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
             Сохранить
@@ -250,7 +250,7 @@ export function CounterpartyDetailsPage(props: {
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ padding: 12 }}>
           <DraggableFieldList
             items={mainFields}
             getKey={(f) => f.code}
@@ -273,11 +273,11 @@ export function CounterpartyDetailsPage(props: {
                   gap: 8,
                   alignItems: 'center',
                   padding: '4px 6px',
-                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                  border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
                   background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                 }}
               >
-                <div style={{ color: '#6b7280' }}>{field.label}</div>
+                <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
                 {field.render}
               </div>
             )}

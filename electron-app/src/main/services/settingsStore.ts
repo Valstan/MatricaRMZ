@@ -41,6 +41,7 @@ export const SettingsKey = {
   UiEnterAsTab: 'ui.enterAsTab',
   UiTabsLayout: 'ui.tabs.layout',
   UiDisplayPrefs: 'ui.displayPrefs',
+  UiDefaultsVersionApplied: 'ui.defaultsVersionApplied',
 
   // Remote admin controls
   UpdatesEnabled: 'updates.enabled',

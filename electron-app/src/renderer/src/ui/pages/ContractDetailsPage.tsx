@@ -206,7 +206,7 @@ function SectionBlock(props: {
   return (
     <SectionCard
       title={title}
-      style={{ borderRadius: 12, padding: 16, minWidth: 0, overflow: 'hidden' }}
+      style={{ borderRadius: 0, padding: 16, minWidth: 0, overflow: 'hidden' }}
       actions={
         onRemove && canEdit ? (
           <Button variant="ghost" tone="danger" size="sm" onClick={onRemove}>
@@ -292,7 +292,7 @@ function SectionBlock(props: {
               </colgroup>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Марка</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Марка</th>
                   <th className="num">Кол-во</th>
                   <th className="num">Цена</th>
                   <th className="num">Сумма</th>
@@ -304,7 +304,7 @@ function SectionBlock(props: {
                   const label = engineBrandOptions.find((o) => o.id === row.engineBrandId)?.label ?? (row.engineBrandId || '—');
                   return (
                     <tr key={idx}>
-                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         {canEdit ? (
                           <div style={{ minWidth: 0 }}>
                             <SearchSelectWithCreate
@@ -347,7 +347,7 @@ function SectionBlock(props: {
                         {rowSum(row.qty, row.unitPrice).toLocaleString('ru-RU')}
                       </td>
                       {canEdit && (
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                           <Button variant="ghost" tone="danger" size="sm" onClick={() => removeEngineBrand(idx)}>
                             ×
                           </Button>
@@ -358,7 +358,7 @@ function SectionBlock(props: {
                 })}
                 {section.engineBrands.length === 0 && (
                   <tr>
-                    <td colSpan={canEdit ? 5 : 4} style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>
+                    <td colSpan={canEdit ? 5 : 4} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
                       Нет строк
                     </td>
                   </tr>
@@ -386,7 +386,7 @@ function SectionBlock(props: {
               </colgroup>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Деталь</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Деталь</th>
                   <th className="num">Кол-во</th>
                   <th className="num">Цена</th>
                   <th className="num">Сумма</th>
@@ -398,7 +398,7 @@ function SectionBlock(props: {
                   const label = partOptions.find((o) => o.id === row.partId)?.label ?? (row.partId || '—');
                   return (
                     <tr key={idx}>
-                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         {canEdit ? (
                           <div style={{ minWidth: 0 }}>
                             <SearchSelectWithCreate
@@ -441,7 +441,7 @@ function SectionBlock(props: {
                         {rowSum(row.qty, row.unitPrice).toLocaleString('ru-RU')}
                       </td>
                       {canEdit && (
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                           <Button variant="ghost" tone="danger" size="sm" onClick={() => removePart(idx)}>
                             ×
                           </Button>
@@ -452,7 +452,7 @@ function SectionBlock(props: {
                 })}
                 {section.parts.length === 0 && (
                   <tr>
-                    <td colSpan={canEdit ? 5 : 4} style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>
+                    <td colSpan={canEdit ? 5 : 4} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
                       Нет строк
                     </td>
                   </tr>
@@ -722,7 +722,7 @@ export function ContractDetailsPage(props: {
   }
 
   if (!contract || !sections) {
-    return <div>{status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}</div>;
+    return <div>{status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}</div>;
   }
 
   const fileDefs = defs.filter((d) => d.dataType === 'json' && parseMetaJson(d.metaJson)?.ui === 'files');
@@ -751,9 +751,9 @@ export function ContractDetailsPage(props: {
           </Button>
         </RowActions>
       }
-      status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div> : null}
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{status}</div> : null}
     >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 16, minWidth: 0, width: '100%' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(520px, 100%), 1fr))', gap: 16, minWidth: 0, width: '100%' }}>
           <SectionBlock
             title="Первичный контракт"
             section={sections.primary}
@@ -788,38 +788,38 @@ export function ContractDetailsPage(props: {
           ))}
 
           {props.canEdit && (
-            <SectionCard style={{ borderRadius: 12, padding: 16, alignSelf: 'start', minWidth: 0 }}>
+            <SectionCard style={{ borderRadius: 0, padding: 16, alignSelf: 'start', minWidth: 0 }}>
               <Button variant="outline" tone="neutral" onClick={addAddon} style={{ width: '100%' }}>
                 + Добавить ДС
               </Button>
             </SectionCard>
           )}
 
-          <SectionCard className="entity-card-span-full" title="Сводка" style={{ borderRadius: 12, padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginTop: 12 }}>
+          <SectionCard className="entity-card-span-full" title="Сводка" style={{ borderRadius: 0, padding: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 16, marginTop: 12 }}>
               <div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>Кол-во</div>
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Кол-во</div>
                 <div style={{ fontSize: 18, fontWeight: 600 }}>{totalQty}</div>
               </div>
               <div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>Сумма контракта</div>
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Сумма контракта</div>
                 <div style={{ fontSize: 18, fontWeight: 600 }}>{totalSum.toLocaleString('ru-RU')} ₽</div>
               </div>
               <div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>Дней до окончания</div>
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Дней до окончания</div>
                 <div style={{ fontSize: 18, fontWeight: 600 }}>{daysLeft != null ? daysLeft : '—'}</div>
               </div>
             </div>
             <div style={{ marginTop: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12, color: '#6b7280' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12, color: 'var(--subtle)' }}>
                 <span>Прогресс выполнения</span>
                 <span>{contractProgress != null ? Math.round(progressPct) + '%' : '—'}</span>
               </div>
               <div
                 style={{
                   height: 8,
-                  borderRadius: 4,
-                  background: '#e5e7eb',
+                  borderRadius: 0,
+                  background: 'var(--border)',
                   overflow: 'hidden',
                 }}
               >
@@ -827,7 +827,7 @@ export function ContractDetailsPage(props: {
                   style={{
                     width: `${Math.min(100, Math.max(0, progressPct))}%`,
                     height: '100%',
-                    background: 'var(--color-success, #22c55e)',
+                    background: 'var(--success)',
                     transition: 'width 0.2s',
                   }}
                 />

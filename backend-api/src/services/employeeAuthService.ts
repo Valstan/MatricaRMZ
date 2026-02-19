@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import { sanitizeUiControlSettings } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
@@ -19,6 +20,7 @@ const AUTH_CODES = {
   maxLogin: 'max_login',
   loggingEnabled: 'logging_enabled',
   loggingMode: 'logging_mode',
+  uiSettingsJson: 'ui_settings_json',
   deleteRequestedAt: 'delete_requested_at',
   deleteRequestedById: 'delete_requested_by_id',
   deleteRequestedByUsername: 'delete_requested_by_username',
@@ -405,6 +407,7 @@ export async function ensureEmployeeAuthDefs() {
   await ensure(AUTH_CODES.chatDisplayName, 'Имя в чате', 'text');
   await ensure(AUTH_CODES.loggingEnabled, 'Логи включены (сервер)', 'boolean');
   await ensure(AUTH_CODES.loggingMode, 'Режим логирования (сервер)', 'text');
+  await ensure(AUTH_CODES.uiSettingsJson, 'UI настройки пользователя (сервер)', 'text');
   await ensure(AUTH_CODES.deleteRequestedAt, 'Удаление: запрошено (дата)', 'number');
   await ensure(AUTH_CODES.deleteRequestedById, 'Удаление: инициатор (id)', 'text');
   await ensure(AUTH_CODES.deleteRequestedByUsername, 'Удаление: инициатор (логин)', 'text');
@@ -542,6 +545,18 @@ async function getEmployeeLoggingDefIds() {
   return { loggingEnabledDefId, loggingModeDefId };
 }
 
+async function getEmployeeUiSettingsDefId() {
+  await ensureEmployeeAuthDefs().catch(() => null);
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return null;
+  const rows = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), eq(attributeDefs.code, AUTH_CODES.uiSettingsJson), isNull(attributeDefs.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
 export async function getEmployeeLoggingSettings(employeeId: string) {
   const defs = await getEmployeeLoggingDefIds();
   if (!defs) return { loggingEnabled: false, loggingMode: 'prod' as const };
@@ -574,6 +589,32 @@ export async function setEmployeeLoggingSettings(
     await upsertAttrValue(employeeId, defs.loggingModeDefId, mode);
   }
   return { ok: true as const };
+}
+
+export async function getEmployeeUiSettings(employeeId: string): Promise<string | null> {
+  const defId = await getEmployeeUiSettingsDefId();
+  if (!defId) return null;
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, employeeId as any), eq(attributeValues.attributeDefId, defId as any), isNull(attributeValues.deletedAt)))
+    .limit(1);
+  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : null;
+  if (!raw) return null;
+  try {
+    return JSON.stringify(sanitizeUiControlSettings(JSON.parse(raw)));
+  } catch {
+    return null;
+  }
+}
+
+export async function setEmployeeUiSettings(employeeId: string, rawSettings: unknown) {
+  const defId = await getEmployeeUiSettingsDefId();
+  if (!defId) return { ok: false as const, error: 'ui settings def not found' };
+  const safeSettings = sanitizeUiControlSettings(rawSettings);
+  const safeJson = JSON.stringify(safeSettings);
+  await upsertAttrValue(employeeId, defId, safeSettings);
+  return { ok: true as const, uiSettingsJson: safeJson };
 }
 
 async function getEmployeeAttrDefId(code: string) {

@@ -83,7 +83,7 @@ function parseDueColor(dueAt: number | null, now: number) {
   const day = 24 * hour;
   if (diff > 7 * day) return { color: theme.colors.text, blink: false, label: null };
   if (diff > 3 * day) return { color: 'var(--success)', blink: false, label: 'Срок близко' };
-  if (diff > 1 * day) return { color: '#60a5fa', blink: false, label: 'Срок скоро' };
+  if (diff > 1 * day) return { color: 'var(--input-border-focus)', blink: false, label: 'Срок скоро' };
   if (diff > 2 * hour) return { color: 'var(--warn)', blink: false, label: 'Скоро' };
   return { color: 'var(--danger)', blink: false, label: 'Сейчас' };
 }
@@ -465,10 +465,10 @@ export function NotesPage(props: {
         onClick={() => openNote(entry.id)}
         style={{
           textAlign: 'left',
-          border: `1px solid ${active ? '#0f2f72' : theme.colors.border}`,
+          border: `1px solid ${active ? 'var(--button-primary-border)' : theme.colors.border}`,
           borderRadius: 10,
           padding: 10,
-          background: active ? '#f1f5ff' : theme.colors.surface2,
+          background: active ? 'var(--surface-2)' : theme.colors.surface2,
           display: 'flex',
           flexDirection: 'column',
           gap: 6,
@@ -561,7 +561,7 @@ export function NotesPage(props: {
                   style={{
                     border: `1px solid ${theme.colors.border}`,
                     borderRadius: 10,
-                    background: '#f8fafc',
+                    background: 'var(--surface-2)',
                     minHeight: 180,
                     width: '100%',
                     overflow: 'hidden',
@@ -662,7 +662,7 @@ export function NotesPage(props: {
                 background: theme.colors.surface2,
                 border: `1px solid ${theme.colors.border}`,
                 borderRadius: 10,
-                boxShadow: '0 16px 32px rgba(15,23,42,0.2)',
+                boxShadow: 'var(--chat-menu-shadow)',
                 padding: 10,
                 zIndex: 40,
                 display: 'flex',
@@ -753,15 +753,15 @@ export function NotesPage(props: {
       </div>
 
       {uploadFlow.status ? (
-        <div style={{ color: uploadFlow.status.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{uploadFlow.status}</div>
+        <div style={{ color: uploadFlow.status.startsWith('Неуспешно') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{uploadFlow.status}</div>
       ) : null}
       {uploadFlow.progress.active ? (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>
             <span>{uploadFlow.progress.label}</span>
             <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
             <div
               style={{
                 width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,

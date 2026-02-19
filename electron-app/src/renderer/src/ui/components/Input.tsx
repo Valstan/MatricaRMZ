@@ -15,14 +15,14 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       ref={ref}
       style={{
         width: '100%',
-        padding: '4px 6px',
+        padding: 'var(--ui-input-padding, 4px 6px)',
         border: focused ? '1px solid var(--input-border-focus)' : '1px solid var(--input-border)',
         outline: 'none',
         background: props.disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
         color: 'var(--text)',
-        fontSize: 13,
+        fontSize: 'var(--ui-input-font-size, 13px)',
         lineHeight: 1.2,
-        minHeight: 28,
+        minHeight: 'var(--ui-input-height, 28px)',
         boxShadow: focused ? 'var(--input-shadow-focus)' : 'var(--input-shadow)',
         ...(props.style ?? {}),
       }}

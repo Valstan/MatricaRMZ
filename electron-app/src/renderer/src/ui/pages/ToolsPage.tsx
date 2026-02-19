@@ -194,23 +194,23 @@ export function ToolsPage(props: {
 
   const tableHeader = (
     <thead>
-      <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('toolNumber')}>
+      <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => onSort('toolNumber')}>
           Таб. № {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'toolNumber')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('name')}>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => onSort('name')}>
           Наименование {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'name')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('serialNumber')}>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => onSort('serialNumber')}>
           Серийный № {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'serialNumber')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('departmentName')}>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => onSort('departmentName')}>
           Подразделение {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'departmentName')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('retired')}>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => onSort('retired')}>
           Статус {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'retired')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', width: 140 }}>
           Действия
         </th>
       </tr>
@@ -219,13 +219,13 @@ export function ToolsPage(props: {
 
   function renderTable(items: Row[]) {
     return (
-      <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
         <table className="list-table">
           {tableHeader}
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет инструментов' : 'Не найдено'}
                 </td>
               </tr>
@@ -234,22 +234,22 @@ export function ToolsPage(props: {
               <tr
                 key={row.id}
                 style={{
-                  borderBottom: '1px solid #f3f4f6',
+                  borderBottom: '1px solid var(--border)',
                   cursor: 'pointer',
                 }}
                 onClick={() => void props.onOpen(row.id)}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#f9fafb';
+                  e.currentTarget.style.backgroundColor = 'var(--surface-2)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.toolNumber || '—'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.name || '(без названия)'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.serialNumber || '—'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.departmentName || '—'}</td>
-                <td style={{ padding: '10px 12px', fontSize: 14, color: row.retiredAt ? '#b91c1c' : '#15803d' }}>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{row.toolNumber || '—'}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{row.name || '(без названия)'}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>{row.serialNumber || '—'}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>{row.departmentName || '—'}</td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: row.retiredAt ? 'var(--danger)' : 'var(--success)' }}>
                   {row.retiredAt ? 'Снят с учета' : 'В учете'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
@@ -273,7 +273,7 @@ export function ToolsPage(props: {
                           setStatus(`Ошибка: ${String(err)}`);
                         }
                       }}
-                      style={{ color: '#b91c1c' }}
+                      style={{ color: 'var(--danger)' }}
                     >
                       Удалить
                     </Button>
@@ -321,7 +321,7 @@ export function ToolsPage(props: {
         </div>
       </div>
 
-      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
 
       {reportOpen && (
         <SectionCard title="Сводный отчет по инструментам (подразделение)" style={{ marginTop: 10 }}>
@@ -338,7 +338,7 @@ export function ToolsPage(props: {
               options={reportNameHints.map((v) => ({ value: v }))}
               placeholder="Название инструмента"
             />
-            <select value={reportLocation} onChange={(e) => setReportLocation(e.target.value as any)} style={{ height: 32 }}>
+            <select value={reportLocation} onChange={(e) => setReportLocation(e.target.value as any)} style={{ height: 'var(--ui-input-height, 32px)' }}>
               <option value="all">Все местоположения</option>
               <option value="store">На складе</option>
               <option value="in_use">В подразделении</option>
@@ -367,44 +367,44 @@ export function ToolsPage(props: {
             <Button tone="info" onClick={() => void runReport()}>
               Сформировать отчет
             </Button>
-            {reportStatus && <span style={{ color: reportStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{reportStatus}</span>}
+            {reportStatus && <span style={{ color: reportStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{reportStatus}</span>}
           </div>
           {reportTotals && (
-            <div style={{ display: 'flex', gap: 16, color: '#334155', fontSize: 14 }}>
+            <div style={{ display: 'flex', gap: 16, color: 'var(--muted)', fontSize: 14 }}>
               <span>Всего: {reportTotals.total}</span>
               <span>На складе: {reportTotals.store}</span>
               <span>В подразделении: {reportTotals.inUse}</span>
               <span>Неизвестно: {reportTotals.unknown}</span>
             </div>
           )}
-          <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+          <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
             <table className="list-table">
               <thead>
-                <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Таб. №</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Наименование</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Серийный №</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Местоположение</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Последнее движение</th>
+                <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Таб. №</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Наименование</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Серийный №</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Местоположение</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Последнее движение</th>
                 </tr>
               </thead>
               <tbody>
                 {reportRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                    <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
                       Нет данных
                     </td>
                   </tr>
                 )}
                 {reportRows.map((row) => (
-                  <tr key={row.toolId} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.toolNumber || '—'}</td>
-                    <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.name || '(без названия)'}</td>
-                    <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.serialNumber || '—'}</td>
-                    <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                  <tr key={row.toolId} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{row.toolNumber || '—'}</td>
+                    <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{row.name || '(без названия)'}</td>
+                    <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>{row.serialNumber || '—'}</td>
+                    <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
                       {row.location === 'store' ? 'На складе' : row.location === 'in_use' ? 'В подразделении' : 'Неизвестно'}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
                       {row.lastMovementAt ? new Date(row.lastMovementAt).toLocaleDateString('ru-RU') : '—'}
                     </td>
                   </tr>

@@ -18,6 +18,7 @@ export * from './domain/contract.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
 export * from './domain/erp.js';
+export * from './domain/uiControl.js';
 export * from './ipc/types.js';
 
 

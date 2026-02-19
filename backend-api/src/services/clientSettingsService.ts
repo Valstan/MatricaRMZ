@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { DEFAULT_UI_CONTROL_SETTINGS, UI_DEFAULTS_VERSION, sanitizeUiControlSettings } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { clientSettings } from '../database/schema.js';
@@ -6,7 +7,7 @@ import { clientSettings } from '../database/schema.js';
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
 type ClientSettingsPatch = Partial<
-  Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiDisplayPrefs'>
+  Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiDisplayPrefs' | 'uiGlobalSettingsJson' | 'uiDefaultsVersion'>
 >;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
 type ClientSyncAck = { requestId: string; status: 'ok' | 'error'; error?: string | null; at?: number };
@@ -31,6 +32,8 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     loggingEnabled: true,
     loggingMode: 'dev',
     uiDisplayPrefs: null,
+    uiGlobalSettingsJson: JSON.stringify(DEFAULT_UI_CONTROL_SETTINGS),
+    uiDefaultsVersion: UI_DEFAULTS_VERSION,
     syncRequestId: null,
     syncRequestType: null,
     syncRequestAt: null,
@@ -45,6 +48,8 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
   };
 }
 
+const GLOBAL_CLIENT_SETTINGS_ID = '__global_ui_defaults__';
+
 export async function getOrCreateClientSettings(clientId: string): Promise<ClientSettingsRow> {
   const rows = await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1);
   if (rows[0]) return rows[0];
@@ -57,6 +62,8 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
     loggingEnabled: defaults.loggingEnabled,
     loggingMode: defaults.loggingMode,
     uiDisplayPrefs: defaults.uiDisplayPrefs,
+    uiGlobalSettingsJson: defaults.uiGlobalSettingsJson,
+    uiDefaultsVersion: defaults.uiDefaultsVersion,
     syncRequestId: defaults.syncRequestId,
     syncRequestType: defaults.syncRequestType,
     syncRequestAt: defaults.syncRequestAt,
@@ -117,6 +124,8 @@ export async function updateClientSettings(clientId: string, patch: ClientSettin
       ...(patch.loggingEnabled !== undefined ? { loggingEnabled: patch.loggingEnabled } : {}),
       ...(patch.loggingMode !== undefined ? { loggingMode: patch.loggingMode } : {}),
       ...(patch.uiDisplayPrefs !== undefined ? { uiDisplayPrefs: patch.uiDisplayPrefs } : {}),
+      ...(patch.uiGlobalSettingsJson !== undefined ? { uiGlobalSettingsJson: patch.uiGlobalSettingsJson } : {}),
+      ...(patch.uiDefaultsVersion !== undefined ? { uiDefaultsVersion: patch.uiDefaultsVersion } : {}),
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));
@@ -168,4 +177,42 @@ export async function acknowledgeClientSyncRequest(clientId: string, ack: Client
     .where(eq(clientSettings.clientId, clientId));
   const next = await db.select().from(clientSettings).where(eq(clientSettings.clientId, clientId)).limit(1);
   return next[0] ?? (await getOrCreateClientSettings(clientId));
+}
+
+function safeParseJson(raw: string | null | undefined): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
+export async function getGlobalUiDefaults(): Promise<{ settings: string; version: number; updatedAt: number }> {
+  const row = await getOrCreateClientSettings(GLOBAL_CLIENT_SETTINGS_ID);
+  const safeSettings = JSON.stringify(sanitizeUiControlSettings(safeParseJson(row.uiGlobalSettingsJson ?? null) ?? DEFAULT_UI_CONTROL_SETTINGS));
+  const safeVersion = Number.isFinite(Number(row.uiDefaultsVersion)) ? Number(row.uiDefaultsVersion) : UI_DEFAULTS_VERSION;
+  if (safeSettings !== row.uiGlobalSettingsJson || safeVersion !== row.uiDefaultsVersion) {
+    const updated = await updateClientSettings(GLOBAL_CLIENT_SETTINGS_ID, {
+      uiGlobalSettingsJson: safeSettings,
+      uiDefaultsVersion: safeVersion,
+    });
+    return { settings: updated.uiGlobalSettingsJson ?? safeSettings, version: Number(updated.uiDefaultsVersion ?? safeVersion), updatedAt: Number(updated.updatedAt) };
+  }
+  return { settings: row.uiGlobalSettingsJson ?? safeSettings, version: safeVersion, updatedAt: Number(row.updatedAt) };
+}
+
+export async function setGlobalUiDefaults(args: { settings: unknown; bumpVersion?: boolean }): Promise<{ settings: string; version: number; updatedAt: number }> {
+  const current = await getGlobalUiDefaults();
+  const safeSettings = JSON.stringify(sanitizeUiControlSettings(args.settings));
+  const nextVersion = args.bumpVersion === false ? current.version : current.version + 1;
+  const updated = await updateClientSettings(GLOBAL_CLIENT_SETTINGS_ID, {
+    uiGlobalSettingsJson: safeSettings,
+    uiDefaultsVersion: nextVersion,
+  });
+  return {
+    settings: updated.uiGlobalSettingsJson ?? safeSettings,
+    version: Number(updated.uiDefaultsVersion ?? nextVersion),
+    updatedAt: Number(updated.updatedAt),
+  };
 }

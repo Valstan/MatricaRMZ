@@ -459,6 +459,7 @@ import type { WorkOrderPayload } from '../domain/workOrder.js';
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
+import type { UiControlSettings } from '../domain/uiControl.js';
 import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
@@ -573,6 +574,30 @@ export type MatricaApi = {
             collapsedGroups?: string[];
             activeGroup?: string | null;
           } | null;
+        }
+      | { ok: false; error: string }
+    >;
+    uiControlGet: () => Promise<
+      | {
+          ok: true;
+          uiDefaultsVersion: number;
+          globalDefaults: UiControlSettings;
+          userSettings: UiControlSettings | null;
+          effective: UiControlSettings;
+        }
+      | { ok: false; error: string }
+    >;
+    uiControlSetGlobal: (args: { uiSettings: UiControlSettings; bumpVersion?: boolean }) => Promise<
+      | { ok: true; uiDefaultsVersion: number; globalDefaults: UiControlSettings }
+      | { ok: false; error: string }
+    >;
+    uiControlSetUser: (args: { uiSettings: UiControlSettings }) => Promise<
+      | {
+          ok: true;
+          uiDefaultsVersion: number;
+          globalDefaults: UiControlSettings;
+          userSettings: UiControlSettings;
+          effective: UiControlSettings;
         }
       | { ok: false; error: string }
     >;

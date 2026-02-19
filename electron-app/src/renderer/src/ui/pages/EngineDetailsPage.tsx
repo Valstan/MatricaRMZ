@@ -439,7 +439,7 @@ export function EngineDetailsPage(props: {
             }}
           />
           {(linkLists.engine_brand ?? []).length === 0 && (
-            <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
+            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
           )}
         </div>
       ),
@@ -611,9 +611,9 @@ export function EngineDetailsPage(props: {
           </Button>
         </RowActions>
       }
-      status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div> : null}
+      status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div> : null}
     >
-        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -636,11 +636,11 @@ export function EngineDetailsPage(props: {
                 gap: 8,
                 alignItems: 'center',
                 padding: '4px 6px',
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
                 background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
               }}
             >
-              <div style={{ color: '#6b7280' }}>{field.label}</div>
+              <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
               {field.render}
             </div>
           )}
@@ -663,7 +663,7 @@ export function EngineDetailsPage(props: {
           </Button>
           <div style={{ flex: 1 }} />
           {props.canEditEngines && (
-            <div style={{ color: '#64748b', fontSize: 12 }}>
+            <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
               Автосохранение: номер — при выходе из поля, марка/связи — сразу при выборе.
             </div>
           )}

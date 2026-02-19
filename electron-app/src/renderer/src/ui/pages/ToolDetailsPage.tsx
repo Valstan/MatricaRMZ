@@ -426,7 +426,7 @@ export function ToolDetailsPage(props: {
         </Button>
       </div>
 
-      {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
 
       <SectionCard>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
@@ -556,7 +556,7 @@ export function ToolDetailsPage(props: {
           ) : undefined
         }
       >
-        {properties.length === 0 && <div style={{ color: '#6b7280' }}>Нет свойств.</div>}
+        {properties.length === 0 && <div style={{ color: 'var(--subtle)' }}>Нет свойств.</div>}
         {properties.map((row, idx) => {
           const hints = row.propertyId ? propertyValueHints[row.propertyId] ?? [] : [];
           return (
@@ -605,7 +605,7 @@ export function ToolDetailsPage(props: {
                     const nextRows = properties.filter((_p, i) => i !== idx);
                     void updateProperties(nextRows);
                   }}
-                  style={{ color: '#b91c1c' }}
+                  style={{ color: 'var(--danger)' }}
                 >
                   Удалить
                 </Button>
@@ -625,7 +625,7 @@ export function ToolDetailsPage(props: {
             value={newMoveMode}
             onChange={(e) => setNewMoveMode(e.target.value as 'received' | 'returned')}
             disabled={!props.canEdit}
-            style={{ height: 32 }}
+            style={{ height: 'var(--ui-input-height, 32px)' }}
           >
             <option value="received">Получил</option>
             <option value="returned">Вернул</option>
@@ -683,21 +683,21 @@ export function ToolDetailsPage(props: {
           </div>
         )}
 
-        <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden', marginTop: 6 }}>
+        <div style={{ border: '1px solid var(--border)', overflow: 'hidden', marginTop: 6 }}>
           <table className="list-table">
             <thead>
-              <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Дата</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Режим</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Сотрудник</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Подтверждение</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151' }}>Комментарий</th>
+              <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Дата</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Режим</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Сотрудник</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Подтверждение</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Комментарий</th>
               </tr>
             </thead>
             <tbody>
               {movements.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                  <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
                     Нет движений
                   </td>
                 </tr>
@@ -706,7 +706,7 @@ export function ToolDetailsPage(props: {
                 <tr
                   key={m.id}
                   style={{
-                    borderBottom: '1px solid #f3f4f6',
+                    borderBottom: '1px solid var(--border)',
                     cursor: props.canEdit ? 'pointer' : 'default',
                     background: editingMovementId === m.id ? 'var(--card-row-drag-bg)' : undefined,
                   }}
@@ -715,17 +715,17 @@ export function ToolDetailsPage(props: {
                     startEditMovement(m);
                   }}
                 >
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>
                     {m.movementAt ? new Date(m.movementAt).toLocaleDateString('ru-RU') : '—'}
                   </td>
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{m.mode === 'returned' ? 'Вернул' : 'Получил'}</td>
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{m.mode === 'returned' ? 'Вернул' : 'Получил'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
                     {m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—'}
                   </td>
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
                     {m.confirmed ? `Да (${m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—'})` : 'Нет'}
                   </td>
-                  <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
+                  <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ flex: 1 }}>{m.comment || '—'}</span>
                       {props.canEdit && (
@@ -735,7 +735,7 @@ export function ToolDetailsPage(props: {
                             e.stopPropagation();
                             void deleteMovement(m);
                           }}
-                          style={{ color: '#b91c1c' }}
+                          style={{ color: 'var(--danger)' }}
                         >
                           Удалить
                         </Button>

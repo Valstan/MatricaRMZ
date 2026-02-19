@@ -139,11 +139,11 @@ export function SuperadminAuditPage() {
         </Button>
         <div style={{ width: 160 }}>
           <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>с даты</div>
+          <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>с даты</div>
         </div>
         <div style={{ width: 160 }}>
           <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>по дату</div>
+          <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>по дату</div>
         </div>
         <div style={{ width: 260 }}>
           <SearchSelect value={actor} options={actorOptions} placeholder="Аккаунт" onChange={setActor} />
@@ -181,11 +181,11 @@ export function SuperadminAuditPage() {
         </div>
       )}
 
-      <div style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ marginTop: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: 10, fontWeight: 700, background: 'var(--surface2)' }}>Сводный отчет по клиентам (21:00)</div>
         <table className="list-table">
           <thead>
-            <tr style={{ background: '#0f172a', color: '#fff' }}>
+            <tr style={{ background: 'var(--button-primary-bg)', color: 'var(--button-primary-text)' }}>
               <th style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
               <th style={{ textAlign: 'left', padding: 8 }}>ФИО</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Онлайн</th>
@@ -218,11 +218,11 @@ export function SuperadminAuditPage() {
         </table>
       </div>
 
-      <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ marginTop: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: 10, fontWeight: 700, background: 'var(--surface2)' }}>Журнал действий пользователей</div>
         <table className="list-table">
           <thead>
-            <tr style={{ background: '#334155', color: '#fff' }}>
+            <tr style={{ background: 'var(--surface-2)', color: 'var(--text)' }}>
               <th style={{ textAlign: 'left', padding: 8 }}>Время</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Действие</th>

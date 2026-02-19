@@ -136,7 +136,7 @@ function printSupplyRequest(
   <td>${escapeHtml(it.note ?? '')}</td>
   <td>${escapeHtml(String(delivered))}</td>
   <td>${escapeHtml(String(Math.max(0, remaining)))}</td>
-  <td>${deliveriesHtml || '<span style="color:#666">—</span>'}</td>
+  <td>${deliveriesHtml || '<span class="muted">—</span>'}</td>
 </tr>`;
     })
     .join('\n');
@@ -509,7 +509,7 @@ export function SupplyRequestDetailsPage(props: {
     return opt?.label ?? '';
   }, [payload, linkLists.departmentId]);
   if (!payload) {
-    return <div style={{ color: '#6b7280' }}>{saveStatus || '...'}</div>;
+    return <div style={{ color: 'var(--subtle)' }}>{saveStatus || '...'}</div>;
   }
 
   const canTransitionSign = props.canSign && payload.status === 'draft';
@@ -652,18 +652,18 @@ export function SupplyRequestDetailsPage(props: {
           </>
         )}
         <div style={{ flex: 1 }} />
-        {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{saveStatus}</div>}
+        {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div>}
         <Button variant="ghost" tone="neutral" onClick={() => void load()}>
           Обновить
         </Button>
       </div>
       {payload ? (
-        <div style={{ marginTop: 6, color: '#64748b', fontSize: 12 }}>
-          Подразделение: <span style={{ color: '#0f172a', fontWeight: 700 }}>{departmentLabel || payload.departmentId || '-'}</span>
+        <div style={{ marginTop: 6, color: 'var(--subtle)', fontSize: 12 }}>
+          Подразделение: <span style={{ color: 'var(--text)', fontWeight: 700 }}>{departmentLabel || payload.departmentId || '-'}</span>
         </div>
       ) : null}
 
-      <SectionCard style={{ marginTop: 12, borderRadius: 12, padding: 12 }}>
+      <SectionCard style={{ marginTop: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -686,11 +686,11 @@ export function SupplyRequestDetailsPage(props: {
                 gap: 8,
                 alignItems: 'center',
                 padding: '4px 6px',
-                border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
                 background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
               }}
             >
-              <div style={{ color: '#6b7280' }}>{field.label}</div>
+              <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
               {field.render}
             </div>
           )}
@@ -770,7 +770,7 @@ export function SupplyRequestDetailsPage(props: {
           )}
 
           <div style={{ flex: 1 }} />
-          {props.canEdit && <div style={{ color: '#64748b', fontSize: 12 }}>Автосохранение: изменения сохраняются автоматически.</div>}
+          {props.canEdit && <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Автосохранение: изменения сохраняются автоматически.</div>}
         </div>
       </SectionCard>
 
@@ -778,24 +778,24 @@ export function SupplyRequestDetailsPage(props: {
         <h2 style={{ margin: '8px 0' }}>Список деталей</h2>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ flex: 1, color: '#6b7280' }}>
+          <div style={{ flex: 1, color: 'var(--subtle)' }}>
             Позиции заявки: наименование, заказано, пришло фактически, недовезли.
           </div>
         </div>
 
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6, width: 34 }} />
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>№</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Наименование</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Заказано</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Ед.</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Примечание</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Пришло фактически</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }}>Недовезли</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 6 }} />
+              <tr style={{ background: 'var(--button-primary-bg)', color: 'var(--button-primary-text)' }}>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6, width: 34 }} />
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>№</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Наименование</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Заказано</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Ед.</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Примечание</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Пришло фактически</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Недовезли</th>
+                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }} />
               </tr>
             </thead>
             <tbody>
@@ -835,7 +835,7 @@ export function SupplyRequestDetailsPage(props: {
                         scheduleSave({ ...payload, items: renum });
                       }}
                     >
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 34 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 34 }}>
                         <span
                           title="Перетащить строку"
                           draggable={props.canEdit}
@@ -857,18 +857,18 @@ export function SupplyRequestDetailsPage(props: {
                             userSelect: 'none',
                             display: 'inline-block',
                             padding: '2px 6px',
-                            borderRadius: 8,
-                            border: '1px solid rgba(15,23,42,0.18)',
-                            color: '#475569',
-                            background: 'rgba(255,255,255,0.9)',
+                            borderRadius: 0,
+                            border: '1px solid var(--border)',
+                            color: 'var(--muted)',
+                            background: 'var(--surface)',
                             fontSize: 12,
                           }}
                         >
                           ⠿
                         </span>
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>{idx + 1}</td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>{idx + 1}</td>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>
                         <div style={{ display: 'grid', gap: 6 }}>
                           <SearchSelectWithCreate
                             value={it.productId ?? ''}
@@ -928,11 +928,11 @@ export function SupplyRequestDetailsPage(props: {
                             }}
                           />
                           {!it.productId && it.name?.trim() && (
-                            <span style={{ color: '#b91c1c', fontSize: 12 }}>Нет совпадения: {it.name}</span>
+                            <span style={{ color: 'var(--danger)', fontSize: 12 }}>Нет совпадения: {it.name}</span>
                           )}
                         </div>
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 110 }}>
                         <Input
                           type="number"
                           step={1}
@@ -945,10 +945,10 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...ensureItem(items[idx], idx + 1), qty: Number.isFinite(n) ? n : 0 };
                             scheduleSave({ ...payload, items });
                           }}
-                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                          style={{ padding: '6px 8px', boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 160 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 160 }}>
                         <SearchSelectWithCreate
                           value={unitOptions.find((o) => o.label === String(it.unit ?? ''))?.id ?? null}
                           options={unitOptions}
@@ -975,7 +975,7 @@ export function SupplyRequestDetailsPage(props: {
                           }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>
                         <Input
                           value={String(it.note ?? '')}
                           disabled={!props.canEdit}
@@ -984,10 +984,10 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...ensureItem(items[idx], idx + 1), note: e.target.value };
                             scheduleSave({ ...payload, items });
                           }}
-                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                          style={{ padding: '6px 8px', boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 110 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 110 }}>
                         <Input
                           type="number"
                           step={1}
@@ -1003,11 +1003,11 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...cur, deliveries: qty > 0 ? [{ deliveredAt, qty, note: '' }] : [] };
                             scheduleSave({ ...payload, items });
                           }}
-                          style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                          style={{ padding: '6px 8px', boxShadow: 'none' }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 86 }}>{remaining}</td>
-                      <td style={{ borderBottom: '1px solid #f3f4f6', padding: 6, width: 210 }}>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 86 }}>{remaining}</td>
+                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 210 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <Button
                             variant="ghost"
@@ -1034,7 +1034,7 @@ export function SupplyRequestDetailsPage(props: {
                     </tr>
                     {expandedLine === idx && (
                       <tr>
-                        <td colSpan={9} style={{ padding: 10, background: '#f8fafc', borderBottom: '1px solid #f3f4f6' }}>
+                        <td colSpan={9} style={{ padding: 10, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
                             <div style={{ fontWeight: 700 }}>Фактические поставки</div>
                             <div style={{ flex: 1 }} />
@@ -1054,7 +1054,7 @@ export function SupplyRequestDetailsPage(props: {
                             )}
                           </div>
 
-                          {(it.deliveries ?? []).length === 0 && <div style={{ color: '#6b7280' }}>Поставок пока нет.</div>}
+                          {(it.deliveries ?? []).length === 0 && <div style={{ color: 'var(--subtle)' }}>Поставок пока нет.</div>}
 
                           {(it.deliveries ?? []).map((d, di) => (
                             <div
@@ -1081,7 +1081,7 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                                style={{ padding: '6px 8px', boxShadow: 'none' }}
                               />
                               <Input
                                 type="number"
@@ -1098,7 +1098,7 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                                style={{ padding: '6px 8px', boxShadow: 'none' }}
                               />
                               <Input
                                 value={String(d.note ?? '')}
@@ -1111,7 +1111,7 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                style={{ padding: '6px 8px', borderRadius: 10, boxShadow: 'none' }}
+                                style={{ padding: '6px 8px', boxShadow: 'none' }}
                                 placeholder="Примечание…"
                               />
                               {props.canEdit ? (
@@ -1142,7 +1142,7 @@ export function SupplyRequestDetailsPage(props: {
 
               {(payload.items ?? []).length === 0 && (
                 <tr>
-                  <td style={{ padding: 12, color: '#6b7280' }} colSpan={8}>
+                  <td style={{ padding: 12, color: 'var(--subtle)' }} colSpan={8}>
                     Позиции не добавлены
                   </td>
                 </tr>

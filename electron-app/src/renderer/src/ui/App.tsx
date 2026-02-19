@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent } from '@matricarmz/shared';
+import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent, UiControlSettings, UiDisplayPrefs } from '@matricarmz/shared';
+import { DEFAULT_UI_DISPLAY_PREFS, sanitizeUiControlSettings, uiControlToDisplayPrefs } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
@@ -32,6 +33,7 @@ import { ProductsPage } from './pages/ProductsPage.js';
 import { ServicesPage } from './pages/ServicesPage.js';
 import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
+import { UiControlCenterPage } from './pages/UiControlCenterPage.js';
 import { NotesPage } from './pages/NotesPage.js';
 import { SuperadminAuditPage } from './pages/SuperadminAuditPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
@@ -43,39 +45,6 @@ import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { theme } from './theme.js';
-
-type UiDisplayTarget = 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-type UiDisplayButtonState = 'active' | 'inactive';
-type UiDisplayButtonStyle = {
-  fontSize: number;
-  width: number;
-  height: number;
-  paddingX: number;
-  paddingY: number;
-  gap: number;
-};
-type UiDisplayPrefs = {
-  selectedTarget: UiDisplayTarget;
-  selectedButtonState: UiDisplayButtonState;
-  departmentButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
-  sectionButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
-  listFontSize: number;
-  cardFontSize: number;
-};
-const DEFAULT_UI_DISPLAY_PREFS: UiDisplayPrefs = {
-  selectedTarget: 'departmentButtons',
-  selectedButtonState: 'active',
-  departmentButtons: {
-    active: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-    inactive: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-  },
-  sectionButtons: {
-    active: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-    inactive: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-  },
-  listFontSize: 14,
-  cardFontSize: 14,
-};
 
 export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
@@ -155,6 +124,33 @@ export function App() {
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
+  const applyEffectiveUiSettings = useCallback((settings: UiControlSettings) => {
+    const safe = sanitizeUiControlSettings(settings);
+    const displayPrefs = uiControlToDisplayPrefs(safe);
+    setUiPrefs((prev) => ({ ...prev, displayPrefs }));
+    const root = document.documentElement;
+    root.style.setProperty('--ui-title-size', `${safe.global.titleFontSize}px`);
+    root.style.setProperty('--ui-section-size', `${safe.global.sectionFontSize}px`);
+    root.style.setProperty('--ui-body-size', `${safe.global.bodyFontSize}px`);
+    root.style.setProperty('--ui-muted-size', `${safe.global.mutedFontSize}px`);
+    root.style.setProperty('--ui-space-1', `${safe.global.space1}px`);
+    root.style.setProperty('--ui-space-2', `${safe.global.space2}px`);
+    root.style.setProperty('--ui-space-3', `${safe.global.space3}px`);
+    root.style.setProperty('--ui-space-4', `${safe.global.space4}px`);
+    root.style.setProperty('--ui-space-5', `${safe.global.space5}px`);
+    root.style.setProperty('--ui-list-font-size', `${safe.lists.fontSize}px`);
+    root.style.setProperty('--ui-card-font-size', `${safe.cards.fontSize}px`);
+    root.style.setProperty('--list-row-padding-y', `${safe.lists.rowPaddingY}px`);
+    root.style.setProperty('--list-row-padding-x', `${safe.lists.rowPaddingX}px`);
+    root.style.setProperty('--card-row-gap', `${safe.cards.rowGap}px`);
+    root.style.setProperty('--card-row-padding-y', `${safe.cards.rowPaddingY}px`);
+    root.style.setProperty('--card-row-padding-x', `${safe.cards.rowPaddingX}px`);
+    root.style.setProperty('--ui-table-size', `${safe.directories.tableFontSize}px`);
+    root.style.setProperty('--entity-card-min-width', `${safe.directories.entityCardMinWidth}px`);
+    root.style.setProperty('--ui-datepicker-scale', String(safe.misc.datePickerScale));
+    root.style.setProperty('--ui-datepicker-font-size', `${safe.misc.datePickerFontSize}px`);
+  }, [applyEffectiveUiSettings]);
+
   function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
     if (a === b) return true;
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -206,7 +202,17 @@ export function App() {
         });
       }
     });
-  }, []);
+    void window.matrica.settings.uiControlGet().then((r: any) => {
+      if (r?.ok && r?.effective) applyEffectiveUiSettings(r.effective as UiControlSettings);
+    });
+  }, [applyEffectiveUiSettings]);
+
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    void window.matrica.settings.uiControlGet().then((r: any) => {
+      if (r?.ok && r?.effective) applyEffectiveUiSettings(r.effective as UiControlSettings);
+    });
+  }, [applyEffectiveUiSettings, authStatus.loggedIn, authStatus.user?.id]);
 
   useEffect(() => {
     if (!window.matrica?.sync?.onProgress) return;
@@ -574,6 +580,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
+    ...(authStatus.loggedIn ? (['ui_control'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
@@ -618,6 +625,7 @@ export function App() {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
+    ui_control: 'UI Control Center',
   };
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -980,6 +988,7 @@ export function App() {
       admin: 'Админ',
       notes: 'Заметки',
       settings: 'Настройки',
+      ui_control: 'UI Control Center',
       auth: 'Вход',
     };
     const parent: Record<string, string> = {
@@ -1308,6 +1317,8 @@ export function App() {
           ? 'Матрица РМЗ — Вход'
         : tab === 'settings'
           ? 'Матрица РМЗ — Настройки'
+        : tab === 'ui_control'
+          ? 'Матрица РМЗ — UI Control Center'
         : tab === 'reports'
           ? 'Матрица РМЗ — Отчёты'
           : tab === 'masterdata'
@@ -2254,6 +2265,13 @@ export function App() {
               void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
               setTab('auth');
             }}
+          />
+        )}
+
+        {tab === 'ui_control' && (
+          <UiControlCenterPage
+            canEditGlobal={String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin'}
+            onApplyEffective={applyEffectiveUiSettings}
           />
         )}
 

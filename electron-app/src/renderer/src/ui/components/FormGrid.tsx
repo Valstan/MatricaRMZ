@@ -7,11 +7,12 @@ export function FormGrid(props: {
   minWidth?: number;
   style?: React.CSSProperties;
 }) {
-  const columns = props.columns ?? 'repeat(auto-fit, minmax(260px, 1fr))';
+  const columns = props.columns ?? 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))';
   return (
     <div
       style={{
         display: 'grid',
+        width: '100%',
         gridTemplateColumns: columns,
         gap: props.gap ?? 10,
         minWidth: props.minWidth ?? 0,

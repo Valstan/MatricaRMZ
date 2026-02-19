@@ -65,7 +65,7 @@ export function ToolPropertyDetailsPage(props: {
         <strong>Карточка свойства инструмента</strong>
       </div>
 
-      {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
 
       <SectionCard>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>

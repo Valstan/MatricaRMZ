@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { and, eq, gt } from 'drizzle-orm';
+import { DEFAULT_UI_CONTROL_SETTINGS, UI_DEFAULTS_VERSION, mergeUiControlSettings, sanitizeUiControlSettings } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { chatMessages, refreshTokens } from '../database/schema.js';
@@ -21,6 +22,7 @@ import {
   getSuperadminUserId,
   getEmployeeProfileById,
   getEmployeeLoggingSettings,
+  getEmployeeUiSettings,
   listEmployeesAuth,
   isLoginTaken,
   isSuperadminLogin,
@@ -28,10 +30,12 @@ import {
   setEmployeeNamePartsFromFullName,
   setEmployeeAuth,
   setEmployeeLoggingSettings,
+  setEmployeeUiSettings,
   setEmployeeProfile,
 } from '../services/employeeAuthService.js';
 import { SyncTableName } from '@matricarmz/shared';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
+import { getGlobalUiDefaults, setGlobalUiDefaults } from '../services/clientSettingsService.js';
 
 export const authRouter = Router();
 
@@ -328,6 +332,99 @@ authRouter.patch('/settings', requireAuth, async (req, res) => {
     return res.json({ ok: true, settings });
   } catch (e) {
     logError('auth settings update failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/ui-settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+
+    const globalRaw = await getGlobalUiDefaults();
+    const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
+    const userJson = await getEmployeeUiSettings(actor.id);
+    const userSettings = userJson ? sanitizeUiControlSettings(JSON.parse(userJson)) : null;
+    const effective = userSettings ? mergeUiControlSettings(globalDefaults, userSettings) : globalDefaults;
+
+    return res.json({
+      ok: true,
+      uiDefaultsVersion: Number(globalRaw.version ?? UI_DEFAULTS_VERSION),
+      globalDefaults,
+      userSettings,
+      effective,
+    });
+  } catch (e) {
+    logError('auth ui-settings get failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/ui-settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    const schema = z.object({
+      uiSettings: z.unknown(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const safeUserSettings = sanitizeUiControlSettings(parsed.data.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+    const saved = await setEmployeeUiSettings(actor.id, safeUserSettings);
+    if (!saved.ok) return res.status(500).json({ ok: false, error: saved.error });
+
+    const globalRaw = await getGlobalUiDefaults();
+    const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
+    const effective = mergeUiControlSettings(globalDefaults, safeUserSettings);
+    return res.json({
+      ok: true,
+      uiDefaultsVersion: Number(globalRaw.version ?? UI_DEFAULTS_VERSION),
+      globalDefaults,
+      userSettings: safeUserSettings,
+      effective,
+    });
+  } catch (e) {
+    logError('auth ui-settings patch failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/ui-settings/global', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'forbidden' });
+
+    const globalRaw = await getGlobalUiDefaults();
+    const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
+    return res.json({ ok: true, uiDefaultsVersion: Number(globalRaw.version ?? UI_DEFAULTS_VERSION), globalDefaults });
+  } catch (e) {
+    logError('auth ui-settings global get failed', { error: String(e) });
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/ui-settings/global', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'forbidden' });
+    const schema = z.object({
+      uiSettings: z.unknown(),
+      bumpVersion: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const safeSettings = sanitizeUiControlSettings(parsed.data.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+    const next = await setGlobalUiDefaults({ settings: safeSettings, bumpVersion: parsed.data.bumpVersion !== false });
+    return res.json({
+      ok: true,
+      uiDefaultsVersion: Number(next.version ?? UI_DEFAULTS_VERSION),
+      globalDefaults: sanitizeUiControlSettings(JSON.parse(next.settings)),
+    });
+  } catch (e) {
+    logError('auth ui-settings global patch failed', { error: String(e) });
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

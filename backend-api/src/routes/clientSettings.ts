@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { acknowledgeClientSyncRequest, getOrCreateClientSettings, touchClientSettings, updateClientSettings } from '../services/clientSettingsService.js';
+import {
+  acknowledgeClientSyncRequest,
+  getGlobalUiDefaults,
+  getOrCreateClientSettings,
+  touchClientSettings,
+  updateClientSettings,
+} from '../services/clientSettingsService.js';
 
 export const clientSettingsRouter = Router();
 
@@ -26,6 +32,7 @@ clientSettingsRouter.get('/settings', async (req, res) => {
 
   try {
     const row = await getOrCreateClientSettings(parsed.data.clientId);
+    const globalUiDefaults = await getGlobalUiDefaults();
     const ip = req.ip || req.connection?.remoteAddress || null;
     await touchClientSettings(parsed.data.clientId, {
       version: parsed.data.version ?? null,
@@ -44,6 +51,8 @@ clientSettingsRouter.get('/settings', async (req, res) => {
         loggingEnabled: row.loggingEnabled,
         loggingMode: row.loggingMode,
         uiDisplayPrefs: row.uiDisplayPrefs ?? null,
+        uiGlobalSettingsJson: globalUiDefaults.settings,
+        uiDefaultsVersion: globalUiDefaults.version,
         syncRequestId: row.syncRequestId ?? null,
         syncRequestType: row.syncRequestType ?? null,
         syncRequestAt: row.syncRequestAt ?? null,

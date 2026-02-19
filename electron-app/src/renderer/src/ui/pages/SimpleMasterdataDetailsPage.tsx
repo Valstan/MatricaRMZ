@@ -324,20 +324,20 @@ export function SimpleMasterdataDetailsPage(props: {
         )}
       </div>
       {uploadFlow.status ? (
-        <div style={{ marginBottom: 8, color: uploadFlow.status.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{uploadFlow.status}</div>
+        <div style={{ marginBottom: 8, color: uploadFlow.status.startsWith('Неуспешно') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{uploadFlow.status}</div>
       ) : null}
       {uploadFlow.progress.active ? (
         <div style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>
             <span>{uploadFlow.progress.label}</span>
             <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 0, background: 'var(--border)', overflow: 'hidden' }}>
             <div
               style={{
                 width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
                 height: '100%',
-                background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
+                background: 'var(--button-primary-bg)',
                 transition: 'width 0.2s ease',
               }}
             />
@@ -346,15 +346,15 @@ export function SimpleMasterdataDetailsPage(props: {
       ) : null}
       {activePhoto ? (
         <div style={{ display: 'grid', gap: 8 }}>
-          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e5e7eb', background: '#fff' }}>
+          <div style={{ overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--surface)' }}>
             {photoThumbs[activePhoto.id]?.dataUrl ? (
               <img
                 src={photoThumbs[activePhoto.id]?.dataUrl ?? ''}
                 alt=""
-                style={{ width: '100%', height: 320, objectFit: 'contain', display: 'block', background: '#fff' }}
+                style={{ width: '100%', height: 320, objectFit: 'contain', display: 'block', background: 'var(--surface)' }}
               />
             ) : (
-              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>
+              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)' }}>
                 Предпросмотр недоступен
               </div>
             )}
@@ -366,11 +366,11 @@ export function SimpleMasterdataDetailsPage(props: {
                 type="button"
                 onClick={() => setMainPhotoId(p.id)}
                 style={{
-                  border: p.id === activePhoto.id ? '2px solid #2563eb' : '1px solid #e5e7eb',
-                  borderRadius: 10,
+                  border: p.id === activePhoto.id ? '2px solid var(--input-border-focus)' : '1px solid var(--border)',
+                  borderRadius: 0,
                   overflow: 'hidden',
                   padding: 0,
-                  background: '#fff',
+                  background: 'var(--surface)',
                   width: 80,
                   height: 80,
                   cursor: 'pointer',
@@ -379,7 +379,7 @@ export function SimpleMasterdataDetailsPage(props: {
                 {photoThumbs[p.id]?.dataUrl ? (
                   <img src={photoThumbs[p.id]?.dataUrl ?? ''} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)' }}>
                     Фото
                   </div>
                 )}
@@ -388,7 +388,7 @@ export function SimpleMasterdataDetailsPage(props: {
           </div>
         </div>
       ) : (
-        <div style={{ color: '#6b7280' }}>Фото не добавлены.</div>
+        <div style={{ color: 'var(--subtle)' }}>Фото не добавлены.</div>
       )}
     </div>
   );
@@ -435,7 +435,7 @@ export function SimpleMasterdataDetailsPage(props: {
             style={{
               width: '100%',
               padding: '8px 10px',
-              borderRadius: 10,
+              borderRadius: 0,
               border: '1px solid var(--input-border)',
               background: props.canEdit ? 'var(--input-bg)' : 'var(--input-bg-disabled)',
               color: 'var(--text)',
@@ -562,9 +562,9 @@ export function SimpleMasterdataDetailsPage(props: {
           </Button>
         </RowActions>
       }
-      status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
     >
-        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ padding: 12 }}>
           <DraggableFieldList
             items={mainFields}
             getKey={(f) => f.code}
@@ -587,13 +587,13 @@ export function SimpleMasterdataDetailsPage(props: {
                   gap: 8,
                   alignItems: 'center',
                   padding: '4px 6px',
-                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                  border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
                   background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                 }}
               >
                 <div
                   style={{
-                    color: '#6b7280',
+                    color: 'var(--subtle)',
                     alignSelf: field.code === 'description' ? 'start' : 'center',
                     paddingTop: field.code === 'description' ? 6 : 0,
                   }}

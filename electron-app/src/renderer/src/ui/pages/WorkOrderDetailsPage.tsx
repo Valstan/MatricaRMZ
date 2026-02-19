@@ -222,7 +222,7 @@ export function WorkOrderDetailsPage(props: { id: string; onClose: () => void; c
         />
       </div>
 
-      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы в наряде</div>
         <table className="list-table">
           <thead>
@@ -313,7 +313,7 @@ export function WorkOrderDetailsPage(props: { id: string; onClose: () => void; c
         )}
       </div>
 
-      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Состав бригады и КТУ</div>
         <table className="list-table">
           <thead>

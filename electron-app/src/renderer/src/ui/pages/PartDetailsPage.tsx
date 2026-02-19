@@ -63,12 +63,12 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
       style={{
         width: '100%',
         padding: '9px 12px',
-        borderRadius: 12,
-        border: focused ? '1px solid #2563eb' : '1px solid rgba(15, 23, 42, 0.25)',
+        borderRadius: 0,
+        border: focused ? '1px solid var(--input-border-focus)' : '1px solid var(--input-border)',
         outline: 'none',
-        background: props.disabled ? 'rgba(241,245,249,0.8)' : 'rgba(255,255,255,0.95)',
-        color: '#0b1220',
-        boxShadow: focused ? '0 0 0 4px rgba(37, 99, 235, 0.18)' : '0 10px 18px rgba(15, 23, 42, 0.06)',
+        background: props.disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
+        color: 'var(--text)',
+        boxShadow: focused ? 'var(--input-shadow-focus)' : 'var(--input-shadow)',
         fontFamily: 'inherit',
         fontSize: 14,
         lineHeight: 1.4,
@@ -641,7 +641,7 @@ export function PartDetailsPage(props: {
   if (!part) {
     return (
       <div>
-        {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+        {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
       </div>
     );
   }
@@ -775,7 +775,7 @@ export function PartDetailsPage(props: {
               }}
             />
             {customerStatus && (
-              <span style={{ color: customerStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{customerStatus}</span>
+              <span style={{ color: customerStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{customerStatus}</span>
             )}
           </div>
         ),
@@ -896,15 +896,15 @@ export function PartDetailsPage(props: {
           )}
         </RowActions>
       }
-      status={status ? <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
     >
-      {status && <div className="entity-card-span-full" style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div className="entity-card-span-full" style={{ marginBottom: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
 
-        <div className="entity-card-span-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
+        <div className="entity-card-span-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(520px, 100%), 1fr))', gap: 10 }}>
         {/* Core */}
         <SectionCard
           title="Основное"
-          style={{ borderRadius: 12, padding: 16 }}
+          style={{ borderRadius: 0, padding: 16 }}
           actions={
             props.canEdit ? (
               <Button variant="ghost" tone="success" onClick={() => void saveCore()}>
@@ -936,13 +936,13 @@ export function PartDetailsPage(props: {
                   gap: 8,
                   alignItems: 'center',
                   padding: '4px 6px',
-                  border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                  border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
                   background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                 }}
               >
                 <div
                   style={{
-                    color: '#6b7280',
+                    color: 'var(--subtle)',
                     alignSelf: field.code === 'description' ? 'start' : 'center',
                     paddingTop: field.code === 'description' ? 10 : 0,
                   }}
@@ -956,24 +956,24 @@ export function PartDetailsPage(props: {
         </SectionCard>
 
         {/* Meta / placeholders for next steps */}
-        <SectionCard title="Карточка" style={{ borderRadius: 12, padding: 16 }}>
-          <div style={{ marginTop: 10, color: '#6b7280', fontSize: 13 }}>
+        <SectionCard title="Карточка" style={{ borderRadius: 0, padding: 16 }}>
+          <div style={{ marginTop: 10, color: 'var(--subtle)', fontSize: 13 }}>
             <div>
-              <span style={{ color: '#111827' }}>ID:</span> {part.id}
+              <span style={{ color: 'var(--text)' }}>ID:</span> {part.id}
             </div>
             <div style={{ marginTop: 6 }}>
-              <span style={{ color: '#111827' }}>Создано:</span> {new Date(part.createdAt).toLocaleString('ru-RU')}
+              <span style={{ color: 'var(--text)' }}>Создано:</span> {new Date(part.createdAt).toLocaleString('ru-RU')}
             </div>
             <div style={{ marginTop: 6 }}>
-              <span style={{ color: '#111827' }}>Обновлено:</span> {new Date(part.updatedAt).toLocaleString('ru-RU')}
+              <span style={{ color: 'var(--text)' }}>Обновлено:</span> {new Date(part.updatedAt).toLocaleString('ru-RU')}
             </div>
           </div>
 
-          <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+          <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
             <strong>Связи</strong>
             <div style={{ marginTop: 10 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div style={{ color: '#6b7280', fontSize: 13 }}>Марки двигателя</div>
+                <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Марки двигателя</div>
                 <span style={{ flex: 1 }} />
                 <Button variant="ghost" tone="neutral" onClick={() => void loadEngineBrands()}>
                   Обновить
@@ -981,7 +981,7 @@ export function PartDetailsPage(props: {
               </div>
 
               {engineBrandStatus && (
-                <div style={{ marginTop: 8, color: engineBrandStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 13 }}>
+                <div style={{ marginTop: 8, color: engineBrandStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>
                   {engineBrandStatus}
                 </div>
               )}
@@ -1000,13 +1000,13 @@ export function PartDetailsPage(props: {
                   }}
                 />
                 {engineBrandOptions.length === 0 && (
-                  <div style={{ marginTop: 8, color: '#6b7280', fontSize: 13 }}>
+                  <div style={{ marginTop: 8, color: 'var(--subtle)', fontSize: 13 }}>
                     Справочник пуст (создайте марки в «Справочники»).
                   </div>
                 )}
               </div>
 
-              <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
+              <div style={{ marginTop: 10, color: 'var(--subtle)', fontSize: 12 }}>
                 Выбрано: {engineBrandIds.length}
                 {engineBrandIds.length > 0 && (
                   <>
@@ -1048,12 +1048,12 @@ export function PartDetailsPage(props: {
         </div>
 
         {/* Extra fields */}
-        <div style={{ gridColumn: '1 / -1', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+        <div style={{ gridColumn: '1 / -1', border: '1px solid var(--border)', borderRadius: 0, padding: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <strong>Дополнительные поля</strong>
             <span style={{ flex: 1 }} />
             {addFieldStatus && (
-              <span style={{ color: addFieldStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{addFieldStatus}</span>
+              <span style={{ color: addFieldStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{addFieldStatus}</span>
             )}
             {props.canEdit && (
               <Button
@@ -1066,20 +1066,20 @@ export function PartDetailsPage(props: {
                 {addFieldOpen ? 'Закрыть' : 'Добавить поле'}
               </Button>
             )}
-            <span style={{ color: '#6b7280', fontSize: 12 }}>Все остальные поля (в т.ч. файлы/JSON) редактируются здесь.</span>
+            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Все остальные поля (в т.ч. файлы/JSON) редактируются здесь.</span>
           </div>
 
           {addFieldOpen && props.canEdit && (
-            <div style={{ marginBottom: 14, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Новое поле для деталей (появится в карточке у всех деталей).</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8, alignItems: 'center' }}>
+            <div style={{ marginBottom: 14, border: '1px solid var(--border)', borderRadius: 0, padding: 12 }}>
+              <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 8 }}>Новое поле для деталей (появится в карточке у всех деталей).</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
                 <Input value={newFieldCode} onChange={(e) => setNewFieldCode(e.target.value)} placeholder="code (например: material)" />
                 <Input value={newFieldName} onChange={(e) => setNewFieldName(e.target.value)} placeholder="название (например: Материал)" />
 
                 <select
                   value={newFieldDataType}
                   onChange={(e) => setNewFieldDataType(e.target.value as any)}
-                  style={{ padding: '9px 12px', borderRadius: 12, border: '1px solid rgba(15, 23, 42, 0.25)' }}
+                  style={{ padding: '9px 12px', borderRadius: 0, border: '1px solid var(--input-border)' }}
                 >
                   <option value="text">text</option>
                   <option value="number">number</option>
@@ -1091,7 +1091,7 @@ export function PartDetailsPage(props: {
 
                 <Input value={newFieldSortOrder} onChange={(e) => setNewFieldSortOrder(e.target.value)} placeholder="sortOrder (например: 300)" />
 
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: 'var(--text)', fontSize: 14 }}>
                   <input type="checkbox" checked={newFieldIsRequired} onChange={(e) => setNewFieldIsRequired(e.target.checked)} />
                   обязательное
                 </label>
@@ -1104,7 +1104,7 @@ export function PartDetailsPage(props: {
                         setNewFieldLinkTarget(e.target.value);
                         setNewFieldLinkTouched(true);
                       }}
-                      style={{ padding: '9px 12px', borderRadius: 12, border: '1px solid rgba(15, 23, 42, 0.25)' }}
+                      style={{ padding: '9px 12px', borderRadius: 0, border: '1px solid var(--input-border)' }}
                     >
                       <option value="">связь с (раздел)…</option>
                       {newFieldLinkOptions.map((opt) => (
@@ -1128,10 +1128,10 @@ export function PartDetailsPage(props: {
                       >
                         Сбросить к рекомендуемому
                       </Button>
-                      {!recommendedLinkCode && <span style={{ color: '#6b7280', fontSize: 12 }}>Нет рекомендации</span>}
+                      {!recommendedLinkCode && <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Нет рекомендации</span>}
                     </div>
                     {(newFieldStandardType || newFieldRecommendedType) && (
-                      <div style={{ color: '#6b7280', fontSize: 12 }}>
+                      <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
                         {newFieldStandardType && (
                           <>
                             Стандартный: <strong>{newFieldStandardType.name}</strong>
@@ -1172,7 +1172,7 @@ export function PartDetailsPage(props: {
           )}
 
           {extraAttrs.length === 0 ? (
-            <div style={{ color: '#6b7280', fontSize: 13 }}>Нет дополнительных полей.</div>
+            <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Нет дополнительных полей.</div>
           ) : (
             <DraggableFieldList
               items={orderFieldsByDefs(extraAttrs, partDefs)}
@@ -1202,25 +1202,25 @@ export function PartDetailsPage(props: {
                       flexDirection: 'column',
                       gap: 6,
                       padding: '6px 8px',
-                      borderRadius: 8,
-                      border: state.isOver ? '1px dashed #93c5fd' : '1px solid transparent',
-                      background: state.isDragging ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                      borderRadius: 0,
+                      border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid transparent',
+                      background: state.isDragging ? 'var(--card-row-drag-bg)' : 'transparent',
                     }}
                   >
-                    <label style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>
+                    <label style={{ fontWeight: 600, fontSize: 14, color: 'var(--muted)' }}>
                       {attr.name}
-                      <span style={{ color: '#6b7280', fontWeight: 400 }}> ({attr.code})</span>
-                      {attr.isRequired && <span style={{ color: '#b91c1c' }}> *</span>}
+                      <span style={{ color: 'var(--subtle)', fontWeight: 400 }}> ({attr.code})</span>
+                      {attr.isRequired && <span style={{ color: 'var(--danger)' }}> *</span>}
                     </label>
                     {!props.canEdit || !isEditing ? (
                       <div
                         style={{
                           padding: '10px 12px',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: 8,
-                          backgroundColor: props.canEdit ? '#f9fafb' : '#ffffff',
+                          border: '1px solid var(--border)',
+                          borderRadius: 0,
+                          backgroundColor: props.canEdit ? 'var(--surface-2)' : 'var(--surface)',
                           fontSize: 14,
-                          color: '#111827',
+                          color: 'var(--text)',
                           cursor: props.canEdit ? 'pointer' : 'default',
                           whiteSpace: 'pre-wrap',
                         }}
@@ -1229,7 +1229,7 @@ export function PartDetailsPage(props: {
                         }}
                       >
                         {value === null || value === undefined ? (
-                          <span style={{ color: '#9ca3af' }}>—</span>
+                          <span style={{ color: 'var(--subtle)' }}>—</span>
                         ) : typeof value === 'string' ? (
                           linkOpt?.label ?? value
                         ) : typeof value === 'number' ? (

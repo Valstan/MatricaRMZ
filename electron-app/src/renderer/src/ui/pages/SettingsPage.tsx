@@ -1,40 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import type { UiDisplayButtonState, UiDisplayPrefs, UiDisplayTarget } from '@matricarmz/shared';
+import { DEFAULT_UI_DISPLAY_PREFS } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
-
-type UiDisplayTarget = 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-type UiDisplayButtonState = 'active' | 'inactive';
-type UiDisplayButtonStyle = {
-  fontSize: number;
-  width: number;
-  height: number;
-  paddingX: number;
-  paddingY: number;
-  gap: number;
-};
-type UiDisplayPrefs = {
-  selectedTarget: UiDisplayTarget;
-  selectedButtonState: UiDisplayButtonState;
-  departmentButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
-  sectionButtons: { active: UiDisplayButtonStyle; inactive: UiDisplayButtonStyle };
-  listFontSize: number;
-  cardFontSize: number;
-};
-const DEFAULT_UI_DISPLAY_PREFS: UiDisplayPrefs = {
-  selectedTarget: 'departmentButtons',
-  selectedButtonState: 'active',
-  departmentButtons: {
-    active: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-    inactive: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-  },
-  sectionButtons: {
-    active: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-    inactive: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-  },
-  listFontSize: 14,
-  cardFontSize: 14,
-};
 
 export function SettingsPage(props: {
   uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };

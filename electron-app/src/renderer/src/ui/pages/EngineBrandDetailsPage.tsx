@@ -256,7 +256,7 @@ export function EngineBrandDetailsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
         {props.canEdit && (
@@ -275,16 +275,16 @@ export function EngineBrandDetailsPage(props: {
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <SectionCard style={{ borderRadius: 12, padding: 12 }}>
+        <SectionCard style={{ padding: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 200px) 1fr', gap: 8 }}>
-          <div style={{ color: '#6b7280' }}>Название</div>
+          <div style={{ color: 'var(--subtle)' }}>Название</div>
           <Input
             value={name}
             disabled={!props.canEdit}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => void saveName()}
           />
-          <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Описание</div>
+          <div style={{ color: 'var(--subtle)', alignSelf: 'start', paddingTop: 6 }}>Описание</div>
           <textarea
             value={description}
             disabled={!props.canEdit}
@@ -294,7 +294,7 @@ export function EngineBrandDetailsPage(props: {
             style={{
               width: '100%',
               padding: '8px 10px',
-              borderRadius: 10,
+              borderRadius: 0,
               border: '1px solid var(--input-border)',
               background: props.canEdit ? 'var(--input-bg)' : 'var(--input-bg-disabled)',
               color: 'var(--text)',
@@ -308,7 +308,7 @@ export function EngineBrandDetailsPage(props: {
 
       <SectionCard
         title="Детали для марки"
-        style={{ marginTop: 14, borderRadius: 12, padding: 12 }}
+        style={{ marginTop: 14, padding: 12 }}
         actions={
           props.canEdit && props.canViewParts && props.canEditParts ? (
             <Button variant="ghost" onClick={() => setShowAddPart((v) => !v)}>
@@ -336,7 +336,7 @@ export function EngineBrandDetailsPage(props: {
         )}
 
         {selectedParts.length === 0 ? (
-          <div style={{ color: '#6b7280', fontSize: 13 }}>Детали не добавлены.</div>
+          <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Детали не добавлены.</div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {selectedParts.map((p) => (
@@ -348,9 +348,9 @@ export function EngineBrandDetailsPage(props: {
                   alignItems: 'center',
                   gap: 8,
                   padding: '8px 10px',
-                  borderRadius: 10,
-                  border: '1px solid #e5e7eb',
-                  background: '#fff',
+                  borderRadius: 0,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
                   cursor: props.canViewParts ? 'pointer' : 'default',
                 }}
               >
@@ -373,7 +373,7 @@ export function EngineBrandDetailsPage(props: {
                     void updateBrandParts(engineBrandPartIds.filter((id) => id !== p.id));
                   }}
                   disabled={!props.canEdit || !props.canEditParts}
-                  style={{ color: '#b91c1c' }}
+                  style={{ color: 'var(--danger)' }}
                 >
                   Убрать
                 </Button>
@@ -382,7 +382,7 @@ export function EngineBrandDetailsPage(props: {
           </div>
         )}
 
-        {partsStatus && <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>{partsStatus}</div>}
+        {partsStatus && <div style={{ marginTop: 8, color: 'var(--subtle)', fontSize: 12 }}>{partsStatus}</div>}
       </SectionCard>
 
       <AttachmentsPanel
@@ -410,7 +410,7 @@ export function EngineBrandDetailsPage(props: {
         onChange={(next) => saveFiles('attachments', next, setAttachments)}
       />
 
-      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
       </div>
     </div>
   );

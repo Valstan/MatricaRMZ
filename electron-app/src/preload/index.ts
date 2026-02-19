@@ -405,6 +405,9 @@ const matricaApi = {
       } | null;
     }) =>
       ipcRenderer.invoke('ui:prefs:set', args),
+    uiControlGet: async () => ipcRenderer.invoke('ui:control:get'),
+    uiControlSetGlobal: async (args: { uiSettings: unknown; bumpVersion?: boolean }) => ipcRenderer.invoke('ui:control:setGlobal', args),
+    uiControlSetUser: async (args: { uiSettings: unknown }) => ipcRenderer.invoke('ui:control:setUser', args),
   },
   e2eKeys: {
     status: async () => ipcRenderer.invoke('e2e:keys:status'),

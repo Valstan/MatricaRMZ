@@ -1,6 +1,17 @@
 import { ipcMain, net } from 'electron';
+import type { UiControlSettings, UiDisplayPrefs } from '@matricarmz/shared';
+import {
+  DEFAULT_UI_CONTROL_SETTINGS,
+  DEFAULT_UI_DISPLAY_PREFS,
+  UI_DEFAULTS_VERSION,
+  mergeUiControlSettings,
+  sanitizeUiControlSettings,
+  sanitizeUiDisplayPrefs,
+  uiControlToDisplayPrefs,
+} from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
+import { getSession } from '../../services/authService.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from '../../services/settingsStore.js';
 
 const THEMES = new Set(['auto', 'light', 'dark']);
@@ -16,105 +27,11 @@ type TabsLayoutPrefs = {
   activeGroup?: string | null;
 };
 
-type UiDisplayButtonState = 'active' | 'inactive';
-type UiDisplayButtonTarget = 'departmentButtons' | 'sectionButtons';
-type UiDisplayTarget = UiDisplayButtonTarget | 'listFont' | 'cardFont';
-
-type UiDisplayButtonStyle = {
-  fontSize: number;
-  width: number;
-  height: number;
-  paddingX: number;
-  paddingY: number;
-  gap: number;
-};
-
-type UiDisplayButtonConfig = {
-  active: UiDisplayButtonStyle;
-  inactive: UiDisplayButtonStyle;
-};
-
-type UiDisplayPrefs = {
-  selectedTarget: UiDisplayTarget;
-  selectedButtonState: UiDisplayButtonState;
-  departmentButtons: UiDisplayButtonConfig;
-  sectionButtons: UiDisplayButtonConfig;
-  listFontSize: number;
-  cardFontSize: number;
-};
-
-const DEFAULT_UI_DISPLAY_PREFS: UiDisplayPrefs = {
-  selectedTarget: 'departmentButtons',
-  selectedButtonState: 'active',
-  departmentButtons: {
-    active: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-    inactive: { fontSize: 26, width: 240, height: 152, paddingX: 16, paddingY: 5, gap: 8 },
-  },
-  sectionButtons: {
-    active: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-    inactive: { fontSize: 24, width: 200, height: 64, paddingX: 18, paddingY: 8, gap: 6 },
-  },
-  listFontSize: 14,
-  cardFontSize: 14,
-};
-
-function clampNumber(raw: unknown, fallback: number, min: number, max: number): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-
-function safeButtonStyle(raw: unknown, fallback: UiDisplayButtonStyle): UiDisplayButtonStyle {
-  if (!raw || typeof raw !== 'object') return { ...fallback };
-  const value = raw as Record<string, unknown>;
-  return {
-    fontSize: clampNumber(value.fontSize, fallback.fontSize, 10, 48),
-    width: clampNumber(value.width, fallback.width, 60, 480),
-    height: clampNumber(value.height, fallback.height, 24, 280),
-    paddingX: clampNumber(value.paddingX, fallback.paddingX, 0, 60),
-    paddingY: clampNumber(value.paddingY, fallback.paddingY, 0, 40),
-    gap: clampNumber(value.gap, fallback.gap, 0, 60),
-  };
-}
-
-function safeButtonConfig(raw: unknown, fallback: UiDisplayButtonConfig): UiDisplayButtonConfig {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      active: { ...fallback.active },
-      inactive: { ...fallback.inactive },
-    };
-  }
-  const value = raw as Record<string, unknown>;
-  return {
-    active: safeButtonStyle(value.active, fallback.active),
-    inactive: safeButtonStyle(value.inactive, fallback.inactive),
-  };
-}
-
-function safeUiDisplayPrefs(raw: unknown): UiDisplayPrefs {
-  const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const selectedTargetRaw = String(value.selectedTarget ?? DEFAULT_UI_DISPLAY_PREFS.selectedTarget);
-  const selectedTarget: UiDisplayTarget = ['departmentButtons', 'sectionButtons', 'listFont', 'cardFont'].includes(selectedTargetRaw)
-    ? (selectedTargetRaw as UiDisplayTarget)
-    : DEFAULT_UI_DISPLAY_PREFS.selectedTarget;
-  const selectedButtonStateRaw = String(value.selectedButtonState ?? DEFAULT_UI_DISPLAY_PREFS.selectedButtonState);
-  const selectedButtonState: UiDisplayButtonState =
-    selectedButtonStateRaw === 'inactive' ? 'inactive' : 'active';
-  return {
-    selectedTarget,
-    selectedButtonState,
-    departmentButtons: safeButtonConfig(value.departmentButtons, DEFAULT_UI_DISPLAY_PREFS.departmentButtons),
-    sectionButtons: safeButtonConfig(value.sectionButtons, DEFAULT_UI_DISPLAY_PREFS.sectionButtons),
-    listFontSize: clampNumber(value.listFontSize, DEFAULT_UI_DISPLAY_PREFS.listFontSize, 10, 48),
-    cardFontSize: clampNumber(value.cardFontSize, DEFAULT_UI_DISPLAY_PREFS.cardFontSize, 10, 48),
-  };
-}
-
 function parseUiDisplayPrefs(raw: string | null): UiDisplayPrefs {
   if (!raw) return { ...DEFAULT_UI_DISPLAY_PREFS };
   try {
     const parsed = JSON.parse(raw);
-    return safeUiDisplayPrefs(parsed);
+    return sanitizeUiDisplayPrefs(parsed);
   } catch {
     return { ...DEFAULT_UI_DISPLAY_PREFS };
   }
@@ -148,6 +65,50 @@ async function pushUiDisplayPrefsRemote(args: { apiBaseUrl: string; clientId: st
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
+  }
+}
+
+async function fetchJsonWithAuth(
+  ctx: IpcContext,
+  args: { path: string; method?: 'GET' | 'PATCH'; body?: unknown },
+): Promise<any | null> {
+  const apiBaseUrl = String(ctx.mgr.getApiBaseUrl() ?? '').trim();
+  if (!apiBaseUrl) return null;
+  const session = await getSession(ctx.sysDb).catch(() => null);
+  const token = String(session?.accessToken ?? '').trim();
+  if (!token) return null;
+  const res = await net.fetch(joinUrl(apiBaseUrl, args.path), {
+    method: args.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(args.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(args.body !== undefined ? { body: JSON.stringify(args.body) } : {}),
+  });
+  if (!res.ok) return null;
+  return await res.json().catch(() => null);
+}
+
+async function fetchClientGlobalDefaults(ctx: IpcContext): Promise<{ globalDefaults: UiControlSettings; uiDefaultsVersion: number }> {
+  const apiBaseUrl = String(ctx.mgr.getApiBaseUrl() ?? '').trim();
+  const clientId = String((await settingsGetString(ctx.sysDb, SettingsKey.ClientId)) ?? '').trim();
+  if (!apiBaseUrl || !clientId) {
+    return { globalDefaults: DEFAULT_UI_CONTROL_SETTINGS, uiDefaultsVersion: UI_DEFAULTS_VERSION };
+  }
+  const url = joinUrl(apiBaseUrl, `/client/settings?clientId=${encodeURIComponent(clientId)}`);
+  const res = await net.fetch(url);
+  if (!res.ok) return { globalDefaults: DEFAULT_UI_CONTROL_SETTINGS, uiDefaultsVersion: UI_DEFAULTS_VERSION };
+  const json = (await res.json().catch(() => null)) as any;
+  const rawSettings = json?.settings?.uiGlobalSettingsJson;
+  const rawVersion = Number(json?.settings?.uiDefaultsVersion ?? UI_DEFAULTS_VERSION);
+  if (!rawSettings) return { globalDefaults: DEFAULT_UI_CONTROL_SETTINGS, uiDefaultsVersion: rawVersion };
+  try {
+    return {
+      globalDefaults: sanitizeUiControlSettings(JSON.parse(String(rawSettings))),
+      uiDefaultsVersion: Number.isFinite(rawVersion) ? rawVersion : UI_DEFAULTS_VERSION,
+    };
+  } catch {
+    return { globalDefaults: DEFAULT_UI_CONTROL_SETTINGS, uiDefaultsVersion: UI_DEFAULTS_VERSION };
   }
 }
 
@@ -209,7 +170,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
       const safeTheme = THEMES.has(theme) ? theme : 'auto';
       const safeChatSide = CHAT_SIDES.has(chatSide) ? chatSide : 'right';
       const currentDisplayPrefs = parseUiDisplayPrefs(await settingsGetString(ctx.sysDb, SettingsKey.UiDisplayPrefs));
-      const nextDisplayPrefs = args.displayPrefs == null ? currentDisplayPrefs : safeUiDisplayPrefs(args.displayPrefs);
+      const nextDisplayPrefs = args.displayPrefs == null ? currentDisplayPrefs : sanitizeUiDisplayPrefs(args.displayPrefs);
       const nextDisplayPrefsJson = JSON.stringify(nextDisplayPrefs);
       await settingsSetString(ctx.sysDb, SettingsKey.UiTheme, safeTheme);
       await settingsSetString(ctx.sysDb, SettingsKey.UiChatSide, safeChatSide);
@@ -242,4 +203,77 @@ export function registerSettingsIpc(ctx: IpcContext) {
       return { ok: true, theme: safeTheme, chatSide: safeChatSide, enterAsTab, displayPrefs: nextDisplayPrefs, tabsLayout: nextLayout };
     },
   );
+
+  ipcMain.handle('ui:control:get', async () => {
+    try {
+      const globalPayload = await fetchClientGlobalDefaults(ctx);
+      const appliedVersionRaw = await settingsGetString(ctx.sysDb, SettingsKey.UiDefaultsVersionApplied);
+      const appliedVersion = Number(appliedVersionRaw ?? 0);
+      if (Number(globalPayload.uiDefaultsVersion) > (Number.isFinite(appliedVersion) ? appliedVersion : 0)) {
+        const globalDisplayPrefs = uiControlToDisplayPrefs(globalPayload.globalDefaults);
+        await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, JSON.stringify(globalDisplayPrefs)).catch(() => {});
+        await settingsSetString(ctx.sysDb, SettingsKey.UiDefaultsVersionApplied, String(globalPayload.uiDefaultsVersion)).catch(() => {});
+      }
+      const userRes = await fetchJsonWithAuth(ctx, { path: '/auth/ui-settings', method: 'GET' });
+      const userSettings = userRes?.ok && userRes?.userSettings ? sanitizeUiControlSettings(userRes.userSettings) : null;
+      const effective = userSettings ? mergeUiControlSettings(globalPayload.globalDefaults, userSettings) : globalPayload.globalDefaults;
+      const displayPrefs = uiControlToDisplayPrefs(effective);
+      await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, JSON.stringify(displayPrefs)).catch(() => {});
+      return {
+        ok: true,
+        uiDefaultsVersion: Number(globalPayload.uiDefaultsVersion ?? UI_DEFAULTS_VERSION),
+        globalDefaults: globalPayload.globalDefaults,
+        userSettings,
+        effective,
+      };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('ui:control:setGlobal', async (_e, args: { uiSettings: unknown; bumpVersion?: boolean }) => {
+    try {
+      const safeSettings = sanitizeUiControlSettings(args?.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+      const res = await fetchJsonWithAuth(ctx, {
+        path: '/auth/ui-settings/global',
+        method: 'PATCH',
+        body: { uiSettings: safeSettings, bumpVersion: args?.bumpVersion !== false },
+      });
+      if (!res?.ok) return { ok: false, error: String(res?.error ?? 'request failed') };
+      const globalDefaults = sanitizeUiControlSettings(res.globalDefaults ?? safeSettings);
+      return {
+        ok: true,
+        uiDefaultsVersion: Number(res.uiDefaultsVersion ?? UI_DEFAULTS_VERSION),
+        globalDefaults,
+      };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('ui:control:setUser', async (_e, args: { uiSettings: unknown }) => {
+    try {
+      const safeSettings = sanitizeUiControlSettings(args?.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+      const res = await fetchJsonWithAuth(ctx, {
+        path: '/auth/ui-settings',
+        method: 'PATCH',
+        body: { uiSettings: safeSettings },
+      });
+      if (!res?.ok) return { ok: false, error: String(res?.error ?? 'request failed') };
+      const globalDefaults = sanitizeUiControlSettings(res.globalDefaults ?? DEFAULT_UI_CONTROL_SETTINGS);
+      const userSettings = sanitizeUiControlSettings(res.userSettings ?? safeSettings);
+      const effective = sanitizeUiControlSettings(res.effective ?? mergeUiControlSettings(globalDefaults, userSettings));
+      const displayPrefs = uiControlToDisplayPrefs(effective);
+      await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, JSON.stringify(displayPrefs)).catch(() => {});
+      return {
+        ok: true,
+        uiDefaultsVersion: Number(res.uiDefaultsVersion ?? UI_DEFAULTS_VERSION),
+        globalDefaults,
+        userSettings,
+        effective,
+      };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
 }

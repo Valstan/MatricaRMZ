@@ -638,7 +638,7 @@ export function EmployeeDetailsPage(props: {
               void saveAttr(def.code, e.target.checked);
             }}
           />
-          <span style={{ color: '#6b7280', fontSize: 12 }}>{value === true ? 'да' : 'нет'}</span>
+          <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{value === true ? 'да' : 'нет'}</span>
         </label>
       );
     }
@@ -906,7 +906,7 @@ export function EmployeeDetailsPage(props: {
               }
             }}
             disabled={!props.canEdit}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
           >
             <option value="working">работает</option>
             <option value="fired">уволен</option>
@@ -1030,9 +1030,9 @@ export function EmployeeDetailsPage(props: {
           </Button>
         </RowActions>
       }
-      status={departmentLabel ? <span style={{ color: '#6b7280' }}>{departmentLabel}</span> : null}
+      status={departmentLabel ? <span style={{ color: 'var(--subtle)' }}>{departmentLabel}</span> : null}
     >
-      <SectionCard style={{ borderRadius: 12, padding: 12 }}>
+      <SectionCard style={{ padding: 12 }}>
       <DraggableFieldList
         items={mainFields}
         getKey={(f) => f.code}
@@ -1056,25 +1056,25 @@ export function EmployeeDetailsPage(props: {
               alignItems: 'center',
               maxWidth: 820,
               padding: '4px 6px',
-              border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+              border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
               background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
             }}
           >
-            <div style={{ color: '#6b7280' }}>{field.label}</div>
+            <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
             {field.render}
           </div>
         )}
       />
       </SectionCard>
 
-      <SectionCard title="Переводы" style={{ border: '1px solid #e5e7eb' }}>
+      <SectionCard title="Переводы" style={{ border: '1px solid var(--border)' }}>
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          {transfers.length === 0 && <div style={{ color: '#6b7280' }}>Переводов нет</div>}
+          {transfers.length === 0 && <div style={{ color: 'var(--subtle)' }}>Переводов нет</div>}
           {transfers.map((t) => (
-            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, alignItems: 'center' }}>
-              <div style={{ color: '#111827' }}>{t.kind === 'department' ? 'Подразделение' : 'Должность'}</div>
-              <div style={{ color: '#6b7280' }}>{t.date ? new Date(t.date).toLocaleDateString('ru-RU') : '—'}</div>
-              <div style={{ color: '#111827' }}>{t.value || '—'}</div>
+            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
+              <div style={{ color: 'var(--text)' }}>{t.kind === 'department' ? 'Подразделение' : 'Должность'}</div>
+              <div style={{ color: 'var(--subtle)' }}>{t.date ? new Date(t.date).toLocaleDateString('ru-RU') : '—'}</div>
+              <div style={{ color: 'var(--text)' }}>{t.value || '—'}</div>
               <Button
                 variant="ghost"
                 onClick={async () => {
@@ -1090,12 +1090,12 @@ export function EmployeeDetailsPage(props: {
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, alignItems: 'center' }}>
+        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
           <select
             value={transferKind}
             onChange={(e) => setTransferKind(e.target.value)}
             disabled={!props.canEdit}
-            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+            style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
           >
             <option value="position">Перевод на должность</option>
             <option value="department">Перевод в подразделение</option>
@@ -1145,7 +1145,7 @@ export function EmployeeDetailsPage(props: {
       <SectionCard
         className="entity-card-span-full"
         title="Дополнительные поля"
-        style={{ border: '1px solid #e5e7eb' }}
+        style={{ border: '1px solid var(--border)' }}
         actions={
           <Button variant="ghost" onClick={() => void loadCustomDefs()}>
             Обновить
@@ -1155,7 +1155,7 @@ export function EmployeeDetailsPage(props: {
 
         <div style={{ marginTop: 10 }}>
           {customDefs.length === 0 ? (
-            <div style={{ color: '#6b7280' }}>(доп. полей нет)</div>
+            <div style={{ color: 'var(--subtle)' }}>(доп. полей нет)</div>
           ) : (
             <DraggableFieldList
               items={orderFieldsByDefs(customDefs, employeeDefs as unknown as AttributeDefRow[])}
@@ -1180,11 +1180,11 @@ export function EmployeeDetailsPage(props: {
                     alignItems: 'center',
                     maxWidth: 820,
                     padding: '4px 6px',
-                    border: state.isOver ? '1px dashed #93c5fd' : '1px solid var(--card-row-border)',
+                    border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
                     background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
                   }}
                 >
-                  <div style={{ color: '#6b7280' }}>{def.name}</div>
+                  <div style={{ color: 'var(--subtle)' }}>{def.name}</div>
                   {renderCustomField(def)}
                 </div>
               )}
@@ -1193,14 +1193,14 @@ export function EmployeeDetailsPage(props: {
         </div>
 
         {props.canEdit && (
-          <div style={{ marginTop: 12, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить поле</div>
+          <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 6 }}>Добавить поле</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 200px 140px', gap: 8, alignItems: 'center' }}>
               <Input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Название поля" />
               <select
                 value={customDataType}
                 onChange={(e) => setCustomDataType(e.target.value)}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
               >
                 <option value="text">Текст</option>
                 <option value="number">Число</option>
@@ -1217,7 +1217,7 @@ export function EmployeeDetailsPage(props: {
                       setCustomLinkTargetCode(e.target.value);
                       setCustomLinkTouched(true);
                     }}
-                    style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                    style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
                   >
                     <option value="">выберите справочник…</option>
                     {linkTypeOptions.map((opt) => (
@@ -1241,10 +1241,10 @@ export function EmployeeDetailsPage(props: {
                     >
                       Сбросить к рекомендуемому
                     </Button>
-                    {!recommendedLinkCode && <span style={{ color: '#6b7280', fontSize: 12 }}>Нет рекомендации</span>}
+                    {!recommendedLinkCode && <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Нет рекомендации</span>}
                   </div>
                   {(standardType || recommendedType) && (
-                    <div style={{ color: '#6b7280', fontSize: 12 }}>
+                    <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
                       {standardType && (
                         <>
                           Стандартный: <strong>{standardType.name}</strong>
@@ -1260,18 +1260,18 @@ export function EmployeeDetailsPage(props: {
                   )}
                 </div>
               ) : (
-                <div style={{ color: '#6b7280', fontSize: 12 }}>Тип данных</div>
+                <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Тип данных</div>
               )}
               <Button onClick={async () => void createCustomField()} disabled={!customName.trim()}>
                 Добавить
               </Button>
             </div>
-            {customStatus && <div style={{ marginTop: 8, color: customStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{customStatus}</div>}
+            {customStatus && <div style={{ marginTop: 8, color: customStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{customStatus}</div>}
           </div>
         )}
       </SectionCard>
 
-      <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
+      <div style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 0, padding: 12 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <strong>Пользователи и права доступа</strong>
           <span style={{ flex: 1 }} />
@@ -1283,7 +1283,7 @@ export function EmployeeDetailsPage(props: {
           {accountUser ? (
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', gap: 10, alignItems: 'center' }}>
-                <div style={{ color: '#6b7280', fontSize: 12 }}>Логин</div>
+                <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Логин</div>
                 <Input value={accountLogin} onChange={(e) => setAccountLogin(e.target.value)} placeholder="логин" disabled={!canEditLoginPassword} />
                 <Button
                   variant="ghost"
@@ -1302,7 +1302,7 @@ export function EmployeeDetailsPage(props: {
               </div>
 
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--text)', fontSize: 14 }}>
                   Роль
                   <select
                     value={accountRole}
@@ -1314,7 +1314,7 @@ export function EmployeeDetailsPage(props: {
                       await loadAccountPerms();
                     }}
                     disabled={!canEditRole}
-                    style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                    style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
                   >
                     <option value="user">user</option>
                     <option value="employee" disabled={!canCreateEmployee}>
@@ -1329,7 +1329,7 @@ export function EmployeeDetailsPage(props: {
                   </select>
                 </label>
 
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--text)', fontSize: 14 }}>
                   <input
                     type="checkbox"
                     checked={accountActive}
@@ -1372,11 +1372,11 @@ export function EmployeeDetailsPage(props: {
             </div>
           ) : (
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-              <div style={{ color: '#6b7280' }}>Учётной записи нет.</div>
+              <div style={{ color: 'var(--subtle)' }}>Учётной записи нет.</div>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
-                <div style={{ color: '#6b7280' }}>Логин</div>
+                <div style={{ color: 'var(--subtle)' }}>Логин</div>
                 <Input value={createLogin} onChange={(e) => setCreateLogin(e.target.value)} placeholder="логин" disabled={!canEditLoginPassword} />
-                <div style={{ color: '#6b7280' }}>Пароль</div>
+                <div style={{ color: 'var(--subtle)' }}>Пароль</div>
                 <Input
                   type="password"
                   value={createPassword}
@@ -1384,11 +1384,11 @@ export function EmployeeDetailsPage(props: {
                   placeholder="пароль"
                   disabled={!canEditLoginPassword}
                 />
-                <div style={{ color: '#6b7280' }}>Роль</div>
+                <div style={{ color: 'var(--subtle)' }}>Роль</div>
                 <select
                   value={createRole}
                   onChange={(e) => setCreateRole(e.target.value)}
-                  style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
+                  style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
                   disabled={!canEditRole}
                 >
                   <option value="user">user</option>
@@ -1399,7 +1399,7 @@ export function EmployeeDetailsPage(props: {
                     admin
                   </option>
                 </select>
-                <div style={{ color: '#6b7280' }}>Активность</div>
+                <div style={{ color: 'var(--subtle)' }}>Активность</div>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input type="checkbox" checked={createActive} onChange={(e) => setCreateActive(e.target.checked)} disabled={!canToggleAccess} />
                   доступ к программе
@@ -1439,7 +1439,7 @@ export function EmployeeDetailsPage(props: {
           )}
 
           {accountPerms && (
-            <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <strong>Права</strong>
                 <span style={{ flex: 1 }} />
@@ -1450,13 +1450,13 @@ export function EmployeeDetailsPage(props: {
 
               <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
                 <Input value={permQuery} onChange={(e) => setPermQuery(e.target.value)} placeholder="Поиск прав…" />
-                <div style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>
+                <div style={{ color: 'var(--subtle)', fontSize: 12, whiteSpace: 'nowrap' }}>
                   Пользователь:{' '}
-                  <span style={{ fontWeight: 800, color: '#111827' }}>{accountPerms.user.username}</span> ({accountPerms.user.role})
+                  <span style={{ fontWeight: 800, color: 'var(--text)' }}>{accountPerms.user.username}</span> ({accountPerms.user.role})
                 </div>
               </div>
 
-              <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 0, overflow: 'hidden' }}>
                 <div style={{ maxHeight: 520, overflowY: 'auto', padding: 12 }}>
                   {Object.entries(
                     (accountPerms.allCodes ?? [])
@@ -1473,7 +1473,7 @@ export function EmployeeDetailsPage(props: {
                       }, {}),
                   ).map(([group, codes]) => (
                     <div key={group} style={{ marginBottom: 14 }}>
-                      <div style={{ fontWeight: 900, color: '#111827', marginBottom: 8 }}>{group}</div>
+                      <div style={{ fontWeight: 900, color: 'var(--text)', marginBottom: 8 }}>{group}</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
                         {codes.map((code) => {
                           const effective = accountPerms.effective?.[code] === true;
@@ -1492,25 +1492,25 @@ export function EmployeeDetailsPage(props: {
                                 gridTemplateColumns: '1fr 140px',
                                 gap: 10,
                                 alignItems: 'center',
-                                border: '1px solid #f3f4f6',
-                                borderRadius: 12,
+                                border: '1px solid var(--border)',
+                                borderRadius: 0,
                                 padding: 10,
-                                background: locked ? '#f9fafb' : '#fff',
+                                background: locked ? 'var(--surface-2)' : 'var(--surface)',
                               }}
                             >
                               <div>
-                                <div style={{ fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>
+                                <div style={{ fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>
                                   {permTitleRu(code)}
                                   {adminOnly && (
-                                    <span style={{ marginLeft: 8, fontSize: 12, color: '#b91c1c', fontWeight: 800 }}>
+                                    <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--danger)', fontWeight: 800 }}>
                                       только admin
                                     </span>
                                   )}
                                   {override !== null && (
-                                    <span style={{ marginLeft: 8, fontSize: 12, color: '#6b7280' }}>(настроено вручную)</span>
+                                    <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--subtle)' }}>(настроено вручную)</span>
                                   )}
                                 </div>
-                                <div style={{ marginTop: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#6b7280' }}>
+                                <div style={{ marginTop: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: 'var(--subtle)' }}>
                                   {code}
                                 </div>
                               </div>
@@ -1529,7 +1529,7 @@ export function EmployeeDetailsPage(props: {
                                     await loadAccountPerms();
                                   }}
                                 />
-                                <span style={{ fontSize: 12, color: '#6b7280' }}>{effective ? 'вкл' : 'выкл'}</span>
+                                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{effective ? 'вкл' : 'выкл'}</span>
                               </label>
                             </div>
                           );
@@ -1538,15 +1538,15 @@ export function EmployeeDetailsPage(props: {
                     </div>
                   ))}
 
-                  {accountPerms.allCodes.length === 0 && <div style={{ color: '#6b7280' }}>(права не загружены)</div>}
+                  {accountPerms.allCodes.length === 0 && <div style={{ color: 'var(--subtle)' }}>(права не загружены)</div>}
                 </div>
               </div>
             </div>
           )}
 
-          {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{accountStatus}</div>}
+          {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{accountStatus}</div>}
         </div>
-      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
     </EntityCardShell>
   );
 }
