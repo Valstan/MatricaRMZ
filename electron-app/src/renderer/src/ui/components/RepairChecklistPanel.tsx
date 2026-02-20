@@ -710,12 +710,14 @@ export function RepairChecklistPanel(props: {
           {activeTemplate.items.map((it) => {
             const a: any = (answers as any)[it.id];
             const isDefectResultsTable = props.stage === 'defect' && it.kind === 'table' && it.id === 'defect_items';
+            const isCompletenessGroupsTable = props.stage === 'completeness' && it.kind === 'table' && it.id === 'completeness_items';
+            const isWideTableRow = isDefectResultsTable || isCompletenessGroupsTable;
             return (
               <React.Fragment key={it.id}>
-                <div style={{ color: '#334155', ...(isDefectResultsTable ? { gridColumn: '1 / -1' } : {}) }}>
+                <div style={{ color: '#334155', ...(isWideTableRow ? { gridColumn: '1 / -1' } : {}) }}>
                   {it.label} {it.required ? <span style={{ color: '#b91c1c' }}>*</span> : null}
                 </div>
-                <div style={isDefectResultsTable ? { gridColumn: '1 / -1' } : undefined}>
+                <div style={isWideTableRow ? { gridColumn: '1 / -1' } : undefined}>
                   {it.kind === 'text' && (
                     <Input
                       value={a?.kind === 'text' ? a.value : ''}
@@ -964,8 +966,8 @@ function TableEditor(props: {
 
   function getColumnSizing(columnId: string): React.CSSProperties | undefined {
     if (!isDefectItemsTable) return undefined;
-    if (columnId === 'part_number') return { minWidth: 220 };
-    if (columnId === 'repairable_qty' || columnId === 'scrap_qty') return { minWidth: 170 };
+    if (columnId === 'part_number') return { minWidth: 140 };
+    if (columnId === 'repairable_qty' || columnId === 'scrap_qty') return { minWidth: 126 };
     return undefined;
   }
 
@@ -1105,7 +1107,7 @@ function TableEditor(props: {
                   ) : (
                     <Input
                       value={String((r as any)[c.id] ?? '')}
-                      style={isDefectItemsTable && c.id === 'part_number' ? { minWidth: 180 } : undefined}
+                      style={isDefectItemsTable && c.id === 'part_number' ? { minWidth: 120 } : undefined}
                       disabled={!props.canEdit}
                       onChange={(e) => setCell(idx, c.id, e.target.value)}
                       onBlur={() => props.canEdit && props.onSave(rows)}
