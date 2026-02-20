@@ -13,7 +13,9 @@ export function FormGrid(props: {
       style={{
         display: 'grid',
         width: '100%',
+        maxWidth: '100%',
         gridTemplateColumns: columns,
+        justifyContent: 'center',
         gap: props.gap ?? 10,
         minWidth: props.minWidth ?? 0,
         ...props.style,

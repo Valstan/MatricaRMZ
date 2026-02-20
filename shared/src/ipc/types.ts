@@ -459,7 +459,7 @@ import type { WorkOrderPayload } from '../domain/workOrder.js';
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
-import type { UiControlSettings } from '../domain/uiControl.js';
+import type { UiControlSettings, UiPresetId } from '../domain/uiControl.js';
 import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
@@ -490,6 +490,7 @@ export type MatricaApi = {
           ok: true;
           theme: string;
           chatSide: string;
+          uiPresetId?: UiPresetId;
           enterAsTab?: boolean;
           displayPrefs?: {
             selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
@@ -520,6 +521,7 @@ export type MatricaApi = {
     uiSet: (args: {
       theme?: string;
       chatSide?: string;
+      uiPresetId?: UiPresetId;
       enterAsTab?: boolean;
       userId?: string;
       displayPrefs?: {
@@ -550,6 +552,7 @@ export type MatricaApi = {
           ok: true;
           theme: string;
           chatSide: string;
+          uiPresetId?: UiPresetId;
           enterAsTab?: boolean;
           displayPrefs?: {
             selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';

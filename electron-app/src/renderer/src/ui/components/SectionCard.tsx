@@ -8,7 +8,10 @@ export function SectionCard(props: {
   style?: React.CSSProperties;
 }) {
   return (
-    <div className={`card-panel ui-section-card${props.className ? ` ${props.className}` : ''}`} style={props.style}>
+    <div
+      className={`card-panel ui-section-card ui-content-block${props.className ? ` ${props.className}` : ''}`}
+      style={{ minWidth: 0, ...props.style }}
+    >
       {(props.title || props.actions) && (
         <div className="ui-section-header">
           {props.title ? <strong className="ui-section-title">{props.title}</strong> : <span />}

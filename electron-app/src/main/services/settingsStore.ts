@@ -38,6 +38,7 @@ export const SettingsKey = {
   // UI preferences
   UiTheme: 'ui.theme',
   UiChatSide: 'ui.chatSide',
+  UiPresetId: 'ui.presetId',
   UiEnterAsTab: 'ui.enterAsTab',
   UiTabsLayout: 'ui.tabs.layout',
   UiDisplayPrefs: 'ui.displayPrefs',

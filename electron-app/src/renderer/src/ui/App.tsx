@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent, UiControlSettings, UiDisplayPrefs } from '@matricarmz/shared';
-import { DEFAULT_UI_DISPLAY_PREFS, sanitizeUiControlSettings, uiControlToDisplayPrefs } from '@matricarmz/shared';
+import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent, UiControlSettings, UiDisplayPrefs, UiPresetId } from '@matricarmz/shared';
+import { DEFAULT_UI_CONTROL_SETTINGS, DEFAULT_UI_DISPLAY_PREFS, DEFAULT_UI_PRESET_ID, sanitizeUiControlSettings, sanitizeUiPresetId, uiControlToDisplayPrefs, withUiControlPresetApplied } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
@@ -110,14 +110,17 @@ export function App() {
   const [uiPrefs, setUiPrefs] = useState<{
     theme: 'auto' | 'light' | 'dark';
     chatSide: 'left' | 'right';
+    uiPresetId: UiPresetId;
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
   }>({
     theme: 'auto',
     chatSide: 'right',
+    uiPresetId: DEFAULT_UI_PRESET_ID,
     enterAsTab: false,
     displayPrefs: DEFAULT_UI_DISPLAY_PREFS,
   });
+  const [effectiveUiControl, setEffectiveUiControl] = useState<UiControlSettings>(DEFAULT_UI_CONTROL_SETTINGS);
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   useAutoGrowInputs();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
@@ -127,7 +130,11 @@ export function App() {
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
 
   const applyEffectiveUiSettings = useCallback((settings: UiControlSettings) => {
-    const safe = sanitizeUiControlSettings(settings);
+    setEffectiveUiControl(sanitizeUiControlSettings(settings));
+  }, []);
+
+  useEffect(() => {
+    const safe = withUiControlPresetApplied(effectiveUiControl, uiPrefs.uiPresetId);
     const displayPrefs = uiControlToDisplayPrefs(safe);
     setUiPrefs((prev) => ({ ...prev, displayPrefs }));
     const root = document.documentElement;
@@ -154,13 +161,16 @@ export function App() {
     root.style.setProperty('--ui-section-card-alt-even', `${sectionAltEven}%`);
     root.style.setProperty('--ui-table-size', `${safe.directories.tableFontSize}px`);
     root.style.setProperty('--entity-card-min-width', `${safe.directories.entityCardMinWidth}px`);
+    root.style.setProperty('--ui-content-max-width', `${safe.layout.contentMaxWidth}px`);
+    root.style.setProperty('--ui-content-block-min-width', `${safe.layout.blockMinWidth}px`);
+    root.style.setProperty('--ui-content-block-max-width', `${safe.layout.blockMaxWidth}px`);
     root.style.setProperty('--ui-datepicker-scale', String(safe.misc.datePickerScale));
     root.style.setProperty('--ui-datepicker-font-size', `${safe.misc.datePickerFontSize}px`);
     root.style.setProperty('--ui-input-autogrow-min-ch', String(safe.inputs.autoGrowMinChars));
     root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
     root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
     root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
-  }, []);
+  }, [effectiveUiControl, uiPrefs.uiPresetId]);
 
   function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
     if (a === b) return true;
@@ -208,6 +218,7 @@ export function App() {
         setUiPrefs({
           theme: r.theme ?? 'auto',
           chatSide: r.chatSide ?? 'right',
+          uiPresetId: sanitizeUiPresetId(r.uiPresetId ?? DEFAULT_UI_PRESET_ID, DEFAULT_UI_PRESET_ID),
           enterAsTab: r.enterAsTab === true,
           displayPrefs: r.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS,
         });
@@ -591,7 +602,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
-    ...(authStatus.loggedIn ? (['ui_control'] as const) : []),
+    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['ui_control'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
@@ -1916,7 +1927,7 @@ export function App() {
             />
           </div>
 
-          <div style={{ marginTop: 6, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+          <div className="ui-content-viewport" style={{ marginTop: 6, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
             {!authStatus.loggedIn && tab !== 'auth' && (
               <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
             )}

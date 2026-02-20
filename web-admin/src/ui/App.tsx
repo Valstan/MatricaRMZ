@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { DEFAULT_UI_CONTROL_SETTINGS, sanitizeUiControlSettings, type NoteItem, type NoteShareItem } from '@matricarmz/shared';
+import { DEFAULT_UI_CONTROL_SETTINGS, sanitizeUiControlSettings, withUiControlPresetApplied, type NoteItem, type NoteShareItem } from '@matricarmz/shared';
 
 import { login, logout, me, register, uiSettingsGet } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
@@ -67,11 +67,15 @@ function resolveTheme(theme: UiPrefs['theme']) {
 
 function applyUiControlToDocument(rawSettings: unknown) {
   const safe = sanitizeUiControlSettings(rawSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+  const applied = withUiControlPresetApplied(safe, safe.presets.defaultPresetId);
   const root = document.documentElement;
-  root.style.setProperty('--ui-input-autogrow-min-ch', String(safe.inputs.autoGrowMinChars));
-  root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
-  root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
-  root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
+  root.style.setProperty('--ui-content-max-width', `${applied.layout.contentMaxWidth}px`);
+  root.style.setProperty('--ui-content-block-min-width', `${applied.layout.blockMinWidth}px`);
+  root.style.setProperty('--ui-content-block-max-width', `${applied.layout.blockMaxWidth}px`);
+  root.style.setProperty('--ui-input-autogrow-min-ch', String(applied.inputs.autoGrowMinChars));
+  root.style.setProperty('--ui-input-autogrow-max-ch', String(applied.inputs.autoGrowMaxChars));
+  root.style.setProperty('--ui-input-autogrow-extra-ch', String(applied.inputs.autoGrowExtraChars));
+  root.dataset.uiInputAutogrowAll = applied.inputs.autoGrowAllFields ? '1' : '0';
 }
 
 export function App() {

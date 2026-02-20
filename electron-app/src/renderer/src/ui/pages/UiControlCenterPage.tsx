@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { UiControlSettings, UiDisplayButtonState, UiDisplayButtonStyle, UiDisplayTarget } from '@matricarmz/shared';
-import { DEFAULT_UI_CONTROL_SETTINGS, mergeUiControlSettings, sanitizeUiControlSettings } from '@matricarmz/shared';
+import type { UiControlSettings, UiDisplayButtonState, UiDisplayButtonStyle, UiDisplayTarget, UiPresetId } from '@matricarmz/shared';
+import {
+  DEFAULT_UI_CONTROL_SETTINGS,
+  UI_PRESET_IDS,
+  extractUiControlTuning,
+  mergeUiControlSettings,
+  sanitizeUiControlSettings,
+  sanitizeUiPresetId,
+  withUiControlPresetApplied,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -15,11 +23,19 @@ const PRESET_BUTTON_WIDTHS = [120, 140, 160, 180, 200, 220, 240, 260, 280, 320];
 const PRESET_BUTTON_HEIGHTS = [28, 32, 36, 40, 44, 48, 56, 64, 80, 96, 120, 152];
 const PRESET_BUTTON_PADDING = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24];
 const PRESET_ENTITY_CARD_WIDTHS = [260, 320, 360, 420, 480, 520, 560, 640, 720, 840, 960, 1080];
+const PRESET_CONTENT_WIDTHS = [1100, 1200, 1320, 1440, 1600, 1760, 1920, 2080, 2240];
+const PRESET_LAYOUT_BLOCK_WIDTHS = [260, 320, 380, 420, 480, 560, 640, 720, 820, 920, 1020, 1200];
 const PRESET_DATE_PICKER_SCALE = [1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4, 2.6, 2.8, 3];
 const PRESET_SECTION_ALT_STRENGTH = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 30];
 const PRESET_INPUT_AUTO_GROW_MIN_CHARS = [3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20];
 const PRESET_INPUT_AUTO_GROW_MAX_CHARS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 80];
 const PRESET_INPUT_AUTO_GROW_EXTRA_CHARS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12];
+const UI_PRESET_LABELS: Record<UiPresetId, string> = {
+  small: 'Компактный (13"-14")',
+  medium: 'Классический (15"-17")',
+  large: 'Широкий (21"-24")',
+  xlarge: 'Очень широкий (27"+)',
+};
 
 function parseNumericInput(raw: string, allowDecimal: boolean): number | null {
   const trimmed = String(raw ?? '').trim();
@@ -115,7 +131,7 @@ export function UiControlCenterPage(props: {
 }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
-  const [mode, setMode] = useState<Mode>('user');
+  const [mode, setMode] = useState<Mode>('global');
   const [uiDefaultsVersion, setUiDefaultsVersion] = useState<number>(1);
   const [globalDefaults, setGlobalDefaults] = useState<UiControlSettings>(DEFAULT_UI_CONTROL_SETTINGS);
   const [userSettings, setUserSettings] = useState<UiControlSettings | null>(null);
@@ -125,8 +141,27 @@ export function UiControlCenterPage(props: {
 
   const editTarget = useMemo(() => (mode === 'global' ? globalDefaults : userSettings ?? effective), [effective, globalDefaults, mode, userSettings]);
 
+  function syncCurrentPreset(next: UiControlSettings): UiControlSettings {
+    const safe = sanitizeUiControlSettings(next);
+    const presetId = sanitizeUiPresetId(safe.presets.editorPresetId, safe.presets.defaultPresetId);
+    const tuning = extractUiControlTuning(safe);
+    const withProfile = sanitizeUiControlSettings({
+      ...safe,
+      presets: {
+        ...safe.presets,
+        editorPresetId: presetId,
+        profiles: {
+          ...safe.presets.profiles,
+          [presetId]: tuning,
+        },
+      },
+    });
+    return withUiControlPresetApplied(withProfile, presetId);
+  }
+
   useEffect(() => {
-    setDraft(sanitizeUiControlSettings(editTarget));
+    const safe = sanitizeUiControlSettings(editTarget);
+    setDraft(withUiControlPresetApplied(safe, safe.presets.editorPresetId));
   }, [editTarget]);
 
   useEffect(() => {
@@ -162,7 +197,26 @@ export function UiControlCenterPage(props: {
   }, []);
 
   function patch(mutator: (prev: UiControlSettings) => UiControlSettings) {
-    setDraft((prev) => sanitizeUiControlSettings(mutator(prev)));
+    setDraft((prev) => {
+      const safePrev = sanitizeUiControlSettings(prev);
+      const editorPresetId = sanitizeUiPresetId(safePrev.presets.editorPresetId, safePrev.presets.defaultPresetId);
+      const base = withUiControlPresetApplied(safePrev, editorPresetId);
+      return syncCurrentPreset(mutator(base));
+    });
+  }
+
+  function selectEditorPreset(nextPresetId: UiPresetId) {
+    setDraft((prev) => {
+      const safe = sanitizeUiControlSettings(prev);
+      const next = sanitizeUiControlSettings({
+        ...safe,
+        presets: {
+          ...safe.presets,
+          editorPresetId: nextPresetId,
+        },
+      });
+      return withUiControlPresetApplied(next, nextPresetId);
+    });
   }
 
   function isButtonTarget(target: UiDisplayTarget): target is 'departmentButtons' | 'sectionButtons' {
@@ -194,24 +248,58 @@ export function UiControlCenterPage(props: {
   }
 
   function resetToDefaults() {
-    const next = mode === 'global' ? DEFAULT_UI_CONTROL_SETTINGS : globalDefaults;
-    setDraft(sanitizeUiControlSettings(next));
+    const nextBase = mode === 'global' ? DEFAULT_UI_CONTROL_SETTINGS : globalDefaults;
+    const safeBase = sanitizeUiControlSettings(nextBase);
+    const activePreset = sanitizeUiPresetId(draft.presets.editorPresetId, safeBase.presets.defaultPresetId);
+    const next = sanitizeUiControlSettings({
+      ...safeBase,
+      presets: {
+        ...safeBase.presets,
+        editorPresetId: activePreset,
+      },
+    });
+    setDraft(withUiControlPresetApplied(next, activePreset));
     setStatus(mode === 'global' ? 'Сброшено к базовым глобальным настройкам' : 'Сброшено к глобальным настройкам');
+  }
+
+  function resetCurrentPreset() {
+    const nextBase = mode === 'global' ? DEFAULT_UI_CONTROL_SETTINGS : globalDefaults;
+    const safeBase = sanitizeUiControlSettings(nextBase);
+    const activePreset = sanitizeUiPresetId(draft.presets.editorPresetId, safeBase.presets.defaultPresetId);
+    const baselinePreset = extractUiControlTuning(withUiControlPresetApplied(safeBase, activePreset));
+    const next = sanitizeUiControlSettings({
+      ...draft,
+      presets: {
+        ...draft.presets,
+        editorPresetId: activePreset,
+        profiles: {
+          ...draft.presets.profiles,
+          [activePreset]: baselinePreset,
+        },
+      },
+    });
+    setDraft(withUiControlPresetApplied(next, activePreset));
+    setStatus(
+      mode === 'global'
+        ? `Пресет «${UI_PRESET_LABELS[activePreset]}» сброшен к базовому глобальному профилю`
+        : `Пресет «${UI_PRESET_LABELS[activePreset]}» сброшен к текущему глобальному профилю`,
+    );
   }
 
   async function save() {
     setStatus('');
+    const payload = syncCurrentPreset(draft);
     if (mode === 'global') {
       if (!props.canEditGlobal) {
         setStatus('Недостаточно прав для изменения глобальных настроек');
         return;
       }
-      const res = await window.matrica.settings.uiControlSetGlobal({ uiSettings: draft, bumpVersion: true });
+      const res = await window.matrica.settings.uiControlSetGlobal({ uiSettings: payload, bumpVersion: true });
       if (!res?.ok) {
         setStatus(`Ошибка сохранения: ${String((res as any)?.error ?? 'unknown')}`);
         return;
       }
-      const nextGlobal = sanitizeUiControlSettings(res.globalDefaults ?? draft);
+      const nextGlobal = sanitizeUiControlSettings(res.globalDefaults ?? payload);
       setGlobalDefaults(nextGlobal);
       const nextEffective = sanitizeUiControlSettings(
         userSettings ? mergeUiControlSettings(nextGlobal, userSettings) : nextGlobal,
@@ -221,12 +309,12 @@ export function UiControlCenterPage(props: {
       setUiDefaultsVersion(Number(res.uiDefaultsVersion ?? uiDefaultsVersion + 1));
       setStatus('Глобальные настройки сохранены');
     } else {
-      const res = await window.matrica.settings.uiControlSetUser({ uiSettings: draft });
+      const res = await window.matrica.settings.uiControlSetUser({ uiSettings: payload });
       if (!res?.ok) {
         setStatus(`Ошибка сохранения: ${String((res as any)?.error ?? 'unknown')}`);
         return;
       }
-      const nextUser = sanitizeUiControlSettings(res.userSettings ?? draft);
+      const nextUser = sanitizeUiControlSettings(res.userSettings ?? payload);
       const nextEffective = sanitizeUiControlSettings(res.effective ?? nextUser);
       setUserSettings(nextUser);
       setGlobalDefaults(sanitizeUiControlSettings(res.globalDefaults ?? globalDefaults));
@@ -256,6 +344,46 @@ export function UiControlCenterPage(props: {
           Единые настройки интерфейса разделены на два режима: персональные и глобальные.
           {' '}
           Глобальные настройки доступны только суперадминистратору и применяются как базовые.
+        </div>
+        <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+          <div>
+            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Редактируемый пресет</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {UI_PRESET_IDS.map((presetId) => (
+                <Button
+                  key={`ui-control-editor-preset-${presetId}`}
+                  size="sm"
+                  variant={draft.presets.editorPresetId === presetId ? 'primary' : 'ghost'}
+                  onClick={() => selectEditorPreset(presetId)}
+                >
+                  {UI_PRESET_LABELS[presetId]}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Пресет по умолчанию для пользователей</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {UI_PRESET_IDS.map((presetId) => (
+                <Button
+                  key={`ui-control-default-preset-${presetId}`}
+                  size="sm"
+                  variant={draft.presets.defaultPresetId === presetId ? 'primary' : 'ghost'}
+                  onClick={() =>
+                    patch((p) => ({
+                      ...p,
+                      presets: {
+                        ...p.presets,
+                        defaultPresetId: presetId,
+                      },
+                    }))
+                  }
+                >
+                  {UI_PRESET_LABELS[presetId]}
+                </Button>
+              ))}
+            </div>
+          </div>
         </div>
         {status ? <div style={{ marginTop: 8, color: 'var(--muted)' }}>{status}</div> : null}
       </SectionCard>
@@ -590,6 +718,53 @@ export function UiControlCenterPage(props: {
             />
           </label>
           <label>
+            Максимальная ширина контентной области (px)
+            <NumericPresetInput
+              listId="ui-control-layout-content-max-width"
+              value={draft.layout.contentMaxWidth}
+              presets={PRESET_CONTENT_WIDTHS}
+              onValueChange={(next) => patch((p) => ({ ...p, layout: { ...p.layout, contentMaxWidth: next } }))}
+            />
+          </label>
+          <label>
+            Минимальная ширина блока (px)
+            <NumericPresetInput
+              listId="ui-control-layout-block-min-width"
+              value={draft.layout.blockMinWidth}
+              presets={PRESET_LAYOUT_BLOCK_WIDTHS}
+              onValueChange={(next) =>
+                patch((p) => {
+                  const blockMinWidth = Math.round(next);
+                  return {
+                    ...p,
+                    layout: {
+                      ...p.layout,
+                      blockMinWidth,
+                      blockMaxWidth: Math.max(blockMinWidth, Math.round(p.layout.blockMaxWidth)),
+                    },
+                  };
+                })
+              }
+            />
+          </label>
+          <label>
+            Максимальная ширина блока (px)
+            <NumericPresetInput
+              listId="ui-control-layout-block-max-width"
+              value={draft.layout.blockMaxWidth}
+              presets={PRESET_LAYOUT_BLOCK_WIDTHS}
+              onValueChange={(next) =>
+                patch((p) => ({
+                  ...p,
+                  layout: {
+                    ...p.layout,
+                    blockMaxWidth: Math.max(Math.round(p.layout.blockMinWidth), Math.round(next)),
+                  },
+                }))
+              }
+            />
+          </label>
+          <label>
             Масштаб календаря
             <NumericPresetInput
               listId="ui-control-misc-datepicker-scale"
@@ -627,6 +802,9 @@ export function UiControlCenterPage(props: {
       </SectionCard>
 
       <div style={{ display: 'flex', gap: 8 }}>
+        <Button variant="ghost" onClick={resetCurrentPreset}>
+          Сбросить текущий пресет
+        </Button>
         <Button variant="ghost" onClick={resetToDefaults}>
           Сбросить настройки по-умолчанию
         </Button>
