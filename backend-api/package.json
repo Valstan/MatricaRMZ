@@ -24,7 +24,8 @@
     "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts",
     "clients:enable-logging": "tsx src/scripts/enableClientLogging.ts",
     "erp:migrate-from-eav": "tsx src/scripts/migrateEavToErp.ts",
-    "erp:legacy-cleanup": "tsx src/scripts/erpLegacyCleanup.ts"
+    "erp:legacy-cleanup": "tsx src/scripts/erpLegacyCleanup.ts",
+    "masterdata:import-engine-brand-part-matrix": "tsx src/scripts/importEngineBrandPartMatrix.ts"
   },
   "dependencies": {
     "@matricarmz/ledger": "workspace:*",
