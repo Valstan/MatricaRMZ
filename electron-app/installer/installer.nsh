@@ -1,9 +1,6 @@
 ; NSIS customization for a one-click installer with progress only.
 
 !include "MUI2.nsh"
-!include "LogicLib.nsh"
-
-Var FullInstallFromScratch
 
 ; Only show install progress page (no dialogs/buttons).
 !insertmacro MUI_PAGE_INSTFILES
@@ -35,25 +32,19 @@ Var FullInstallFromScratch
   RMDir /r "$LOCALAPPDATA\matricarmz-updates"
 !macroend
 
-!macro AskInstallMode
-  StrCpy $FullInstallFromScratch "0"
-  IfSilent mode_done 0
-  MessageBox MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON1 \
-    "Выберите режим установки обновления:$\r$\n$\r$\nДа — Обновить программу.$\r$\nНет — Полная установка с нуля (удалит локальные файлы и папки MatricaRMZ, данные подтянутся с сервера заново)." \
-    IDYES mode_done
-  StrCpy $FullInstallFromScratch "1"
-mode_done:
-!macroend
-
 !macro customInit
   !insertmacro KillClientProcesses
-  !insertmacro AskInstallMode
-  ${If} "$FullInstallFromScratch" == "1"
-    DetailPrint "Режим установки: Полная установка с нуля"
-    !insertmacro CleanupMatricaFiles
-  ${Else}
-    DetailPrint "Режим установки: Обновить программу"
-  ${EndIf}
+  IfSilent mode_normal mode_prompt
+mode_prompt:
+  MessageBox MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON1 \
+    "Выберите режим установки обновления:$\r$\n$\r$\nДа — Обновить программу.$\r$\nНет — Полная установка с нуля (удалит локальные файлы и папки MatricaRMZ, данные подтянутся с сервера заново)." \
+    IDYES mode_normal
+  DetailPrint "Режим установки: Полная установка с нуля"
+  !insertmacro CleanupMatricaFiles
+  Goto mode_done
+mode_normal:
+  DetailPrint "Режим установки: Обновить программу"
+mode_done:
 !macroend
 
 !macro customCheckAppRunning
