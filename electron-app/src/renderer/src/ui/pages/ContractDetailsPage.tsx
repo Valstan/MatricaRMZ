@@ -46,6 +46,42 @@ type ContractEntity = {
 
 type LinkOpt = { id: string; label: string };
 
+type ContractAccountingForm = {
+  gozName: string;
+  igk: string;
+  hasFiles: boolean;
+  separateAccountRaw: string;
+  separateAccountNumber: string;
+  separateAccountBank: string;
+  comment: string;
+};
+
+const EMPTY_ACCOUNTING_FORM: ContractAccountingForm = {
+  gozName: '',
+  igk: '',
+  hasFiles: false,
+  separateAccountRaw: '',
+  separateAccountNumber: '',
+  separateAccountBank: '',
+  comment: '',
+};
+
+const CONTRACT_ACCOUNTING_FIELDS: Array<{ code: string; name: string; dataType: string; sortOrder: number; metaJson?: string | null }> = [
+  { code: 'contract_sections', name: 'Секции контракта', dataType: 'json', sortOrder: 5 },
+  { code: 'goz_name', name: 'Наименование (ГОЗ)', dataType: 'text', sortOrder: 10 },
+  { code: 'number', name: 'Номер контракта', dataType: 'text', sortOrder: 20 },
+  { code: 'goz_igk', name: 'ИГК', dataType: 'text', sortOrder: 30 },
+  { code: 'has_files', name: 'Есть файлы', dataType: 'boolean', sortOrder: 40 },
+  { code: 'date', name: 'Дата заключения контракта', dataType: 'date', sortOrder: 50 },
+  { code: 'due_date', name: 'Плановая дата исполнения контракта', dataType: 'date', sortOrder: 60 },
+  { code: 'goz_separate_account_number', name: 'Отдельный счет (номер)', dataType: 'text', sortOrder: 70 },
+  { code: 'goz_separate_account_bank', name: 'Отдельный счет (банк)', dataType: 'text', sortOrder: 80 },
+  { code: 'goz_separate_account', name: 'Отдельный счет (реквизиты)', dataType: 'text', sortOrder: 90 },
+  { code: 'internal_number', name: 'Внутренний номер', dataType: 'text', sortOrder: 100 },
+  { code: 'customer_id', name: 'Контрагент', dataType: 'link', sortOrder: 110, metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }) },
+  { code: 'comment', name: 'Комментарий', dataType: 'text', sortOrder: 120 },
+];
+
 function toInputDate(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms)) return '';
   const d = new Date(ms);
@@ -76,6 +112,48 @@ function parseMetaJson(meta: unknown): Record<string, unknown> | null {
     }
   }
   return null;
+}
+
+function toTextValue(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  return String(value);
+}
+
+function toBoolValue(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    return v === '1' || v === 'true' || v === 'да' || v === 'yes' || v === '+';
+  }
+  return false;
+}
+
+function parseSeparateAccount(rawValue: string): { number: string; bank: string } {
+  const raw = toTextValue(rawValue).trim();
+  if (!raw) return { number: '', bank: '' };
+  const parts = raw.split(',');
+  const first = parts[0]?.trim() ?? '';
+  const tail = parts.slice(1).join(',').trim();
+  const numberMatch = first.match(/\d{10,32}/) ?? raw.match(/\d{10,32}/);
+  const number = numberMatch?.[0] ? numberMatch[0] : '';
+  const bank = tail || (number ? raw.replace(number, '').replace(/^,\s*/, '').trim() : '');
+  return { number, bank };
+}
+
+function buildAccountingForm(attrs: Record<string, unknown>): ContractAccountingForm {
+  const separateAccountRaw = toTextValue(attrs.goz_separate_account);
+  const parsed = parseSeparateAccount(separateAccountRaw);
+  return {
+    gozName: toTextValue(attrs.goz_name),
+    igk: toTextValue(attrs.goz_igk),
+    hasFiles: toBoolValue(attrs.has_files),
+    separateAccountRaw,
+    separateAccountNumber: toTextValue(attrs.goz_separate_account_number) || parsed.number,
+    separateAccountBank: toTextValue(attrs.goz_separate_account_bank) || parsed.bank,
+    comment: toTextValue(attrs.comment),
+  };
 }
 
 function keyValueTable(rows: Array<[string, string]>) {
@@ -218,7 +296,7 @@ function SectionBlock(props: {
 
       <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
         <FormGrid columns="repeat(2, minmax(220px, 1fr))" gap={10}>
-          <FormField label="Номер">
+          <FormField label="Номер контракта">
             <Input
               value={section.number}
               disabled={!canEdit}
@@ -482,6 +560,7 @@ export function ContractDetailsPage(props: {
   const [partOptions, setPartOptions] = useState<LinkOpt[]>([]);
   const [defs, setDefs] = useState<AttributeDef[]>([]);
   const [contractProgress, setContractProgress] = useState<number | null>(null);
+  const [accountingForm, setAccountingForm] = useState<ContractAccountingForm>(EMPTY_ACCOUNTING_FORM);
 
   async function loadContract() {
     try {
@@ -499,7 +578,7 @@ export function ContractDetailsPage(props: {
       setContract(d);
       setSections(parseContractSections(d.attributes ?? {}));
       let defsList = (await window.matrica.admin.attributeDefs.listByEntityType(contractType.id)) as AttributeDef[];
-      defsList = (await ensureAttributeDefs(contractType.id, [{ code: 'contract_sections', name: 'Секции контракта', dataType: 'json', sortOrder: 5 }], defsList as AttributeDefRow[])) as AttributeDef[];
+      defsList = (await ensureAttributeDefs(contractType.id, CONTRACT_ACCOUNTING_FIELDS, defsList as AttributeDefRow[])) as AttributeDef[];
       setDefs(defsList);
       setStatus('');
     } catch (e) {
@@ -589,6 +668,14 @@ export function ContractDetailsPage(props: {
     if (contract) void loadProgress();
   }, [contract?.id, contract?.updatedAt, sections]);
 
+  useEffect(() => {
+    if (!contract) {
+      setAccountingForm(EMPTY_ACCOUNTING_FORM);
+      return;
+    }
+    setAccountingForm(buildAccountingForm(contract.attributes ?? {}));
+  }, [contract?.id, contract?.updatedAt]);
+
   useLiveDataRefresh(
     async () => {
       await loadContract();
@@ -634,9 +721,46 @@ export function ContractDetailsPage(props: {
     }
   }
 
+  function buildSeparateAccountRaw(form: ContractAccountingForm): string {
+    const raw = toTextValue(form.separateAccountRaw).trim();
+    if (raw) return raw;
+    const number = toTextValue(form.separateAccountNumber).trim();
+    const bank = toTextValue(form.separateAccountBank).trim();
+    if (number && bank) return `${number}, ${bank}`;
+    return number || bank;
+  }
+
+  async function saveAccountingFields(opts?: { silent?: boolean; reload?: boolean }) {
+    if (!props.canEditMasterData) return;
+    const silent = opts?.silent === true;
+    const shouldReload = opts?.reload !== false;
+    try {
+      if (!silent) setStatus('Сохранение реквизитов ГОЗ…');
+      const nextRaw = buildSeparateAccountRaw(accountingForm);
+      const nextAccount = parseSeparateAccount(nextRaw);
+
+      await window.matrica.admin.entities.setAttr(props.contractId, 'goz_name', toTextValue(accountingForm.gozName).trim());
+      await window.matrica.admin.entities.setAttr(props.contractId, 'goz_igk', toTextValue(accountingForm.igk).trim());
+      await window.matrica.admin.entities.setAttr(props.contractId, 'has_files', Boolean(accountingForm.hasFiles));
+      await window.matrica.admin.entities.setAttr(props.contractId, 'goz_separate_account', nextRaw);
+      await window.matrica.admin.entities.setAttr(props.contractId, 'goz_separate_account_number', nextAccount.number);
+      await window.matrica.admin.entities.setAttr(props.contractId, 'goz_separate_account_bank', nextAccount.bank);
+      await window.matrica.admin.entities.setAttr(props.contractId, 'comment', toTextValue(accountingForm.comment).trim());
+
+      if (!silent) {
+        setStatus('Реквизиты ГОЗ сохранены');
+        setTimeout(() => setStatus(''), 1200);
+      }
+      if (shouldReload) void loadContract();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   async function saveAllAndClose() {
-    if (props.canEditMasterData && sections) {
-      await saveSections();
+    if (props.canEditMasterData) {
+      if (sections) await saveSections();
+      await saveAccountingFields({ silent: true, reload: false });
     }
     props.onClose();
   }
@@ -686,12 +810,19 @@ export function ContractDetailsPage(props: {
   function printContractCard() {
     if (!contract || !sections) return;
     const attrs = contract.attributes ?? {};
+    const accounting = buildAccountingForm(attrs);
     const mainRows: Array<[string, string]> = [
       ['Номер', sections.primary.number || '—'],
       ['Дата заключения', toInputDate(sections.primary.signedAt) || '—'],
       ['Дата исполнения', toInputDate(sections.primary.dueAt) || '—'],
       ['Внутренний номер', sections.primary.internalNumber || '—'],
       ['Контрагент', customerOptions.find((o) => o.id === sections.primary.customerId)?.label ?? '—'],
+      ['Наименование (ГОЗ)', accounting.gozName || '—'],
+      ['ИГК', accounting.igk || '—'],
+      ['Есть файлы', accounting.hasFiles ? 'Да' : 'Нет'],
+      ['Отдельный счет (номер)', accounting.separateAccountNumber || '—'],
+      ['Отдельный счет (банк)', accounting.separateAccountBank || '—'],
+      ['Комментарий', accounting.comment || '—'],
       ['Кол-во (всего)', String(totalQty)],
       ['Сумма контракта', totalSum.toLocaleString('ru-RU') + ' ₽'],
     ];
@@ -794,6 +925,77 @@ export function ContractDetailsPage(props: {
               </Button>
             </SectionCard>
           )}
+
+          <SectionCard className="entity-card-span-full" title="Реквизиты ГОЗ (бухгалтерия)" style={{ borderRadius: 0, padding: 16 }}>
+            <FormGrid columns="repeat(2, minmax(240px, 1fr))" gap={10}>
+              <FormField label="Наименование (ГОЗ)" fullWidth>
+                <Input
+                  value={accountingForm.gozName}
+                  disabled={!props.canEditMasterData}
+                  onChange={(e) => setAccountingForm((s) => ({ ...s, gozName: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </FormField>
+              <FormField label="ИГК">
+                <Input
+                  value={accountingForm.igk}
+                  disabled={!props.canEditMasterData}
+                  onChange={(e) => setAccountingForm((s) => ({ ...s, igk: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </FormField>
+              <FormField label="Есть файлы">
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 36 }}>
+                  <input
+                    type="checkbox"
+                    checked={accountingForm.hasFiles}
+                    disabled={!props.canEditMasterData}
+                    onChange={(e) => setAccountingForm((s) => ({ ...s, hasFiles: e.target.checked }))}
+                  />
+                  <span>{accountingForm.hasFiles ? 'Да' : 'Нет'}</span>
+                </label>
+              </FormField>
+              <FormField label="Отдельный счет (реквизиты)" fullWidth>
+                <Input
+                  value={accountingForm.separateAccountRaw}
+                  disabled={!props.canEditMasterData}
+                  onChange={(e) => setAccountingForm((s) => ({ ...s, separateAccountRaw: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </FormField>
+              <FormField label="Отдельный счет (номер)">
+                <Input
+                  value={accountingForm.separateAccountNumber}
+                  disabled={!props.canEditMasterData}
+                  onChange={(e) => setAccountingForm((s) => ({ ...s, separateAccountNumber: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </FormField>
+              <FormField label="Отдельный счет (банк)">
+                <Input
+                  value={accountingForm.separateAccountBank}
+                  disabled={!props.canEditMasterData}
+                  onChange={(e) => setAccountingForm((s) => ({ ...s, separateAccountBank: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </FormField>
+              <FormField label="Комментарий" fullWidth>
+                <Input
+                  value={accountingForm.comment}
+                  disabled={!props.canEditMasterData}
+                  onChange={(e) => setAccountingForm((s) => ({ ...s, comment: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </FormField>
+            </FormGrid>
+            {props.canEditMasterData && (
+              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="ghost" tone="success" onClick={() => void saveAccountingFields()}>
+                  Сохранить реквизиты ГОЗ
+                </Button>
+              </div>
+            )}
+          </SectionCard>
 
           <SectionCard className="entity-card-span-full" title="Сводка" style={{ borderRadius: 0, padding: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 16, marginTop: 12 }}>
