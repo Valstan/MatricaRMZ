@@ -5,7 +5,7 @@
 !include "nsDialogs.nsh"
 !include "WinMessages.nsh"
 
-Var InstallMode
+Var MatricaUpdateChoice
 
 Page custom SelectInstallMode SelectInstallModeLeave
 ; Show install progress page.
@@ -40,7 +40,7 @@ Page custom SelectInstallMode SelectInstallModeLeave
 
 !macro customInit
   !insertmacro KillClientProcesses
-  StrCpy $InstallMode "update"
+  StrCpy $MatricaUpdateChoice "update"
 !macroend
 
 !macro customCheckAppRunning
@@ -83,17 +83,17 @@ skip_prompt:
 FunctionEnd
 
 Function SelectInstallModeUpdateClick
-  StrCpy $InstallMode "update"
+  StrCpy $MatricaUpdateChoice "update"
   SendMessage $HWNDPARENT ${WM_COMMAND} 1 0
 FunctionEnd
 
 Function SelectInstallModeCleanClick
-  StrCpy $InstallMode "clean"
+  StrCpy $MatricaUpdateChoice "clean"
   SendMessage $HWNDPARENT ${WM_COMMAND} 1 0
 FunctionEnd
 
 Function SelectInstallModeLeave
-  ${If} $InstallMode == "clean"
+  ${If} $MatricaUpdateChoice == "clean"
     DetailPrint "Режим установки: Полная установка с нуля"
     !insertmacro CleanupMatricaFiles
   ${Else}
