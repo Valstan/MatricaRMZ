@@ -613,7 +613,7 @@ export function EngineDetailsPage(props: {
       }
       status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div> : null}
     >
-        <SectionCard style={{ padding: 12 }}>
+        <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -671,35 +671,39 @@ export function EngineDetailsPage(props: {
       </SectionCard>
 
       {props.canViewOperations && (
-        <RepairChecklistPanel
-          engineId={props.engineId}
-          stage="defect"
-          canEdit={props.canEditOperations}
-          canEditMasterData={props.canEditMasterData}
-          canPrint={props.canPrintEngineCard}
-          canExport={props.canExportReports === true}
-          engineNumber={engineNumber}
-          engineBrand={engineBrand}
-          {...(engineBrandId ? { engineBrandId } : {})}
-          canViewFiles={props.canViewFiles}
-          canUploadFiles={props.canUploadFiles}
-        />
+        <div style={{ background: 'rgba(248, 113, 113, 0.08)', borderRadius: 14, padding: 10 }}>
+          <RepairChecklistPanel
+            engineId={props.engineId}
+            stage="defect"
+            canEdit={props.canEditOperations}
+            canEditMasterData={props.canEditMasterData}
+            canPrint={props.canPrintEngineCard}
+            canExport={props.canExportReports === true}
+            engineNumber={engineNumber}
+            engineBrand={engineBrand}
+            {...(engineBrandId ? { engineBrandId } : {})}
+            canViewFiles={props.canViewFiles}
+            canUploadFiles={props.canUploadFiles}
+          />
+        </div>
       )}
 
       {props.canViewOperations && (
-        <RepairChecklistPanel
-          engineId={props.engineId}
-          stage="completeness"
-          canEdit={props.canEditOperations}
-          canEditMasterData={props.canEditMasterData}
-          canPrint={props.canPrintEngineCard}
-          canExport={props.canExportReports === true}
-          engineNumber={engineNumber}
-          engineBrand={engineBrand}
-          {...(engineBrandId ? { engineBrandId } : {})}
-          canViewFiles={props.canViewFiles}
-          canUploadFiles={props.canUploadFiles}
-        />
+        <div style={{ background: 'rgba(34, 197, 94, 0.08)', borderRadius: 14, padding: 10 }}>
+          <RepairChecklistPanel
+            engineId={props.engineId}
+            stage="completeness"
+            canEdit={props.canEditOperations}
+            canEditMasterData={props.canEditMasterData}
+            canPrint={props.canPrintEngineCard}
+            canExport={props.canExportReports === true}
+            engineNumber={engineNumber}
+            engineBrand={engineBrand}
+            {...(engineBrandId ? { engineBrandId } : {})}
+            canViewFiles={props.canViewFiles}
+            canUploadFiles={props.canUploadFiles}
+          />
+        </div>
       )}
 
       {props.canViewOperations && (

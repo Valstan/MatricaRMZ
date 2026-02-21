@@ -26,7 +26,8 @@
     "erp:migrate-from-eav": "tsx src/scripts/migrateEavToErp.ts",
     "erp:legacy-cleanup": "tsx src/scripts/erpLegacyCleanup.ts",
     "masterdata:import-engine-brand-part-matrix": "tsx src/scripts/importEngineBrandPartMatrix.ts",
-    "masterdata:import-contracts-goz": "tsx src/scripts/importContractsGoz.ts"
+    "masterdata:import-contracts-goz": "tsx src/scripts/importContractsGoz.ts",
+    "masterdata:sync-engines-completeness-csv": "tsx src/scripts/importEnginesFromCompletenessCsv.ts"
   },
   "dependencies": {
     "@matricarmz/ledger": "workspace:*",

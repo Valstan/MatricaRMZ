@@ -324,9 +324,6 @@ export function SearchSelect(props: {
                       }}
                     >
                       <div style={{ fontWeight: 700, color: '#111827' }}>{o.label}</div>
-                      <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                        {o.id.slice(0, 8)}
-                      </div>
                     </div>
                   );
                 })}

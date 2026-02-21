@@ -240,6 +240,7 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
 
   // Links
   await ensure('engine_brand_ids', 'Марки двигателя', AttributeDataType.Json, 40); // string[] of engine_brand ids
+  await ensure('engine_brand_qty_map', 'Количество по маркам двигателя', AttributeDataType.Json, 41); // Record<brandId, qty>
   await ensure('engine_node_id', 'Узел двигателя', AttributeDataType.Link, 45, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineNode }));
 
   // Purchase
@@ -590,6 +591,8 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         name?: string;
         article?: string;
         assemblyUnitNumber?: string;
+        engineBrandQtyMap?: Record<string, number>;
+        engineBrandQty?: number;
         updatedAt: number;
         createdAt: number;
       }[];
@@ -635,15 +638,21 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       .from(attributeDefs)
       .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'assembly_unit_number')))
       .limit(1);
+    const brandQtyMapAttr = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'engine_brand_qty_map')))
+      .limit(1);
 
     const nameAttrId = nameAttr[0]?.id;
     const articleAttrId = articleAttr[0]?.id;
     const brandAttrId = brandAttr[0]?.id;
     const assemblyAttrId = assemblyAttr[0]?.id;
+    const brandQtyMapAttrId = brandQtyMapAttr[0]?.id;
 
     const entityIds = entityRows.map((r) => r.id);
     
-    const attrRows = nameAttrId || articleAttrId || assemblyAttrId
+    const attrRows = nameAttrId || articleAttrId || assemblyAttrId || brandQtyMapAttrId
       ? await db
           .select({
             entityId: attributeValues.entityId,
@@ -653,23 +662,50 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           .from(attributeValues)
           .where(
             and(
-              nameAttrId && articleAttrId && assemblyAttrId
+              nameAttrId && articleAttrId && assemblyAttrId && brandQtyMapAttrId
                 ? or(
                     eq(attributeValues.attributeDefId, nameAttrId),
                     eq(attributeValues.attributeDefId, articleAttrId),
                     eq(attributeValues.attributeDefId, assemblyAttrId),
+                    eq(attributeValues.attributeDefId, brandQtyMapAttrId),
                   )
+                : nameAttrId && articleAttrId && brandQtyMapAttrId
+                  ? or(
+                      eq(attributeValues.attributeDefId, nameAttrId),
+                      eq(attributeValues.attributeDefId, articleAttrId),
+                      eq(attributeValues.attributeDefId, brandQtyMapAttrId),
+                    )
+                  : nameAttrId && assemblyAttrId && brandQtyMapAttrId
+                    ? or(
+                        eq(attributeValues.attributeDefId, nameAttrId),
+                        eq(attributeValues.attributeDefId, assemblyAttrId),
+                        eq(attributeValues.attributeDefId, brandQtyMapAttrId),
+                      )
+                    : articleAttrId && assemblyAttrId && brandQtyMapAttrId
+                      ? or(
+                          eq(attributeValues.attributeDefId, articleAttrId),
+                          eq(attributeValues.attributeDefId, assemblyAttrId),
+                          eq(attributeValues.attributeDefId, brandQtyMapAttrId),
+                        )
                 : nameAttrId && articleAttrId
                   ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, articleAttrId))
                   : nameAttrId && assemblyAttrId
                     ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, assemblyAttrId))
+                : nameAttrId && brandQtyMapAttrId
+                  ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, brandQtyMapAttrId))
                     : articleAttrId && assemblyAttrId
                       ? or(eq(attributeValues.attributeDefId, articleAttrId), eq(attributeValues.attributeDefId, assemblyAttrId))
+                : articleAttrId && brandQtyMapAttrId
+                  ? or(eq(attributeValues.attributeDefId, articleAttrId), eq(attributeValues.attributeDefId, brandQtyMapAttrId))
+                : assemblyAttrId && brandQtyMapAttrId
+                  ? or(eq(attributeValues.attributeDefId, assemblyAttrId), eq(attributeValues.attributeDefId, brandQtyMapAttrId))
                       : nameAttrId
                         ? eq(attributeValues.attributeDefId, nameAttrId)
                         : articleAttrId
                           ? eq(attributeValues.attributeDefId, articleAttrId)
-                          : eq(attributeValues.attributeDefId, assemblyAttrId!),
+                : assemblyAttrId
+                  ? eq(attributeValues.attributeDefId, assemblyAttrId)
+                  : eq(attributeValues.attributeDefId, brandQtyMapAttrId!),
               inArray(attributeValues.entityId, entityIds),
               isNull(attributeValues.deletedAt),
             ),
@@ -731,7 +767,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       }
     }
 
-    const attrsByEntity: Record<string, { name?: string; article?: string; assemblyUnitNumber?: string }> = {};
+    const attrsByEntity: Record<string, { name?: string; article?: string; assemblyUnitNumber?: string; engineBrandQtyMap?: Record<string, number> }> = {};
     for (const attr of attrRows) {
       if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
       const val = attr.valueJson ? safeJsonParse(attr.valueJson) : null;
@@ -743,6 +779,14 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           entityAttrs.article = val;
         } else if (attr.attributeDefId === assemblyAttrId && typeof val === 'string') {
           entityAttrs.assemblyUnitNumber = val;
+        } else if (attr.attributeDefId === brandQtyMapAttrId && val && typeof val === 'object' && !Array.isArray(val)) {
+          const nextMap: Record<string, number> = {};
+          for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+            const n = Number(v);
+            if (!Number.isFinite(n) || n < 0) continue;
+            nextMap[String(k)] = n;
+          }
+          entityAttrs.engineBrandQtyMap = nextMap;
         }
       }
     }
@@ -778,6 +822,10 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         ...(attrs?.name && { name: attrs.name }),
         ...(attrs?.article && { article: attrs.article }),
         ...(attrs?.assemblyUnitNumber && { assemblyUnitNumber: attrs.assemblyUnitNumber }),
+        ...(attrs?.engineBrandQtyMap && { engineBrandQtyMap: attrs.engineBrandQtyMap }),
+        ...(engineBrandId &&
+          attrs?.engineBrandQtyMap &&
+          attrs.engineBrandQtyMap[engineBrandId] != null && { engineBrandQty: attrs.engineBrandQtyMap[engineBrandId] }),
         createdAt: Number(e.createdAt),
         updatedAt: Number(e.updatedAt),
         ...(contractId != null && { contractId }),

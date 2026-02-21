@@ -27,6 +27,8 @@ export async function partsList(
         name?: string;
         article?: string;
         assemblyUnitNumber?: string;
+        engineBrandQtyMap?: Record<string, number>;
+        engineBrandQty?: number;
         updatedAt: number;
         createdAt: number;
       }>;

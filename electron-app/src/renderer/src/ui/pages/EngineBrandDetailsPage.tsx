@@ -8,6 +8,7 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type PartOption = { id: string; label: string };
+type BrandPartRow = { id: string; label: string; assemblyUnitNumber: string; quantity: number };
 
 export function EngineBrandDetailsPage(props: {
   brandId: string;
@@ -28,7 +29,7 @@ export function EngineBrandDetailsPage(props: {
   const [techDocs, setTechDocs] = useState<unknown>([]);
   const [attachments, setAttachments] = useState<unknown>([]);
   const [partsOptions, setPartsOptions] = useState<PartOption[]>([]);
-  const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
+  const [brandParts, setBrandParts] = useState<BrandPartRow[]>([]);
   const [partsStatus, setPartsStatus] = useState<string>('');
   const [showAddPart, setShowAddPart] = useState(false);
   const [addPartId, setAddPartId] = useState<string | null>(null);
@@ -73,11 +74,22 @@ export function EngineBrandDetailsPage(props: {
     if (!props.canViewParts) return;
     const r = await window.matrica.parts.list({ engineBrandId: props.brandId, limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
     if (!r.ok) {
-      setEngineBrandPartIds([]);
+      setBrandParts([]);
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return;
     }
-    setEngineBrandPartIds(r.parts.map((p) => String(p.id)));
+    const rows = r.parts
+      .map((p: any) => {
+        const qtyNum = Number(p.engineBrandQty ?? 0);
+        return {
+          id: String(p.id),
+          label: String(p.name ?? p.article ?? p.id),
+          assemblyUnitNumber: String(p.assemblyUnitNumber ?? ''),
+          quantity: Number.isFinite(qtyNum) && qtyNum > 0 ? qtyNum : 0,
+        } satisfies BrandPartRow;
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    setBrandParts(rows);
   }
 
   async function saveName() {
@@ -144,12 +156,68 @@ export function EngineBrandDetailsPage(props: {
     }
   }
 
+  async function updateBrandPartQty(partId: string, quantity: number) {
+    if (!props.canEdit || !props.canEditParts) return;
+    const safeQty = Math.max(0, Math.floor(Number(quantity) || 0));
+    try {
+      const pr = await window.matrica.parts.get(partId);
+      if (!pr.ok) throw new Error(pr.error ?? 'Не удалось загрузить деталь');
+      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_qty_map');
+      const currentRaw = attr?.value;
+      const currentMap: Record<string, number> =
+        currentRaw && typeof currentRaw === 'object' && !Array.isArray(currentRaw)
+          ? Object.fromEntries(
+              Object.entries(currentRaw as Record<string, unknown>)
+                .map(([k, v]) => [String(k), Number(v)])
+                .filter(([, v]) => Number.isFinite(v) && v >= 0),
+            )
+          : {};
+      currentMap[props.brandId] = safeQty;
+      const upd = await window.matrica.parts.updateAttribute({
+        partId,
+        attributeCode: 'engine_brand_qty_map',
+        value: currentMap,
+      });
+      if (!upd.ok) throw new Error(upd.error ?? 'Не удалось сохранить количество');
+    } catch (e) {
+      setPartsStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function clearBrandPartQty(partId: string) {
+    if (!props.canEdit || !props.canEditParts) return;
+    try {
+      const pr = await window.matrica.parts.get(partId);
+      if (!pr.ok) return;
+      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_qty_map');
+      const currentRaw = attr?.value;
+      const currentMap: Record<string, number> =
+        currentRaw && typeof currentRaw === 'object' && !Array.isArray(currentRaw)
+          ? Object.fromEntries(
+              Object.entries(currentRaw as Record<string, unknown>)
+                .map(([k, v]) => [String(k), Number(v)])
+                .filter(([, v]) => Number.isFinite(v) && v >= 0),
+            )
+          : {};
+      if (!(props.brandId in currentMap)) return;
+      delete currentMap[props.brandId];
+      const upd = await window.matrica.parts.updateAttribute({
+        partId,
+        attributeCode: 'engine_brand_qty_map',
+        value: currentMap,
+      });
+      if (!upd.ok) throw new Error(upd.error ?? 'Не удалось очистить количество');
+    } catch {
+      // best effort
+    }
+  }
+
   async function updateBrandParts(nextIds: string[]) {
     if (!props.canEdit || !props.canEditParts) return;
-    const prev = new Set(engineBrandPartIds);
+    const prev = new Set(brandParts.map((p) => p.id));
     const next = new Set(nextIds);
     const toAdd = nextIds.filter((id) => !prev.has(id));
-    const toRemove = engineBrandPartIds.filter((id) => !next.has(id));
+    const toRemove = brandParts.map((p) => p.id).filter((id) => !next.has(id));
     setPartsStatus('Сохранение связей...');
     try {
       for (const partId of toAdd) {
@@ -172,9 +240,24 @@ export function EngineBrandDetailsPage(props: {
         const updated = current.filter((id) => id !== props.brandId);
         const upd = await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
         if (!upd.ok) throw new Error(upd.error ?? 'Не удалось сохранить связь');
+        await clearBrandPartQty(partId);
       }
 
-      setEngineBrandPartIds(nextIds);
+      setBrandParts((prevRows) => {
+        const byId = new Map(prevRows.map((r) => [r.id, r]));
+        const rows = nextIds.map((id) => {
+          const row = byId.get(id);
+          if (row) return row;
+          return {
+            id,
+            label: partLabelById.get(id) ?? id,
+            assemblyUnitNumber: '',
+            quantity: 0,
+          } satisfies BrandPartRow;
+        });
+        rows.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        return rows;
+      });
       setPartsStatus('Сохранено');
       setTimeout(() => setPartsStatus(''), 900);
     } catch (e) {
@@ -185,7 +268,7 @@ export function EngineBrandDetailsPage(props: {
   }
 
   function sortParts(ids: string[]) {
-    const label = (id: string) => partLabelById.get(id) ?? id;
+    const label = (id: string) => brandParts.find((p) => p.id === id)?.label ?? partLabelById.get(id) ?? id;
     const next = [...ids];
     next.sort((a, b) => label(a).localeCompare(label(b), 'ru'));
     return next;
@@ -194,16 +277,21 @@ export function EngineBrandDetailsPage(props: {
   async function addPart(partId: string) {
     if (!partId) return;
     if (!props.canEdit || !props.canEditParts) return;
-    if (engineBrandPartIds.includes(partId)) {
+    if (brandParts.some((p) => p.id === partId)) {
       setAddPartId(null);
       setShowAddPart(false);
       return;
     }
-    const next = sortParts([...engineBrandPartIds, partId]);
-    setEngineBrandPartIds(next);
+    const next = sortParts([...brandParts.map((p) => p.id), partId]);
+    setBrandParts((prev) => {
+      const nextRows = [...prev, { id: partId, label: partLabelById.get(partId) ?? partId, assemblyUnitNumber: '', quantity: 1 }];
+      nextRows.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      return nextRows;
+    });
     setAddPartId(null);
     setShowAddPart(false);
     await updateBrandParts(next);
+    await updateBrandPartQty(partId, 1);
   }
 
   async function createAndAddPart(label: string) {
@@ -248,10 +336,7 @@ export function EngineBrandDetailsPage(props: {
     { enabled: props.canViewMasterData, intervalMs: 20000 },
   );
 
-  const selectedParts = engineBrandPartIds.map((id) => ({
-    id,
-    label: partLabelById.get(id) ?? id,
-  }));
+  const selectedParts = brandParts;
   const headerTitle = name.trim() ? `Марка двигателя: ${name.trim()}` : 'Марка двигателя';
 
   return (
@@ -355,7 +440,26 @@ export function EngineBrandDetailsPage(props: {
                 }}
               >
                 <div style={{ fontWeight: 600 }}>{p.label}</div>
+                <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                  {p.assemblyUnitNumber ? `№ сборки: ${p.assemblyUnitNumber}` : '№ сборки: —'}
+                </div>
                 <div style={{ flex: 1 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Количество</div>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={String(p.quantity)}
+                    disabled={!props.canEdit || !props.canEditParts}
+                    style={{ width: 96 }}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const nextQty = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+                      setBrandParts((prev) => prev.map((x) => (x.id === p.id ? { ...x, quantity: nextQty } : x)));
+                    }}
+                    onBlur={() => void updateBrandPartQty(p.id, p.quantity)}
+                  />
+                </div>
                 <Button
                   variant="ghost"
                   onClick={(event) => {
@@ -370,7 +474,7 @@ export function EngineBrandDetailsPage(props: {
                   variant="ghost"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void updateBrandParts(engineBrandPartIds.filter((id) => id !== p.id));
+                    void updateBrandParts(brandParts.map((x) => x.id).filter((id) => id !== p.id));
                   }}
                   disabled={!props.canEdit || !props.canEditParts}
                   style={{ color: 'var(--danger)' }}

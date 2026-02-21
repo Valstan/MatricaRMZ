@@ -6,6 +6,7 @@ import { Button } from '../components/Button.js';
 import { theme } from '../theme.js';
 
 export type TabId =
+  | 'history'
   | 'engines'
   | 'engine'
   | 'engine_brands'
@@ -90,7 +91,7 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
 
 const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['production', 'supply', 'business', 'people', 'control', 'interaction', 'admin'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
-  production: ['engines', 'engine_brands', 'parts'],
+  production: ['history', 'engines', 'engine_brands', 'parts'],
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
@@ -252,6 +253,7 @@ export function Tabs(props: {
   }
 
   const labels: Record<MenuTabId, string> = {
+    history: 'История',
     masterdata: 'Справочники',
     contracts: 'Контракты',
     changes: 'Изменения',

@@ -34,7 +34,7 @@ function normalizeDefectRows(rows: Record<string, string | boolean | number>[]) 
   let changed = false;
   const next = rows.map((row) => {
     const out = { ...row } as Record<string, string | boolean | number>;
-    const hasNew = 'part_number' in out || 'repairable_qty' in out || 'scrap_qty' in out;
+    const hasNew = 'part_number' in out || 'repairable_qty' in out || 'scrap_qty' in out || 'quantity' in out;
     if (!hasNew) {
       if (!('part_number' in out) && typeof out.note === 'string' && out.note.trim()) {
         out.part_number = out.note;
@@ -49,12 +49,59 @@ function normalizeDefectRows(rows: Record<string, string | boolean | number>[]) 
         changed = true;
       }
     }
-    if ('repairable_qty' in out && (out.repairable_qty == null || out.repairable_qty === '' || Number.isNaN(out.repairable_qty))) {
-      out.repairable_qty = 0;
+    const fallbackQty = Number(out.repairable_qty ?? 0) + Number(out.scrap_qty ?? 0);
+    const quantityRaw = Number(out.quantity ?? (Number.isFinite(fallbackQty) ? fallbackQty : 0));
+    const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? Math.floor(quantityRaw) : 0;
+    if (out.quantity !== quantity) {
+      out.quantity = quantity;
       changed = true;
     }
-    if ('scrap_qty' in out && (out.scrap_qty == null || out.scrap_qty === '' || Number.isNaN(out.scrap_qty))) {
-      out.scrap_qty = 0;
+    const scrapRaw = Number(out.scrap_qty ?? 0);
+    const scrapClamped = Number.isFinite(scrapRaw) ? Math.max(0, Math.min(quantity, Math.floor(scrapRaw))) : 0;
+    if (out.scrap_qty !== scrapClamped) {
+      out.scrap_qty = scrapClamped;
+      changed = true;
+    }
+    const repairable = Math.max(0, quantity - scrapClamped);
+    if (out.repairable_qty !== repairable) {
+      out.repairable_qty = repairable;
+      changed = true;
+    }
+    if (out.part_number == null) {
+      out.part_number = '';
+      changed = true;
+    }
+    return out;
+  });
+  return { rows: next, changed };
+}
+
+function normalizeCompletenessRows(rows: Record<string, string | boolean | number>[]) {
+  let changed = false;
+  const next = rows.map((row) => {
+    const out = { ...row } as Record<string, string | boolean | number>;
+    const qtyFallback = Number(out.actual_qty ?? 0);
+    const quantityRaw = Number(out.quantity ?? (Number.isFinite(qtyFallback) ? qtyFallback : 0));
+    const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? Math.floor(quantityRaw) : 0;
+    if (out.quantity !== quantity) {
+      out.quantity = quantity;
+      changed = true;
+    }
+    const present = out.present === true;
+    if (out.present !== present) {
+      out.present = present;
+      changed = true;
+    }
+    const actualRaw = Number(out.actual_qty ?? 0);
+    let actual = Number.isFinite(actualRaw) ? Math.max(0, Math.floor(actualRaw)) : 0;
+    if (present) actual = quantity;
+    if (!present) actual = Math.min(actual, quantity);
+    if (out.actual_qty !== actual) {
+      out.actual_qty = actual;
+      changed = true;
+    }
+    if (out.assembly_unit_number == null) {
+      out.assembly_unit_number = '';
       changed = true;
     }
     return out;
@@ -74,6 +121,25 @@ function normalizeDefectAnswers(
   const rows = Array.isArray(current.rows) ? current.rows : [];
   if (rows.length === 0) return { next: answers, changed: false };
   const normalized = normalizeDefectRows(rows as any);
+  if (!normalized.changed) return { next: answers, changed: false };
+  return {
+    next: { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers,
+    changed: true,
+  };
+}
+
+function normalizeCompletenessAnswers(
+  template: RepairChecklistTemplate | null,
+  answers: RepairChecklistAnswers,
+): { next: RepairChecklistAnswers; changed: boolean } {
+  if (!template) return { next: answers, changed: false };
+  const tableItem = template.items.find((it) => it.kind === 'table' && it.id === 'completeness_items');
+  if (!tableItem) return { next: answers, changed: false };
+  const current = (answers as any)[tableItem.id];
+  if (!current || current.kind !== 'table') return { next: answers, changed: false };
+  const rows = Array.isArray(current.rows) ? current.rows : [];
+  if (rows.length === 0) return { next: answers, changed: false };
+  const normalized = normalizeCompletenessRows(rows as any);
   if (!normalized.changed) return { next: answers, changed: false };
   return {
     next: { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers,
@@ -144,8 +210,12 @@ export function RepairChecklistPanel(props: {
   const prefillKey = useRef<string>('');
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
   const [defectOptions, setDefectOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [defectPartMetaByLabel, setDefectPartMetaByLabel] = useState<Record<string, { partNumber: string; quantity: number }>>({});
   const [defectOptionsStatus, setDefectOptionsStatus] = useState<string>('');
   const [completenessOptions, setCompletenessOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [completenessPartMetaByLabel, setCompletenessPartMetaByLabel] = useState<
+    Record<string, { assemblyUnitNumber: string; quantity: number }>
+  >({});
   const [completenessOptionsStatus, setCompletenessOptionsStatus] = useState<string>('');
   const [defectCreateKind, setDefectCreateKind] = useState<'part' | 'node'>('part');
 
@@ -179,7 +249,12 @@ export function RepairChecklistPanel(props: {
     const t = (r.templates ?? []).find((x) => x.id === preferred) ?? (r.templates?.[0] ?? null);
     if (r.payload?.answers) {
       const base = r.payload.answers;
-      const normalized = props.stage === 'defect' ? normalizeDefectAnswers(t ?? null, base) : { next: base, changed: false };
+      const normalized =
+        props.stage === 'defect'
+          ? normalizeDefectAnswers(t ?? null, base)
+          : props.stage === 'completeness'
+            ? normalizeCompletenessAnswers(t ?? null, base)
+            : { next: base, changed: false };
       setAnswers(normalized.next);
     } else if (t) {
       setAnswers(emptyAnswersForTemplate(t));
@@ -270,11 +345,17 @@ export function RepairChecklistPanel(props: {
       try {
         setDefectOptionsStatus('Загрузка справочников...');
         const options: Array<{ id: string; label: string }> = [];
+        const metaByLabel: Record<string, { partNumber: string; quantity: number }> = {};
         const partsRes = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
         if (partsRes && (partsRes as any).ok && Array.isArray((partsRes as any).parts)) {
           for (const p of (partsRes as any).parts) {
             const label = String(p.name ?? p.article ?? p.id);
             options.push({ id: `part:${p.id}`, label });
+            const qtyNum = Number((p as any).engineBrandQty ?? 0);
+            metaByLabel[label] = {
+              partNumber: String((p as any).assemblyUnitNumber ?? ''),
+              quantity: Number.isFinite(qtyNum) && qtyNum > 0 ? Math.floor(qtyNum) : 0,
+            };
           }
         }
         const types = await window.matrica.admin.entityTypes.list();
@@ -289,6 +370,7 @@ export function RepairChecklistPanel(props: {
         if (!alive) return;
         options.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
         setDefectOptions(options);
+        setDefectPartMetaByLabel(metaByLabel);
         setDefectOptionsStatus('');
       } catch (e) {
         if (!alive) return;
@@ -307,16 +389,23 @@ export function RepairChecklistPanel(props: {
       try {
         setCompletenessOptionsStatus('Загрузка справочников...');
         const options: Array<{ id: string; label: string }> = [];
+        const metaByLabel: Record<string, { assemblyUnitNumber: string; quantity: number }> = {};
         const partsRes = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
         if (partsRes && (partsRes as any).ok && Array.isArray((partsRes as any).parts)) {
           for (const p of (partsRes as any).parts) {
             const label = String(p.name ?? p.article ?? p.id);
             options.push({ id: `part:${p.id}`, label });
+            const qtyNum = Number((p as any).engineBrandQty ?? 0);
+            metaByLabel[label] = {
+              assemblyUnitNumber: String((p as any).assemblyUnitNumber ?? ''),
+              quantity: Number.isFinite(qtyNum) && qtyNum > 0 ? Math.floor(qtyNum) : 0,
+            };
           }
         }
         if (!alive) return;
         options.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
         setCompletenessOptions(options);
+        setCompletenessPartMetaByLabel(metaByLabel);
         setCompletenessOptionsStatus('');
       } catch (e) {
         if (!alive) return;
@@ -386,11 +475,13 @@ export function RepairChecklistPanel(props: {
       if (!r.ok) return;
       const rows = r.parts.map((p) => ({
         part_name: String(p.name ?? p.article ?? p.id),
-        part_number: '',
-      repairable_qty: 0,
-      scrap_qty: 0,
+        part_number: String((p as any).assemblyUnitNumber ?? ''),
+        quantity: Number.isFinite(Number((p as any).engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number((p as any).engineBrandQty ?? 0))) : 0,
+        repairable_qty: Number.isFinite(Number((p as any).engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number((p as any).engineBrandQty ?? 0))) : 0,
+        scrap_qty: 0,
       }));
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+      const normalized = normalizeDefectRows(rows as any);
+      const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
@@ -417,10 +508,12 @@ export function RepairChecklistPanel(props: {
       const rows = r.parts.map((p: any) => ({
         part_name: String(p.name ?? p.article ?? p.id),
         assembly_unit_number: String(p.assemblyUnitNumber ?? ''),
+        quantity: Number.isFinite(Number(p.engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number(p.engineBrandQty ?? 0))) : 0,
         present: false,
-        note: '',
+        actual_qty: 0,
       }));
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+      const normalized = normalizeCompletenessRows(rows as any);
+      const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
@@ -433,7 +526,11 @@ export function RepairChecklistPanel(props: {
     if (!props.canEdit) return;
     setStatus('Сохранение...');
     const normalized =
-      props.stage === 'defect' ? normalizeDefectAnswers(activeTemplate, nextAnswers) : { next: nextAnswers, changed: false };
+      props.stage === 'defect'
+        ? normalizeDefectAnswers(activeTemplate, nextAnswers)
+        : props.stage === 'completeness'
+          ? normalizeCompletenessAnswers(activeTemplate, nextAnswers)
+          : { next: nextAnswers, changed: false };
     if (normalized.changed) setAnswers(normalized.next);
     const r = await window.matrica.checklists.engineSave({
       engineId: props.engineId,
@@ -450,6 +547,56 @@ export function RepairChecklistPanel(props: {
     setStatus('Сохранено');
     // слегка “успокаиваем” статус
     setTimeout(() => setStatus(''), 700);
+  }
+
+  async function restoreDefectRowsFromBrand() {
+    if (!activeTemplate || !props.engineBrandId) return;
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
+    if (!tableItem) return;
+    const r = await window.matrica.parts.list({ limit: 5000, engineBrandId: props.engineBrandId });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    const rows = r.parts.map((p: any) => {
+      const qty = Number.isFinite(Number(p.engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number(p.engineBrandQty ?? 0))) : 0;
+      return {
+        part_name: String(p.name ?? p.article ?? p.id),
+        part_number: String(p.assemblyUnitNumber ?? ''),
+        quantity: qty,
+        repairable_qty: qty,
+        scrap_qty: 0,
+      };
+    });
+    const normalized = normalizeDefectRows(rows as any);
+    const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
+    setAnswers(next);
+    if (props.canEdit) await save(next);
+  }
+
+  async function restoreCompletenessRowsFromBrand() {
+    if (!activeTemplate || !props.engineBrandId) return;
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'completeness_items');
+    if (!tableItem) return;
+    const r = await window.matrica.parts.list({ limit: 5000, engineBrandId: props.engineBrandId });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    const rows = r.parts.map((p: any) => {
+      const qty = Number.isFinite(Number(p.engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number(p.engineBrandQty ?? 0))) : 0;
+      return {
+        part_name: String(p.name ?? p.article ?? p.id),
+        assembly_unit_number: String(p.assemblyUnitNumber ?? ''),
+        quantity: qty,
+        present: false,
+        actual_qty: 0,
+      };
+    });
+    const normalized = normalizeCompletenessRows(rows as any);
+    const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
+    setAnswers(next);
+    if (props.canEdit) await save(next);
   }
 
   function exportJson() {
@@ -669,6 +816,20 @@ export function RepairChecklistPanel(props: {
         <div style={{ color: '#64748b', fontSize: 12 }}>
           stage: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{props.stage}</span>
         </div>
+        {(props.stage === 'defect' || props.stage === 'completeness') && props.canEdit && props.engineBrandId && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (props.stage === 'defect') {
+                void restoreDefectRowsFromBrand();
+                return;
+              }
+              void restoreCompletenessRowsFromBrand();
+            }}
+          >
+            Восстановить список деталей из марки двигателя
+          </Button>
+        )}
         {props.stage === 'defect' && props.canEdit && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ color: '#64748b', fontSize: 12 }}>Создавать:</div>
@@ -818,7 +979,25 @@ export function RepairChecklistPanel(props: {
                     <TableEditor
                       tableId={it.id}
                       canEdit={props.canEdit}
-                      columns={it.columns ?? []}
+                      columns={
+                        props.stage === 'defect' && it.id === 'defect_items'
+                          ? [
+                              { id: 'part_name', label: 'Наименование узла (детали)' },
+                              { id: 'part_number', label: '№ детали (узла)' },
+                              { id: 'quantity', label: 'Количество', kind: 'number' as const },
+                              { id: 'repairable_qty', label: 'Ремонтно-пригодная', kind: 'number' as const },
+                              { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
+                            ]
+                          : props.stage === 'completeness' && it.id === 'completeness_items'
+                            ? [
+                                { id: 'part_name', label: 'Наименование' },
+                                { id: 'assembly_unit_number', label: 'Обозначение (№ сборочной единицы)' },
+                                { id: 'quantity', label: 'Количество', kind: 'number' as const },
+                                { id: 'present', label: 'Наличие', kind: 'boolean' as const },
+                                { id: 'actual_qty', label: 'Фактическое количество', kind: 'number' as const },
+                              ]
+                            : (it.columns ?? [])
+                      }
                       rows={a?.kind === 'table' ? (a.rows ?? []) : []}
                       {...(() => {
                         const defectRenderers =
@@ -838,7 +1017,18 @@ export function RepairChecklistPanel(props: {
                                       {...(props.canEdit ? { onCreate: createDefectItem } : {})}
                                       onChange={(next) => {
                                         const selected = defectOptions.find((o) => o.id === next) ?? null;
-                                        setValue(rowIdx, columnId, selected?.label ?? '', true);
+                                        const label = selected?.label ?? '';
+                                        setValue(rowIdx, columnId, label);
+                                        const meta = defectPartMetaByLabel[label];
+                                        if (meta) {
+                                          setValue(rowIdx, 'part_number', meta.partNumber);
+                                          setValue(rowIdx, 'quantity', meta.quantity);
+                                          setValue(rowIdx, 'repairable_qty', meta.quantity);
+                                          setValue(rowIdx, 'scrap_qty', 0, true);
+                                          return;
+                                        }
+                                        setValue(rowIdx, 'repairable_qty', 0);
+                                        setValue(rowIdx, 'scrap_qty', 0, true);
                                       }}
                                     />
                                   );
@@ -863,7 +1053,17 @@ export function RepairChecklistPanel(props: {
                                       {...(props.canEdit ? { onCreate: createCompletenessItem } : {})}
                                       onChange={(next) => {
                                         const selected = completenessOptions.find((o) => o.id === next) ?? null;
-                                        setValue(rowIdx, columnId, selected?.label ?? '', true);
+                                        const label = selected?.label ?? '';
+                                        setValue(rowIdx, columnId, label);
+                                        const meta = completenessPartMetaByLabel[label];
+                                        if (meta) {
+                                          setValue(rowIdx, 'assembly_unit_number', meta.assemblyUnitNumber);
+                                          setValue(rowIdx, 'quantity', meta.quantity);
+                                          setValue(rowIdx, 'present', false);
+                                          setValue(rowIdx, 'actual_qty', 0, true);
+                                          return;
+                                        }
+                                        setValue(rowIdx, 'actual_qty', 0, true);
                                       }}
                                     />
                                   );
@@ -873,10 +1073,24 @@ export function RepairChecklistPanel(props: {
                         return completenessRenderers ? { cellRenderers: completenessRenderers } : {};
                       })()}
                       onChange={(rows) => {
-                        const next = { ...answers, [it.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+                        const normalizedRows =
+                          props.stage === 'defect' && it.id === 'defect_items'
+                            ? normalizeDefectRows(rows as any).rows
+                            : props.stage === 'completeness' && it.id === 'completeness_items'
+                              ? normalizeCompletenessRows(rows as any).rows
+                              : rows;
+                        const next = { ...answers, [it.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
                         setAnswers(next);
                       }}
-                      onSave={(rows) => void save({ ...answers, [it.id]: { kind: 'table', rows } } as RepairChecklistAnswers)}
+                      onSave={(rows) => {
+                        const normalizedRows =
+                          props.stage === 'defect' && it.id === 'defect_items'
+                            ? normalizeDefectRows(rows as any).rows
+                            : props.stage === 'completeness' && it.id === 'completeness_items'
+                              ? normalizeCompletenessRows(rows as any).rows
+                              : rows;
+                        void save({ ...answers, [it.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers);
+                      }}
                     />
                   )}
                 </div>
@@ -963,11 +1177,18 @@ function TableEditor(props: {
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
   const isDefectItemsTable = props.tableId === 'defect_items';
+  const isCompletenessItemsTable = props.tableId === 'completeness_items';
 
   function getColumnSizing(columnId: string): React.CSSProperties | undefined {
-    if (!isDefectItemsTable) return undefined;
-    if (columnId === 'part_number') return { minWidth: 140 };
-    if (columnId === 'repairable_qty' || columnId === 'scrap_qty') return { minWidth: 126 };
+    if (isDefectItemsTable) {
+      if (columnId === 'part_number') return { minWidth: 140 };
+      if (columnId === 'quantity' || columnId === 'repairable_qty' || columnId === 'scrap_qty') return { minWidth: 126 };
+      return undefined;
+    }
+    if (isCompletenessItemsTable) {
+      if (columnId === 'quantity' || columnId === 'actual_qty') return { minWidth: 126 };
+      return undefined;
+    }
     return undefined;
   }
 
@@ -986,6 +1207,21 @@ function TableEditor(props: {
       return Number.isFinite(num) ? num : 0;
     }
     return 0;
+  }
+
+  function getQuantityByRowIndex(rowIdx: number): number {
+    const row = rows[rowIdx] ?? {};
+    return Math.max(0, toNumberValue((row as any).quantity ?? 0));
+  }
+
+  function isReadOnlyNumberColumn(rowIdx: number, columnId: string): boolean {
+    if (isDefectItemsTable && (columnId === 'quantity' || columnId === 'repairable_qty')) return true;
+    if (isCompletenessItemsTable && columnId === 'quantity') return true;
+    if (isCompletenessItemsTable && columnId === 'actual_qty') {
+      const row = rows[rowIdx] ?? {};
+      return Boolean((row as any).present);
+    }
+    return false;
   }
 
   return (
@@ -1028,7 +1264,15 @@ function TableEditor(props: {
                         disabled={!props.canEdit}
                         onChange={(e) => {
                           if (!props.canEdit) return;
-                          const next = rows.map((row, i) => (i === idx ? { ...row, [c.id]: e.target.checked } : row));
+                          const next = rows.map((row, i) => {
+                            if (i !== idx) return row;
+                            const nextRow: Record<string, string | boolean | number> = { ...row, [c.id]: e.target.checked };
+                            if (isCompletenessItemsTable && c.id === 'present') {
+                              const qty = Math.max(0, toNumberValue((row as any).quantity ?? 0));
+                              nextRow.actual_qty = e.target.checked ? qty : 0;
+                            }
+                            return nextRow;
+                          });
                           props.onChange(next);
                           props.onSave(next);
                         }}
@@ -1037,20 +1281,31 @@ function TableEditor(props: {
                     </label>
                   ) : c.kind === 'number' ? (
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {(() => {
+                        const readOnly = isReadOnlyNumberColumn(idx, c.id);
+                        const maxQty = getQuantityByRowIndex(idx);
+                        return (
                       <Input
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
                         value={String((r as any)[c.id] ?? '')}
                         style={{ minWidth: 72 }}
-                        disabled={!props.canEdit}
+                        disabled={!props.canEdit || readOnly}
                         onChange={(e) => {
                           const raw = e.target.value;
                           if (!/^\d*$/.test(raw)) return;
-                          setCell(idx, c.id, raw === '' ? '' : Number(raw));
+                          if (raw === '') {
+                            setCell(idx, c.id, '');
+                            return;
+                          }
+                          let next = Number(raw);
+                          if (isDefectItemsTable && c.id === 'scrap_qty') next = Math.min(next, maxQty);
+                          if (isCompletenessItemsTable && c.id === 'actual_qty') next = Math.min(next, maxQty);
+                          setCell(idx, c.id, next);
                         }}
                         onBlur={() => {
-                          if (!props.canEdit) return;
+                          if (!props.canEdit || readOnly) return;
                           const current = (rows[idx] as any)?.[c.id];
                           if (current === '' || current == null || Number.isNaN(current)) {
                             setCell(idx, c.id, 0, true);
@@ -1059,11 +1314,14 @@ function TableEditor(props: {
                           props.onSave(rows);
                         }}
                       />
+                        );
+                      })()}
                       <div style={{ display: 'flex', flexDirection: 'row', gap: 4 }}>
                         <button
                           type="button"
                           onClick={() => {
-                            if (!props.canEdit) return;
+                            const readOnly = isReadOnlyNumberColumn(idx, c.id);
+                            if (!props.canEdit || readOnly) return;
                             const next = Math.max(0, toNumberValue((rows[idx] as any)?.[c.id]) - 1);
                             setCell(idx, c.id, next, true);
                           }}
@@ -1074,18 +1332,23 @@ function TableEditor(props: {
                             border: '1px solid var(--input-border)',
                             background: 'var(--input-bg)',
                             color: 'var(--text)',
-                            cursor: props.canEdit ? 'pointer' : 'not-allowed',
+                            cursor: props.canEdit && !isReadOnlyNumberColumn(idx, c.id) ? 'pointer' : 'not-allowed',
                           }}
                           aria-label="Уменьшить"
-                          disabled={!props.canEdit}
+                          disabled={!props.canEdit || isReadOnlyNumberColumn(idx, c.id)}
                         >
                           -
                         </button>
                         <button
                           type="button"
                           onClick={() => {
-                            if (!props.canEdit) return;
-                            const next = toNumberValue((rows[idx] as any)?.[c.id]) + 1;
+                            const readOnly = isReadOnlyNumberColumn(idx, c.id);
+                            if (!props.canEdit || readOnly) return;
+                            let next = toNumberValue((rows[idx] as any)?.[c.id]) + 1;
+                            const maxQty = getQuantityByRowIndex(idx);
+                            if ((isDefectItemsTable && c.id === 'scrap_qty') || (isCompletenessItemsTable && c.id === 'actual_qty')) {
+                              next = Math.min(next, maxQty);
+                            }
                             setCell(idx, c.id, next, true);
                           }}
                           style={{
@@ -1095,10 +1358,10 @@ function TableEditor(props: {
                             border: '1px solid var(--input-border)',
                             background: 'var(--input-bg)',
                             color: 'var(--text)',
-                            cursor: props.canEdit ? 'pointer' : 'not-allowed',
+                            cursor: props.canEdit && !isReadOnlyNumberColumn(idx, c.id) ? 'pointer' : 'not-allowed',
                           }}
                           aria-label="Увеличить"
-                          disabled={!props.canEdit}
+                          disabled={!props.canEdit || isReadOnlyNumberColumn(idx, c.id)}
                         >
                           +
                         </button>

@@ -91,6 +91,7 @@ function parseDueColor(dueAt: number | null, now: number) {
 export function NotesPage(props: {
   meUserId: string;
   canEdit: boolean;
+  initialNoteId?: string | null;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onSendToChat: (note: NoteDraft, recipientUserIds: string[]) => Promise<void>;
   onBurningCountChange?: (count: number) => void;
@@ -220,6 +221,13 @@ export function NotesPage(props: {
     if (selectedNoteId && listEntries.some((n) => n.id === selectedNoteId)) return;
     setSelectedNoteId(listEntries[0]?.id ?? null);
   }, [listEntries, selectedNoteId]);
+
+  useEffect(() => {
+    const fromHistory = String(props.initialNoteId ?? '').trim();
+    if (!fromHistory) return;
+    if (!listEntries.some((item) => item.id === fromHistory)) return;
+    setSelectedNoteId(fromHistory);
+  }, [props.initialNoteId, listEntries]);
 
   useEffect(() => {
     const ids = new Set<string>();

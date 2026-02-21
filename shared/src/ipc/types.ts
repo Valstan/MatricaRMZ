@@ -288,6 +288,7 @@ export type ChatMessageType = 'text' | 'file' | 'deep_link' | 'text_notify';
 export type ChatDeepLinkPayload = {
   kind: 'app_link';
   tab:
+    | 'history'
     | 'masterdata'
     | 'contracts'
     | 'contract'
@@ -999,6 +1000,8 @@ export type MatricaApi = {
             name?: string;
             article?: string;
             assemblyUnitNumber?: string;
+            engineBrandQtyMap?: Record<string, number>;
+            engineBrandQty?: number;
             contractId?: string;
             statusFlags?: Partial<Record<StatusCode, boolean>>;
             updatedAt: number;

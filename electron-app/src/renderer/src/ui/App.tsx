@@ -1,6 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AuthStatus, EngineDetails, EngineListItem, SyncProgressEvent, SyncStatus, AiAgentContext, AiAgentEvent, UiControlSettings, UiDisplayPrefs, UiPresetId } from '@matricarmz/shared';
+import type {
+  AuthStatus,
+  ChatDeepLinkPayload,
+  EngineDetails,
+  EngineListItem,
+  SyncProgressEvent,
+  SyncStatus,
+  AiAgentContext,
+  AiAgentEvent,
+  UiControlSettings,
+  UiDisplayPrefs,
+  UiPresetId,
+} from '@matricarmz/shared';
 import { DEFAULT_UI_CONTROL_SETTINGS, DEFAULT_UI_DISPLAY_PREFS, DEFAULT_UI_PRESET_ID, sanitizeUiControlSettings, sanitizeUiPresetId, uiControlToDisplayPrefs, withUiControlPresetApplied } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
@@ -35,6 +47,7 @@ import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage
 import { SettingsPage } from './pages/SettingsPage.js';
 import { UiControlCenterPage } from './pages/UiControlCenterPage.js';
 import { NotesPage } from './pages/NotesPage.js';
+import { HistoryPage } from './pages/HistoryPage.js';
 import { SuperadminAuditPage } from './pages/SuperadminAuditPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
@@ -46,6 +59,97 @@ import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { theme } from './theme.js';
+
+type RecentVisitEntry = {
+  id: string;
+  at: number;
+  title: string;
+  link: ChatDeepLinkPayload;
+};
+
+const RECENT_VISITS_LIMIT = 10;
+
+function recentVisitsStorageKey(userId: string) {
+  return `matrica:recent-visits:${userId}`;
+}
+
+function appLinkSignature(link: ChatDeepLinkPayload) {
+  return JSON.stringify({
+    tab: link.tab,
+    engineId: link.engineId ?? null,
+    engineBrandId: link.engineBrandId ?? null,
+    requestId: link.requestId ?? null,
+    partId: link.partId ?? null,
+    toolId: link.toolId ?? null,
+    toolPropertyId: link.toolPropertyId ?? null,
+    contractId: link.contractId ?? null,
+    employeeId: link.employeeId ?? null,
+    productId: link.productId ?? null,
+    serviceId: link.serviceId ?? null,
+    counterpartyId: link.counterpartyId ?? null,
+  });
+}
+
+function parseRecentVisits(raw: string | null): RecentVisitEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item: any) => ({
+        id: String(item?.id ?? ''),
+        at: Number(item?.at ?? 0),
+        title: String(item?.title ?? '').trim(),
+        link: item?.link as ChatDeepLinkPayload,
+      }))
+      .filter((item) => item.id && item.at > 0 && item.title && item.link?.kind === 'app_link' && typeof item.link?.tab === 'string')
+      .slice(0, RECENT_VISITS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function upsertRecentVisit(list: RecentVisitEntry[], entry: RecentVisitEntry): RecentVisitEntry[] {
+  const signature = appLinkSignature(entry.link);
+  const next = [entry, ...(Array.isArray(list) ? list : []).filter((row) => appLinkSignature(row.link) !== signature)];
+  return next.slice(0, RECENT_VISITS_LIMIT);
+}
+
+function appTabTitle(tab: string): string {
+  const labels: Record<string, string> = {
+    history: 'История',
+    engines: 'Двигатели',
+    engine: 'Карточка двигателя',
+    engine_brands: 'Марки двигателей',
+    engine_brand: 'Карточка марки двигателя',
+    contracts: 'Контракты',
+    contract: 'Карточка контракта',
+    counterparties: 'Контрагенты',
+    counterparty: 'Карточка контрагента',
+    requests: 'Заявки',
+    request: 'Карточка заявки',
+    work_orders: 'Наряды',
+    work_order: 'Карточка наряда',
+    parts: 'Детали',
+    part: 'Карточка детали',
+    tools: 'Инструменты',
+    tool: 'Карточка инструмента',
+    tool_properties: 'Свойства инструмента',
+    tool_property: 'Карточка свойства инструмента',
+    employees: 'Сотрудники',
+    employee: 'Карточка сотрудника',
+    products: 'Товары',
+    product: 'Карточка товара',
+    services: 'Услуги',
+    service: 'Карточка услуги',
+    reports: 'Отчёты',
+    changes: 'Изменения',
+    notes: 'Заметки',
+    settings: 'Настройки',
+    masterdata: 'Справочники',
+  };
+  return labels[tab] ?? tab;
+}
 
 export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
@@ -70,8 +174,11 @@ export function App() {
   } | null>(null);
   const fullSyncCloseTimer = useRef<number | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
-  const [tab, setTab] = useState<TabId>('engines');
+  const [tab, setTab] = useState<TabId>('history');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
+  const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
+  const [recentVisits, setRecentVisits] = useState<RecentVisitEntry[]>([]);
+  const lastRecordedVisitSigRef = useRef<string>('');
   const prevUserId = useRef<string | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
@@ -373,6 +480,33 @@ export function App() {
   }, [authStatus.loggedIn, authStatus.user?.id]);
 
   useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) {
+      setRecentVisits([]);
+      lastRecordedVisitSigRef.current = '';
+      return;
+    }
+    try {
+      const key = recentVisitsStorageKey(userId);
+      setRecentVisits(parseRecentVisits(window.localStorage.getItem(key)));
+    } catch {
+      setRecentVisits([]);
+    }
+    lastRecordedVisitSigRef.current = '';
+  }, [authStatus.loggedIn, authStatus.user?.id]);
+
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) return;
+    try {
+      const key = recentVisitsStorageKey(userId);
+      window.localStorage.setItem(key, JSON.stringify(recentVisits.slice(0, RECENT_VISITS_LIMIT)));
+    } catch {
+      // ignore localStorage issues
+    }
+  }, [authStatus.loggedIn, authStatus.user?.id, recentVisits]);
+
+  useEffect(() => {
     let alive = true;
     const poll = async () => {
       try {
@@ -467,6 +601,9 @@ export function App() {
     setChatUnreadTotal(0);
     setChatContext({ selectedUserId: null, adminMode: false });
     setPresence(null);
+    setHistoryInitialNoteId(null);
+    setRecentVisits([]);
+    lastRecordedVisitSigRef.current = '';
     setEmployeesRefreshKey((k) => k + 1);
     setAiChatOpen(true);
   }
@@ -590,6 +727,7 @@ export function App() {
       }
     : capsBase;
   const availableTabs: MenuTabId[] = [
+    ...(authStatus.loggedIn ? (['history'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
@@ -628,6 +766,7 @@ export function App() {
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
   const menuLabels: Record<MenuTabId, string> = {
+    history: 'История',
     masterdata: 'Справочники',
     contracts: 'Контракты',
     changes: 'Изменения',
@@ -653,6 +792,10 @@ export function App() {
   // Gate: без входа показываем только вкладку "Вход".
   useEffect(() => {
     if (!authStatus.loggedIn && tab !== 'auth') setTab('auth');
+  }, [authStatus.loggedIn, tab]);
+
+  useEffect(() => {
+    if (authStatus.loggedIn && tab === 'auth') setTab('history');
   }, [authStatus.loggedIn, tab]);
 
   // Gate: chat requires auth + permission.
@@ -916,6 +1059,15 @@ export function App() {
     setTab('counterparty');
   }
 
+  function openNoteFromHistory(noteId?: string | null) {
+    setHistoryInitialNoteId(noteId ? String(noteId) : null);
+    setTab('notes');
+  }
+
+  function openChatFromHistory() {
+    setChatOpen(true);
+  }
+
   async function navigateDeepLink(link: any) {
     const tabId = String(link?.tab ?? '') as any;
     const engineId = link?.engineId ? String(link.engineId) : null;
@@ -980,6 +1132,7 @@ export function App() {
 
   function buildChatBreadcrumbs() {
     const labels: Record<string, string> = {
+      history: 'История',
       masterdata: 'Справочники',
       contracts: 'Контракты',
       contract: 'Карточка контракта',
@@ -1167,6 +1320,27 @@ export function App() {
     ],
   );
 
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    const link = currentAppLink as ChatDeepLinkPayload;
+    if (!link || link.kind !== 'app_link') return;
+    if (link.tab === 'auth' || link.tab === 'history') return;
+    const signature = appLinkSignature(link);
+    if (lastRecordedVisitSigRef.current === signature) return;
+    lastRecordedVisitSigRef.current = signature;
+    const breadcrumbs = Array.isArray(link.breadcrumbs) ? link.breadcrumbs.filter(Boolean) : [];
+    const title = (breadcrumbs.length > 0 ? breadcrumbs.join(' / ') : appTabTitle(String(link.tab))).trim();
+    if (!title) return;
+    setRecentVisits((prev) =>
+      upsertRecentVisit(prev, {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        at: Date.now(),
+        title,
+        link,
+      }),
+    );
+  }, [authStatus.loggedIn, currentAppLink]);
+
 
   async function sendCurrentPositionToChat() {
     if (!authStatus.loggedIn || !canChat) return;
@@ -1293,7 +1467,9 @@ export function App() {
   }
 
   const pageTitle =
-    tab === 'engines'
+    tab === 'history'
+      ? 'Матрица РМЗ — История'
+    : tab === 'engines'
       ? 'Матрица РМЗ — Двигатели'
       : tab === 'engine_brands'
         ? 'Матрица РМЗ — Марки двигателей'
@@ -1932,6 +2108,18 @@ export function App() {
               <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
             )}
 
+        {tab === 'history' && authStatus.loggedIn && (
+          <HistoryPage
+            meUserId={authStatus.user?.id ?? ''}
+            recentVisits={recentVisits}
+            onNavigate={(link) => {
+              void navigateDeepLink(link);
+            }}
+            onOpenNotes={(noteId) => openNoteFromHistory(noteId)}
+            onOpenChat={() => openChatFromHistory()}
+          />
+        )}
+
         {tab === 'engines' && (
           <EnginesPage
             engines={engines}
@@ -2271,6 +2459,7 @@ export function App() {
           <NotesPage
             meUserId={authStatus.user?.id ?? ''}
             canEdit={authStatus.loggedIn && !viewMode}
+            initialNoteId={historyInitialNoteId}
             onNavigate={(link) => {
               void navigateDeepLink(link);
             }}
@@ -2314,6 +2503,7 @@ export function App() {
           <AuthPage
             onChanged={(s) => {
               setAuthStatus(s);
+              if (s.loggedIn) setTab('history');
             }}
           />
         )}

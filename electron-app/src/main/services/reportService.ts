@@ -266,9 +266,13 @@ export async function buildDefectSupplyReport(
         if (!Array.isArray(rows)) continue;
         for (const r of rows) {
           const present = Boolean((r as any)?.present);
-          if (present) continue;
           const partName = normalizeText((r as any)?.part_name, '(не указано)');
           const partNumber = normalizeText((r as any)?.assembly_unit_number, '');
+          const qty = Math.max(0, toNumber((r as any)?.quantity));
+          const actualQtyRaw = Math.max(0, toNumber((r as any)?.actual_qty));
+          const actualQty = present ? qty : Math.min(actualQtyRaw, qty);
+          const missingQty = Math.max(0, qty - actualQty);
+          if (missingQty <= 0) continue;
           const key = `${contractLabelText}||${partName}||${partNumber}`;
           const existing =
             rowsMap.get(key) ??
@@ -280,7 +284,7 @@ export async function buildDefectSupplyReport(
               scrapQty: 0,
               missingQty: 0,
             } as DefectSupplyReportRow);
-          existing.missingQty += 1;
+          existing.missingQty += missingQty;
           rowsMap.set(key, existing);
         }
       }

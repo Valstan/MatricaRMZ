@@ -102,8 +102,9 @@ function defaultCompletenessTemplate(): RepairChecklistTemplate {
         columns: [
           { id: 'part_name', label: 'Наименование' },
           { id: 'assembly_unit_number', label: 'Обозначение (№ сборочной единицы)' },
+          { id: 'quantity', label: 'Количество', kind: 'number' },
           { id: 'present', label: 'Наличие', kind: 'boolean' },
-          { id: 'note', label: 'Примечание' },
+          { id: 'actual_qty', label: 'Фактическое количество', kind: 'number' },
         ],
       },
       { id: 'approved_by', label: 'Утверждаю: директор по качеству', kind: 'signature' },
@@ -138,6 +139,7 @@ function defaultDefectTemplate(): RepairChecklistTemplate {
         columns: [
           { id: 'part_name', label: 'Наименование узла (детали)' },
           { id: 'part_number', label: '№ детали (узла)' },
+          { id: 'quantity', label: 'Количество', kind: 'number' },
           { id: 'repairable_qty', label: 'Ремонтно-пригодная', kind: 'number' },
           { id: 'scrap_qty', label: 'Утиль', kind: 'number' },
         ],

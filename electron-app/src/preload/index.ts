@@ -269,7 +269,7 @@ const matricaApi = {
     }) => ipcRenderer.invoke('tools:report', args),
   },
   parts: {
-    list: async (args?: { q?: string; limit?: number }) => ipcRenderer.invoke('parts:list', args),
+    list: async (args?: { q?: string; limit?: number; engineBrandId?: string }) => ipcRenderer.invoke('parts:list', args),
     get: async (partId: string) => ipcRenderer.invoke('parts:get', partId),
     create: async (args?: { attributes?: Record<string, unknown> }) => ipcRenderer.invoke('parts:create', args),
     createAttributeDef: async (args: {
