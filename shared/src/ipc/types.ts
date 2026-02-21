@@ -209,12 +209,12 @@ export type SyncProgressEvent = {
 };
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' | 'lan'; downloadUrl?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' | 'lan' | 'torrent'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateRuntimeState = {
   state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
-  source?: 'github' | 'yandex' | 'lan';
+  source?: 'github' | 'yandex' | 'lan' | 'torrent';
   version?: string;
   progress?: number;
   message?: string;

@@ -227,3 +227,54 @@ export async function listLanPeers(
     return [];
   }
 }
+
+export async function registerUpdatePeers(
+  apiBaseUrl: string,
+  infoHash: string,
+  peers: Array<{ ip: string; port: number }>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!apiBaseUrl || !infoHash || peers.length === 0) return { ok: false as const, error: 'missing args' };
+  const url = joinUrl(apiBaseUrl, '/updates/peers');
+  try {
+    const res = await fetchWithRetry(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ infoHash, peers }),
+      },
+      { attempts: 3, timeoutMs: 6000, backoffMs: 500, maxBackoffMs: 2000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+    );
+    if (!res.ok) return { ok: false as const, error: `HTTP ${res.status}` };
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function listUpdatePeers(
+  apiBaseUrl: string,
+  infoHash: string,
+  exclude?: { ip?: string; port?: number },
+): Promise<Array<{ ip: string; port?: number }>> {
+  if (!apiBaseUrl || !infoHash) return [];
+  const params = new URLSearchParams({ infoHash });
+  if (exclude?.ip) params.set('ip', exclude.ip);
+  if (exclude?.port && Number.isFinite(exclude.port)) params.set('port', String(exclude.port));
+  const url = joinUrl(apiBaseUrl, `/updates/peers?${params.toString()}`);
+  try {
+    const res = await fetchWithRetry(
+      url,
+      { method: 'GET' },
+      { attempts: 3, timeoutMs: 6000, backoffMs: 500, maxBackoffMs: 2000, jitterMs: 200, retryOnStatuses: [502, 503, 504] },
+    );
+    if (!res.ok) return [];
+    const json = (await res.json().catch(() => null)) as any;
+    const peers = Array.isArray(json?.peers) ? json.peers : [];
+    return peers
+      .map((p: any) => ({ ip: String(p?.ip ?? ''), port: p?.port != null ? Number(p.port) : undefined }))
+      .filter((p: any) => p.ip);
+  } catch {
+    return [];
+  }
+}

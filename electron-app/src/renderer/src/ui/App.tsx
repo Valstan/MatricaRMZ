@@ -1532,6 +1532,7 @@ export function App() {
     const src = String(updateStatus?.source ?? '').toLowerCase();
     if (src === 'yandex') return 'Yandex';
     if (src === 'github') return 'GitHub';
+    if (src === 'torrent') return 'Торрент';
     if (src === 'lan') return 'Локальная сеть';
     return '';
   })();

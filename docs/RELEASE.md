@@ -38,19 +38,27 @@ pnpm release:auto
      ```bash
      gh workflow run release-electron-windows.yml --ref vX.Y.Z
      ```
-3) **Если нет токена ledger**
+3) **Если release:auto не успел подписать ledger (timeout ожидания asset)**
+   - После появления .exe в GitHub Release выполните:
+     ```bash
+     pnpm release:ledger-publish
+     ```
+     Версия берётся из VERSION. Скрипт скачает .exe с GitHub и опубликует в ledger.
+   - Либо укажите путь к установщику:
+     ```bash
+     pnpm release:ledger-publish 1.5.11 --installer /opt/matricarmz/updates/MatricaRMZ\ Setup\ 1.5.11.exe
+     ```
+4) **Если нет токена ledger**
    - Публикация в ledger обязательна для автообновлений.
-   - Если `MATRICA_LEDGER_RELEASE_TOKEN` не задан, выполните:
+   - Сгенерируйте токен в web-admin: Админка → Release token.
+   - Либо вручную через curl:
      ```bash
      curl -sS -X POST http://127.0.0.1:3001/ledger/releases/publish \
        -H "Content-Type: application/json" \
        -H "Authorization: Bearer <token>" \
        --data '{"version":"X.Y.Z","notes":"short changelog","fileName":"<installer>.exe","sha256":"<hex>","size":12345678}'
      ```
-     SHA256:
-     ```bash
-     sha256sum "<installer>.exe"
-     ```
+     SHA256: `sha256sum "<installer>.exe"`
 
 ## Имена релизных файлов
 - Windows‑установщик — **.exe** (NSIS), имя задается `electron-builder`.

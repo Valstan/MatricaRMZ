@@ -208,14 +208,15 @@ async function main() {
   if (!hasGh()) { console.log('gh not available, Windows pipeline skipped.'); return; }
 
   try {
-    const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 3 * 60_000);
+    const assetWaitMs = envInt('MATRICA_RELEASE_ASSET_WAIT_MS', 10 * 60_000); // 10 min — сборка Electron ~10–15 мин
     const assetPollMs = envInt('MATRICA_RELEASE_ASSET_POLL_MS', 5_000);
     const statusWaitMs = envInt('MATRICA_RELEASE_STATUS_WAIT_MS', 2 * 60_000);
     const statusPollMs = envInt('MATRICA_RELEASE_STATUS_POLL_MS', 5_000);
 
-    const assetName = await waitForAsset(tag, /\.exe$/i, assetWaitMs, assetPollMs);
+    let assetName = await waitForAsset(tag, /\.exe$/i, assetWaitMs, assetPollMs);
     if (!assetName) {
-      console.log('Windows asset not found within timeout.');
+      console.log('Windows asset not found within timeout. Run later to publish ledger:');
+      console.log(`  pnpm release:ledger-publish ${version}`);
       diagnoseRelease(tag);
       return;
     }
@@ -225,8 +226,10 @@ async function main() {
     const installerPath = downloadInstaller(tag, assetName, destDir);
     await waitForUpdatesStatus(version, statusWaitMs, statusPollMs);
     await publishLedgerRelease({ version, filePath: installerPath, fileName: assetName });
+    console.log('Release complete: GitHub, Yandex (via workflow), ledger signed.');
   } catch (e) {
     console.log(`Windows pipeline error: ${e}`);
+    console.log(`To publish ledger manually: pnpm release:ledger-publish ${version}`);
     diagnoseRelease(tag);
   }
 }
