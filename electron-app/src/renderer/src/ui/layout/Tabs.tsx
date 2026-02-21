@@ -222,6 +222,8 @@ export function Tabs(props: {
   const departmentButtonInactiveStyle = displayPrefs.departmentButtons.inactive;
   const sectionButtonActiveStyle = displayPrefs.sectionButtons.active;
   const sectionButtonInactiveStyle = displayPrefs.sectionButtons.inactive;
+  const departmentCardMinHeight = Math.max(96, Number(departmentButtonActiveStyle.height ?? 0), Number(departmentButtonInactiveStyle.height ?? 0));
+  const sectionCardMinHeight = Math.max(46, Math.floor(departmentCardMinHeight / 2));
   const departmentButtonsGap = Math.max(0, Number(departmentButtonActiveStyle.gap ?? 8));
   const sectionButtonsGap = Math.max(0, Number(sectionButtonActiveStyle.gap ?? 6));
   const menuState = deriveMenuState(props.availableTabs, props.layout);
@@ -463,6 +465,8 @@ export function Tabs(props: {
   function tabButton(id: MenuTabId, label: string, opts?: { onContextMenu?: (e: React.MouseEvent) => void }) {
     const active = props.tab === id;
     const notesCount = id === 'notes' ? Math.max(0, Number(props.notesAlertCount ?? 0)) : 0;
+    const parentGroup = groupForTab(id);
+    const parentVisual = GROUP_VISUALS[parentGroup];
     const visual = TAB_VISUALS[id];
     return (
       <Button
@@ -475,39 +479,39 @@ export function Tabs(props: {
           active
             ? {
                 border: '1px solid rgba(15, 23, 42, 0.14)',
-                background: visual?.gradient ?? 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)',
+                background: '#0f2f72',
                 color: '#ffffff',
                 boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
                 fontWeight: 700,
-                minHeight: Math.max(90, sectionButtonActiveStyle.height),
-                minWidth: sectionButtonActiveStyle.width,
+                minHeight: sectionCardMinHeight,
+                minWidth: Math.max(130, Math.floor(Number(sectionButtonActiveStyle.width ?? 130) * 0.78)),
                 padding: `${sectionButtonActiveStyle.paddingY}px ${sectionButtonActiveStyle.paddingX}px`,
                 fontSize: sectionButtonActiveStyle.fontSize,
                 textAlign: 'left',
               }
             : {
                 border: '1px solid rgba(148, 163, 184, 0.34)',
-                background: '#ffffff',
-                color: '#111827',
+                background: parentVisual?.gradient ?? visual?.gradient ?? 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)',
+                color: '#ffffff',
                 boxShadow: '0 6px 18px rgba(15, 23, 42, 0.09)',
-                minHeight: Math.max(90, sectionButtonInactiveStyle.height),
-                minWidth: sectionButtonInactiveStyle.width,
+                minHeight: sectionCardMinHeight,
+                minWidth: Math.max(130, Math.floor(Number(sectionButtonInactiveStyle.width ?? 130) * 0.78)),
                 padding: `${sectionButtonInactiveStyle.paddingY}px ${sectionButtonInactiveStyle.paddingX}px`,
                 fontSize: sectionButtonInactiveStyle.fontSize,
                 textAlign: 'left',
               }
         }
       >
-        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, minWidth: 170 }}>
+        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 3, minWidth: 130 }}>
           <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <span style={{ fontSize: 20, lineHeight: 1 }}>{visual?.icon ?? '📁'}</span>
+            <span style={{ fontSize: 17, lineHeight: 1 }}>{visual?.icon ?? '📁'}</span>
             {notesCount > 0 ? (
               <span
                 style={{
                   fontSize: 11,
                   borderRadius: 999,
                   padding: '2px 7px',
-                  background: active ? 'rgba(255,255,255,0.24)' : 'rgba(15,23,42,0.06)',
+                  background: active ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.24)',
                   fontWeight: 700,
                 }}
               >
@@ -515,10 +519,9 @@ export function Tabs(props: {
               </span>
             ) : null}
           </span>
-          <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.2 }}>{label}</span>
-          <span style={{ fontSize: 12, opacity: active ? 0.95 : 0.74, lineHeight: 1.2 }}>{visual?.subtitle ?? 'Раздел меню'}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.15 }}>{label}</span>
           {notesCount > 0 ? (
-            <span style={{ color: active ? '#ffffff' : 'var(--danger)', fontWeight: 800, fontSize: 11 }}>Есть непрочитанные заметки</span>
+            <span style={{ color: '#ffffff', fontWeight: 800, fontSize: 10 }}>Есть непрочитанные</span>
           ) : null}
         </span>
       </Button>
@@ -606,7 +609,6 @@ export function Tabs(props: {
           padding: 12,
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a8a', marginBottom: 8 }}>Отделы</div>
         <div
           style={{
             display: 'grid',
@@ -633,11 +635,11 @@ export function Tabs(props: {
                     isActive
                       ? {
                           width: '100%',
-                          minHeight: Math.max(96, departmentButtonActiveStyle.height),
+                          minHeight: departmentCardMinHeight,
                           minWidth: departmentButtonActiveStyle.width,
                           padding: `${departmentButtonActiveStyle.paddingY}px ${departmentButtonActiveStyle.paddingX}px`,
                           border: '1px solid rgba(15, 23, 42, 0.14)',
-                          background: GROUP_VISUALS[groupId].gradient,
+                          background: '#0f2f72',
                           color: '#ffffff',
                           fontWeight: 800,
                           fontSize: departmentButtonActiveStyle.fontSize,
@@ -646,13 +648,13 @@ export function Tabs(props: {
                         }
                       : {
                           width: '100%',
-                          minHeight: Math.max(96, departmentButtonInactiveStyle.height),
+                          minHeight: departmentCardMinHeight,
                           minWidth: departmentButtonInactiveStyle.width,
                           padding: `${departmentButtonInactiveStyle.paddingY}px ${departmentButtonInactiveStyle.paddingX}px`,
                           border: '1px solid rgba(148, 163, 184, 0.34)',
-                          background: '#ffffff',
-                          color: '#111827',
-                          fontWeight: 600,
+                          background: GROUP_VISUALS[groupId].gradient,
+                          color: '#ffffff',
+                          fontWeight: 700,
                           fontSize: departmentButtonInactiveStyle.fontSize,
                           boxShadow: '0 6px 18px rgba(15, 23, 42, 0.09)',
                           textAlign: 'left',
@@ -668,7 +670,7 @@ export function Tabs(props: {
                           fontSize: 11,
                           borderRadius: 999,
                           padding: '2px 7px',
-                          background: isActive ? 'rgba(255,255,255,0.24)' : 'rgba(15,23,42,0.06)',
+                          background: 'rgba(255,255,255,0.24)',
                           fontWeight: 700,
                         }}
                       >
@@ -676,7 +678,7 @@ export function Tabs(props: {
                       </span>
                     </span>
                     <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.2 }}>{GROUP_LABELS[groupId]}</span>
-                    <span style={{ fontSize: 12, opacity: isActive ? 0.95 : 0.74, lineHeight: 1.2 }}>{GROUP_VISUALS[groupId].subtitle}</span>
+                    <span style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.2 }}>{GROUP_VISUALS[groupId].subtitle}</span>
                   </span>
                 </Button>
               </div>
@@ -695,10 +697,9 @@ export function Tabs(props: {
           border: '1px solid rgba(59, 130, 246, 0.22)',
           background: '#ffffff',
           padding: '10px 12px',
-          minHeight: 126,
+          minHeight: 82,
         }}
       >
-        <div style={{ fontWeight: 800, color: '#1e3a8a', marginBottom: 8 }}>Разделы отдела</div>
         {activeGroup == null ? (
           <div>
             <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
@@ -708,7 +709,7 @@ export function Tabs(props: {
             ref={sectionsTrackRef}
             style={{
               position: 'absolute',
-              top: 34,
+              top: 8,
               left: sectionsLeftPx != null ? `${sectionsLeftPx}px` : activeGroupAnchorLeft,
               transform: sectionsLeftPx != null ? 'none' : 'translateX(-50%)',
               display: 'inline-flex',
@@ -716,7 +717,7 @@ export function Tabs(props: {
               flexWrap: 'nowrap',
               alignItems: 'stretch',
               justifyContent: 'flex-start',
-              minHeight: 92,
+              minHeight: sectionCardMinHeight,
               whiteSpace: 'nowrap',
             }}
           >
