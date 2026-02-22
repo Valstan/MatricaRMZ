@@ -223,9 +223,15 @@ export function Tabs(props: {
   const sectionButtonActiveStyle = displayPrefs.sectionButtons.active;
   const sectionButtonInactiveStyle = displayPrefs.sectionButtons.inactive;
   const departmentCardMinHeight = Math.max(96, Number(departmentButtonActiveStyle.height ?? 0), Number(departmentButtonInactiveStyle.height ?? 0));
-  const sectionCardMinHeight = Math.max(46, Math.floor(departmentCardMinHeight / 2));
-  const departmentButtonsGap = Math.max(0, Number(departmentButtonActiveStyle.gap ?? 8));
-  const sectionButtonsGap = Math.max(0, Number(sectionButtonActiveStyle.gap ?? 6));
+  const sectionCardMinHeight = Math.max(56, Math.floor(departmentCardMinHeight / 2));
+  const sectionCardWidth = Math.max(
+    120,
+    Math.floor(
+      Math.max(Number(sectionButtonActiveStyle.width ?? 130), Number(sectionButtonInactiveStyle.width ?? 130)) * 0.78,
+    ),
+  );
+  const departmentButtonsGap = 2;
+  const sectionButtonsGap = 2;
   const menuState = deriveMenuState(props.availableTabs, props.layout);
   const hiddenGroupsSet = useMemo(() => {
     const raw = Array.isArray(props.layout?.hiddenGroups) ? props.layout?.hiddenGroups ?? [] : [];
@@ -287,13 +293,21 @@ export function Tabs(props: {
     if (!activeGroup) return -1;
     return groupsInUse.indexOf(activeGroup);
   }, [activeGroup, groupsInUse]);
+  const groupWeights = useMemo(() => groupsInUse.map((groupId) => (groupId === 'history' ? 0.5 : 1)), [groupsInUse]);
+  const totalGroupWeight = useMemo(() => {
+    const sum = groupWeights.reduce((acc, x) => acc + x, 0);
+    return sum > 0 ? sum : 1;
+  }, [groupWeights]);
   const activeGroupAnchorLeft = useMemo(() => {
     if (activeGroupIndex < 0 || groupsInUse.length <= 0) return '50%';
     const columnsCount = groupsInUse.length;
     const gridGap = departmentButtonsGap;
     const gapTotal = (columnsCount - 1) * gridGap;
-    return `calc(((100% - ${gapTotal}px) / ${columnsCount}) * ${activeGroupIndex + 0.5} + ${activeGroupIndex * gridGap}px)`;
-  }, [activeGroupIndex, departmentButtonsGap, groupsInUse.length]);
+    const weightBefore = groupWeights.slice(0, activeGroupIndex).reduce((acc, x) => acc + x, 0);
+    const currentWeight = groupWeights[activeGroupIndex] ?? 1;
+    const centerWeight = weightBefore + currentWeight / 2;
+    return `calc((((100% - ${gapTotal}px) * ${centerWeight}) / ${totalGroupWeight}) + ${activeGroupIndex * gridGap}px)`;
+  }, [activeGroupIndex, departmentButtonsGap, groupWeights, groupsInUse.length, totalGroupWeight]);
   const menuItemsKey = groupMenuItems.join('|');
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -484,10 +498,17 @@ export function Tabs(props: {
                 boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
                 fontWeight: 700,
                 minHeight: sectionCardMinHeight,
-                minWidth: Math.max(130, Math.floor(Number(sectionButtonActiveStyle.width ?? 130) * 0.78)),
-                padding: `${sectionButtonActiveStyle.paddingY}px ${sectionButtonActiveStyle.paddingX}px`,
+                width: sectionCardWidth,
+                maxWidth: sectionCardWidth,
+                minWidth: sectionCardWidth,
+                padding: '2px',
                 fontSize: sectionButtonActiveStyle.fontSize,
                 textAlign: 'left',
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                display: 'flex',
+                alignItems: 'flex-start',
               }
             : {
                 border: '1px solid rgba(148, 163, 184, 0.34)',
@@ -495,16 +516,23 @@ export function Tabs(props: {
                 color: '#ffffff',
                 boxShadow: '0 6px 18px rgba(15, 23, 42, 0.09)',
                 minHeight: sectionCardMinHeight,
-                minWidth: Math.max(130, Math.floor(Number(sectionButtonInactiveStyle.width ?? 130) * 0.78)),
-                padding: `${sectionButtonInactiveStyle.paddingY}px ${sectionButtonInactiveStyle.paddingX}px`,
+                width: sectionCardWidth,
+                maxWidth: sectionCardWidth,
+                minWidth: sectionCardWidth,
+                padding: '2px',
                 fontSize: sectionButtonInactiveStyle.fontSize,
                 textAlign: 'left',
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                display: 'flex',
+                alignItems: 'flex-start',
               }
         }
       >
-        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 3, minWidth: 130 }}>
+        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 2, minWidth: 0 }}>
           <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <span style={{ fontSize: 17, lineHeight: 1 }}>{visual?.icon ?? '📁'}</span>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>{visual?.icon ?? '📁'}</span>
             {notesCount > 0 ? (
               <span
                 style={{
@@ -519,7 +547,9 @@ export function Tabs(props: {
               </span>
             ) : null}
           </span>
-          <span style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.15 }}>{label}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, lineHeight: 1.05, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+            {label}
+          </span>
           {notesCount > 0 ? (
             <span style={{ color: '#ffffff', fontWeight: 800, fontSize: 10 }}>Есть непрочитанные</span>
           ) : null}
@@ -583,8 +613,10 @@ export function Tabs(props: {
       const columnsCount = groupsInUse.length;
       const gap = departmentButtonsGap;
       const totalGap = Math.max(0, (columnsCount - 1) * gap);
-      const colWidth = Math.max(0, (viewportWidth - totalGap) / Math.max(1, columnsCount));
-      const desiredCenter = colWidth * (activeGroupIndex + 0.5) + gap * activeGroupIndex;
+      const unitWidth = Math.max(0, (viewportWidth - totalGap) / Math.max(1, totalGroupWeight));
+      const weightBefore = groupWeights.slice(0, activeGroupIndex).reduce((acc, x) => acc + x, 0);
+      const currentWeight = groupWeights[activeGroupIndex] ?? 1;
+      const desiredCenter = unitWidth * (weightBefore + currentWeight / 2) + gap * activeGroupIndex;
       const unclampedLeft = desiredCenter - trackWidth / 2;
       const minLeft = 0;
       const maxLeft = Math.max(0, viewportWidth - trackWidth);
@@ -595,24 +627,24 @@ export function Tabs(props: {
     recalc();
     window.addEventListener('resize', recalc);
     return () => window.removeEventListener('resize', recalc);
-  }, [activeGroup, activeGroupIndex, groupsInUse.length, departmentButtonsGap, menuItemsKey]);
+  }, [activeGroup, activeGroupIndex, groupsInUse.length, departmentButtonsGap, groupWeights, menuItemsKey, totalGroupWeight]);
 
   return (
     <div style={{ position: 'relative' }}>
       <div
         style={{
-          marginTop: 6,
+          marginTop: 2,
           borderRadius: 14,
           border: '1px solid rgba(59, 130, 246, 0.25)',
           background:
             'radial-gradient(circle at 8% 20%, rgba(125, 211, 252, 0.16), transparent 40%), radial-gradient(circle at 92% 80%, rgba(196, 181, 253, 0.18), transparent 42%), #ffffff',
-          padding: 12,
+          padding: 2,
         }}
       >
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.max(1, groupsInUse.length)}, minmax(0, 1fr))`,
+            gridTemplateColumns: groupsInUse.map((groupId) => (groupId === 'history' ? '0.5fr' : '1fr')).join(' '),
             gap: departmentButtonsGap,
             alignItems: 'stretch',
           }}
@@ -629,7 +661,14 @@ export function Tabs(props: {
               >
                 <Button
                   variant="ghost"
-                  onClick={() => toggleGroup(groupId)}
+                  onClick={() => {
+                    if (groupId === 'history') {
+                      props.onTab('history');
+                      updateGroupPrefs({ activeGroup: null });
+                      return;
+                    }
+                    toggleGroup(groupId);
+                  }}
                   onContextMenu={(e) => openContextMenu({ kind: 'group', id: groupId }, e)}
                   style={
                     isActive
@@ -637,7 +676,7 @@ export function Tabs(props: {
                           width: '100%',
                           minHeight: departmentCardMinHeight,
                           minWidth: departmentButtonActiveStyle.width,
-                          padding: `${departmentButtonActiveStyle.paddingY}px ${departmentButtonActiveStyle.paddingX}px`,
+                          padding: '2px',
                           border: '1px solid rgba(15, 23, 42, 0.14)',
                           background: '#0f2f72',
                           color: '#ffffff',
@@ -645,12 +684,17 @@ export function Tabs(props: {
                           fontSize: departmentButtonActiveStyle.fontSize,
                           boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
                           textAlign: 'left',
+                          whiteSpace: 'normal',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          display: 'flex',
+                          alignItems: 'flex-start',
                         }
                       : {
                           width: '100%',
                           minHeight: departmentCardMinHeight,
                           minWidth: departmentButtonInactiveStyle.width,
-                          padding: `${departmentButtonInactiveStyle.paddingY}px ${departmentButtonInactiveStyle.paddingX}px`,
+                          padding: '2px',
                           border: '1px solid rgba(148, 163, 184, 0.34)',
                           background: GROUP_VISUALS[groupId].gradient,
                           color: '#ffffff',
@@ -658,27 +702,25 @@ export function Tabs(props: {
                           fontSize: departmentButtonInactiveStyle.fontSize,
                           boxShadow: '0 6px 18px rgba(15, 23, 42, 0.09)',
                           textAlign: 'left',
+                          whiteSpace: 'normal',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          display: 'flex',
+                          alignItems: 'flex-start',
                         }
                   }
                   title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
                 >
-                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 5 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <span style={{ fontSize: 20, lineHeight: 1 }}>{GROUP_VISUALS[groupId].icon}</span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          borderRadius: 999,
-                          padding: '2px 7px',
-                          background: 'rgba(255,255,255,0.24)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {visibleByGroup[groupId].length} разд.
-                      </span>
+                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 2, minWidth: 0 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }}>
+                      <span style={{ fontSize: 18, lineHeight: 1 }}>{GROUP_VISUALS[groupId].icon}</span>
                     </span>
-                    <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.2 }}>{GROUP_LABELS[groupId]}</span>
-                    <span style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.2 }}>{GROUP_VISUALS[groupId].subtitle}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.05, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                      {GROUP_LABELS[groupId]}
+                    </span>
+                    <span style={{ fontSize: 11, opacity: 0.95, lineHeight: 1.1, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                      {GROUP_VISUALS[groupId].subtitle}
+                    </span>
                   </span>
                 </Button>
               </div>
@@ -687,54 +729,56 @@ export function Tabs(props: {
         </div>
       </div>
 
-      <div
-        ref={sectionsViewportRef}
-        style={{
-          position: 'relative',
-          display: 'block',
-          marginTop: 10,
-          borderRadius: 14,
-          border: '1px solid rgba(59, 130, 246, 0.22)',
-          background: '#ffffff',
-          padding: '10px 12px',
-          minHeight: 82,
-        }}
-      >
-        {activeGroup == null ? (
-          <div>
-            <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
-          </div>
-        ) : (
-          <div
-            ref={sectionsTrackRef}
-            style={{
-              position: 'absolute',
-              top: 8,
-              left: sectionsLeftPx != null ? `${sectionsLeftPx}px` : activeGroupAnchorLeft,
-              transform: sectionsLeftPx != null ? 'none' : 'translateX(-50%)',
-              display: 'inline-flex',
-              gap: sectionButtonsGap,
-              flexWrap: 'nowrap',
-              alignItems: 'stretch',
-              justifyContent: 'flex-start',
-              minHeight: sectionCardMinHeight,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {groupMenuItems.map((id) => (
-              <div
-                key={id}
-                ref={(el) => {
-                  itemRefs.current[keyOfTarget({ kind: 'tab', id })] = el;
-                }}
-                style={{ display: 'inline-flex' }}
-              >
-                {menuItemButton(id)}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {props.tab !== 'history' && (
+        <div
+          ref={sectionsViewportRef}
+          style={{
+            position: 'relative',
+            display: 'block',
+            marginTop: 2,
+            borderRadius: 14,
+            border: '1px solid rgba(59, 130, 246, 0.22)',
+            background: '#ffffff',
+            padding: '2px',
+            minHeight: 82,
+          }}
+        >
+          {activeGroup == null ? (
+            <div>
+              <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
+            </div>
+          ) : (
+            <div
+              ref={sectionsTrackRef}
+              style={{
+                position: 'absolute',
+                top: 2,
+                left: sectionsLeftPx != null ? `${sectionsLeftPx}px` : activeGroupAnchorLeft,
+                transform: sectionsLeftPx != null ? 'none' : 'translateX(-50%)',
+                display: 'inline-flex',
+                gap: sectionButtonsGap,
+                flexWrap: 'nowrap',
+                alignItems: 'stretch',
+                justifyContent: 'flex-start',
+                minHeight: sectionCardMinHeight,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {groupMenuItems.map((id) => (
+                <div
+                  key={id}
+                  ref={(el) => {
+                    itemRefs.current[keyOfTarget({ kind: 'tab', id })] = el;
+                  }}
+                  style={{ display: 'inline-flex' }}
+                >
+                  {menuItemButton(id)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {contextMenu && (
         <div

@@ -1,5 +1,4 @@
 type EntityTypeRow = { id: string; code: string; name: string };
-type AttrDefRow = { id: string; code: string };
 
 type DefSeed = {
   code: string;

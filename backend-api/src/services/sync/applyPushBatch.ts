@@ -13,7 +13,7 @@ import {
   operationRowSchema,
   type SyncPushRequest,
 } from '@matricarmz/shared';
-import { and, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
@@ -953,7 +953,6 @@ export async function applyPushBatch(
       const existingMap = new Map<string, any>();
       for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
-      const supplyOps = rows.filter((r) => r.operation_type === 'supply_request');
       const workOrderOps = rows.filter((r) => r.operation_type === 'work_order');
       const workOrderContainerOps = workOrderOps.filter((r) => String(r.engine_entity_id) === WORK_ORDERS_CONTAINER_ENTITY_ID);
       const workOrderPartOps = workOrderOps.filter((r) => String(r.engine_entity_id) !== WORK_ORDERS_CONTAINER_ENTITY_ID);
@@ -1248,11 +1247,7 @@ export async function applyPushBatch(
       const raw = grouped.get(SyncTableName.Notes) ?? [];
       const parsedAll = parseRows(SyncTableName.Notes, raw, noteRowSchema);
       if (parsedAll.length > 0 && actor.id) {
-        // Never trust owner_user_id from client.
-        const parsed = parsedAll.map((r) => ({
-          ...r,
-          owner_user_id: actor.id,
-        }));
+        const parsed = parsedAll;
         const rows = await filterStaleBySeqOrUpdatedAt(notes, parsed, SyncTableName.Notes);
         const ids = rows.map((r) => r.id);
         const existing =
@@ -1265,17 +1260,29 @@ export async function applyPushBatch(
                 .limit(50_000);
         const existingMap = new Map<string, any>();
         for (const e of existing as any[]) existingMap.set(String(e.id), e);
+        const editableShares =
+          ids.length === 0
+            ? []
+            : await tx
+                .select({ noteId: noteShares.noteId })
+                .from(noteShares)
+                .where(and(eq(noteShares.recipientUserId, actor.id as any), inArray(noteShares.noteId, ids as any), isNull(noteShares.deletedAt)))
+                .limit(50_000);
+        const editableSharedNoteIds = new Set<string>(editableShares.map((s) => String(s.noteId)));
 
         const allowed: typeof rows = [];
         for (const r of rows) {
           const cur = existingMap.get(String(r.id));
           if (!cur) {
-            allowed.push(r);
+            // For new rows owner is always creator (actor), regardless of client payload.
+            allowed.push({ ...r, owner_user_id: actor.id });
             continue;
           }
           const ownerOk = String(cur.ownerUserId ?? '') === actor.id;
-          if (!ownerOk && !actorIsAdmin) throw new Error('sync_policy_denied: note_owner');
-          allowed.push(r);
+          const shareOk = editableSharedNoteIds.has(String(r.id));
+          if (!ownerOk && !shareOk && !actorIsAdmin) throw new Error('sync_policy_denied: note_owner');
+          // Preserve original owner for existing notes.
+          allowed.push({ ...r, owner_user_id: String(cur.ownerUserId ?? actor.id) });
         }
 
         if (allowed.length > 0) {

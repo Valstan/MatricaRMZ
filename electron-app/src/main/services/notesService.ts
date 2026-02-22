@@ -136,14 +136,23 @@ export async function notesUpsert(
 
     const existing = await db.select().from(notes).where(eq(notes.id, id)).limit(1);
     if (existing[0]) {
-      if (String((existing[0] as any).ownerUserId ?? '') !== me.id) return { ok: false, error: 'not owner' };
+      const ownerId = String((existing[0] as any).ownerUserId ?? '');
+      if (ownerId !== me.id) {
+        const share = await db
+          .select()
+          .from(noteShares)
+          .where(and(eq(noteShares.noteId, id), eq(noteShares.recipientUserId, me.id), isNull(noteShares.deletedAt)))
+          .limit(1);
+        if (!share[0]) return { ok: false, error: 'not owner' };
+      }
     }
+    const ownerUserId = existing[0] ? String((existing[0] as any).ownerUserId ?? me.id) : me.id;
 
     await db
       .insert(notes)
       .values({
         id,
-        ownerUserId: me.id,
+        ownerUserId,
         title,
         bodyJson,
         importance,

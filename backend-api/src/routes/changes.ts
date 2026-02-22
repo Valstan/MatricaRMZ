@@ -12,7 +12,7 @@ import {
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { changeRequests, entityTypes, entities, attributeDefs, attributeValues, operations, fileAssets } from '../database/schema.js';
+import { changeRequests, entityTypes, entities, attributeDefs, attributeValues, fileAssets } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { writeSyncChanges, type SyncWriteInput } from '../services/sync/syncWriteService.js';

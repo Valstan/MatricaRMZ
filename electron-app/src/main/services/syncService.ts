@@ -1,4 +1,3 @@
-import { LedgerStore } from '@matricarmz/ledger';
 import {
   EntityTypeCode,
   SyncTableName,
@@ -22,7 +21,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { getSqliteHandle } from '../database/db.js';
 import {
@@ -43,7 +42,7 @@ import { authRefresh, clearSession, getSession } from './authService.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
-import { encryptRowSensitive, decryptRowSensitive, isE2eEnabled, getE2eKeys } from './sync/e2eCrypto.js';
+import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
 import {
   markPendingError,
   dropPendingChatReads as dropPendingChatReadsRecovery,
@@ -55,8 +54,8 @@ import {
   markAllEntityTypesPending,
   markAllAttributeDefsPending,
 } from './sync/errorRecovery.js';
-import { buildDiagnosticsSnapshot, sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
-import { createProgressEmitter, nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
+import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
+import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
 // getKeyRing/keyRingToBuffers now imported in sync/e2eCrypto.ts
 
@@ -79,9 +78,6 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.NoteShares]: 500,
 };
 
-const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
-const LEDGER_BLOCKS_PAGE_SIZE = 200;
-const LEDGER_E2E_ENV = 'MATRICA_LEDGER_E2E';
 const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
 const SYNC_V2_ENABLED = String(process.env.MATRICA_SYNC_V2 ?? '1') !== '0';
 const FULL_STATE_SYNC_TABLES: SyncTableName[] = [
@@ -375,14 +371,6 @@ async function clearLocalSyncTablesForFullPull(db: BetterSQLite3Database) {
   logSync('full pull pre-clean: local sync tables cleared');
 }
 
-let clientLedgerStore: LedgerStore | null = null;
-function getClientLedgerStore(): LedgerStore {
-  if (clientLedgerStore) return clientLedgerStore;
-  const dir = join(app.getPath('userData'), 'ledger');
-  clientLedgerStore = new LedgerStore(dir);
-  return clientLedgerStore;
-}
-
 // Moved to sync/e2eCrypto.ts
 
 // getE2eKeys: Moved to sync/e2eCrypto.ts
@@ -414,15 +402,6 @@ function formatError(e: unknown): string {
   const stack = anyE?.stack ? `\n${String(anyE.stack)}` : '';
   return `${name ? name + ': ' : ''}${message}${code}${cause}${stack}`;
 }
-
-type SnapshotSection = {
-  count: number;
-  maxUpdatedAt: number | null;
-  checksum: string | null;
-  pendingCount?: number;
-  errorCount?: number;
-  pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
-};
 
 // hashSnapshot: Moved to sync/diagnosticsReporter.ts
 
@@ -539,40 +518,6 @@ async function fetchAuthed(
   }
 
   return first;
-}
-
-async function syncLedgerBlocks(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  onProgress?: (page: number, lastHeight: number) => void,
-) {
-  const store = getClientLedgerStore();
-  let lastHeight = store.loadIndex().lastHeight;
-  for (let i = 0; i < 1000; i += 1) {
-    const url = `${apiBaseUrl}/ledger/blocks?since=${lastHeight}&limit=${LEDGER_BLOCKS_PAGE_SIZE}`;
-    const res = await fetchAuthed(db, apiBaseUrl, url, { method: 'GET' }, { attempts: 3, timeoutMs: 60_000, label: 'pull' });
-    if (!res.ok) {
-      const body = await safeBodyText(res);
-      logSync(`ledger blocks pull failed status=${res.status} body=${body}`);
-      return;
-    }
-    const json = (await res.json()) as { ok: boolean; last_height: number; blocks: any[] };
-    const blocks = Array.isArray(json.blocks) ? json.blocks : [];
-    if (blocks.length === 0) break;
-    for (const block of blocks) {
-      try {
-        store.appendRemoteBlock(block);
-      } catch (e) {
-        logSync(`ledger append failed height=${block?.height} err=${formatError(e)}`);
-        return;
-      }
-    }
-    if (json.last_height === lastHeight) break;
-    lastHeight = json.last_height;
-    onProgress?.(i + 1, lastHeight);
-    // Yield to the event loop every few pages so Electron UI stays responsive.
-    if (i % 3 === 2) await yieldToEventLoop();
-  }
 }
 
 async function getSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, fallback: number) {

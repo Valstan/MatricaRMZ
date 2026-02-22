@@ -86,6 +86,8 @@ body {
   --list-row-text: #0b1220;
   --list-row-padding-y: 4px;
   --list-row-padding-x: 6px;
+  --ui-list-cell-default-max-ch: 24;
+  --ui-list-cell-name-max-ch: 38;
   --list-row-green-bg: #ecfdf3;
   --list-row-green-alt: #dcfce7;
   --list-row-green-hover: #bbf7d0;
@@ -256,9 +258,85 @@ table {
 }
 
 table.list-table {
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
   border-collapse: collapse;
   font-size: var(--ui-list-font-size);
+  table-layout: auto;
+}
+
+.list-table-wrap {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  overflow-x: auto;
+}
+
+table.list-table th,
+table.list-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(var(--ui-list-cell-default-max-ch) * 1ch);
+}
+
+table.list-table td[colspan],
+table.list-table th[colspan] {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+}
+
+table.list-table th:nth-child(1),
+table.list-table td:nth-child(1) {
+  max-width: calc(var(--ui-list-col-1-max-ch, var(--ui-list-cell-name-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(2),
+table.list-table td:nth-child(2) {
+  max-width: calc(var(--ui-list-col-2-max-ch, var(--ui-list-cell-name-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(3),
+table.list-table td:nth-child(3) {
+  max-width: calc(var(--ui-list-col-3-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(4),
+table.list-table td:nth-child(4) {
+  max-width: calc(var(--ui-list-col-4-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(5),
+table.list-table td:nth-child(5) {
+  max-width: calc(var(--ui-list-col-5-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(6),
+table.list-table td:nth-child(6) {
+  max-width: calc(var(--ui-list-col-6-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(7),
+table.list-table td:nth-child(7) {
+  max-width: calc(var(--ui-list-col-7-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(8),
+table.list-table td:nth-child(8) {
+  max-width: calc(var(--ui-list-col-8-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(9),
+table.list-table td:nth-child(9) {
+  max-width: calc(var(--ui-list-col-9-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(10),
+table.list-table td:nth-child(10) {
+  max-width: calc(var(--ui-list-col-10-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
 }
 
 table.list-table tbody tr {

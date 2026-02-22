@@ -57,8 +57,8 @@ import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
+import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
-import { theme } from './theme.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -230,6 +230,7 @@ export function App() {
   const [effectiveUiControl, setEffectiveUiControl] = useState<UiControlSettings>(DEFAULT_UI_CONTROL_SETTINGS);
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   useAutoGrowInputs();
+  useAdaptiveListTables();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
@@ -1878,6 +1879,15 @@ export function App() {
     fontSize: 11,
     fontWeight: 700,
   };
+  const edgeMoveButtonStyle: React.CSSProperties = {
+    ...edgeButtonStyle,
+    writingMode: 'horizontal-tb',
+    textOrientation: 'mixed',
+    padding: '6px 8px',
+    minWidth: 36,
+    fontSize: 14,
+    lineHeight: '14px',
+  };
 
   return (
     <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
@@ -1970,7 +1980,7 @@ export function App() {
                 onClick={() => void sendCurrentPositionToChat()}
                 title="Отправить ссылку на текущий раздел в чат"
               >
-                Кинуть в чат
+                Отправить в чат
               </Button>
               <Button
                 variant="ghost"
@@ -2595,9 +2605,9 @@ export function App() {
             variant="ghost"
             onClick={() => void persistChatSide(edgeSide === 'left' ? 'right' : 'left')}
             title="Переместить чат"
-            style={edgeButtonStyle}
+            style={edgeMoveButtonStyle}
           >
-            ⇄
+            {edgeSide === 'left' ? '→' : '←'}
           </Button>
           {chatOpen ? (
             <Button variant="ghost" onClick={() => setChatOpen(false)} title="Свернуть чат" style={edgeButtonStyle}>

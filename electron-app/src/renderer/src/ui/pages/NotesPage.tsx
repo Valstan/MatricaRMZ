@@ -34,7 +34,14 @@ function newId() {
 
 function formatDate(ms: number | null) {
   if (!ms) return '';
-  return new Date(ms).toLocaleString('ru-RU');
+  const dt = new Date(ms);
+  const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  const day = dt.getDate();
+  const month = monthNames[dt.getMonth()] ?? '';
+  const year = dt.getFullYear();
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mm = String(dt.getMinutes()).padStart(2, '0');
+  return `${day} ${month} ${year}, ${hh}:${mm}`;
 }
 
 function getTextFromBody(body: NoteBlock[]) {
@@ -76,16 +83,16 @@ function textPreviewLines(body: NoteBlock[]) {
 }
 
 function parseDueColor(dueAt: number | null, now: number) {
-  if (!dueAt) return { color: theme.colors.text, blink: false, label: null };
+  if (!dueAt) return { color: theme.colors.text, blink: false, label: null, isSoon: false, isOverdue: false };
   const diff = dueAt - now;
-  if (diff < 0) return { color: 'var(--danger)', blink: true, label: 'Просрочено' };
+  if (diff < 0) return { color: 'var(--danger)', blink: true, label: 'Просрочено', isSoon: true, isOverdue: true };
   const hour = 60 * 60 * 1000;
   const day = 24 * hour;
-  if (diff > 7 * day) return { color: theme.colors.text, blink: false, label: null };
-  if (diff > 3 * day) return { color: 'var(--success)', blink: false, label: 'Срок близко' };
-  if (diff > 1 * day) return { color: 'var(--input-border-focus)', blink: false, label: 'Срок скоро' };
-  if (diff > 2 * hour) return { color: 'var(--warn)', blink: false, label: 'Скоро' };
-  return { color: 'var(--danger)', blink: false, label: 'Сейчас' };
+  if (diff > 7 * day) return { color: theme.colors.text, blink: false, label: null, isSoon: false, isOverdue: false };
+  if (diff > 3 * day) return { color: 'var(--success)', blink: false, label: 'Срок близко', isSoon: false, isOverdue: false };
+  if (diff > 1 * day) return { color: 'var(--input-border-focus)', blink: false, label: 'Срок скоро', isSoon: false, isOverdue: false };
+  if (diff > 2 * hour) return { color: 'var(--warn)', blink: false, label: 'Скоро', isSoon: false, isOverdue: false };
+  return { color: 'var(--danger)', blink: false, label: 'Сейчас', isSoon: true, isOverdue: false };
 }
 
 export function NotesPage(props: {
@@ -108,6 +115,7 @@ export function NotesPage(props: {
   const [now, setNow] = useState(() => nowMs());
   const [imageThumbs, setImageThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const recipientPickerRef = useRef<HTMLDivElement | null>(null);
+  const reminderSentRef = useRef<Record<string, number>>({});
   const uploadFlow = useFileUploadFlow();
 
   async function refresh() {
@@ -201,6 +209,18 @@ export function NotesPage(props: {
     return [...ownedViews, ...sharedViews];
   }, [notes, props.meUserId, mySharesByNoteId, showHidden]);
 
+  const reminderStats = useMemo(() => {
+    let soon = 0;
+    let overdue = 0;
+    for (const note of notesVisible) {
+      const dueAt = drafts[note.id]?.dueAt ?? note.dueAt ?? null;
+      const due = parseDueColor(dueAt, now);
+      if (due.isOverdue) overdue += 1;
+      else if (due.isSoon) soon += 1;
+    }
+    return { soon, overdue };
+  }, [notesVisible, drafts, now]);
+
   useEffect(() => {
     const count = notesVisible.filter((n) => n.importance === 'burning' || (n.dueAt != null && n.dueAt < now)).length;
     props.onBurningCountChange?.(count);
@@ -225,9 +245,10 @@ export function NotesPage(props: {
   useEffect(() => {
     const fromHistory = String(props.initialNoteId ?? '').trim();
     if (!fromHistory) return;
+    if (selectedNoteId && listEntries.some((item) => item.id === selectedNoteId)) return;
     if (!listEntries.some((item) => item.id === fromHistory)) return;
     setSelectedNoteId(fromHistory);
-  }, [props.initialNoteId, listEntries]);
+  }, [props.initialNoteId, listEntries, selectedNoteId]);
 
   useEffect(() => {
     const ids = new Set<string>();
@@ -263,6 +284,30 @@ export function NotesPage(props: {
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [recipientPicker]);
+
+  useEffect(() => {
+    const me = String(props.meUserId ?? '').trim();
+    if (!me) return;
+    const dueSoon = notesVisible
+      .map((note) => {
+        const draft = drafts[note.id];
+        const dueAt = draft?.dueAt ?? note.dueAt ?? null;
+        return { note, draft, dueAt };
+      })
+      .filter((x) => x.dueAt != null && x.dueAt > now && x.dueAt - now <= 2 * 60 * 60 * 1000);
+    if (dueSoon.length === 0) return;
+    void (async () => {
+      for (const item of dueSoon) {
+        if (item.dueAt == null) continue;
+        const stamp = `${item.note.id}:${item.dueAt}`;
+        if (reminderSentRef.current[stamp]) continue;
+        reminderSentRef.current[stamp] = nowMs();
+        const [line1] = textPreviewLines(item.draft?.body ?? item.note.body ?? []);
+        const text = `Напоминание по заметке: "${line1 || 'Заметка'}". Срок: ${formatDate(item.dueAt)}.`;
+        await window.matrica.chat.sendText({ recipientUserId: me, text }).catch(() => null);
+      }
+    })();
+  }, [notesVisible, drafts, now, props.meUserId]);
 
   function updateDraft(id: string, next: Partial<NoteDraft>) {
     setDrafts((prev) => {
@@ -418,6 +463,7 @@ export function NotesPage(props: {
 
   function openRecipientPicker(noteId: string, mode: 'chat' | 'share') {
     setRecipientPicker({ noteId, mode, selectedIds: [] });
+    if (users.length === 0) void refreshUsers();
   }
 
   function toggleRecipientSelection(userId: string) {
@@ -466,41 +512,56 @@ export function NotesPage(props: {
     const body = draft?.body ?? entry.body ?? [];
     const [line1, line2, line3] = textPreviewLines(body);
     const active = selectedNoteId === entry.id;
+    const sectionList = entry.section === 'owned' ? ownedNotes : sharedNotes;
+    const sectionIndex = sectionList.findIndex((n) => n.id === entry.id);
+    const dueInfo = parseDueColor(draft?.dueAt ?? entry.dueAt ?? null, now);
+    const hotStyle = dueInfo.isSoon || dueInfo.isOverdue;
     return (
-      <button
-        key={entry.id}
-        type="button"
-        onClick={() => openNote(entry.id)}
-        style={{
-          textAlign: 'left',
-          border: `1px solid ${active ? 'var(--button-primary-border)' : theme.colors.border}`,
-          borderRadius: 10,
-          padding: 10,
-          background: active ? 'var(--surface-2)' : theme.colors.surface2,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          cursor: 'pointer',
-          width: '100%',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: theme.colors.muted }}>
-            {index + 1}. {entry.section === 'owned' ? 'Моя' : 'Получена'}
-          </span>
-          <span style={{ fontSize: 11, color: theme.colors.muted }}>{formatDate(entry.updatedAt)}</span>
-        </div>
-        <div style={{ minHeight: 64 }}>
-          <div style={{ fontWeight: 700, color: theme.colors.text }}>{line1 || ' '}</div>
-          <div style={{ opacity: 0.58, color: theme.colors.text }}>{line2 || ' '}</div>
-          <div style={{ opacity: 0.34, color: theme.colors.text }}>{line3 || ' '}</div>
-        </div>
-        {dirty[entry.id] ? <span style={{ color: 'var(--warn)', fontSize: 12, fontWeight: 700 }}>Есть несохраненные изменения</span> : null}
-      </button>
+      <div key={entry.id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+        <button
+          type="button"
+          onClick={() => openNote(entry.id)}
+          style={{
+            textAlign: 'left',
+            border: `1px solid ${active ? 'var(--button-primary-border)' : hotStyle ? 'var(--danger)' : theme.colors.border}`,
+            borderRadius: 10,
+            padding: 10,
+            background: hotStyle ? 'rgba(220, 38, 38, 0.08)' : active ? 'var(--surface-2)' : theme.colors.surface2,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: dueInfo.color }}>
+              {index + 1}. {entry.section === 'owned' ? 'Моя' : 'Получена'}
+            </span>
+            <span style={{ fontSize: 11, color: theme.colors.muted }}>{formatDate(entry.updatedAt)}</span>
+          </div>
+          <div style={{ minHeight: 64 }}>
+            <div style={{ fontWeight: 700, color: theme.colors.text }}>{line1 || ' '}</div>
+            <div style={{ opacity: 0.58, color: theme.colors.text }}>{line2 || ' '}</div>
+            <div style={{ opacity: 0.34, color: theme.colors.text }}>{line3 || ' '}</div>
+          </div>
+          {dirty[entry.id] ? <span style={{ color: 'var(--warn)', fontSize: 12, fontWeight: 700 }}>Есть несохраненные изменения</span> : null}
+        </button>
+        {props.canEdit && sectionIndex >= 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
+            <Button variant="ghost" disabled={sectionIndex <= 0} onClick={() => void moveNote(entry.id, sectionList, -1)}>
+              ↑
+            </Button>
+            <Button variant="ghost" disabled={sectionIndex >= sectionList.length - 1} onClick={() => void moveNote(entry.id, sectionList, 1)}>
+              ↓
+            </Button>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
-  function renderSelectedNote(note: NoteView, list: NoteView[], listIndex: number) {
+  function renderSelectedNote(note: NoteView) {
     const draft = drafts[note.id];
     if (!draft) return null;
     const share = note.shared ? note.share : null;
@@ -510,13 +571,14 @@ export function NotesPage(props: {
     const sharedWith = sharesByNoteId.get(note.id) ?? [];
     const noteImages = draft.body.filter((b): b is Extract<NoteBlock, { kind: 'image' }> => b.kind === 'image');
     const { body: ensuredBody, textIndex } = ensureTextBlock(draft.body ?? []);
+    const hotStyle = dueInfo.isSoon || dueInfo.isOverdue;
 
     return (
       <div
         style={{
-          border: `1px solid ${theme.colors.border}`,
+          border: `1px solid ${hotStyle ? 'var(--danger)' : theme.colors.border}`,
           borderRadius: 12,
-          background: theme.colors.surface2,
+          background: hotStyle ? 'rgba(220, 38, 38, 0.08)' : theme.colors.surface2,
           padding: 12,
           display: 'flex',
           flexDirection: 'column',
@@ -525,14 +587,46 @@ export function NotesPage(props: {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div className={dueInfo.blink ? 'notes-blink' : undefined} style={{ fontWeight: 800, color: dueInfo.color, flex: 1, minWidth: 0 }}>
-            {note.shared ? 'Полученная заметка' : 'Моя заметка'}
+            {note.shared ? 'Полученная заметка' : ''}
           </div>
           <div style={{ color: theme.colors.muted, fontSize: 12 }}>{formatDate(note.createdAt)}</div>
         </div>
 
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.dueAt)}
+              disabled={!props.canEdit}
+              onChange={(e) => {
+                if (!e.target.checked) {
+                  updateDraft(note.id, { dueAt: null });
+                  return;
+                }
+                updateDraft(note.id, { dueAt: draft.dueAt ?? now + 60 * 60 * 1000 });
+              }}
+            />
+            <span style={{ fontSize: 12 }}>Напоминание</span>
+          </label>
+          <input
+            type="datetime-local"
+            value={draft.dueAt ? new Date(draft.dueAt).toISOString().slice(0, 16) : ''}
+            disabled={!props.canEdit || !draft.dueAt}
+            onChange={(e) => updateDraft(note.id, { dueAt: e.target.value ? new Date(e.target.value).getTime() : null })}
+            style={{
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: 8,
+              padding: '6px 8px',
+              background: theme.colors.surface,
+              color: theme.colors.text,
+            }}
+          />
+          {dueInfo.label ? <span style={{ color: dueInfo.color, fontSize: 12 }}>{dueInfo.label}</span> : null}
+        </div>
+
         <textarea
           value={String((ensuredBody[textIndex] as any)?.text ?? '')}
-          disabled={note.shared || !props.canEdit}
+          disabled={!props.canEdit}
           onChange={(e) => {
             const next = [...ensuredBody];
             const existing = next[textIndex] as Extract<NoteBlock, { kind: 'text' }>;
@@ -602,7 +696,7 @@ export function NotesPage(props: {
           </div>
         ) : null}
 
-        {!note.shared && props.canEdit && (
+        {props.canEdit && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <Button variant="ghost" onClick={() => void addImageBlock(note.id)}>
               Добавить изображение
@@ -611,7 +705,7 @@ export function NotesPage(props: {
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, position: 'relative' }}>
-          {!note.shared && props.canEdit && (
+          {props.canEdit && (
             <Button variant="primary" disabled={!dirty[note.id]} onClick={() => void saveDraft(note.id)}>
               Сохранить
             </Button>
@@ -625,23 +719,13 @@ export function NotesPage(props: {
           >
             Копировать текст
           </Button>
-          <Button variant="ghost" onClick={() => openRecipientPicker(note.id, 'chat')} disabled={noteUsers.length === 0}>
+          <Button variant="ghost" onClick={() => openRecipientPicker(note.id, 'chat')}>
             Отправить в чат
           </Button>
           {!note.shared && props.canEdit && (
-            <Button variant="ghost" onClick={() => openRecipientPicker(note.id, 'share')} disabled={noteUsers.length === 0}>
+            <Button variant="ghost" onClick={() => openRecipientPicker(note.id, 'share')}>
               Поделиться с другими
             </Button>
-          )}
-          {props.canEdit && (
-            <>
-              <Button variant="ghost" disabled={listIndex <= 0} onClick={() => void moveNote(note.id, list, -1)}>
-                Выше
-              </Button>
-              <Button variant="ghost" disabled={listIndex < 0 || listIndex >= list.length - 1} onClick={() => void moveNote(note.id, list, 1)}>
-                Ниже
-              </Button>
-            </>
           )}
           {!note.shared && props.canEdit && (
             <Button variant="ghost" onClick={() => void deleteNote(note.id)}>
@@ -743,7 +827,6 @@ export function NotesPage(props: {
             {noteStatus[note.id]?.text}
           </div>
         )}
-        {dueInfo.label && <span style={{ color: dueInfo.color, fontSize: 12 }}>{dueInfo.label}</span>}
       </div>
     );
   }
@@ -759,6 +842,11 @@ export function NotesPage(props: {
           <span style={{ fontSize: 12, color: theme.colors.muted }}>Показывать скрытые</span>
         </label>
       </div>
+      {reminderStats.soon > 0 || reminderStats.overdue > 0 ? (
+        <div className={reminderStats.overdue > 0 ? 'notes-blink' : undefined} style={{ color: 'var(--danger)', fontSize: 12, fontWeight: 700 }}>
+          Напоминания: скоро {reminderStats.soon}, просрочено {reminderStats.overdue}
+        </div>
+      ) : null}
 
       {uploadFlow.status ? (
         <div style={{ color: uploadFlow.status.startsWith('Неуспешно') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{uploadFlow.status}</div>
@@ -803,9 +891,7 @@ export function NotesPage(props: {
             (() => {
               const selected = listEntries.find((x) => x.id === selectedNoteId) ?? null;
               if (!selected) return <div style={{ color: theme.colors.muted }}>Выберите заметку из списка.</div>;
-              const sectionList = selected.section === 'owned' ? ownedNotes : sharedNotes;
-              const listIndex = sectionList.findIndex((x) => x.id === selected.id);
-              return renderSelectedNote(selected, sectionList, listIndex);
+              return renderSelectedNote(selected);
             })()
           ) : (
             <div style={{ color: theme.colors.muted }}>Выберите заметку из списка.</div>

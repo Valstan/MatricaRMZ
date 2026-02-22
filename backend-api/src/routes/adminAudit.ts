@@ -15,8 +15,6 @@ adminAuditRouter.use((req, res, next) => {
   return next();
 });
 
-type ActionType = 'create' | 'update' | 'delete' | 'session' | 'other';
-
 adminAuditRouter.get('/list', async (req, res) => {
   const parsed = z
     .object({
