@@ -2081,6 +2081,7 @@ export async function runSync(
         const tableCount = FULL_STATE_SYNC_TABLES.length;
         for (let tableIdx = 0; tableIdx < tableCount; tableIdx += 1) {
           const table = FULL_STATE_SYNC_TABLES[tableIdx];
+          if (!table) continue;
           // Progress 0.05..0.80 spread across tables
           const tableBaseProgress = 0.05 + (tableIdx / tableCount) * 0.75;
           const tableNextProgress = 0.05 + ((tableIdx + 1) / tableCount) * 0.75;
@@ -2475,7 +2476,19 @@ export async function runSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
       emitStage('finalize', 'отправка диагностики', { service: 'diagnostics', progress: 0.85 });
-      await sendDiagnosticsSnapshotImpl(db, currentApiBaseUrl, clientId, pullJson.server_cursor, syncRunId, fetchAuthed).catch(() => {});
+      await sendDiagnosticsSnapshotImpl(
+        db,
+        currentApiBaseUrl,
+        clientId,
+        pullJson.server_cursor,
+        syncRunId,
+        async (dbArg, apiBaseUrlArg, urlArg, initArg, optsArg) =>
+          fetchAuthed(dbArg, apiBaseUrlArg, urlArg, initArg, {
+            attempts: Number(optsArg.attempts ?? 3),
+            timeoutMs: Number(optsArg.timeoutMs ?? 60_000),
+            label: optsArg.label === 'push' ? 'push' : 'pull',
+          }),
+      ).catch(() => {});
       // Ledger block sync is skipped: blocks are never read on the client and
       // downloading ~44k blocks takes ~7 minutes of network time with no benefit.
       emitStage('finalize', 'завершение синхронизации', { service: 'sync', progress: 0.98 });

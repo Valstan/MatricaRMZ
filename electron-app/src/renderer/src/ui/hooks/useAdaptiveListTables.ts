@@ -19,6 +19,12 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function readNumberCssVar(root: HTMLElement, name: string, fallback: number): number {
+  const raw = getComputedStyle(root).getPropertyValue(name).trim();
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function isMostlyNumeric(value: string) {
   const text = normalizeText(value);
   if (!text) return false;
@@ -28,12 +34,9 @@ function isMostlyNumeric(value: string) {
   return digits / stripped.length >= 0.75;
 }
 
-function headerIsNameLike(header: string) {
-  const h = header.toLowerCase();
-  return h.includes('назв') || h.includes('наимен') || h.includes('контраг') || h.includes('опис');
-}
-
 function recalcAdaptiveTableColumns() {
+  const root = document.documentElement;
+  const textMaxCh = clamp(readNumberCssVar(root, '--ui-list-text-max-ch', 48), 24, 88);
   const tables = Array.from(document.querySelectorAll('table.list-table')) as HTMLTableElement[];
   for (const table of tables) {
     const wrapper = table.parentElement;
@@ -78,13 +81,10 @@ function recalcAdaptiveTableColumns() {
       const p80 = quantile(sorted, 0.8);
       const p90 = quantile(sorted, 0.9);
       const median = quantile(sorted, 0.5);
-      const avg = sorted.reduce((sum, n) => sum + n, 0) / sorted.length;
       const mostlyNumeric = numericVotes > textVotes;
-      const isNameColumn = headerIsNameLike(headerText) || (!mostlyNumeric && col <= 1 && (median >= 12 || avg >= 14));
 
-      let maxCh = isNameColumn
-        ? clamp(Math.round(p65 * 0.25 + p80 * 0.55 + p90 * 0.2) + 3, 18, 42)
-        : clamp(Math.round(p65 * 0.45 + p80 * 0.55) + 2, 10, 26);
+      // Treat all textual columns as "name-like": prioritize readable width for typical text.
+      let maxCh = clamp(Math.round(p65 * 0.2 + p80 * 0.55 + p90 * 0.25) + 3, 18, textMaxCh);
       if (mostlyNumeric) maxCh = clamp(Math.round(median + 2), 8, 16);
       if (hasInteractiveContent) maxCh = Math.max(maxCh, 22);
 

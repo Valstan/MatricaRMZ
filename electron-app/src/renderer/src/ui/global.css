@@ -86,8 +86,12 @@ body {
   --list-row-text: #0b1220;
   --list-row-padding-y: 4px;
   --list-row-padding-x: 6px;
-  --ui-list-cell-default-max-ch: 24;
-  --ui-list-cell-name-max-ch: 38;
+  --ui-list-cell-default-max-ch: 30;
+  --ui-list-cell-name-max-ch: 44;
+  --ui-list-text-max-ch: 48;
+  --ui-list-auto-columns-enabled: 1;
+  --ui-list-auto-columns-max: 3;
+  --ui-list-auto-columns-gap-px: 10;
   --list-row-green-bg: #ecfdf3;
   --list-row-green-alt: #dcfce7;
   --list-row-green-hover: #bbf7d0;

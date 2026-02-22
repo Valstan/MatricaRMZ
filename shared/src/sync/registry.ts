@@ -38,7 +38,7 @@ export type FieldMapping = {
 };
 
 /** Full registry entry for one sync table. */
-export type SyncTableEntry<T = unknown> = {
+export type SyncTableEntry = {
   /** Canonical sync table name (snake_case string). */
   syncName: SyncTableName;
   /** Matching ledger table name (same string value for sync tables). */

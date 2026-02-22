@@ -9,13 +9,13 @@ function parseValue(raw: string, withTime: boolean): Date | null {
   const value = String(raw ?? '').trim();
   if (!value) return null;
   if (withTime) {
-    const [datePart, timePart = '00:00'] = value.split('T');
-    const [y, m, d] = datePart.split('-').map((x) => Number(x));
-    const [hh, mm] = timePart.split(':').map((x) => Number(x));
+    const [datePart = '', timePart = '00:00'] = value.split('T');
+    const [y = NaN, m = NaN, d = NaN] = datePart.split('-').map((x) => Number(x));
+    const [hh = 0, mm = 0] = timePart.split(':').map((x) => Number(x));
     if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
     return new Date(y, m - 1, d, Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
   }
-  const [y, m, d] = value.split('-').map((x) => Number(x));
+  const [y = NaN, m = NaN, d = NaN] = value.split('-').map((x) => Number(x));
   if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
   return new Date(y, m - 1, d, 0, 0, 0, 0);
 }
@@ -66,6 +66,15 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
     );
   }
 
+  const optionalPickerProps = {
+    ...(props.placeholder !== undefined ? { placeholderText: props.placeholder } : {}),
+    ...(props.name !== undefined ? { name: props.name } : {}),
+    ...(props.required !== undefined ? { required: props.required } : {}),
+    ...(props.id !== undefined ? { id: props.id } : {}),
+    ...(minDate ? { minDate } : {}),
+    ...(maxDate ? { maxDate } : {}),
+  };
+
   return (
     <DatePicker
       selected={selected}
@@ -73,15 +82,9 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
       onClickOutside={() => setOpen(false)}
       onCalendarClose={() => setOpen(false)}
       onCalendarOpen={() => setOpen(true)}
-      onChange={(next) => emitChange(formatValue(next, withTime))}
+      onChange={(next: Date | null) => emitChange(formatValue(next, withTime))}
       onSelect={() => setOpen(false)}
-      disabled={props.disabled}
-      placeholderText={props.placeholder}
-      name={props.name}
-      required={props.required}
-      id={props.id}
-      minDate={minDate}
-      maxDate={maxDate}
+      disabled={Boolean(props.disabled)}
       showTimeSelect={withTime}
       timeIntervals={15}
       dateFormat={withTime ? 'dd.MM.yyyy HH:mm' : 'dd.MM.yyyy'}
@@ -92,7 +95,7 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
         setFocused(true);
         setOpen(true);
         try {
-          e.currentTarget.setSelectionRange(0, 0);
+          (e.currentTarget as HTMLInputElement).setSelectionRange(0, 0);
         } catch {
           // ignore selection errors for non-text implementations
         }
@@ -109,6 +112,7 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
       }}
       autoComplete="off"
       customInput={<input ref={ref} style={inputStyle} data-autogrow="off" />}
+      {...optionalPickerProps}
     />
   );
 });

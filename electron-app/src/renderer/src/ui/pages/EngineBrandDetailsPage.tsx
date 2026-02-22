@@ -168,8 +168,8 @@ export function EngineBrandDetailsPage(props: {
         currentRaw && typeof currentRaw === 'object' && !Array.isArray(currentRaw)
           ? Object.fromEntries(
               Object.entries(currentRaw as Record<string, unknown>)
-                .map(([k, v]) => [String(k), Number(v)])
-                .filter(([, v]) => Number.isFinite(v) && v >= 0),
+                .map(([k, v]) => [String(k), Number(v)] as [string, number])
+                .filter((entry): entry is [string, number] => Number.isFinite(entry[1]) && entry[1] >= 0),
             )
           : {};
       currentMap[props.brandId] = safeQty;
@@ -195,8 +195,8 @@ export function EngineBrandDetailsPage(props: {
         currentRaw && typeof currentRaw === 'object' && !Array.isArray(currentRaw)
           ? Object.fromEntries(
               Object.entries(currentRaw as Record<string, unknown>)
-                .map(([k, v]) => [String(k), Number(v)])
-                .filter(([, v]) => Number.isFinite(v) && v >= 0),
+                .map(([k, v]) => [String(k), Number(v)] as [string, number])
+                .filter((entry): entry is [string, number] => Number.isFinite(entry[1]) && entry[1] >= 0),
             )
           : {};
       if (!(props.brandId in currentMap)) return;

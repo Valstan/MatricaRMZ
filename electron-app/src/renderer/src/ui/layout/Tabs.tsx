@@ -233,17 +233,19 @@ export function Tabs(props: {
   const departmentButtonsGap = 2;
   const sectionButtonsGap = 2;
   const menuState = deriveMenuState(props.availableTabs, props.layout);
-  const hiddenGroupsSet = useMemo(() => {
-    const raw = Array.isArray(props.layout?.hiddenGroups) ? props.layout?.hiddenGroups ?? [] : [];
-    return new Set(raw.filter((x): x is MenuGroupId => isGroupId(String(x))));
+  const hiddenGroupsSet = useMemo<Set<MenuGroupId>>(() => {
+    const raw: unknown[] = Array.isArray(props.layout?.hiddenGroups) ? props.layout.hiddenGroups : [];
+    const parsed = raw.map((x) => String(x)).filter((x): x is MenuGroupId => isGroupId(x));
+    return new Set<MenuGroupId>(parsed);
   }, [props.layout?.hiddenGroups]);
-  const collapsedGroups = useMemo(() => {
-    const raw = Array.isArray(props.layout?.collapsedGroups) ? props.layout?.collapsedGroups ?? [] : [];
-    return new Set(raw.filter((x): x is MenuGroupId => isGroupId(String(x))));
+  const collapsedGroups = useMemo<Set<MenuGroupId>>(() => {
+    const raw: unknown[] = Array.isArray(props.layout?.collapsedGroups) ? props.layout.collapsedGroups : [];
+    const parsed = raw.map((x) => String(x)).filter((x): x is MenuGroupId => isGroupId(x));
+    return new Set<MenuGroupId>(parsed);
   }, [props.layout?.collapsedGroups]);
-  const groupOrder = useMemo(() => {
-    const raw = Array.isArray(props.layout?.groupOrder) ? props.layout?.groupOrder ?? [] : [];
-    const order = raw.filter((x): x is MenuGroupId => isGroupId(String(x)));
+  const groupOrder = useMemo<MenuGroupId[]>(() => {
+    const raw: unknown[] = Array.isArray(props.layout?.groupOrder) ? props.layout.groupOrder : [];
+    const order = raw.map((x) => String(x)).filter((x): x is MenuGroupId => isGroupId(x));
     for (const groupId of DEFAULT_GROUP_ORDER) {
       if (!order.includes(groupId)) order.push(groupId);
     }
@@ -264,8 +266,8 @@ export function Tabs(props: {
     }
     return mapped;
   }, [menuState.visibleOrdered]);
-  const groupsWithTabs = useMemo(() => groupOrder.filter((groupId) => visibleByGroup[groupId].length > 0), [groupOrder, visibleByGroup]);
-  const groupsInUse = useMemo(
+  const groupsWithTabs = useMemo<MenuGroupId[]>(() => groupOrder.filter((groupId) => visibleByGroup[groupId].length > 0), [groupOrder, visibleByGroup]);
+  const groupsInUse = useMemo<MenuGroupId[]>(
     () => groupsWithTabs.filter((groupId) => !hiddenGroupsSet.has(groupId)),
     [groupsWithTabs, hiddenGroupsSet],
   );
@@ -273,9 +275,10 @@ export function Tabs(props: {
     if (!menuState.visibleOrdered.includes(props.tab as MenuTabId)) return null;
     return groupForTab(props.tab as MenuTabId);
   }, [menuState.visibleOrdered, props.tab]);
-  const activeGroup = useMemo(() => {
-    const byLayout = props.layout?.activeGroup;
-    if (byLayout && isGroupId(byLayout) && groupsInUse.includes(byLayout) && !collapsedGroups.has(byLayout)) return byLayout;
+  const activeGroup = useMemo<MenuGroupId | null>(() => {
+    const byLayoutRaw = props.layout?.activeGroup;
+    const byLayout = typeof byLayoutRaw === 'string' && isGroupId(byLayoutRaw) ? byLayoutRaw : null;
+    if (byLayout && groupsInUse.includes(byLayout) && !collapsedGroups.has(byLayout)) return byLayout;
     if (preferredGroupByTab && groupsInUse.includes(preferredGroupByTab) && !collapsedGroups.has(preferredGroupByTab)) {
       return preferredGroupByTab;
     }
@@ -394,7 +397,7 @@ export function Tabs(props: {
       ...(next.activeGroup !== undefined
         ? { activeGroup: next.activeGroup }
         : props.layout?.activeGroup !== undefined
-          ? { activeGroup: props.layout.activeGroup }
+          ? { activeGroup: typeof props.layout.activeGroup === 'string' && isGroupId(props.layout.activeGroup) ? props.layout.activeGroup : null }
           : {}),
     });
   }
@@ -644,9 +647,11 @@ export function Tabs(props: {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: groupsInUse.map((groupId) => (groupId === 'history' ? '0.5fr' : '1fr')).join(' '),
+            gridTemplateColumns: groupsInUse.map((groupId) => (groupId === 'history' ? 'minmax(0, 0.5fr)' : 'minmax(0, 1fr)')).join(' '),
             gap: departmentButtonsGap,
             alignItems: 'stretch',
+            width: '100%',
+            minWidth: 0,
           }}
         >
           {groupsInUse.map((groupId) => {
@@ -658,6 +663,7 @@ export function Tabs(props: {
                 ref={(el) => {
                   itemRefs.current[keyOfTarget({ kind: 'group', id: groupId })] = el;
                 }}
+                style={{ minWidth: 0, display: 'flex' }}
               >
                 <Button
                   variant="ghost"
@@ -674,8 +680,10 @@ export function Tabs(props: {
                     isActive
                       ? {
                           width: '100%',
+                          maxWidth: '100%',
                           minHeight: departmentCardMinHeight,
-                          minWidth: departmentButtonActiveStyle.width,
+                          minWidth: 0,
+                          height: '100%',
                           padding: '2px',
                           border: '1px solid rgba(15, 23, 42, 0.14)',
                           background: '#0f2f72',
@@ -692,8 +700,10 @@ export function Tabs(props: {
                         }
                       : {
                           width: '100%',
+                          maxWidth: '100%',
                           minHeight: departmentCardMinHeight,
-                          minWidth: departmentButtonInactiveStyle.width,
+                          minWidth: 0,
+                          height: '100%',
                           padding: '2px',
                           border: '1px solid rgba(148, 163, 184, 0.34)',
                           background: GROUP_VISUALS[groupId].gradient,
@@ -729,7 +739,7 @@ export function Tabs(props: {
         </div>
       </div>
 
-      {props.tab !== 'history' && (
+      {activeGroup != null && !(props.tab === 'history' && activeGroup === 'history') && (
         <div
           ref={sectionsViewportRef}
           style={{

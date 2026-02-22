@@ -4,11 +4,16 @@ import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
 
 import {
+  buildReportByPreset,
   buildPeriodStagesCsv,
   buildPeriodStagesCsvByLink,
   buildDefectSupplyReport,
+  exportReportPresetCsv,
+  exportReportPresetPdf,
   exportDefectSupplyReportPdf,
+  getReportPresetList,
   printDefectSupplyReport,
+  printReportPreset,
 } from '../../services/reportService.js';
 import {
   reportsBuilderExport,
@@ -19,6 +24,36 @@ import {
 } from '../../services/reportsBuilderService.js';
 
 export function registerReportsIpc(ctx: IpcContext) {
+  ipcMain.handle('reports:presetList', async () => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return getReportPresetList(ctx.dataDb());
+  });
+
+  ipcMain.handle('reports:presetPreview', async (_e, args) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return buildReportByPreset(ctx.dataDb(), args);
+  });
+
+  ipcMain.handle('reports:presetPdf', async (_e, args) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return exportReportPresetPdf(ctx.dataDb(), args);
+  });
+
+  ipcMain.handle('reports:presetCsv', async (_e, args) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return exportReportPresetCsv(ctx.dataDb(), args);
+  });
+
+  ipcMain.handle('reports:presetPrint', async (_e, args) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return printReportPreset(ctx.dataDb(), args);
+  });
+
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;

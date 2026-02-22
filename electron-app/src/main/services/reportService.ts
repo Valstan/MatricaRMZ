@@ -4,6 +4,16 @@ import { BrowserWindow } from 'electron';
 
 import { attributeDefs, attributeValues, entities, operations } from '../database/schema.js';
 
+export {
+  buildReportByPreset,
+  buildReportCsv,
+  exportReportPresetCsv,
+  exportReportPresetPdf,
+  getReportPresetList,
+  printReportPreset,
+  renderReportHtml,
+} from './reportPresetService.js';
+
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
 
@@ -54,6 +64,8 @@ function normalizeText(value: unknown, fallback = ''): string {
   const t = s.trim();
   return t ? t : fallback;
 }
+
+// marker
 
 async function renderHtmlWindow(html: string) {
   const win = new BrowserWindow({
@@ -354,6 +366,8 @@ export async function buildDefectSupplyReport(
     return { ok: false, error: String(e) };
   }
 }
+
+// report preset helpers
 
 export async function exportDefectSupplyReportPdf(
   db: BetterSQLite3Database,

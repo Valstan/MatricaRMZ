@@ -57,6 +57,10 @@ export type UiControlTuning = {
     fontSize: number;
     rowPaddingY: number;
     rowPaddingX: number;
+    textColumnMaxCh: number;
+    autoColumnsEnabled: boolean;
+    autoColumnsMax: number;
+    autoColumnsGapPx: number;
   };
   directories: {
     tableFontSize: number;
@@ -140,6 +144,10 @@ const DEFAULT_UI_CONTROL_TUNING: UiControlTuning = {
     fontSize: DEFAULT_UI_DISPLAY_PREFS.listFontSize,
     rowPaddingY: 4,
     rowPaddingX: 6,
+    textColumnMaxCh: 48,
+    autoColumnsEnabled: true,
+    autoColumnsMax: 3,
+    autoColumnsGapPx: 10,
   },
   directories: {
     tableFontSize: 13,
@@ -211,7 +219,7 @@ const DEFAULT_UI_PRESET_PROFILES: Record<UiPresetId, UiControlTuning> = {
       },
     },
     cards: { ...DEFAULT_UI_CONTROL_TUNING.cards, fontSize: 13, rowPaddingY: 3, rowPaddingX: 5, rowGap: 3, sectionAltStrength: 6 },
-    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 13, rowPaddingY: 3, rowPaddingX: 5 },
+    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 13, rowPaddingY: 3, rowPaddingX: 5, textColumnMaxCh: 44, autoColumnsGapPx: 8 },
     directories: { ...DEFAULT_UI_CONTROL_TUNING.directories, tableFontSize: 12, entityCardMinWidth: 420 },
     layout: { ...DEFAULT_UI_CONTROL_TUNING.layout, contentMaxWidth: 1280, blockMinWidth: 320, blockMaxWidth: 700 },
     misc: { ...DEFAULT_UI_CONTROL_TUNING.misc, datePickerScale: 1.6, datePickerFontSize: 13 },
@@ -233,7 +241,7 @@ const DEFAULT_UI_PRESET_PROFILES: Record<UiPresetId, UiControlTuning> = {
       },
     },
     cards: { ...DEFAULT_UI_CONTROL_TUNING.cards, fontSize: 15, rowPaddingY: 5, rowPaddingX: 7, rowGap: 5, sectionAltStrength: 10 },
-    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 15, rowPaddingY: 5, rowPaddingX: 7 },
+    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 15, rowPaddingY: 5, rowPaddingX: 7, textColumnMaxCh: 52, autoColumnsGapPx: 12 },
     directories: { ...DEFAULT_UI_CONTROL_TUNING.directories, tableFontSize: 14, entityCardMinWidth: 560 },
     layout: { ...DEFAULT_UI_CONTROL_TUNING.layout, contentMaxWidth: 1900, blockMinWidth: 460, blockMaxWidth: 980 },
     misc: { ...DEFAULT_UI_CONTROL_TUNING.misc, datePickerScale: 2.1, datePickerFontSize: 15 },
@@ -254,7 +262,7 @@ const DEFAULT_UI_PRESET_PROFILES: Record<UiPresetId, UiControlTuning> = {
       },
     },
     cards: { ...DEFAULT_UI_CONTROL_TUNING.cards, fontSize: 15, rowPaddingY: 6, rowPaddingX: 8, rowGap: 6, sectionAltStrength: 10 },
-    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 15, rowPaddingY: 6, rowPaddingX: 8 },
+    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 15, rowPaddingY: 6, rowPaddingX: 8, textColumnMaxCh: 56, autoColumnsGapPx: 12 },
     directories: { ...DEFAULT_UI_CONTROL_TUNING.directories, tableFontSize: 14, entityCardMinWidth: 620 },
     layout: { ...DEFAULT_UI_CONTROL_TUNING.layout, contentMaxWidth: 2300, blockMinWidth: 500, blockMaxWidth: 1100 },
     misc: { ...DEFAULT_UI_CONTROL_TUNING.misc, datePickerScale: 2.2, datePickerFontSize: 16 },
@@ -388,6 +396,10 @@ function sanitizeUiControlTuning(raw: unknown, fallback: UiControlTuning): UiCon
       fontSize: clampNumber(listsRaw.fontSize, fallback.lists.fontSize, 10, 48),
       rowPaddingY: clampNumber(listsRaw.rowPaddingY, fallback.lists.rowPaddingY, 0, 24),
       rowPaddingX: clampNumber(listsRaw.rowPaddingX, fallback.lists.rowPaddingX, 0, 24),
+      textColumnMaxCh: Math.round(clampNumber(listsRaw.textColumnMaxCh, fallback.lists.textColumnMaxCh, 24, 88)),
+      autoColumnsEnabled: clampBoolean(listsRaw.autoColumnsEnabled, fallback.lists.autoColumnsEnabled),
+      autoColumnsMax: Math.round(clampNumber(listsRaw.autoColumnsMax, fallback.lists.autoColumnsMax, 1, 3)),
+      autoColumnsGapPx: Math.round(clampNumber(listsRaw.autoColumnsGapPx, fallback.lists.autoColumnsGapPx, 0, 32)),
     },
     directories: {
       tableFontSize: clampNumber(directoriesRaw.tableFontSize, fallback.directories.tableFontSize, 10, 36),

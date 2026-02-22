@@ -289,7 +289,12 @@ async function ensureEntries(typeId: string, entries: EntrySeed[], ctx: EnsureCt
 }
 
 export async function applyClassicMasterdataPreset(setStatus?: (message: string) => void) {
-  const ctx: EnsureCtx = { setStatus, createdTypes: 0, createdDefs: 0, createdEntries: 0 };
+  const ctx: EnsureCtx = {
+    ...(setStatus ? { setStatus } : {}),
+    createdTypes: 0,
+    createdDefs: 0,
+    createdEntries: 0,
+  };
   for (const seed of CLASSIC_PRESET) {
     ctx.setStatus?.(`Настройка: ${seed.name}...`);
     const typeId = await ensureType(seed, ctx);

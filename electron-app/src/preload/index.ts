@@ -74,6 +74,11 @@ const matricaApi = {
     health: async () => ipcRenderer.invoke('server:health'),
   },
   reports: {
+    presetList: async () => ipcRenderer.invoke('reports:presetList'),
+    presetPreview: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPreview', args),
+    presetPdf: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPdf', args),
+    presetCsv: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetCsv', args),
+    presetPrint: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPrint', args),
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),

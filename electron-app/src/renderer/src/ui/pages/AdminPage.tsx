@@ -199,10 +199,24 @@ export function MasterdataPage(props: {
     const groups = CLASSIC_GROUPS.map((group) => ({
       key: group.key,
       title: group.title,
+      subtitle: group.subtitle,
+      icon: group.icon,
+      color: group.color,
+      tint: group.tint,
       items: group.codes.map((code) => byCode.get(code)).filter((v): v is EntityTypeRow => Boolean(v)),
     })).filter((group) => group.items.length > 0);
     if (groups.length > 0) return groups;
-    return [{ key: 'all', title: 'Разделы', items: visibleTypes }];
+    return [
+      {
+        key: 'all',
+        title: 'Разделы',
+        subtitle: 'Показан полный список разделов',
+        icon: '🧩',
+        color: '#475569',
+        tint: 'rgba(71,85,105,0.08)',
+        items: visibleTypes,
+      },
+    ];
   }, [visibleTypes]);
 
   const visibleDefs = useMemo(() => defs.filter((d) => d.code !== 'category_id'), [defs]);

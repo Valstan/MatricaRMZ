@@ -19,6 +19,8 @@ export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
 export * from './domain/erp.js';
 export * from './domain/uiControl.js';
+export * from './domain/reports.js';
 export * from './ipc/types.js';
+// keep exports sorted manually
 
 

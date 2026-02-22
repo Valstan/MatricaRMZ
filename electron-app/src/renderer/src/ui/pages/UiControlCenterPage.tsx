@@ -30,6 +30,9 @@ const PRESET_SECTION_ALT_STRENGTH = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 30];
 const PRESET_INPUT_AUTO_GROW_MIN_CHARS = [3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20];
 const PRESET_INPUT_AUTO_GROW_MAX_CHARS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 80];
 const PRESET_INPUT_AUTO_GROW_EXTRA_CHARS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12];
+const PRESET_LIST_TEXT_MAX_CH = [24, 28, 32, 36, 40, 44, 48, 52, 56, 64, 72, 80];
+const PRESET_LIST_AUTO_COLUMNS_MAX = [1, 2, 3];
+const PRESET_LIST_AUTO_COLUMNS_GAP = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32];
 const UI_PRESET_LABELS: Record<UiPresetId, string> = {
   small: 'Компактный (13"-14")',
   medium: 'Классический (15"-17")',
@@ -700,6 +703,50 @@ export function UiControlCenterPage(props: {
             />
           </label>
           <label>
+            Макс. ширина текстовых колонок (символов)
+            <NumericPresetInput
+              listId="ui-control-lists-text-max-ch"
+              value={draft.lists.textColumnMaxCh}
+              presets={PRESET_LIST_TEXT_MAX_CH}
+              onValueChange={(next) =>
+                patch((p) => ({
+                  ...p,
+                  lists: { ...p.lists, textColumnMaxCh: Math.max(24, Math.round(next)) },
+                }))
+              }
+            />
+          </label>
+          <label>
+            Макс. число колонок списков
+            <NumericPresetInput
+              listId="ui-control-lists-auto-columns-max"
+              value={draft.lists.autoColumnsMax}
+              presets={PRESET_LIST_AUTO_COLUMNS_MAX}
+              disabled={!draft.lists.autoColumnsEnabled}
+              onValueChange={(next) =>
+                patch((p) => ({
+                  ...p,
+                  lists: { ...p.lists, autoColumnsMax: Math.max(1, Math.min(3, Math.round(next))) },
+                }))
+              }
+            />
+          </label>
+          <label>
+            Зазор между колонками списков (px)
+            <NumericPresetInput
+              listId="ui-control-lists-auto-columns-gap"
+              value={draft.lists.autoColumnsGapPx}
+              presets={PRESET_LIST_AUTO_COLUMNS_GAP}
+              disabled={!draft.lists.autoColumnsEnabled}
+              onValueChange={(next) =>
+                patch((p) => ({
+                  ...p,
+                  lists: { ...p.lists, autoColumnsGapPx: Math.max(0, Math.round(next)) },
+                }))
+              }
+            />
+          </label>
+          <label>
             Шрифт таблиц справочников (px)
             <NumericPresetInput
               listId="ui-control-directories-table-font-size"
@@ -798,6 +845,32 @@ export function UiControlCenterPage(props: {
               }
             />
           </label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <Button
+            size="sm"
+            variant={draft.lists.autoColumnsEnabled ? 'primary' : 'ghost'}
+            onClick={() =>
+              patch((p) => ({
+                ...p,
+                lists: { ...p.lists, autoColumnsEnabled: true },
+              }))
+            }
+          >
+            Авто-колонки списков включены
+          </Button>
+          <Button
+            size="sm"
+            variant={!draft.lists.autoColumnsEnabled ? 'primary' : 'ghost'}
+            onClick={() =>
+              patch((p) => ({
+                ...p,
+                lists: { ...p.lists, autoColumnsEnabled: false },
+              }))
+            }
+          >
+            Авто-колонки списков выключены
+          </Button>
         </div>
       </SectionCard>
 

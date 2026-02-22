@@ -462,6 +462,14 @@ import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../doma
 import type { StatusCode } from '../domain/contract.js';
 import type { UiControlSettings, UiPresetId } from '../domain/uiControl.js';
 import type {
+  ReportPresetCsvResult,
+  ReportPresetListResult,
+  ReportPresetPdfResult,
+  ReportPresetPreviewRequest,
+  ReportPresetPreviewResult,
+  ReportPresetPrintResult,
+} from '../domain/reports.js';
+import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
   AiAgentLogRequest,
@@ -676,6 +684,11 @@ export type MatricaApi = {
     health: () => Promise<ServerHealthResult>;
   };
   reports: {
+    presetList: () => Promise<ReportPresetListResult>;
+    presetPreview: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPreviewResult>;
+    presetPdf: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPdfResult>;
+    presetCsv: (args: ReportPresetPreviewRequest) => Promise<ReportPresetCsvResult>;
+    presetPrint: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPrintResult>;
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
     periodStagesCsv: (args: { startMs?: number; endMs: number }) => Promise<{ ok: true; csv: string } | { ok: false; error: string }>;
     // CSV: “стадии по группам” (заказчик/контракт/наряд) по link-атрибуту двигателя.

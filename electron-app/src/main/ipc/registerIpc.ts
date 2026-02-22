@@ -72,7 +72,13 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
 
   async function currentPermissions(): Promise<Record<string, boolean>> {
     const s = await getSession(db).catch(() => null);
-    return (s?.permissions ?? {}) as Record<string, boolean>;
+    const perms = { ...((s?.permissions ?? {}) as Record<string, boolean>) };
+    const role = String(s?.user?.role ?? '').trim().toLowerCase();
+    // Keep admin cards editable when backend sends only masterdata.view.
+    if ((role === 'admin' || role === 'superadmin') && perms['masterdata.view'] === true) {
+      perms['masterdata.edit'] = true;
+    }
+    return perms;
   }
 
   // Live DB also stores settings/auth, so use it as sysDb.

@@ -256,6 +256,10 @@ export function App() {
     root.style.setProperty('--ui-space-4', `${safe.global.space4}px`);
     root.style.setProperty('--ui-space-5', `${safe.global.space5}px`);
     root.style.setProperty('--ui-list-font-size', `${safe.lists.fontSize}px`);
+    root.style.setProperty('--ui-list-text-max-ch', String(safe.lists.textColumnMaxCh));
+    root.style.setProperty('--ui-list-auto-columns-enabled', safe.lists.autoColumnsEnabled ? '1' : '0');
+    root.style.setProperty('--ui-list-auto-columns-max', String(Math.max(1, Math.min(3, Math.round(safe.lists.autoColumnsMax)))));
+    root.style.setProperty('--ui-list-auto-columns-gap-px', `${Math.max(0, Math.round(safe.lists.autoColumnsGapPx))}`);
     root.style.setProperty('--ui-card-font-size', `${safe.cards.fontSize}px`);
     root.style.setProperty('--list-row-padding-y', `${safe.lists.rowPaddingY}px`);
     root.style.setProperty('--list-row-padding-x', `${safe.lists.rowPaddingX}px`);
@@ -695,7 +699,13 @@ export function App() {
     };
   }, [authStatus.loggedIn]);
 
-  const capsBase = deriveUiCaps(authStatus.permissions ?? null);
+  const capsRaw = deriveUiCaps(authStatus.permissions ?? null);
+  const userRole = String(authStatus.user?.role ?? '').trim().toLowerCase();
+  const roleCanForceMasterdataEdit = (userRole === 'admin' || userRole === 'superadmin') && capsRaw.canViewMasterData;
+  const capsBase =
+    roleCanForceMasterdataEdit && !capsRaw.canEditMasterData
+      ? { ...capsRaw, canEditMasterData: true }
+      : capsRaw;
   const viewMode = backupMode?.mode === 'backup';
   const canChat = !!authStatus.permissions?.['chat.use'];
   const canChatExport = !!authStatus.permissions?.['chat.export'];

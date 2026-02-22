@@ -742,7 +742,7 @@ async function fetchLatestTorrentFromServer(): Promise<TorrentLatestInfo> {
       fileName,
       size,
       infoHash,
-      torrentUrl: typeof json?.torrentUrl === 'string' ? String(json.torrentUrl) : undefined,
+      ...(typeof json?.torrentUrl === 'string' ? { torrentUrl: String(json.torrentUrl) } : {}),
       source: 'torrent',
     };
   } catch (e) {
@@ -850,16 +850,27 @@ async function promptManualUpdateFallback(args: {
 
   await stageUpdate(message, 100, args.version);
   lockUpdateUi(false);
-  const response = await dialog.showMessageBox(updateUiWindow ?? undefined, {
-    type: 'warning',
-    title: 'Ручное обновление',
-    message,
-    detail: details,
-    buttons: ['Закрыть программу', 'Запустить программу'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
-  });
+  const response = updateUiWindow
+    ? await dialog.showMessageBox(updateUiWindow, {
+        type: 'warning',
+        title: 'Ручное обновление',
+        message,
+        detail: details,
+        buttons: ['Закрыть программу', 'Запустить программу'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      })
+    : await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Ручное обновление',
+        message,
+        detail: details,
+        buttons: ['Закрыть программу', 'Запустить программу'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
   return response.response === 0 ? 'close' : 'run';
 }
 
@@ -1119,12 +1130,9 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
               fileName: torrentLatest.fileName,
               size: Number(torrentLatest.size),
               infoHash: torrentLatest.infoHash,
-              sha256:
-                serverMeta &&
-                serverMeta.version === torrentLatest.version &&
-                serverMeta.fileName === torrentLatest.fileName
-                  ? serverMeta.sha256
-                  : undefined,
+              ...(serverMeta && serverMeta.version === torrentLatest.version && serverMeta.fileName === torrentLatest.fileName && serverMeta.sha256
+                ? { sha256: serverMeta.sha256 }
+                : {}),
             }
           : null;
 
@@ -1277,8 +1285,8 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         showUpdateWindow(null);
         const choice = await promptManualUpdateFallback({
           version: candidateVersion,
-          yandexUrl: yCfg?.publicKey ?? null,
-          reason: candidateReason,
+          ...(yCfg?.publicKey ? { yandexUrl: yCfg.publicKey } : {}),
+          ...(candidateReason ? { reason: candidateReason } : {}),
         });
         if (choice === 'close') {
           quitMainAppSoon(200);
@@ -1342,12 +1350,9 @@ export async function runAutoUpdateFlow(
             fileName: torrentLatest.fileName,
             size: Number(torrentLatest.size),
             infoHash: torrentLatest.infoHash,
-            sha256:
-              serverMeta &&
-              serverMeta.version === torrentLatest.version &&
-              serverMeta.fileName === torrentLatest.fileName
-                ? serverMeta.sha256
-                : undefined,
+            ...(serverMeta && serverMeta.version === torrentLatest.version && serverMeta.fileName === torrentLatest.fileName && serverMeta.sha256
+              ? { sha256: serverMeta.sha256 }
+              : {}),
           }
         : null;
 
@@ -1571,8 +1576,8 @@ export async function runAutoUpdateFlow(
       const yCfg = await getYandexConfig().catch(() => null);
       const choice = await promptManualUpdateFallback({
         version: candidateVersion,
-        yandexUrl: yCfg?.publicKey ?? null,
-        reason: candidateReason,
+        ...(yCfg?.publicKey ? { yandexUrl: yCfg.publicKey } : {}),
+        ...(candidateReason ? { reason: candidateReason } : {}),
       });
       if (choice === 'close') {
         quitMainAppSoon(200);
