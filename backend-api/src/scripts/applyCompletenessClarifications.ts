@@ -57,6 +57,22 @@ type CatalogPart = {
   key: string;
 };
 
+type DefectChecklistRow = {
+  part_name: string;
+  part_number: string;
+  quantity: number;
+  repairable_qty: number;
+  scrap_qty: number;
+};
+
+type CompletenessChecklistRow = {
+  part_name: string;
+  assembly_unit_number: string;
+  quantity: number;
+  present: boolean;
+  actual_qty: number;
+};
+
 function nowMs() {
   return Date.now();
 }
@@ -186,7 +202,9 @@ function parseNumericQty(value: string): number {
   if (!text) return 0;
   const m = text.match(/(\d+(?:[.,]\d+)?)/);
   if (!m) return 0;
-  const n = Number(m[1].replace(',', '.'));
+  const matched = m[1];
+  if (!matched) return 0;
+  const n = Number(matched.replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.floor(n);
 }
@@ -456,7 +474,7 @@ function buildPartCacheKey(name: string, assemblyUnitNumber: string | null) {
   return partKey(name, assemblyUnitNumber);
 }
 
-function sortRowsForCompare(rows: Array<Record<string, unknown>>, keys: string[]): Array<Record<string, unknown>> {
+function sortRowsForCompare<T extends Record<string, unknown>>(rows: T[], keys: string[]): T[] {
   return [...rows].sort((a, b) => {
     for (const key of keys) {
       const av = String(a[key] ?? '');
@@ -471,34 +489,34 @@ function sortRowsForCompare(rows: Array<Record<string, unknown>>, keys: string[]
 function mapChecklistRows(rawRows: unknown, kind: 'defect' | 'completeness') {
   if (!Array.isArray(rawRows)) return [];
   if (kind === 'defect') {
-    return rawRows
-      .map((row) => {
-        if (!row || typeof row !== 'object') return null;
-        const r = row as Record<string, unknown>;
-        return {
-          part_name: String(r.part_name ?? ''),
-          part_number: String(r.part_number ?? ''),
-          quantity: Number(r.quantity ?? 0) || 0,
-          repairable_qty: Number(r.repairable_qty ?? 0) || 0,
-          scrap_qty: Number(r.scrap_qty ?? 0) || 0,
-        };
-      })
-      .filter((row): row is Record<string, unknown> => Boolean(row));
+    const out: DefectChecklistRow[] = [];
+    for (const row of rawRows) {
+      if (!row || typeof row !== 'object') continue;
+      const r = row as Record<string, unknown>;
+      out.push({
+        part_name: String(r.part_name ?? ''),
+        part_number: String(r.part_number ?? ''),
+        quantity: Number(r.quantity ?? 0) || 0,
+        repairable_qty: Number(r.repairable_qty ?? 0) || 0,
+        scrap_qty: Number(r.scrap_qty ?? 0) || 0,
+      });
+    }
+    return out;
   }
 
-  return rawRows
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null;
-      const r = row as Record<string, unknown>;
-      return {
-        part_name: String(r.part_name ?? ''),
-        assembly_unit_number: String(r.assembly_unit_number ?? ''),
-        quantity: Number(r.quantity ?? 0) || 0,
-        present: Boolean(r.present),
-        actual_qty: Number(r.actual_qty ?? 0) || 0,
-      };
-    })
-    .filter((row): row is Record<string, unknown> => Boolean(row));
+  const out: CompletenessChecklistRow[] = [];
+  for (const row of rawRows) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    out.push({
+      part_name: String(r.part_name ?? ''),
+      assembly_unit_number: String(r.assembly_unit_number ?? ''),
+      quantity: Number(r.quantity ?? 0) || 0,
+      present: Boolean(r.present),
+      actual_qty: Number(r.actual_qty ?? 0) || 0,
+    });
+  }
+  return out;
 }
 
 function areChecklistMetaEqual(existingPayload: unknown, engineBrand: string, engineNumber: string): boolean {
@@ -516,7 +534,7 @@ function areChecklistMetaEqual(existingPayload: unknown, engineBrand: string, en
   return String(brandValue) === String(engineBrand) && String(numberValue) === String(engineNumber);
 }
 
-function areDefectRowsEqual(existingPayload: unknown, expectedRows: Array<Record<string, unknown>>): boolean {
+function areDefectRowsEqual(existingPayload: unknown, expectedRows: DefectChecklistRow[]): boolean {
   if (!existingPayload || typeof existingPayload !== 'object') return false;
   const payload = existingPayload as Record<string, unknown>;
   const answers = payload.answers;
@@ -525,12 +543,15 @@ function areDefectRowsEqual(existingPayload: unknown, expectedRows: Array<Record
   if (!ans.defect_items || typeof ans.defect_items !== 'object') return false;
   const answer = ans.defect_items as { rows?: unknown };
   const existingRows = mapChecklistRows(answer.rows, 'defect');
+  if (!existingRows.every((row): row is DefectChecklistRow => 'repairable_qty' in row)) {
+    return false;
+  }
   const sortedExpected = sortRowsForCompare(expectedRows, ['part_number', 'part_name']);
   const sortedExisting = sortRowsForCompare(existingRows, ['part_number', 'part_name']);
   return JSON.stringify(sortedExisting) === JSON.stringify(sortedExpected);
 }
 
-function areCompletenessRowsEqual(existingPayload: unknown, expectedRows: Array<Record<string, unknown>>): boolean {
+function areCompletenessRowsEqual(existingPayload: unknown, expectedRows: CompletenessChecklistRow[]): boolean {
   if (!existingPayload || typeof existingPayload !== 'object') return false;
   const payload = existingPayload as Record<string, unknown>;
   const answers = payload.answers;
@@ -539,6 +560,9 @@ function areCompletenessRowsEqual(existingPayload: unknown, expectedRows: Array<
   if (!ans.completeness_items || typeof ans.completeness_items !== 'object') return false;
   const answer = ans.completeness_items as { rows?: unknown };
   const existingRows = mapChecklistRows(answer.rows, 'completeness');
+  if (!existingRows.every((row): row is CompletenessChecklistRow => 'actual_qty' in row)) {
+    return false;
+  }
   const sortedExpected = sortRowsForCompare(expectedRows, ['part_name', 'assembly_unit_number']);
   const sortedExisting = sortRowsForCompare(existingRows, ['part_name', 'assembly_unit_number']);
   return JSON.stringify(sortedExisting) === JSON.stringify(sortedExpected);
@@ -919,8 +943,8 @@ async function upsertChecklistsForEngine(
   },
   actor: AuthUser,
 ): Promise<{ updated: boolean }> {
-  const defectRows: Array<Record<string, unknown>> = [];
-  const completenessRows: Array<Record<string, unknown>> = [];
+  const defectRows: DefectChecklistRow[] = [];
+  const completenessRows: CompletenessChecklistRow[] = [];
 
   for (const [key, partInfo] of row.parts.entries()) {
     const header = partHeaders.get(key);
@@ -1326,11 +1350,15 @@ async function main() {
 
   const defectTemplate = defectTemplates.templates[0];
   const completenessTemplate = completenessTemplates.templates[0];
+  if (!defectTemplate || !completenessTemplate) {
+    throw new Error('Не удалось получить шаблоны чеклистов');
+  }
+
   const templates = {
     defectTemplateId: defectTemplate.id,
-    defectTemplateVersion: (defectTemplate as any).version ?? 1,
+    defectTemplateVersion: (typeof (defectTemplate as { version?: unknown }).version === 'number' ? defectTemplate.version : 1) ?? 1,
     completenessTemplateId: completenessTemplate.id,
-    completenessTemplateVersion: (completenessTemplate as any).version ?? 1,
+    completenessTemplateVersion: (typeof (completenessTemplate as { version?: unknown }).version === 'number' ? completenessTemplate.version : 1) ?? 1,
   };
 
   let enginesUpdated = 0;

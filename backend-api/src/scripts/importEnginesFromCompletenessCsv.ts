@@ -474,7 +474,8 @@ async function loadCounterpartyIdsByNormalizedName(customerTypeId: string): Prom
   const idByNormalizedName = new Map<string, string>();
   const duplicateIdsByNormalizedName = new Map<string, string[]>();
   for (const [normalized, ids] of idsByNormalizedName.entries()) {
-    if (ids.length > 0) idByNormalizedName.set(normalized, ids[0]);
+    const firstId = ids[0];
+    if (firstId !== undefined) idByNormalizedName.set(normalized, firstId);
     if (ids.length > 1) duplicateIdsByNormalizedName.set(normalized, ids);
   }
   return { idByNormalizedName, duplicateIdsByNormalizedName };

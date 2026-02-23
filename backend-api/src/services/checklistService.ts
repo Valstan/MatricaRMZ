@@ -321,7 +321,8 @@ export async function saveRepairChecklistForEngine(args: {
         deletedAt: row[0].deletedAt == null ? null : Number(row[0].deletedAt),
         syncStatus: 'synced',
       });
-      await insertChangeLog(opId, payload, args.actor, { allowSyncConflicts: args.allowSyncConflicts });
+    const syncOptions = args.allowSyncConflicts ? { allowSyncConflicts: true } : {};
+    await insertChangeLog(opId, payload, args.actor, syncOptions);
       return { ok: true as const, operationId: opId };
     }
 
@@ -362,7 +363,8 @@ export async function saveRepairChecklistForEngine(args: {
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await insertChangeLog(newId, payload, args.actor, { allowSyncConflicts: args.allowSyncConflicts });
+    const syncOptions = args.allowSyncConflicts ? { allowSyncConflicts: true } : {};
+    await insertChangeLog(newId, payload, args.actor, syncOptions);
     await ensureOwner(SyncTableName.Operations, newId, args.actor);
     return { ok: true as const, operationId: newId };
   } catch (e) {

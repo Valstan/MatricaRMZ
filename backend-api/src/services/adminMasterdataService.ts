@@ -827,9 +827,8 @@ export async function setEntityAttribute(
       deletedAt: existing[0].deletedAt == null ? null : Number(existing[0].deletedAt),
       syncStatus: 'synced',
     });
-    await insertChangeLog(SyncTableName.AttributeValues, String(existing[0].id), payload, actor, {
-      allowSyncConflicts: options.allowSyncConflicts,
-    });
+    const syncOptions = options.allowSyncConflicts ? { allowSyncConflicts: true } : {};
+    await insertChangeLog(SyncTableName.AttributeValues, String(existing[0].id), payload, actor, syncOptions);
   } else {
     const id = randomUUID();
     await db.insert(attributeValues).values({
@@ -852,9 +851,8 @@ export async function setEntityAttribute(
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await insertChangeLog(SyncTableName.AttributeValues, id, payload, actor, {
-      allowSyncConflicts: options.allowSyncConflicts,
-    });
+    const syncOptions = options.allowSyncConflicts ? { allowSyncConflicts: true } : {};
+    await insertChangeLog(SyncTableName.AttributeValues, id, payload, actor, syncOptions);
 
     const owner = (await getOwnerForEntity(entityId)) ?? { ownerUserId: actor.id ?? null, ownerUsername: actor.username ?? null };
     if (owner.ownerUserId) {
