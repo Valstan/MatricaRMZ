@@ -37,9 +37,9 @@ const REQUIRED_DEFS = [
   { code: 'internal_number', name: 'Внутренний номер', dataType: 'text' },
   { code: 'engine_brand_id', name: 'Марка двигателя', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }) },
   { code: 'engine_count_items', name: 'Количество двигателей (детализация)', dataType: 'json' },
-  { code: 'engine_count_total', name: 'Количество двигателей (итого)', dataType: 'number' },
-  { code: 'contract_amount_rub', name: 'Сумма контракта (₽)', dataType: 'number' },
-  { code: 'unit_price_rub', name: 'Цена за единицу (₽)', dataType: 'number' },
+  { code: 'engine_count_total', name: 'Количество двигателей, шт.', dataType: 'number' },
+  { code: 'contract_amount_rub', name: 'Сумма, ₽', dataType: 'number' },
+  { code: 'unit_price_rub', name: 'Цена за единицу, ₽', dataType: 'number' },
   { code: 'attachments', name: 'Вложения', dataType: 'json' },
 ];
 

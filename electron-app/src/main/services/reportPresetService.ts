@@ -42,6 +42,84 @@ type DefectSupplyPresetRow = {
   remainingNeedQty: number;
 };
 
+const UNKNOWN_CONTRACT_LABEL = '(не указан)';
+const TOTAL_LABEL_MAP: Record<string, string> = {
+  scrapQty: 'Утиль, шт.',
+  missingQty: 'Недокомплект, шт.',
+  deliveredQty: 'Привезено, шт.',
+  remainingNeedQty: 'Остаточная потребность, шт.',
+  engines: 'Двигатели, шт.',
+  progressPct: 'Прогресс, %',
+  contracts: 'Контракты, шт.',
+  totalQty: 'Общий объем, шт.',
+  totalAmountRub: 'Сумма, ₽',
+  orderedQty: 'Заказано, шт.',
+  remainingQty: 'Остаток, шт.',
+  fulfillmentPct: '% выполнения',
+  workOrders: 'Наряды, шт.',
+  lines: 'Записей, шт.',
+  amountRub: 'Сумма, ₽',
+  acceptance: 'Приёмка',
+  shipment: 'Отгрузка',
+  customer_delivery: 'Доставка заказчику',
+};
+const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
+  scrapQty: 'Количество бракованных деталей, фактически зафиксированных в периоде.',
+  missingQty: 'Детали, которые недокомплектуются и еще нужно обеспечить.',
+  deliveredQty: 'Фактический объем поставленных деталей.',
+  remainingNeedQty: 'Остаточный объем, который еще нужно закрыть по контракту.',
+  totalQty: 'Суммарный объем, рассчитанный по всем строкам отчета.',
+  totalAmountRub: 'Итоговая сумма по всем отобранным документам.',
+  orderedQty: 'Общий объём заказа по выбранному срезу.',
+  remainingQty: 'Остаток незакрытого объема по заказу.',
+  fulfillmentPct: 'Доля выполнения плана по объему в процентах.',
+  progressPct: 'Прогресс выполнения этапов в процентах.',
+};
+
+function labelTotalKey(key: string): string {
+  return TOTAL_LABEL_MAP[key] ?? key;
+}
+
+function formatTotalValue(key: string, raw: unknown): string {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return String(raw ?? '');
+  const normalizedKey = key.toLowerCase();
+  const isPercent = normalizedKey.includes('pct');
+  if (isPercent) {
+    return `${raw.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%`;
+  }
+  const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
+  if (isMoney) {
+    return `${raw.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
+  }
+  return raw.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+}
+
+function formatTotalsForDisplay(totals: Record<string, unknown>) {
+  return Object.entries(totals).map(([key, raw]) => {
+    const label = labelTotalKey(key);
+    const value = formatTotalValue(key, raw);
+    return `${label}: ${value}`;
+  });
+}
+
+function formatTotalsGuide(totals: Record<string, unknown>): string {
+  const rows = Object.keys(totals)
+    .map((key) => {
+      const explanation = TOTAL_METRIC_EXPLANATIONS[key];
+      if (!explanation) return '';
+      return `<li>${htmlEscape(labelTotalKey(key))}: ${htmlEscape(explanation)}</li>`;
+    })
+    .filter(Boolean);
+  if (rows.length === 0) return '';
+  return `<div class="metrics-guide"><b>Что означают показатели:</b><ul>${rows.join('')}</ul></div>`;
+}
+
+function resolveContractLabel(contractId: string, fallbackMap: Map<string, string>): string {
+  if (!contractId) return UNKNOWN_CONTRACT_LABEL;
+  const resolved = fallbackMap.get(contractId);
+  return resolved && resolved.trim() ? resolved : UNKNOWN_CONTRACT_LABEL;
+}
+
 function csvEscape(s: string) {
   const needs = /[,"\n\r;]/.test(s);
   const v = s.replace(/"/g, '""');
@@ -248,10 +326,13 @@ function getIdsByType(snapshot: Snapshot, typeCode: string): string[] {
 
 function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[] {
   return getIdsByType(snapshot, typeCode)
-    .map((id) => ({
-      value: id,
-      label: entityLabel(snapshot.attrsByEntity.get(id), id),
-    }))
+    .map((id) => {
+      const label = entityLabel(snapshot.attrsByEntity.get(id), typeCode === 'contract' ? '' : id);
+      return {
+        value: id,
+        label: label || (typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : id),
+      };
+    })
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
 
@@ -305,8 +386,8 @@ async function buildPartsDemandReport(
     const defId = String(v.attributeDefId);
     if (!labelDefIds.includes(defId)) continue;
     const entityId = String(v.entityId);
-    if (!contractIds.has(entityId) || contractLabel.has(entityId)) continue;
-    contractLabel.set(entityId, normalizeText(safeJsonParse(String(v.valueJson ?? '')), entityId));
+        if (!contractIds.has(entityId) || contractLabel.has(entityId)) continue;
+        contractLabel.set(entityId, normalizeText(safeJsonParse(String(v.valueJson ?? '')), ''));
   }
   const sourceOps = await db
     .select()
@@ -327,7 +408,7 @@ async function buildPartsDemandReport(
     }
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'repair_checklist' || !payload.answers) continue;
-    const contractLabelText = contractId ? contractLabel.get(contractId) ?? contractId : '(не указан)';
+    const contractLabelText = resolveContractLabel(contractId, contractLabel);
     if (op.operationType === 'defect') {
       const rows = payload.answers?.defect_items?.kind === 'table' ? payload.answers.defect_items.rows : [];
       if (!Array.isArray(rows)) continue;
@@ -469,7 +550,7 @@ async function buildEngineStagesReport(
     rows.push({
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
-      contractLabel: (contractOptions.get(contractId) ?? contractId) || '(не указан)',
+      contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
       currentStage: stageLabel(latest.stage),
       progressPct,
@@ -513,6 +594,7 @@ async function buildContractsFinanceReport(
   const counterpartyFilter = asArray(filters?.counterpartyIds);
   const statusFilter = normalizeText(filters?.status, 'all');
   const snapshot = await loadSnapshot(db);
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildOptions(snapshot, 'counterparty').map((o) => [o.value, o.label] as const));
   const progressByContract = new Map<string, { count: number; sum: number }>();
   for (const engineId of getIdsByType(snapshot, 'engine')) {
@@ -563,7 +645,7 @@ async function buildContractsFinanceReport(
     if (statusFilter !== 'all' && statusFilter !== state) continue;
     const daysLeft = dueAt ? Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000)) : null;
     rows.push({
-      contractLabel: entityLabel(attrs, contractId),
+      contractLabel: resolveContractLabel(contractId, contractOptions),
       internalNumber: normalizeText(sections.primary.internalNumber ?? attrs.internal_number, ''),
       counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
       signedAt,
@@ -758,7 +840,7 @@ async function buildEngineMovementsReport(
       eventTypeLabel: stageLabel(opType),
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
-      contractLabel: (contractOptions.get(contractId) ?? contractId) || '(не указан)',
+      contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
       note: normalizeText(op.note, ''),
     });
@@ -832,7 +914,7 @@ export function buildReportCsv(report: OkPreview): string {
   }
   if (report.totals && Object.keys(report.totals).length > 0) {
     lines.push('');
-    lines.push(['ИТОГО', ...Object.entries(report.totals).map(([k, v]) => `${k}: ${v}`)].map(csvEscape).join(';'));
+    lines.push(['Итого по всем контрактам', ...formatTotalsForDisplay(report.totals)].map(csvEscape).join(';'));
   }
   return lines.join('\n') + '\n';
 }
@@ -852,13 +934,14 @@ export function renderReportHtml(report: OkPreview): string {
     .join('');
   const totalsByGroupHtml =
     report.totalsByGroup && report.totalsByGroup.length > 0
-      ? `<div class="group"><b>Итоги по группам:</b><ul>${report.totalsByGroup
-          .map((g) => `<li>${htmlEscape(g.group)}: ${htmlEscape(Object.entries(g.totals).map(([k, v]) => `${k} ${v}`).join(', '))}</li>`)
+      ? `<div class="group"><b>Итоги по группам (ключевые метрики):</b><ul>${report.totalsByGroup
+          .map((g) => `<li>${htmlEscape(g.group)}: ${htmlEscape(formatTotalsForDisplay(g.totals).join(', '))}</li>`)
           .join('')}</ul></div>`
       : '';
+  const totalsGuideHtml = report.totals && Object.keys(report.totals).length > 0 ? formatTotalsGuide(report.totals) : '';
   const totalsHtml =
     report.totals && Object.keys(report.totals).length > 0
-      ? `<div class="totals">Итого: ${htmlEscape(Object.entries(report.totals).map(([k, v]) => `${k} ${v}`).join(', '))}</div>`
+      ? `<div class="totals"><b>Итого по всем контрактам:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
       : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
@@ -872,6 +955,7 @@ th{background:#f1f5f9}
 .totals{margin-top:10px;font-weight:700}
 .group{margin:8px 0 12px 0}
 .group ul{margin:6px 0 0 18px;padding:0}
+.metrics-guide{margin-top:12px;padding:10px;border:1px solid #e2e8f0;background:#f8fafc}
 </style>
 </head><body>
 <h1>${htmlEscape(report.title)}</h1>
@@ -879,6 +963,7 @@ th{background:#f1f5f9}
 ${totalsByGroupHtml}
 <table><thead><tr>${headers}</tr></thead><tbody>${rows || `<tr><td colspan="${report.columns.length}">Нет данных</td></tr>`}</tbody></table>
 ${totalsHtml}
+${metricsGuideHtml}
 </body></html>`;
 }
 

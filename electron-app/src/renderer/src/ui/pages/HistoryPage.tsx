@@ -83,15 +83,10 @@ export function HistoryPage(props: {
   onOpenNotes: (noteId?: string | null) => void;
   onOpenChat: () => void;
 }) {
-  const [appVersion, setAppVersion] = useState<string>('');
   const [notes, setNotes] = useState<NoteView[]>([]);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [tilesEditMode, setTilesEditMode] = useState(false);
   const [dragTileId, setDragTileId] = useState<string | null>(null);
-
-  useEffect(() => {
-    void window.matrica.app.version().then((v) => setAppVersion(String(v ?? ''))).catch(() => {});
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -296,25 +291,6 @@ export function HistoryPage(props: {
     >
       <div
         style={{
-          borderRadius: 16,
-          padding: '18px 20px',
-          border: '1px solid rgba(14, 116, 144, 0.32)',
-          background:
-            'radial-gradient(circle at 20% 30%, rgba(56, 189, 248, 0.28), transparent 58%), radial-gradient(circle at 78% 15%, rgba(244, 114, 182, 0.24), transparent 56%), linear-gradient(120deg, #0f172a 0%, #1e293b 45%, #1d4ed8 100%)',
-          color: '#f8fafc',
-        }}
-      >
-        <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 0.3 }}>Матрица РМЗ</div>
-        <div style={{ marginTop: 4, fontSize: 13, color: 'rgba(226,232,240,0.9)' }}>
-          Версия: <b>{appVersion || '—'}</b>
-        </div>
-        <div style={{ marginTop: 10, maxWidth: 920, lineHeight: 1.45, color: 'rgba(226,232,240,0.96)' }}>
-          Информационный стартовый экран: здесь можно быстро вернуться к последним рабочим местам, заметкам и сообщениям из чата.
-        </div>
-      </div>
-
-      <div
-        style={{
           borderRadius: 14,
           border: '1px solid rgba(59, 130, 246, 0.25)',
           background:
@@ -324,9 +300,6 @@ export function HistoryPage(props: {
       >
         <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a8a', marginBottom: 8 }}>Быстрый старт</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <div style={{ color: '#475569', flex: '1 1 auto' }}>
-            {tilesEditMode ? 'Режим настройки: перетаскивайте плитки, скрывайте и показывайте их.' : 'Открывайте популярные разделы в один клик.'}
-          </div>
           <button
             type="button"
             onClick={() => setTilesEditMode((prev) => !prev)}

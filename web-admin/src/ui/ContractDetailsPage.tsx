@@ -445,7 +445,7 @@ export function ContractDetailsPage(props: {
               createLabel="Новая марка двигателя"
             />
 
-            <div style={{ color: '#6b7280' }}>Сумма контракта (₽)</div>
+            <div style={{ color: '#6b7280' }}>Сумма, ₽</div>
             <Input
               type="number"
               value={contractAmount}
@@ -454,7 +454,7 @@ export function ContractDetailsPage(props: {
               onBlur={() => void saveAttr('contract_amount_rub', contractAmount ? Number(contractAmount) : null)}
             />
 
-            <div style={{ color: '#6b7280' }}>Цена за единицу (₽)</div>
+            <div style={{ color: '#6b7280' }}>Цена за единицу, ₽</div>
             <Input
               type="number"
               value={unitPrice}
@@ -520,7 +520,7 @@ export function ContractDetailsPage(props: {
               </Button>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 80px', gap: 8, alignItems: 'center' }}>
-              <div style={{ color: '#6b7280' }}>Итого по контракту</div>
+              <div style={{ color: '#6b7280' }}>Итого (шт.)</div>
               <Input value={String(engineTotal)} disabled />
               <span />
             </div>

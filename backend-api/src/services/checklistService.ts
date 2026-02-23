@@ -193,7 +193,7 @@ function operationPayload(row: {
   };
 }
 
-async function insertChangeLog(rowId: string, payload: unknown, actor: Actor) {
+async function insertChangeLog(rowId: string, payload: unknown, actor: Actor, opts: { allowSyncConflicts?: boolean } = {}) {
   await recordSyncChanges(
     { id: actor.id, username: actor.username, role: 'user' },
     [
@@ -205,6 +205,7 @@ async function insertChangeLog(rowId: string, payload: unknown, actor: Actor) {
         ts: nowMs(),
       },
     ],
+    opts,
   );
 }
 
@@ -292,6 +293,7 @@ export async function saveRepairChecklistForEngine(args: {
   operationId?: string | null;
   payload: RepairChecklistPayload;
   actor: Actor;
+  allowSyncConflicts?: boolean;
 }): Promise<{ ok: true; operationId: string } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
@@ -319,7 +321,7 @@ export async function saveRepairChecklistForEngine(args: {
         deletedAt: row[0].deletedAt == null ? null : Number(row[0].deletedAt),
         syncStatus: 'synced',
       });
-      await insertChangeLog(opId, payload, args.actor);
+      await insertChangeLog(opId, payload, args.actor, { allowSyncConflicts: args.allowSyncConflicts });
       return { ok: true as const, operationId: opId };
     }
 
@@ -360,7 +362,7 @@ export async function saveRepairChecklistForEngine(args: {
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await insertChangeLog(newId, payload, args.actor);
+    await insertChangeLog(newId, payload, args.actor, { allowSyncConflicts: args.allowSyncConflicts });
     await ensureOwner(SyncTableName.Operations, newId, args.actor);
     return { ok: true as const, operationId: newId };
   } catch (e) {

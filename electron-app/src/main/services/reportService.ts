@@ -32,6 +32,38 @@ type DefectSupplyReportResult = {
   totalsByContract: Array<{ contractLabel: string; scrapQty: number; missingQty: number }>;
 };
 
+const UNKNOWN_CONTRACT_LABEL = '(не указан)';
+const DEFECT_SUPPLY_LABEL_MAP: Record<string, string> = {
+  scrapQty: 'Утиль, шт.',
+  missingQty: 'Недокомплект, шт.',
+};
+const DEFECT_SUPPLY_METRIC_NOTES: Record<keyof DefectSupplyReportResult['totals'], string> = {
+  scrapQty: 'Утиль — фактически зафиксированное количество брака.',
+  missingQty: 'Недокомплект — потребный объем деталей для покрытия спроса.',
+};
+
+function formatDefectSupplyValue(raw: number): string {
+  return raw.toLocaleString('ru-RU');
+}
+
+function formatDefectSupplyTotals(totals: DefectSupplyReportResult['totals']) {
+  return `${DEFECT_SUPPLY_LABEL_MAP.scrapQty}: ${formatDefectSupplyValue(totals.scrapQty)}, ${DEFECT_SUPPLY_LABEL_MAP.missingQty}: ${formatDefectSupplyValue(totals.missingQty)}`;
+}
+
+function formatDefectSupplyMetricNotes() {
+  const lines = Object.entries(DEFECT_SUPPLY_METRIC_NOTES).map(([key, note]) => {
+    const label = DEFECT_SUPPLY_LABEL_MAP[key as keyof DefectSupplyReportResult['totals']];
+    return `<li><strong>${htmlEscape(label)}</strong>: ${htmlEscape(note)}</li>`;
+  });
+  return `<div class="metrics-guide"><b>Пояснение метрик:</b><ul>${lines.join('')}</ul></div>`;
+}
+
+function resolveContractLabel(contractId: string, contractLabelMap: Map<string, string>): string {
+  if (!contractId) return UNKNOWN_CONTRACT_LABEL;
+  const resolved = contractLabelMap.get(contractId);
+  return resolved && resolved.trim() ? resolved : UNKNOWN_CONTRACT_LABEL;
+}
+
 function csvEscape(s: string) {
   const needs = /[,"\n\r;]/.test(s);
   const v = s.replace(/"/g, '""');
@@ -88,7 +120,9 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
   const contractSummary = data.totalsByContract
     .map(
       (t) =>
-        `<li>${htmlEscape(t.contractLabel)}: утиль ${t.scrapQty}, недокомплект ${t.missingQty}</li>`,
+        `<li><strong>${htmlEscape(t.contractLabel)}</strong>: ${htmlEscape(
+          `${DEFECT_SUPPLY_LABEL_MAP.scrapQty} ${formatDefectSupplyValue(t.scrapQty)}, ${DEFECT_SUPPLY_LABEL_MAP.missingQty} ${formatDefectSupplyValue(t.missingQty)}`,
+        )}</li>`,
     )
     .join('');
   const totalsByContract = new Map(data.totalsByContract.map((t) => [t.contractLabel, t]));
@@ -101,8 +135,8 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
         if (subtotal) {
           out += `<tr style="background:#f8fafc;font-weight:700">
             <td colspan="3">Итого по контракту: ${htmlEscape(currentContract)}</td>
-            <td style="text-align:right">${subtotal.scrapQty}</td>
-            <td style="text-align:right">${subtotal.missingQty}</td>
+            <td style="text-align:right">${formatDefectSupplyValue(subtotal.scrapQty)}</td>
+            <td style="text-align:right">${formatDefectSupplyValue(subtotal.missingQty)}</td>
           </tr>`;
         }
       }
@@ -112,8 +146,8 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
         <td>${htmlEscape(r.contractLabel)}</td>
         <td>${htmlEscape(r.partName)}</td>
         <td>${htmlEscape(r.partNumber)}</td>
-        <td style="text-align:right">${r.scrapQty}</td>
-        <td style="text-align:right">${r.missingQty}</td>
+        <td style="text-align:right">${formatDefectSupplyValue(r.scrapQty)}</td>
+        <td style="text-align:right">${formatDefectSupplyValue(r.missingQty)}</td>
       </tr>`;
     }
     if (currentContract) {
@@ -121,8 +155,8 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
       if (subtotal) {
         out += `<tr style="background:#f8fafc;font-weight:700">
           <td colspan="3">Итого по контракту: ${htmlEscape(currentContract)}</td>
-          <td style="text-align:right">${subtotal.scrapQty}</td>
-          <td style="text-align:right">${subtotal.missingQty}</td>
+        <td style="text-align:right">${formatDefectSupplyValue(subtotal.scrapQty)}</td>
+        <td style="text-align:right">${formatDefectSupplyValue(subtotal.missingQty)}</td>
         </tr>`;
       }
     }
@@ -134,6 +168,7 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
   body{font-family:Arial,sans-serif;font-size:12px;padding:16px;color:#0b1220}
   h1{font-size:16px;margin:0 0 8px 0}
   .meta{color:#475569;margin-bottom:12px}
+  .metrics-guide{margin-top:10px;padding:10px;border:1px solid #e2e8f0;background:#f8fafc}
   table{border-collapse:collapse;width:100%}
   th,td{border:1px solid #e5e7eb;padding:6px;text-align:left}
   th{background:#f1f5f9}
@@ -146,9 +181,10 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
   <div class="meta">Период: ${periodLabel}</div>
   <div class="meta">Контракты: ${contractsLabel}</div>
   <div class="contract-summary">
-    <div><b>Итого по контрактам:</b></div>
+    <div><b>Итоги по всем контрактам:</b></div>
     <ul>${contractSummary || '<li>Нет данных</li>'}</ul>
   </div>
+  ${formatDefectSupplyMetricNotes()}
   <table>
     <thead>
       <tr>
@@ -161,7 +197,7 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
     </thead>
     <tbody>${rowsHtml || '<tr><td colspan="5">Нет данных</td></tr>'}</tbody>
   </table>
-  <div class="totals">Итого: утиль ${data.totals.scrapQty}, недокомплект ${data.totals.missingQty}</div>
+  <div class="totals"><b>Итого по всем контрактам:</b> ${formatDefectSupplyTotals(data.totals)}</div>
 </body></html>`;
 }
 
@@ -244,7 +280,7 @@ export async function buildDefectSupplyReport(
         const brandValue = engineBrandValue.get(engineId) ?? '';
         if (!brandValue || (!brandFilter.includes(brandValue) && !brandFilter.includes(String(brandValue)))) continue;
       }
-      const contractLabelText = contractId ? contractLabel.get(contractId) ?? contractId : '(не указан)';
+      const contractLabelText = resolveContractLabel(contractId, contractLabel);
       const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
       if (!payload || payload.kind !== 'repair_checklist' || !payload.answers) continue;
       const answers = payload.answers ?? {};

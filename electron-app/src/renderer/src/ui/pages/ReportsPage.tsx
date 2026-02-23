@@ -55,6 +55,74 @@ function formatCell(kind: ReportFilterSpec['type'] | 'date' | 'datetime' | 'numb
   return String(value);
 }
 
+const REPORT_TOTAL_LABELS: Record<string, string> = {
+  scrapQty: 'Утиль, шт.',
+  missingQty: 'Недокомплект, шт.',
+  deliveredQty: 'Привезено, шт.',
+  remainingNeedQty: 'Остаточная потребность, шт.',
+  engines: 'Двигатели, шт.',
+  contracts: 'Контракты, шт.',
+  totalQty: 'Общий объем, шт.',
+  totalAmountRub: 'Сумма, ₽',
+  orderedQty: 'Заказано, шт.',
+  remainingQty: 'Остаток, шт.',
+  fulfillmentPct: '% выполнения',
+  progressPct: 'Прогресс, %',
+  workOrders: 'Наряды, шт.',
+  lines: 'Записей, шт.',
+  amountRub: 'Сумма, ₽',
+  acceptance: 'Приёмка',
+  shipment: 'Отгрузка',
+  customer_delivery: 'Доставка заказчику',
+};
+const REPORT_METRIC_NOTES: Record<string, string> = {
+  scrapQty: 'Утиль: количество бракованных деталей.',
+  missingQty: 'Недокомплект: детали, которых не хватает по плану.',
+  deliveredQty: 'Привезено: фактический объём поступивших деталей.',
+  remainingNeedQty: 'Остаточная потребность: сколько нужно еще поставить.',
+  totalQty: 'Общий объем: общий объем по всем строкам отчета.',
+  totalAmountRub: 'Сумма: итоговая стоимость по всем выбранным данным.',
+  orderedQty: 'Заказано: плановый объем по договоренностям.',
+  remainingQty: 'Остаток: еще не закрытый объем.',
+  fulfillmentPct: 'Процент выполнения: доля выполнения по плану.',
+  progressPct: 'Прогресс: доля закрытых этапов.',
+};
+
+function reportTotalLabel(key: string): string {
+  return REPORT_TOTAL_LABELS[key] ?? key;
+}
+
+function formatReportTotalValue(key: string, value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value ?? '');
+  const normalizedKey = key.toLowerCase();
+  const isPercent = normalizedKey.includes('pct');
+  if (isPercent) {
+    return `${value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  }
+  const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
+  if (isMoney) {
+    return `${value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
+  }
+  return value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+}
+
+function formatReportTotals(totals: Record<string, unknown>): string[] {
+  return Object.entries(totals).map(([key, value]) => {
+    const label = reportTotalLabel(key);
+    return `${label}: ${formatReportTotalValue(key, value)}`;
+  });
+}
+
+function buildReportMetricNotes(totals: Record<string, unknown>): string[] {
+  return Object.keys(totals)
+    .map((key) => {
+      const note = REPORT_METRIC_NOTES[key];
+      if (!note) return null;
+      return `<li><strong>${escapeHtml(reportTotalLabel(key))}</strong>: ${escapeHtml(note)}</li>`;
+    })
+    .filter((line): line is string => line !== null);
+}
+
 function csvDownload(csv: string, fileName: string) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -219,30 +287,38 @@ export function ReportsPage(props: { canExport: boolean }) {
       { id: 'table', title: 'Данные отчета', html: renderReportTableHtml(report) },
       {
         id: 'totals',
-        title: 'Итоги',
+        title: 'Итого по всем контрактам',
         html:
           report.totals && Object.keys(report.totals).length > 0
-            ? `<ul>${Object.entries(report.totals)
-                .map(([k, v]) => `<li>${escapeHtml(k)}: ${escapeHtml(String(v))}</li>`)
+            ? `<ul>${formatReportTotals(report.totals)
+                .map((line) => `<li>${escapeHtml(line)}</li>`)
                 .join('')}</ul>`
             : '<div class="muted">Нет итогов</div>',
       },
       {
         id: 'groups',
-        title: 'Итоги по группам',
+        title: 'Итоги по группам (ключевые метрики)',
         html:
           report.totalsByGroup && report.totalsByGroup.length > 0
             ? `<ul>${report.totalsByGroup
                 .map(
                   (row) =>
                     `<li>${escapeHtml(row.group)}: ${escapeHtml(
-                      Object.entries(row.totals)
-                        .map(([k, v]) => `${k} ${v}`)
-                        .join(', '),
+                      formatReportTotals(row.totals).join(', '),
                     )}</li>`,
                 )
                 .join('')}</ul>`
             : '<div class="muted">Нет группировок</div>',
+      },
+      {
+        id: 'metric-notes',
+        title: 'Пояснение метрик',
+        html:
+          report.totals && Object.keys(report.totals).length > 0
+            ? buildReportMetricNotes(report.totals).length > 0
+              ? `<ul>${buildReportMetricNotes(report.totals).join('')}</ul>`
+              : '<div class="muted">Нет пояснений</div>'
+            : '<div class="muted">Нет данных</div>',
       },
     ];
     openPrintPreview({
@@ -485,10 +561,7 @@ export function ReportsPage(props: { canExport: boolean }) {
             </div>
             {preview.totals && Object.keys(preview.totals).length > 0 ? (
               <div style={{ fontWeight: 700 }}>
-                Итого:{' '}
-                {Object.entries(preview.totals)
-                  .map(([key, value]) => `${key}: ${String(value)}`)
-                  .join(', ')}
+                Итого по всем контрактам: {formatReportTotals(preview.totals).join(', ')}
               </div>
             ) : null}
           </div>

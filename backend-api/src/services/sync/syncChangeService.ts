@@ -8,7 +8,7 @@ import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 import type { LedgerTxPayload } from '@matricarmz/ledger';
 
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
-import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor } from './syncWriteService.js';
+import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor, type SyncWriteOptions } from './syncWriteService.js';
 
 type SyncActor = { id: string; username: string; role?: string };
 
@@ -50,7 +50,7 @@ assertSyncMapCoverage();
 /**
  * Record sync changes through the unified write path (ledger -> index -> PG).
  */
-export async function recordSyncChanges(actor: SyncActor, changes: SyncChange[]) {
+export async function recordSyncChanges(actor: SyncActor, changes: SyncChange[], opts: SyncWriteOptions = {}) {
   if (!changes.length) return;
 
   const inputs: SyncWriteInput[] = changes.map((ch) => ({
@@ -66,7 +66,7 @@ export async function recordSyncChanges(actor: SyncActor, changes: SyncChange[])
     role: actor.role,
   };
 
-  await writeSyncChanges(inputs, writeActor);
+  await writeSyncChanges(inputs, writeActor, opts);
 }
 
 /**

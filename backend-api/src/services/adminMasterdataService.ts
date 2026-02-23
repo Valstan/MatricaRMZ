@@ -127,7 +127,13 @@ function attributeValuePayload(row: {
   };
 }
 
-async function insertChangeLog(tableName: SyncTableName, rowId: string, payload: unknown, actor: Actor) {
+async function insertChangeLog(
+  tableName: SyncTableName,
+  rowId: string,
+  payload: unknown,
+  actor: Actor,
+  opts: { allowSyncConflicts?: boolean } = {},
+) {
   assertSyncPayload(tableName, payload);
   await recordSyncChanges(
     { id: actor.id, username: actor.username, role: actor.role ?? 'admin' },
@@ -140,6 +146,7 @@ async function insertChangeLog(tableName: SyncTableName, rowId: string, payload:
         ts: nowMs(),
       },
     ],
+    opts,
   );
 }
 
@@ -772,8 +779,14 @@ export async function getEntityDetails(entityId: string) {
   };
 }
 
-export async function setEntityAttribute(actor: Actor, entityId: string, code: string, value: unknown) {
-  const ts = nowMs();
+export async function setEntityAttribute(
+  actor: Actor,
+  entityId: string,
+  code: string,
+  value: unknown,
+  options: { touchEntity?: boolean; allowSyncConflicts?: boolean } = {},
+) {
+  const touchEntity = options.touchEntity !== false;
   const e = await db.select().from(entities).where(eq(entities.id, entityId as any)).limit(1);
   if (!e[0]) return { ok: false as const, error: 'Сущность не найдена' };
 
@@ -786,6 +799,8 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
     .from(attributeValues)
     .where(and(eq(attributeValues.entityId, entityId as any), eq(attributeValues.attributeDefId, defId as any)))
     .limit(1);
+  const existingAttrUpdatedAt = existing[0] ? Number(existing[0].updatedAt) : null;
+  const ts = existingAttrUpdatedAt == null || !Number.isFinite(existingAttrUpdatedAt) ? nowMs() : Math.max(nowMs(), existingAttrUpdatedAt + 1);
 
   const payloadJson = toValueJson(value);
   const duplicateId = await findDuplicateEntityId({
@@ -812,7 +827,9 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
       deletedAt: existing[0].deletedAt == null ? null : Number(existing[0].deletedAt),
       syncStatus: 'synced',
     });
-    await insertChangeLog(SyncTableName.AttributeValues, String(existing[0].id), payload, actor);
+    await insertChangeLog(SyncTableName.AttributeValues, String(existing[0].id), payload, actor, {
+      allowSyncConflicts: options.allowSyncConflicts,
+    });
   } else {
     const id = randomUUID();
     await db.insert(attributeValues).values({
@@ -835,7 +852,9 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
       deletedAt: null,
       syncStatus: 'synced',
     });
-    await insertChangeLog(SyncTableName.AttributeValues, id, payload, actor);
+    await insertChangeLog(SyncTableName.AttributeValues, id, payload, actor, {
+      allowSyncConflicts: options.allowSyncConflicts,
+    });
 
     const owner = (await getOwnerForEntity(entityId)) ?? { ownerUserId: actor.id ?? null, ownerUsername: actor.username ?? null };
     if (owner.ownerUserId) {
@@ -853,16 +872,18 @@ export async function setEntityAttribute(actor: Actor, entityId: string, code: s
     }
   }
 
-  await db.update(entities).set({ updatedAt: ts, syncStatus: 'synced' }).where(eq(entities.id, entityId as any));
-  const payload = entityPayload({
-    id: String(e[0].id),
-    typeId: String(e[0].typeId),
-    createdAt: Number(e[0].createdAt),
-    updatedAt: ts,
-    deletedAt: e[0].deletedAt == null ? null : Number(e[0].deletedAt),
-    syncStatus: 'synced',
-  });
-  await insertChangeLog(SyncTableName.Entities, entityId, payload, actor);
+    if (touchEntity) {
+    await db.update(entities).set({ updatedAt: ts, syncStatus: 'synced' }).where(eq(entities.id, entityId as any));
+    const payload = entityPayload({
+      id: String(e[0].id),
+      typeId: String(e[0].typeId),
+      createdAt: Number(e[0].createdAt),
+      updatedAt: ts,
+      deletedAt: e[0].deletedAt == null ? null : Number(e[0].deletedAt),
+      syncStatus: 'synced',
+    });
+    await insertChangeLog(SyncTableName.Entities, entityId, payload, actor);
+  }
 
   return { ok: true as const };
 }

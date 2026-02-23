@@ -163,6 +163,19 @@ function clamp(n: number, min: number, max: number) {
   return n;
 }
 
+function getDepartmentButtonStyle(style: { fontSize: number; paddingX: number; gap: number }) {
+  const fontSize = Number(style?.fontSize ?? 0);
+  const paddedX = Number(style?.paddingX ?? 0);
+  const styleGap = Number(style?.gap ?? 0);
+  return {
+    iconSize: clamp(Math.round(clamp(fontSize, 18, 32) * 0.72), 18, 30),
+    titleSize: clamp(Math.round(clamp(fontSize, 14, 32) * 0.58), 14, 20),
+    subtitleSize: clamp(Math.round(clamp(fontSize, 12, 30) * 0.46), 11, 14),
+    rightPadding: Math.max(2, Math.round(clamp(paddedX, 2, 80))),
+    stackGap: Math.max(2, Math.round(clamp(styleGap, 2, 24))),
+  };
+}
+
 export function deriveMenuState(availableTabs: MenuTabId[], layout?: TabsLayoutPrefs | null) {
   const rawOrder = Array.isArray(layout?.order) ? layout?.order ?? [] : [];
   const order = rawOrder.filter((t) => availableTabs.includes(t));
@@ -657,6 +670,8 @@ export function Tabs(props: {
           {groupsInUse.map((groupId) => {
             const isActive = activeGroup === groupId && !collapsedGroups.has(groupId);
             const isCollapsed = collapsedGroups.has(groupId);
+            const deptStyle = isActive ? departmentButtonActiveStyle : departmentButtonInactiveStyle;
+            const deptVisual = getDepartmentButtonStyle(deptStyle);
             return (
               <div
                 key={groupId}
@@ -681,10 +696,13 @@ export function Tabs(props: {
                       ? {
                           width: '100%',
                           maxWidth: '100%',
-                          minHeight: departmentCardMinHeight,
-                          minWidth: 0,
-                          height: '100%',
-                          padding: '2px',
+                            minHeight: departmentCardMinHeight,
+                            minWidth: 0,
+                            height: '100%',
+                            paddingTop: 2,
+                            paddingRight: deptVisual.rightPadding,
+                            paddingBottom: 2,
+                            paddingLeft: 2,
                           border: '1px solid rgba(15, 23, 42, 0.14)',
                           background: '#0f2f72',
                           color: '#ffffff',
@@ -697,6 +715,7 @@ export function Tabs(props: {
                           wordBreak: 'break-word',
                           display: 'flex',
                           alignItems: 'flex-start',
+                          gap: deptVisual.stackGap,
                         }
                       : {
                           width: '100%',
@@ -704,7 +723,10 @@ export function Tabs(props: {
                           minHeight: departmentCardMinHeight,
                           minWidth: 0,
                           height: '100%',
-                          padding: '2px',
+                          paddingTop: 2,
+                          paddingRight: deptVisual.rightPadding,
+                          paddingBottom: 2,
+                          paddingLeft: 2,
                           border: '1px solid rgba(148, 163, 184, 0.34)',
                           background: GROUP_VISUALS[groupId].gradient,
                           color: '#ffffff',
@@ -717,18 +739,39 @@ export function Tabs(props: {
                           wordBreak: 'break-word',
                           display: 'flex',
                           alignItems: 'flex-start',
+                          gap: deptVisual.stackGap,
                         }
                   }
                   title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
                 >
-                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 2, minWidth: 0 }}>
+                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 2, minWidth: 0 }}>
                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }}>
-                      <span style={{ fontSize: 18, lineHeight: 1 }}>{GROUP_VISUALS[groupId].icon}</span>
+                    <span style={{ fontSize: deptVisual.iconSize, lineHeight: 1 }}>{GROUP_VISUALS[groupId].icon}</span>
                     </span>
-                    <span style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.05, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                  <span
+                    style={{
+                      fontSize: deptVisual.titleSize,
+                      fontWeight: 900,
+                      lineHeight: 1.05,
+                      whiteSpace: 'normal',
+                      overflowWrap: 'anywhere',
+                      wordBreak: 'break-word',
+                      letterSpacing: 0.1,
+                    }}
+                  >
                       {GROUP_LABELS[groupId]}
                     </span>
-                    <span style={{ fontSize: 11, opacity: 0.95, lineHeight: 1.1, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                  <span
+                    style={{
+                      fontSize: deptVisual.subtitleSize,
+                      opacity: 0.95,
+                      lineHeight: 1.1,
+                      whiteSpace: 'normal',
+                      overflowWrap: 'anywhere',
+                      wordBreak: 'break-word',
+                      fontWeight: 700,
+                    }}
+                  >
                       {GROUP_VISUALS[groupId].subtitle}
                     </span>
                   </span>

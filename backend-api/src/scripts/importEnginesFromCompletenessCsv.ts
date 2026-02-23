@@ -18,6 +18,7 @@ type DesiredEngine = {
   brandName: string;
   arrivalDate: number | null;
   shippingDate: number | null;
+  supplierName?: string;
 };
 type DesiredPart = {
   key: string;
@@ -26,7 +27,20 @@ type DesiredPart = {
   qtyByBrandKey: Map<string, number>;
 };
 
+type ParsedCsvData = {
+  brands: Map<string, DesiredBrand>;
+  parts: Map<string, DesiredPart>;
+  engines: Map<string, DesiredEngine>;
+  suppliersByNormalized: Map<string, string>;
+  supplierConflictsByEngine: Map<string, string[]>;
+};
+
 const SOURCE_FILE = process.env.MATRICA_COMPLETENESS_CSV ?? '/home/valstan/Сводная ведомость актов комплектности2.csv';
+const IMPORT_ALLOW_SYNC_CONFLICTS = (() => {
+  const raw = process.env.MATRICA_IMPORT_ALLOW_SYNC_CONFLICTS?.toLowerCase();
+  if (!raw) return true;
+  return !['0', 'false', 'off'].includes(raw);
+})();
 
 function nowMs() {
   return Date.now();
@@ -57,6 +71,67 @@ function normalizeToken(value: string): string {
 
 function normalizeHeaderToken(value: string): string {
   return cleanCell(value).toLowerCase().replaceAll('ё', 'е');
+}
+
+function normalizeCounterparty(value: string): string {
+  return cleanCell(value)
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replaceAll(/["'«»]/g, '')
+    .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+}
+
+function safeJsonParse(value: string | null | undefined): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function engineAttributeEquals(expected: unknown, actual: unknown): boolean {
+  if (expected == null) return actual == null;
+  if (actual == null) return false;
+  if (typeof expected === 'number') return Number(actual) === expected;
+  if (typeof expected === 'boolean') return actual === expected;
+  return String(actual) === String(expected);
+}
+
+function areDefectRowsEqual(existingPayload: unknown, rows: Array<{ part_name: string; part_number: string; quantity: number; repairable_qty: number; scrap_qty: number }>): boolean {
+  if (!existingPayload || typeof existingPayload !== 'object') return false;
+  const payload = existingPayload as Record<string, unknown>;
+  const answers = payload.answers;
+  if (!answers || typeof answers !== 'object') return false;
+  const nextRows = answers as Record<string, unknown>;
+  return JSON.stringify(nextRows.defect_items ?? null) === JSON.stringify(rows);
+}
+
+function areCompletenessRowsEqual(
+  existingPayload: unknown,
+  rows: Array<{ part_name: string; assembly_unit_number: string; quantity: number; present: boolean; actual_qty: number }>,
+): boolean {
+  if (!existingPayload || typeof existingPayload !== 'object') return false;
+  const payload = existingPayload as Record<string, unknown>;
+  const answers = payload.answers;
+  if (!answers || typeof answers !== 'object') return false;
+  const nextRows = answers as Record<string, unknown>;
+  return JSON.stringify(nextRows.completeness_items ?? null) === JSON.stringify(rows);
+}
+
+function areChecklistMetaEqual(existingPayload: unknown, engineBrand: string, engineNumber: string): boolean {
+  if (!existingPayload || typeof existingPayload !== 'object') return false;
+  const answers = (existingPayload as Record<string, unknown>).answers;
+  if (!answers || typeof answers !== 'object') return false;
+  const mapped = answers as Record<string, unknown>;
+  const brand = mapped.engine_brand;
+  const number = mapped.engine_number;
+  if (!brand || !number || typeof brand !== 'object' || typeof number !== 'object') return false;
+  const brandValue = (brand as Record<string, unknown>).value;
+  const numberValue = (number as Record<string, unknown>).value;
+  return String(brandValue) === String(engineBrand) && String(numberValue) === String(engineNumber);
 }
 
 function parseDelimitedLine(line: string, delimiter: ';' | '\t'): string[] {
@@ -185,11 +260,7 @@ function readCsvText(path: string): string {
   }
 }
 
-function parseSourceCsv(path: string): {
-  brands: Map<string, DesiredBrand>;
-  parts: Map<string, DesiredPart>;
-  engines: Map<string, DesiredEngine>;
-} {
+function parseSourceCsv(path: string): ParsedCsvData {
   if (!existsSync(path)) throw new Error(`CSV not found: ${path}`);
   const text = readCsvText(path);
   const lines = text.split(/\r?\n/);
@@ -207,6 +278,7 @@ function parseSourceCsv(path: string): {
   const shippingCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('дата отгрузки'));
   const brandCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('марка дв'));
   const engineNoCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('номер двигателя'));
+  const supplierCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('поставщик'));
   if (brandCol < 0 || engineNoCol < 0) throw new Error('Required columns not found: "Марка дв"/"Номер двигателя"');
 
   const partCols: number[] = [];
@@ -220,6 +292,8 @@ function parseSourceCsv(path: string): {
   const brands = new Map<string, DesiredBrand>();
   const parts = new Map<string, DesiredPart>();
   const engines = new Map<string, DesiredEngine>();
+  const suppliersByNormalized = new Map<string, string>();
+  const supplierConflictsByEngine = new Map<string, string[]>();
 
   for (let i = headerLineIndex + 1; i < lines.length; i += 1) {
     const line = lines[i] ?? '';
@@ -229,6 +303,8 @@ function parseSourceCsv(path: string): {
 
     const brandRaw = cleanCell(row[brandCol] ?? '');
     const engineRaw = cleanCell(row[engineNoCol] ?? '');
+    const supplierRaw = supplierCol >= 0 ? cleanCell(row[supplierCol] ?? '') : '';
+    const supplierNorm = normalizeCounterparty(supplierRaw);
     if (!brandRaw || !engineRaw) continue;
 
     const brandKey = normalizeBrandKey(brandRaw);
@@ -240,13 +316,30 @@ function parseSourceCsv(path: string): {
 
     const engineNumber = normalizeEngineNumber(engineRaw);
     if (engineNumber) {
-      engines.set(engineNumber, {
-        engineNumber,
-        brandKey,
-        brandName,
-        arrivalDate: arrivalCol >= 0 ? parseDateMs(row[arrivalCol] ?? '') : null,
-        shippingDate: shippingCol >= 0 ? parseDateMs(row[shippingCol] ?? '') : null,
-      });
+      const existing = engines.get(engineNumber);
+      if (!existing) {
+        engines.set(engineNumber, {
+          engineNumber,
+          brandKey,
+          brandName,
+          supplierName: supplierRaw,
+          arrivalDate: arrivalCol >= 0 ? parseDateMs(row[arrivalCol] ?? '') : null,
+          shippingDate: shippingCol >= 0 ? parseDateMs(row[shippingCol] ?? '') : null,
+        });
+      } else {
+        const existingSupplierNorm = normalizeCounterparty(existing.supplierName ?? '');
+        if (!existingSupplierNorm && supplierNorm) {
+          existing.supplierName = supplierRaw;
+        } else if (supplierNorm && existingSupplierNorm && existingSupplierNorm !== supplierNorm) {
+          const conflicts = supplierConflictsByEngine.get(engineNumber) ?? [];
+          if (existing.supplierName && !conflicts.includes(existing.supplierName)) conflicts.push(existing.supplierName);
+          if (!conflicts.includes(supplierRaw)) conflicts.push(supplierRaw);
+          supplierConflictsByEngine.set(engineNumber, conflicts);
+        }
+      }
+      if (supplierNorm && !suppliersByNormalized.has(supplierNorm)) {
+        suppliersByNormalized.set(supplierNorm, supplierRaw);
+      }
     }
 
     for (const col of partCols) {
@@ -272,7 +365,7 @@ function parseSourceCsv(path: string): {
     }
   }
 
-  return { brands, parts, engines };
+  return { brands, parts, engines, suppliersByNormalized, supplierConflictsByEngine };
 }
 
 async function ensureActor(): Promise<AuthUser> {
@@ -307,10 +400,89 @@ async function ensureEngineInfra(actor: AuthUser) {
     sortOrder: 25,
     metaJson: JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineBrand }),
   });
+  await upsertAttributeDef(actor, {
+    entityTypeId: type.id,
+    code: 'customer_id',
+    name: 'Контрагент',
+    dataType: AttributeDataType.Link,
+    sortOrder: 45,
+    metaJson: JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Customer }),
+  });
   await upsertAttributeDef(actor, { entityTypeId: type.id, code: 'arrival_date', name: 'Дата прихода', dataType: AttributeDataType.Date, sortOrder: 30 });
   await upsertAttributeDef(actor, { entityTypeId: type.id, code: 'shipping_date', name: 'Дата отгрузки', dataType: AttributeDataType.Date, sortOrder: 31 });
   await upsertAttributeDef(actor, { entityTypeId: type.id, code: 'is_scrap', name: 'Утиль', dataType: AttributeDataType.Boolean, sortOrder: 40 });
   return type.id;
+}
+
+async function ensureCounterpartyInfra(actor: AuthUser): Promise<string> {
+  const type = await upsertEntityType(actor, { code: EntityTypeCode.Customer, name: 'Контрагенты' });
+  if (!type.ok || !type.id) throw new Error('Failed to upsert customer type');
+  await upsertAttributeDef(actor, {
+    entityTypeId: type.id,
+    code: 'name',
+    name: 'Название',
+    dataType: AttributeDataType.Text,
+    sortOrder: 10,
+  });
+  return type.id;
+}
+
+async function loadCounterpartyIdsByNormalizedName(customerTypeId: string): Promise<{
+  idByNormalizedName: Map<string, string>;
+  duplicateIdsByNormalizedName: Map<string, string[]>;
+}> {
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, customerTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const nameDefId = defs.find((d) => String(d.code) === 'name')?.id;
+  if (!nameDefId) {
+    return { idByNormalizedName: new Map(), duplicateIdsByNormalizedName: new Map() };
+  }
+
+  const entitiesRows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, customerTypeId), isNull(entities.deletedAt)))
+    .limit(500_000);
+  const entityIds = entitiesRows.map((r) => String(r.id));
+  if (entityIds.length === 0) {
+    return { idByNormalizedName: new Map(), duplicateIdsByNormalizedName: new Map() };
+  }
+
+  const values = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(inArray(attributeValues.entityId, entityIds as any), eq(attributeValues.attributeDefId, nameDefId), isNull(attributeValues.deletedAt)),
+    )
+    .limit(500_000);
+
+  const idsByNormalizedName = new Map<string, string[]>();
+  for (const row of values) {
+    const raw = safeJsonParse(row.valueJson) as unknown;
+    if (raw == null || typeof raw !== 'string') continue;
+    const name = cleanCell(raw);
+    const normalized = normalizeCounterparty(name);
+    if (!normalized) continue;
+    const cur = idsByNormalizedName.get(normalized) ?? [];
+    cur.push(String(row.entityId));
+    idsByNormalizedName.set(normalized, cur);
+  }
+
+  const idByNormalizedName = new Map<string, string>();
+  const duplicateIdsByNormalizedName = new Map<string, string[]>();
+  for (const [normalized, ids] of idsByNormalizedName.entries()) {
+    if (ids.length > 0) idByNormalizedName.set(normalized, ids[0]);
+    if (ids.length > 1) duplicateIdsByNormalizedName.set(normalized, ids);
+  }
+  return { idByNormalizedName, duplicateIdsByNormalizedName };
+}
+
+function extractDuplicateIdFromError(errorText: string): string | null {
+  const match = String(errorText ?? '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+  return match?.[0] ?? null;
 }
 
 async function loadBrandIdByKey(brandTypeId: string): Promise<Map<string, string>> {
@@ -335,6 +507,31 @@ async function loadBrandIdByKey(brandTypeId: string): Promise<Map<string, string
     const name = row.valueJson ? String(JSON.parse(row.valueJson)) : '';
     const key = normalizeBrandKey(name);
     if (key) out.set(key, String(row.entityId));
+  }
+  return out;
+}
+
+async function loadBrandNamesById(brandTypeId: string, brandIds: string[]): Promise<Map<string, string>> {
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, brandTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(200);
+  const nameDefId = defs.find((d) => String(d.code) === 'name')?.id;
+  if (!nameDefId || brandIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(inArray(attributeValues.entityId, brandIds as any), eq(attributeValues.attributeDefId, nameDefId), isNull(attributeValues.deletedAt)),
+    )
+    .limit(2000);
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const parsed = safeJsonParse(row.valueJson);
+    if (parsed == null) continue;
+    out.set(String(row.entityId), String(parsed));
   }
   return out;
 }
@@ -422,6 +619,44 @@ async function loadEngineByNumber(engineTypeId: string): Promise<Map<string, str
   return out;
 }
 
+async function loadEngineAttributeMapByIds(
+  engineTypeId: string,
+  engineIds: string[],
+): Promise<Map<string, Map<string, unknown>>> {
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, engineTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(1000);
+  const byCode = new Map<string, string>();
+  const neededCodes = ['engine_number', 'engine_brand', 'engine_brand_id', 'arrival_date', 'shipping_date', 'is_scrap', 'customer_id'];
+  for (const d of defs) {
+    const code = String(d.code);
+    if (neededCodes.includes(code)) byCode.set(String(d.id), code);
+  }
+  if (engineIds.length === 0 || byCode.size === 0) return new Map();
+
+  const defIds = [...new Set(byCode.keys())];
+  const vals = await db
+    .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(inArray(attributeValues.entityId, engineIds as any), inArray(attributeValues.attributeDefId, defIds as any), isNull(attributeValues.deletedAt)),
+    )
+    .limit(400000);
+
+  const out = new Map<string, Map<string, unknown>>();
+  for (const row of vals) {
+    const code = byCode.get(String(row.attributeDefId));
+    if (!code) continue;
+    const entityId = String(row.entityId);
+    const existing = out.get(entityId) ?? new Map<string, unknown>();
+    existing.set(code, safeJsonParse(row.valueJson));
+    out.set(entityId, existing);
+  }
+  return out;
+}
+
 async function main() {
   const startedAt = nowMs();
   logStage('start', { source: SOURCE_FILE });
@@ -430,28 +665,102 @@ async function main() {
   if (parsed.brands.size === 0) throw new Error('No brands parsed from source');
   if (parsed.parts.size === 0) throw new Error('No parts parsed from source');
   if (parsed.engines.size === 0) throw new Error('No engines parsed from source');
-  logStage('parsed', { brands: parsed.brands.size, parts: parsed.parts.size, engines: parsed.engines.size });
+  logStage('parsed', {
+    brands: parsed.brands.size,
+    parts: parsed.parts.size,
+    engines: parsed.engines.size,
+    suppliers: parsed.suppliersByNormalized.size,
+  });
+  if (parsed.supplierConflictsByEngine.size > 0) {
+    logStage('supplier-conflicts-detected', {
+      rows: parsed.supplierConflictsByEngine.size,
+      examples: [...parsed.supplierConflictsByEngine.entries()]
+        .slice(0, 5)
+        .map(([engineNo, names]) => ({ engineNo, suppliers: names })),
+    });
+  }
 
   const brandTypeId = await ensureBrandInfra(actor);
   const engineTypeId = await ensureEngineInfra(actor);
+  const customerTypeId = await ensureCounterpartyInfra(actor);
   const partTypeId = await loadPartTypeId();
-  logStage('infra-ready', { brandTypeId, engineTypeId, partTypeId });
+  const { idByNormalizedName: existingCustomerByNormalizedName, duplicateIdsByNormalizedName } = await loadCounterpartyIdsByNormalizedName(customerTypeId);
+  logStage('infra-ready', {
+    brandTypeId,
+    engineTypeId,
+    partTypeId,
+    customerTypeId,
+    existingCounterparties: existingCustomerByNormalizedName.size,
+    existingCounterpartyDuplicates: duplicateIdsByNormalizedName.size,
+  });
+  if (duplicateIdsByNormalizedName.size > 0) {
+    logStage('counterparties-existing-duplicates', {
+      count: duplicateIdsByNormalizedName.size,
+      examples: [...duplicateIdsByNormalizedName.entries()].slice(0, 5).map(([name, ids]) => ({
+        name,
+        duplicates: ids,
+      })),
+    });
+  }
+
+  let createdCounterparties = 0;
+  let reusedCounterparties = 0;
+  let reusedDuplicateCounterparties = 0;
+  const supplierNames = [...parsed.suppliersByNormalized.entries()];
+  for (const [normalizedSupplier, supplierName] of supplierNames) {
+    if (existingCustomerByNormalizedName.has(normalizedSupplier)) {
+      reusedCounterparties += 1;
+      continue;
+    }
+    const created = await createEntity(actor, customerTypeId);
+    if (!created.ok || !created.id) throw new Error(`Failed to create counterparties: ${supplierName}`);
+    const setRes = await setEntityAttribute(actor, created.id, 'name', supplierName);
+    if (!setRes.ok) {
+      await softDeleteEntity(actor, created.id);
+      const duplicatedId = extractDuplicateIdFromError(setRes.error ?? '');
+      if (!duplicatedId) {
+        throw new Error(`Failed to set counterparty name for ${supplierName}: ${setRes.error}`);
+      }
+      existingCustomerByNormalizedName.set(normalizedSupplier, duplicatedId);
+      reusedDuplicateCounterparties += 1;
+      reusedCounterparties += 1;
+      continue;
+    }
+    existingCustomerByNormalizedName.set(normalizedSupplier, created.id);
+    createdCounterparties += 1;
+    reusedCounterparties += 1;
+    if (createdCounterparties % 25 === 0 || createdCounterparties === parsed.suppliersByNormalized.size) {
+      logStage('counterparties-progress', {
+        processed: createdCounterparties + reusedDuplicateCounterparties,
+        total: parsed.suppliersByNormalized.size,
+        createdCounterparties,
+        reusedCounterparties,
+      });
+    }
+  }
 
   const brandIdByKey = await loadBrandIdByKey(brandTypeId);
+  const existingBrandNamesById = await loadBrandNamesById(brandTypeId, [...brandIdByKey.values()]);
   let createdBrands = 0;
   let updatedBrands = 0;
   let brandIndex = 0;
   for (const brand of parsed.brands.values()) {
     brandIndex += 1;
     let brandId = brandIdByKey.get(brand.key) ?? null;
+    let wasCreated = false;
     if (!brandId) {
       const created = await createEntity(actor, brandTypeId);
       if (!created.ok || !created.id) throw new Error(`Failed to create brand: ${brand.name}`);
       brandId = created.id;
       createdBrands += 1;
+      wasCreated = true;
     }
-    const setRes = await setEntityAttribute(actor, brandId, 'name', brand.name);
-    if (!setRes.ok) throw new Error(`Failed to set brand name: ${brand.name} (${setRes.error})`);
+    const existingName = existingBrandNamesById.get(brandId) ?? '';
+    if (wasCreated || existingName !== brand.name) {
+      const setRes = await setEntityAttribute(actor, brandId, 'name', brand.name);
+      if (!setRes.ok) throw new Error(`Failed to set brand name: ${brand.name} (${setRes.error})`);
+      existingBrandNamesById.set(brandId, brand.name);
+    }
     brandIdByKey.set(brand.key, brandId);
     updatedBrands += 1;
     if (brandIndex % 25 === 0 || brandIndex === parsed.brands.size) {
@@ -532,18 +841,36 @@ async function main() {
   }
 
   const engineIdByNumber = await loadEngineByNumber(engineTypeId);
+  const desiredEngineNumbers = new Set<string>();
+  for (const item of parsed.engines.values()) {
+    const number = normalizeEngineNumber(item.engineNumber);
+    if (!number) continue;
+    desiredEngineNumbers.add(number);
+  }
+  const desiredEngineIds = [...desiredEngineNumbers].map((engineNumber) => engineIdByNumber.get(engineNumber)).filter((engineId): engineId is string => Boolean(engineId));
+  const existingEngineAttrsById = await loadEngineAttributeMapByIds(engineTypeId, desiredEngineIds);
+  logStage('engine-cache-loaded', {
+    cached: existingEngineAttrsById.size,
+    desired: desiredEngineNumbers.size,
+    existing: engineIdByNumber.size,
+  });
   let createdEngines = 0;
   let updatedEngines = 0;
   let deletedEngines = 0;
   let engineIndex = 0;
-  const desiredEngineNumbers = new Set<string>();
+  let engineAttributeWrites = 0;
+  let engineAttributeConflictsRecovered = 0;
+  let enginesWithoutEngineChanges = 0;
   const engineIdByDesiredNumber = new Map<string, string>();
+  let supplierLinksApplied = 0;
+  let supplierLinksMissing = 0;
+  let supplierLinksSkipped = 0;
+  const expectedSupplierIdByEngineNumber = new Map<string, string | null>();
 
   for (const item of parsed.engines.values()) {
     engineIndex += 1;
     const number = normalizeEngineNumber(item.engineNumber);
     if (!number) continue;
-    desiredEngineNumbers.add(number);
     const brandId = brandIdByKey.get(item.brandKey);
     if (!brandId) continue;
     let engineId = engineIdByNumber.get(number) ?? null;
@@ -552,6 +879,7 @@ async function main() {
       if (!created.ok || !created.id) throw new Error(`Failed to create engine: ${number}`);
       engineId = created.id;
       createdEngines += 1;
+      existingEngineAttrsById.set(engineId, new Map<string, unknown>());
     }
 
     const updates: Array<[string, unknown]> = [
@@ -562,10 +890,71 @@ async function main() {
       ['shipping_date', item.shippingDate],
       ['is_scrap', false],
     ];
+    const existingEngineAttrs = existingEngineAttrsById.get(engineId) ?? new Map<string, unknown>();
+    const changed: Array<[string, unknown]> = [];
     for (const [code, value] of updates) {
-      const res = await setEntityAttribute(actor, engineId, code, value);
-      if (!res.ok) throw new Error(`Failed to set ${code} for engine ${number}: ${res.error}`);
+      if (!engineAttributeEquals(value, existingEngineAttrs.get(code))) changed.push([code, value]);
     }
+    const normalizedSupplier = normalizeCounterparty(item.supplierName ?? '');
+    const supplierId = normalizedSupplier ? existingCustomerByNormalizedName.get(normalizedSupplier) : null;
+    if (supplierId && !engineAttributeEquals(supplierId, existingEngineAttrs.get('customer_id'))) {
+      changed.push(['customer_id', supplierId]);
+    }
+    for (const [code, value] of changed) {
+      let res: { ok: boolean; error?: string } | null = null;
+      let recoveredFromConflict = false;
+      try {
+        res = await setEntityAttribute(actor, engineId, code, value, {
+          touchEntity: false,
+          allowSyncConflicts: IMPORT_ALLOW_SYNC_CONFLICTS,
+        });
+      } catch (err) {
+        if (IMPORT_ALLOW_SYNC_CONFLICTS && String(err).includes('sync_conflict')) {
+          logStage('engine-attribute-sync-conflict-recovered', {
+            engineNumber: number,
+            engineId,
+            attributeCode: code,
+            expectedValue: value == null ? null : String(value),
+            previousValue: existingEngineAttrs.get(code) == null ? null : String(existingEngineAttrs.get(code)),
+            error: String(err),
+          });
+          res = await setEntityAttribute(actor, engineId, code, value, {
+            touchEntity: false,
+            allowSyncConflicts: true,
+          });
+          recoveredFromConflict = true;
+          if (!res.ok) throw new Error(`Failed to set ${code} for engine ${number}: ${res.error}`);
+          if (recoveredFromConflict) engineAttributeConflictsRecovered += 1;
+        } else {
+          logStage('engine-attribute-sync-error', {
+            engineNumber: number,
+            engineId,
+            attributeCode: code,
+            expectedValue: value == null ? null : String(value),
+            previousValue: existingEngineAttrs.get(code) == null ? null : String(existingEngineAttrs.get(code)),
+            error: String(err),
+          });
+          throw err;
+        }
+      }
+      if (!res) throw new Error(`No response from setEntityAttribute for ${code} on engine ${number}`);
+      if (!res.ok) throw new Error(`Failed to set ${code} for engine ${number}: ${res.error}`);
+      existingEngineAttrs.set(code, value);
+      engineAttributeWrites += 1;
+    }
+    if (changed.length === 0) {
+      enginesWithoutEngineChanges += 1;
+    }
+    if (normalizedSupplier) {
+      if (supplierId) {
+        supplierLinksApplied += 1;
+      } else {
+        supplierLinksMissing += 1;
+      }
+    } else {
+      supplierLinksSkipped += 1;
+    }
+    expectedSupplierIdByEngineNumber.set(number, supplierId ?? null);
     updatedEngines += 1;
     engineIdByDesiredNumber.set(number, engineId);
     engineIdByNumber.set(number, engineId);
@@ -582,6 +971,55 @@ async function main() {
   }
   logStage('engines-cleanup-done', { deletedEngines });
 
+  const actualCustomerByEngineId = new Map<string, string>();
+  for (const [engineNumber, engineId] of engineIdByDesiredNumber.entries()) {
+    const currentValue = existingEngineAttrsById.get(engineId)?.get('customer_id');
+    if (typeof currentValue === 'string') actualCustomerByEngineId.set(engineId, currentValue);
+  }
+  let supplierLinksVerified = 0;
+  let supplierLinksInDbMissing = 0;
+  let supplierLinksMismatched = 0;
+  const supplierVerificationProblems: Array<{
+    engineNumber: string;
+    expectedCounterpartyId: string;
+    actualCounterpartyId: string;
+  }> = [];
+
+  for (const [engineNumber, engineId] of engineIdByDesiredNumber.entries()) {
+    const expectedCounterpartyId = expectedSupplierIdByEngineNumber.get(engineNumber) ?? null;
+    const actualRaw = actualCustomerByEngineId.get(engineId);
+    const actualCounterpartyId = actualRaw ?? null;
+
+    if (!expectedCounterpartyId) {
+      continue;
+    }
+    if (actualCounterpartyId === expectedCounterpartyId) {
+      supplierLinksVerified += 1;
+    } else if (!actualCounterpartyId) {
+      supplierLinksInDbMissing += 1;
+    } else {
+      supplierLinksMismatched += 1;
+      if (supplierVerificationProblems.length < 10) {
+        supplierVerificationProblems.push({
+          engineNumber,
+          expectedCounterpartyId,
+          actualCounterpartyId,
+        });
+      }
+    }
+  }
+
+  logStage('supplier-links-verification', {
+    checked: supplierLinksVerified + supplierLinksInDbMissing + supplierLinksMismatched,
+    applied: supplierLinksApplied,
+    verified: supplierLinksVerified,
+    missing: supplierLinksInDbMissing,
+    mismatched: supplierLinksMismatched,
+    skipped: supplierLinksSkipped,
+    conflicts: parsed.supplierConflictsByEngine.size,
+    problems: supplierVerificationProblems,
+  });
+
   const defectTemplates = await listRepairChecklistTemplates('defect');
   const completenessTemplates = await listRepairChecklistTemplates('completeness');
   if (!defectTemplates.ok || !defectTemplates.templates[0]) throw new Error('Defect checklist template not found');
@@ -591,6 +1029,7 @@ async function main() {
 
   let syncedDefectChecklists = 0;
   let syncedCompletenessChecklists = 0;
+  let checklistSyncConflictsRecovered = 0;
 
   const partsByBrandKey = new Map<string, Array<{ partName: string; partNumber: string; quantity: number }>>();
   for (const brand of parsed.brands.values()) partsByBrandKey.set(brand.key, []);
@@ -624,32 +1063,61 @@ async function main() {
       repairable_qty: r.quantity,
       scrap_qty: 0,
     }));
-    const defectExisting = await getRepairChecklistForEngine(engineId, 'defect');
-    if (!defectExisting.ok) throw new Error(`Failed to read defect checklist for engine ${engineNumber}: ${defectExisting.error}`);
-    const defectPayload = {
-      kind: 'repair_checklist' as const,
-      templateId: defectTemplate.id,
-      templateVersion: defectTemplate.version,
-      stage: 'defect',
-      engineEntityId: engineId,
-      filledBy: actor.username,
-      filledAt: nowMs(),
-      answers: {
-        engine_brand: { kind: 'text' as const, value: engine.brandName },
-        engine_number: { kind: 'text' as const, value: engineNumber },
-        defect_items: { kind: 'table' as const, rows: defectRows },
-      },
-      attachments: defectExisting.payload?.attachments ?? [],
-    };
-    const defectSave = await saveRepairChecklistForEngine({
-      engineId,
-      stage: 'defect',
-      operationId: defectExisting.operationId ?? null,
-      payload: defectPayload as any,
-      actor: { id: actor.id, username: actor.username },
-    });
-    if (!defectSave.ok) throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${defectSave.error}`);
-    syncedDefectChecklists += 1;
+    const existingDefectChecklist = await getRepairChecklistForEngine(engineId, 'defect');
+    if (!existingDefectChecklist.ok) {
+      throw new Error(`Failed to read defect checklist for engine ${engineNumber}: ${existingDefectChecklist.error}`);
+    }
+    const existingDefectPayload = existingDefectChecklist.payload;
+    const hasDefectPayload = areChecklistMetaEqual(existingDefectPayload, engine.brandName, engineNumber) && areDefectRowsEqual(existingDefectPayload, defectRows);
+
+    if (!hasDefectPayload) {
+      const defectPayload = {
+        kind: 'repair_checklist' as const,
+        templateId: defectTemplate.id,
+        templateVersion: defectTemplate.version,
+        stage: 'defect',
+        engineEntityId: engineId,
+        filledBy: actor.username,
+        filledAt: nowMs(),
+        answers: {
+          engine_brand: { kind: 'text' as const, value: engine.brandName },
+          engine_number: { kind: 'text' as const, value: engineNumber },
+          defect_items: { kind: 'table' as const, rows: defectRows },
+        },
+        attachments: existingDefectPayload?.attachments ?? [],
+      };
+      const defectSave = await saveRepairChecklistForEngine({
+        engineId,
+        stage: 'defect',
+        operationId: existingDefectChecklist.operationId ?? null,
+        payload: defectPayload as any,
+        actor: { id: actor.id, username: actor.username },
+        allowSyncConflicts: false,
+      });
+      if (!defectSave.ok && IMPORT_ALLOW_SYNC_CONFLICTS && defectSave.error.includes('sync_conflict')) {
+        logStage('checklist-save-conflict-recovered', {
+          engineNumber,
+          checklistStage: 'defect',
+          operationId: existingDefectChecklist.operationId ?? null,
+          error: defectSave.error,
+        });
+        const retryDefectSave = await saveRepairChecklistForEngine({
+          engineId,
+          stage: 'defect',
+          operationId: existingDefectChecklist.operationId ?? null,
+          payload: defectPayload as any,
+          actor: { id: actor.id, username: actor.username },
+          allowSyncConflicts: true,
+        });
+        if (!retryDefectSave.ok) {
+          throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${retryDefectSave.error}`);
+        }
+        checklistSyncConflictsRecovered += 1;
+      } else if (!defectSave.ok) {
+        throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${defectSave.error}`);
+      }
+      syncedDefectChecklists += 1;
+    }
 
     const completenessRows = rows.map((r) => ({
       part_name: r.partName,
@@ -658,36 +1126,62 @@ async function main() {
       present: false,
       actual_qty: 0,
     }));
-    const completenessExisting = await getRepairChecklistForEngine(engineId, 'completeness');
-    if (!completenessExisting.ok) {
-      throw new Error(`Failed to read completeness checklist for engine ${engineNumber}: ${completenessExisting.error}`);
+    const existingCompletenessChecklist = await getRepairChecklistForEngine(engineId, 'completeness');
+    if (!existingCompletenessChecklist.ok) {
+      throw new Error(`Failed to read completeness checklist for engine ${engineNumber}: ${existingCompletenessChecklist.error}`);
     }
-    const completenessPayload = {
-      kind: 'repair_checklist' as const,
-      templateId: completenessTemplate.id,
-      templateVersion: completenessTemplate.version,
-      stage: 'completeness',
-      engineEntityId: engineId,
-      filledBy: actor.username,
-      filledAt: nowMs(),
-      answers: {
-        engine_brand: { kind: 'text' as const, value: engine.brandName },
-        engine_number: { kind: 'text' as const, value: engineNumber },
-        completeness_items: { kind: 'table' as const, rows: completenessRows },
-      },
-      attachments: completenessExisting.payload?.attachments ?? [],
-    };
-    const completenessSave = await saveRepairChecklistForEngine({
-      engineId,
-      stage: 'completeness',
-      operationId: completenessExisting.operationId ?? null,
-      payload: completenessPayload as any,
-      actor: { id: actor.id, username: actor.username },
-    });
-    if (!completenessSave.ok) {
-      throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${completenessSave.error}`);
+    const existingCompletenessPayload = existingCompletenessChecklist.payload;
+    const hasCompletenessPayload =
+      areChecklistMetaEqual(existingCompletenessPayload, engine.brandName, engineNumber) &&
+      areCompletenessRowsEqual(existingCompletenessPayload, completenessRows);
+    if (!hasCompletenessPayload) {
+      const completenessPayload = {
+        kind: 'repair_checklist' as const,
+        templateId: completenessTemplate.id,
+        templateVersion: completenessTemplate.version,
+        stage: 'completeness',
+        engineEntityId: engineId,
+        filledBy: actor.username,
+        filledAt: nowMs(),
+        answers: {
+          engine_brand: { kind: 'text' as const, value: engine.brandName },
+          engine_number: { kind: 'text' as const, value: engineNumber },
+          completeness_items: { kind: 'table' as const, rows: completenessRows },
+        },
+        attachments: existingCompletenessPayload?.attachments ?? [],
+      };
+      const completenessSave = await saveRepairChecklistForEngine({
+        engineId,
+        stage: 'completeness',
+        operationId: existingCompletenessChecklist.operationId ?? null,
+        payload: completenessPayload as any,
+        actor: { id: actor.id, username: actor.username },
+        allowSyncConflicts: false,
+      });
+      if (!completenessSave.ok && IMPORT_ALLOW_SYNC_CONFLICTS && completenessSave.error.includes('sync_conflict')) {
+        logStage('checklist-save-conflict-recovered', {
+          engineNumber,
+          checklistStage: 'completeness',
+          operationId: existingCompletenessChecklist.operationId ?? null,
+          error: completenessSave.error,
+        });
+        const retryCompletenessSave = await saveRepairChecklistForEngine({
+          engineId,
+          stage: 'completeness',
+          operationId: existingCompletenessChecklist.operationId ?? null,
+          payload: completenessPayload as any,
+          actor: { id: actor.id, username: actor.username },
+          allowSyncConflicts: true,
+        });
+        if (!retryCompletenessSave.ok) {
+          throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${retryCompletenessSave.error}`);
+        }
+        checklistSyncConflictsRecovered += 1;
+      } else if (!completenessSave.ok) {
+        throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${completenessSave.error}`);
+      }
+      syncedCompletenessChecklists += 1;
     }
-    syncedCompletenessChecklists += 1;
     if (checklistIndex % 100 === 0 || checklistIndex === parsed.engines.size) {
       logStage('checklists-progress', {
         processed: checklistIndex,
@@ -706,6 +1200,7 @@ async function main() {
           brands: parsed.brands.size,
           parts: parsed.parts.size,
           engines: parsed.engines.size,
+          suppliers: parsed.suppliersByNormalized.size,
         },
         changes: {
           createdBrands,
@@ -716,8 +1211,26 @@ async function main() {
           createdEngines,
           updatedEngines,
           deletedEngines,
+          createdCounterparties,
+          reusedCounterparties,
+          reusedDuplicateCounterparties,
+          engineAttributeWrites,
+          enginesWithoutEngineChanges,
+          supplierLinksApplied,
+          supplierLinksSkipped,
+          supplierLinksMissing,
           syncedDefectChecklists,
           syncedCompletenessChecklists,
+          engineAttributeConflictsRecovered,
+          checklistSyncConflictsRecovered,
+        },
+        supplierLinkVerification: {
+          checked: supplierLinksVerified + supplierLinksInDbMissing + supplierLinksMismatched,
+          verified: supplierLinksVerified,
+          missingInDb: supplierLinksInDbMissing,
+          mismatched: supplierLinksMismatched,
+          skipped: supplierLinksSkipped,
+          problems: supplierVerificationProblems.slice(0, 10),
         },
         elapsedMs: nowMs() - startedAt,
       },

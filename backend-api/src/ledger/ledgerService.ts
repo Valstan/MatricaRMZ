@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, createHash, createSign, randomBytes } from 'node:crypto';
-import { LedgerStore, type LedgerSignedTx, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
+import { LedgerStore, emptyLedgerState, type LedgerSignedTx, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
 import { generateLedgerKeyPair } from '@matricarmz/ledger';
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 import { sql } from 'drizzle-orm';
@@ -26,11 +26,83 @@ const KEY_FILE = 'server-key.json';
 const DATA_KEY_FILE = 'data-key.json';
 const BOOTSTRAP_FILE = 'bootstrap.json';
 const SIGNED_CHECKPOINT_FILE = 'checkpoint.signed.json';
+const STATE_FILE = 'state.json';
+const STATE_BACKUP_PREFIX = 'state.json.bak.';
+type LedgerStateRecoverySource = 'valid' | 'backup' | 'empty_recovery';
+type LedgerStateRecoveryMetadata = {
+  source: Exclude<LedgerStateRecoverySource, 'valid'>;
+  usedBackup: string | null;
+};
+type LedgerBootstrapRecoveryContext = {
+  stateRecovery?: LedgerStateRecoveryMetadata;
+};
+type LedgerStateRecoveryResult = {
+  source: LedgerStateRecoverySource;
+  usedBackup: string | null;
+};
 
 let store: LedgerStore | null = null;
 let serverKeys: { publicKeyPem: string; privateKeyPem: string } | null = null;
 let cachedLedgerDir: string | null = null;
 let dataKey: Buffer | null = null;
+
+function isValidJsonFile(path: string): boolean {
+  try {
+    JSON.parse(readFileSync(path, 'utf8'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findLatestValidStateBackup(ledgerDir: string): string | null {
+  const backupFiles = readdirSync(ledgerDir)
+    .filter((name) => name.startsWith(STATE_BACKUP_PREFIX))
+    .map((name) => join(ledgerDir, name))
+    .filter(isValidJsonFile)
+    .sort((a, b) => {
+      const statA = statSync(a).mtimeMs;
+      const statB = statSync(b).mtimeMs;
+      return statB - statA;
+    });
+
+  return backupFiles[0] ?? null;
+}
+
+function ensureLedgerStateFile(ledgerDir: string): LedgerStateRecoveryResult {
+  const statePath = join(ledgerDir, STATE_FILE);
+  if (existsSync(statePath) && isValidJsonFile(statePath)) return { source: 'valid', usedBackup: null };
+
+  const backupPath = findLatestValidStateBackup(ledgerDir);
+  const backupLabel = backupPath ? 'backup' : 'empty_recovery';
+  const now = Date.now();
+
+  if (existsSync(statePath)) {
+    try {
+      copyFileSync(statePath, `${statePath}.corrupt.${now}`);
+    } catch {
+      // ignore copy failures for corrupted files
+    }
+  }
+
+  if (backupPath) {
+    copyFileSync(backupPath, statePath);
+  } else {
+    writeFileSync(statePath, JSON.stringify(emptyLedgerState(), null, 2));
+  }
+
+  console.warn('[ledger] restored invalid state.json', {
+    ledgerDir,
+    source: backupLabel,
+    usedBackup: backupPath,
+    timestamp: now,
+  });
+
+  return {
+    source: backupPath ? 'backup' : 'empty_recovery',
+    usedBackup: backupPath ?? null,
+  };
+}
 
 function loadOrCreateServerKeys(ledgerDir: string) {
   if (serverKeys) return serverKeys;
@@ -126,8 +198,32 @@ export function getLedgerStore(): LedgerStore {
   if (store) return store;
   const ledgerDir = resolveLedgerDir();
   mkdirSync(ledgerDir, { recursive: true });
+  const recovery = ensureLedgerStateFile(ledgerDir);
   store = new LedgerStore(ledgerDir);
   loadOrCreateServerKeys(ledgerDir);
+
+  if (recovery.source !== 'valid') {
+    console.warn('[ledger] startup state recovery applied', {
+      ledgerDir,
+      source: recovery.source,
+      usedBackup: recovery.usedBackup,
+    });
+  }
+
+  if (recovery.source === 'empty_recovery' && process.env.MATRICA_LEDGER_BOOTSTRAP_ON_EMPTY_STATE_RECOVERY !== '0') {
+    void ensureLedgerBootstrap({
+      stateRecovery: {
+        source: recovery.source,
+        usedBackup: recovery.usedBackup,
+      },
+    }).catch((error) => {
+      console.error('[ledger] failed to bootstrap after empty state recovery', {
+        ledgerDir,
+        error: String(error),
+      });
+    });
+  }
+
   return store;
 }
 
@@ -248,7 +344,9 @@ export function getSignedCheckpoint() {
   }
 }
 
-export async function ensureLedgerBootstrap(): Promise<{ ran: boolean; reason: string }> {
+export async function ensureLedgerBootstrap(
+  options: LedgerBootstrapRecoveryContext = {},
+): Promise<{ ran: boolean; reason: string }> {
   const ledgerDir = resolveLedgerDir();
   const markerPath = join(ledgerDir, BOOTSTRAP_FILE);
   if (existsSync(markerPath)) return { ran: false, reason: 'marker exists' };
@@ -276,7 +374,20 @@ export async function ensureLedgerBootstrap(): Promise<{ ran: boolean; reason: s
     ledgerCounts.attributeValues < dbCounts.attributeValues;
 
   if (!needsBootstrap) {
-    writeFileSync(markerPath, JSON.stringify({ at: Date.now(), reason: 'counts-ok', ledgerCounts, dbCounts }, null, 2));
+    writeFileSync(
+      markerPath,
+      JSON.stringify(
+        {
+          at: Date.now(),
+          reason: 'counts-ok',
+          ledgerCounts,
+          dbCounts,
+          ...(options.stateRecovery ? { stateRecovery: options.stateRecovery, stateRecovered: true } : {}),
+        },
+        null,
+        2,
+      ),
+    );
     return { ran: false, reason: 'counts ok' };
   }
 
@@ -314,7 +425,20 @@ export async function ensureLedgerBootstrap(): Promise<{ ran: boolean; reason: s
   await importTable(SyncTableName.Notes, await db.select().from(notes));
   await importTable(SyncTableName.NoteShares, await db.select().from(noteShares));
 
-  writeFileSync(markerPath, JSON.stringify({ at: Date.now(), reason: 'bootstrap', ledgerCounts, dbCounts }, null, 2));
+  writeFileSync(
+    markerPath,
+    JSON.stringify(
+      {
+        at: Date.now(),
+        reason: 'bootstrap',
+        ledgerCounts,
+        dbCounts,
+        ...(options.stateRecovery ? { stateRecovery: options.stateRecovery, stateRecovered: true } : {}),
+      },
+      null,
+      2,
+    ),
+  );
   return { ran: true, reason: 'bootstrap complete' };
 }
 
