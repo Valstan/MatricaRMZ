@@ -973,7 +973,7 @@ async function main() {
   logStage('engines-cleanup-done', { deletedEngines });
 
   const actualCustomerByEngineId = new Map<string, string>();
-  for (const [engineNumber, engineId] of engineIdByDesiredNumber.entries()) {
+  for (const [_engineNumber, engineId] of engineIdByDesiredNumber.entries()) {
     const currentValue = existingEngineAttrsById.get(engineId)?.get('customer_id');
     if (typeof currentValue === 'string') actualCustomerByEngineId.set(engineId, currentValue);
   }

@@ -4,6 +4,7 @@ import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
 import { AttachmentsPanel } from './components/AttachmentsPanel.js';
+import { aggregateProgress, type ProgressLinkedItem } from '@matricarmz/shared';
 import {
   getEntity,
   listAttributeDefs,
@@ -14,6 +15,7 @@ import {
   upsertAttributeDef,
   softDeleteEntity,
 } from '../api/masterdata.js';
+import { listParts } from '../api/parts.js';
 
 type AttributeDef = {
   id: string;
@@ -78,6 +80,18 @@ function calcEngineTotal(items: EngineCountItem[]): number {
   return items.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
 }
 
+type ContractExecutionState = 'не исполнен' | 'исполнен частично' | 'исполнен полностью';
+
+function getExecutionState(progressPct: number | null): { state: ContractExecutionState; color: string; background: string } {
+  if (progressPct == null || progressPct <= 0) {
+    return { state: 'не исполнен', color: '#6b7280', background: '#f3f4f6' };
+  }
+  if (progressPct < 100) {
+    return { state: 'исполнен частично', color: '#b45309', background: '#fffbeb' };
+  }
+  return { state: 'исполнен полностью', color: '#15803d', background: '#ecfdf5' };
+}
+
 export function ContractDetailsPage(props: {
   contractId: string;
   canEditMasterData: boolean;
@@ -105,6 +119,7 @@ export function ContractDetailsPage(props: {
 
   const [linkOptionsByCode, setLinkOptionsByCode] = useState<Record<string, LinkOpt[]>>({});
   const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
+  const [contractProgress, setContractProgress] = useState<number | null>(null);
 
   const [addFieldOpen, setAddFieldOpen] = useState(false);
   const [newFieldCode, setNewFieldCode] = useState('');
@@ -118,6 +133,7 @@ export function ContractDetailsPage(props: {
   async function loadContract() {
     try {
       setStatus('Загрузка…');
+      setContractProgress(null);
       const typesRes = await listEntityTypes();
       if (!typesRes?.ok) throw new Error(typesRes?.error ?? 'types load failed');
       const types = typesRes.rows ?? [];
@@ -135,8 +151,23 @@ export function ContractDetailsPage(props: {
       setContract(d.entity as any);
       const defsRes = await listAttributeDefs(String(contractType.id));
       if (defsRes?.ok) setDefs(defsRes.rows ?? []);
+      try {
+        const partsRes = await listParts({ limit: 5000 });
+        if (partsRes?.ok && Array.isArray((partsRes as any).parts)) {
+          const related: ProgressLinkedItem[] = (partsRes as any).parts
+            .filter((p: any) => String(p?.contractId ?? '') === String(props.contractId))
+            .map((p: any) => ({ statusFlags: p?.statusFlags ?? null }));
+          const aggregate = aggregateProgress(related);
+          setContractProgress(aggregate.progressPct);
+        } else {
+          setContractProgress(null);
+        }
+      } catch {
+        setContractProgress(null);
+      }
       setStatus('');
     } catch (e) {
+      setContractProgress(null);
       setStatus(`Ошибка: ${String(e)}`);
     }
   }
@@ -387,6 +418,8 @@ export function ContractDetailsPage(props: {
   const extraDefs = sortedDefs.filter((d) => !coreCodes.has(d.code) && !fileDefs.find((f) => f.code === d.code));
 
   const engineTotal = calcEngineTotal(engineCountItems);
+  const progressPct = contractProgress != null ? contractProgress : 0;
+  const executionState = getExecutionState(progressPct);
   const headerTitle = number.trim() ? `Контракт: ${number.trim()}` : 'Карточка контракта';
 
   return (
@@ -523,6 +556,46 @@ export function ContractDetailsPage(props: {
               <div style={{ color: '#6b7280' }}>Итого (шт.)</div>
               <Input value={String(engineTotal)} disabled />
               <span />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ gridColumn: '1 / -1' }}>
+          <div className="card">
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+              <strong>Сводка</strong>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              <div>
+                <div style={{ color: '#6b7280' }}>Кол-во, шт.</div>
+                <div style={{ fontWeight: 600 }}>{engineTotal}</div>
+              </div>
+              <div>
+                <div style={{ color: '#6b7280' }}>Сумма контракта</div>
+                <div style={{ fontWeight: 600 }}>{Number(contractAmount || 0).toLocaleString('ru-RU')} ₽</div>
+              </div>
+              <div>
+                <div style={{ color: '#6b7280' }}>Степень исполнения</div>
+                <span
+                  style={{
+                    marginTop: 2,
+                    display: 'inline-flex',
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    color: executionState.color,
+                    background: executionState.background,
+                    border: '1px solid rgba(17, 24, 39, 0.08)',
+                  }}
+                >
+                  {executionState.state}
+                </span>
+              </div>
+              <div>
+                <div style={{ color: '#6b7280' }}>Прогресс выполнения</div>
+                <div>{contractProgress != null ? Math.round(progressPct) + '%' : '—'}</div>
+              </div>
             </div>
           </div>
         </div>

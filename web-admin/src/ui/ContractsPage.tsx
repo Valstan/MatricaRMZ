@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { ContractDetailsPage } from './ContractDetailsPage.js';
+import { parseContractSections } from '@matricarmz/shared';
 import {
   listAttributeDefs,
   listEntities,
@@ -11,16 +12,61 @@ import {
   upsertEntityType,
   createEntity,
   getEntity,
-  softDeleteEntity,
 } from '../api/masterdata.js';
 
 type Row = {
   id: string;
   number: string;
   internalNumber: string;
+  counterparty: string;
   dateMs: number | null;
+  dueDateMs: number | null;
+  daysLeft: number | null;
+  amount: number;
   updatedAt: number;
 };
+
+function getContractUrgencyStyle(daysLeft: number | null) {
+  if (daysLeft == null) return {};
+  const MONTH_1_DAYS = 30;
+  const MONTH_3_DAYS = 92;
+  const MONTH_6_DAYS = 183;
+  if (daysLeft < 0) return { backgroundColor: 'rgba(239, 68, 68, 0.8)', color: '#fff' };
+  if (daysLeft < MONTH_1_DAYS) return { backgroundColor: 'rgba(253, 242, 248, 0.9)' };
+  if (daysLeft < MONTH_3_DAYS) return { backgroundColor: 'rgba(254, 240, 138, 0.9)' };
+  if (daysLeft > MONTH_6_DAYS) return { backgroundColor: 'rgba(220, 252, 231, 0.9)' };
+  return {};
+}
+
+function sumMoneyItems(rows: unknown[]) {
+  return rows.reduce((acc, row) => {
+    if (!row || typeof row !== 'object') return acc;
+    const rowObj = row as Record<string, unknown>;
+    const qty = Number(rowObj.qty);
+    const unitPrice = Number(rowObj.unitPrice);
+    if (!Number.isFinite(qty) || !Number.isFinite(unitPrice)) return acc;
+    return acc + qty * unitPrice;
+  }, 0);
+}
+
+function getContractAmount(sections: ReturnType<typeof parseContractSections>): number {
+  let total = 0;
+  total += sumMoneyItems(sections.primary.engineBrands as unknown[]);
+  total += sumMoneyItems(sections.primary.parts as unknown[]);
+  for (const addon of sections.addons) {
+    total += sumMoneyItems(addon.engineBrands as unknown[]);
+    total += sumMoneyItems(addon.parts as unknown[]);
+  }
+  return total;
+}
+
+function getContractDueAt(sections: ReturnType<typeof parseContractSections>): number | null {
+  let dueAt: number | null = sections.primary.dueAt;
+  for (const addon of sections.addons) {
+    if (addon.dueAt != null && (dueAt == null || addon.dueAt > dueAt)) dueAt = addon.dueAt;
+  }
+  return dueAt;
+}
 
 function normalize(s: string) {
   return String(s || '')
@@ -104,6 +150,17 @@ export function ContractsPage(props: {
         return;
       }
       const list = listRes.rows ?? [];
+      const typesRes = await listEntityTypes();
+      const allTypes = typesRes?.rows ?? [];
+      const customerType = allTypes.find((t) => String(t.code) === 'customer') ?? null;
+      const customerRowsRes = customerType?.id
+        ? await listEntities(String(customerType.id)).catch(() => ({ ok: false, rows: [] as Array<{ id: string; displayName?: string }> }))
+        : { ok: false, rows: [] as Array<{ id: string; displayName?: string }> };
+      const customerById = new Map<string, string>();
+      for (const row of customerRowsRes.rows ?? []) {
+        if (!row?.id) continue;
+        customerById.set(String(row.id), String(row.displayName ?? String(row.id).slice(0, 8)));
+      }
       if (!list.length) {
         setRows([]);
         setStatus('');
@@ -114,11 +171,18 @@ export function ContractsPage(props: {
           try {
             const d = await getEntity(String(row.id));
             const attrs = (d as any)?.entity?.attributes ?? {};
+            const sections = parseContractSections(attrs);
+            const dueDateMs = getContractDueAt(sections);
+            const daysLeft = dueDateMs != null ? Math.ceil((dueDateMs - Date.now()) / (24 * 60 * 60 * 1000)) : null;
             return {
               id: String(row.id),
-              number: attrs.number == null ? '' : String(attrs.number),
-              internalNumber: attrs.internal_number == null ? '' : String(attrs.internal_number),
-              dateMs: typeof attrs.date === 'number' ? Number(attrs.date) : null,
+              number: sections.primary.number == null ? '' : String(sections.primary.number),
+              internalNumber: sections.primary.internalNumber == null ? '' : String(sections.primary.internalNumber),
+              counterparty: sections.primary.customerId ? customerById.get(sections.primary.customerId) ?? '—' : '—',
+              dateMs: typeof sections.primary.signedAt === 'number' ? sections.primary.signedAt : null,
+              dueDateMs,
+              daysLeft,
+              amount: getContractAmount(sections),
               updatedAt: Number(row.updatedAt ?? 0),
             };
           } catch {
@@ -126,7 +190,11 @@ export function ContractsPage(props: {
               id: String(row.id),
               number: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
               internalNumber: '',
+              counterparty: '—',
               dateMs: null,
+              dueDateMs: null,
+              daysLeft: null,
+              amount: 0,
               updatedAt: Number(row.updatedAt ?? 0),
             };
           }
@@ -203,56 +271,50 @@ export function ContractsPage(props: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f9fafb' }}>
-                <th style={{ textAlign: 'left', padding: 8 }}>Номер</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Внутр. номер</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Дата</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Обновлено</th>
-                {props.canEditMasterData && <th style={{ textAlign: 'left', padding: 8, width: 120 }}>Действия</th>}
+                <th style={{ textAlign: 'left', padding: 8 }}>Номер контракта</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Внутренний номер контракта</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Контрагент</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Дата заключения</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Дата исполнения</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Сумма контракта (контракт плюс ДС)</th>
+                <th style={{ textAlign: 'left', padding: 8 }}>Дата обновления карточки контракта</th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((row) => (
-                <tr
-                  key={row.id}
-                  style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer', background: row.id === selectedId ? '#eff6ff' : 'transparent' }}
-                  onClick={() => setSelectedId(row.id)}
-                >
-                  <td style={{ padding: 8 }}>{row.number || '(без номера)'}</td>
-                  <td style={{ padding: 8, color: '#6b7280' }}>{row.internalNumber || '—'}</td>
-                  <td style={{ padding: 8, color: '#6b7280' }}>{row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}</td>
-                  <td style={{ padding: 8, color: '#6b7280' }}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}</td>
-                  {props.canEditMasterData && (
-                    <td style={{ padding: 8 }} onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        variant="ghost"
-                        onClick={async () => {
-                          if (!confirm('Удалить контракт?')) return;
-                          try {
-                            setStatus('Удаление…');
-                            const r = await softDeleteEntity(row.id);
-                            if (!r?.ok) {
-                              setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
-                              return;
-                            }
-                            setStatus('Удалено');
-                            setTimeout(() => setStatus(''), 900);
-                            await loadContracts();
-                            if (selectedId === row.id) setSelectedId(null);
-                          } catch (err) {
-                            setStatus(`Ошибка: ${String(err)}`);
-                          }
-                        }}
-                        style={{ color: '#b91c1c' }}
-                      >
-                        Удалить
-                      </Button>
-                    </td>
-                  )}
-                </tr>
-              ))}
+              {sorted.map((row) => {
+                const urgencyStyle = getContractUrgencyStyle(row.daysLeft);
+                const textColor = typeof urgencyStyle.color === 'string' ? urgencyStyle.color : '#6b7280';
+                const canHover = !('backgroundColor' in urgencyStyle);
+                return (
+                  <tr
+                    key={row.id}
+                    style={{
+                      borderTop: '1px solid #f3f4f6',
+                      cursor: 'pointer',
+                      background: row.id === selectedId ? '#eff6ff' : 'transparent',
+                      ...(urgencyStyle as Record<string, string>),
+                    }}
+                    onClick={() => setSelectedId(row.id)}
+                    onMouseEnter={(e) => {
+                      if (canHover) e.currentTarget.style.backgroundColor = '#f9fafb';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (canHover) e.currentTarget.style.backgroundColor = row.id === selectedId ? '#eff6ff' : 'transparent';
+                    }}
+                  >
+                    <td style={{ padding: 8 }}>{row.number || '(без номера)'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.internalNumber || '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.counterparty || '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.dueDateMs ? new Date(row.dueDateMs).toLocaleDateString('ru-RU') : '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.amount.toLocaleString('ru-RU')} ₽</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}</td>
+                  </tr>
+                );
+              })}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={props.canEditMasterData ? 5 : 4} style={{ padding: 10, color: '#6b7280' }}>
+                  <td colSpan={7} style={{ padding: 10, color: '#6b7280' }}>
                     Нет контрактов
                   </td>
                 </tr>

@@ -204,6 +204,18 @@ function computeSectionTotals(sections: ContractSections): { totalQty: number; t
   return { totalQty, totalSum, maxDueAt };
 }
 
+type ContractExecutionState = 'не исполнен' | 'исполнен частично' | 'исполнен полностью';
+
+function getExecutionState(progressPct: number | null): { state: ContractExecutionState; color: string; background: string } {
+  if (progressPct == null || progressPct <= 0) {
+    return { state: 'не исполнен', color: '#6b7280', background: '#f3f4f6' };
+  }
+  if (progressPct < 100) {
+    return { state: 'исполнен частично', color: '#b45309', background: '#fffbeb' };
+  }
+  return { state: 'исполнен полностью', color: '#15803d', background: '#ecfdf5' };
+}
+
 function SectionBlock(props: {
   title: string;
   section: ContractPrimarySection | ContractAddonSection;
@@ -806,6 +818,7 @@ export function ContractDetailsPage(props: {
   const { totalQty, totalSum, maxDueAt } = useMemo(() => (sections ? computeSectionTotals(sections) : { totalQty: 0, totalSum: 0, maxDueAt: null }), [sections]);
   const daysLeft = maxDueAt != null ? Math.ceil((maxDueAt - Date.now()) / (24 * 60 * 60 * 1000)) : null;
   const progressPct = contractProgress != null ? contractProgress : 0;
+  const executionState = getExecutionState(progressPct);
 
   function printContractCard() {
     if (!contract || !sections) return;
@@ -1010,6 +1023,24 @@ export function ContractDetailsPage(props: {
               <div>
                 <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Дней до окончания</div>
                 <div style={{ fontSize: 18, fontWeight: 600 }}>{daysLeft != null ? daysLeft : '—'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Степень исполнения</div>
+                <span
+                  style={{
+                    marginTop: 2,
+                    display: 'inline-flex',
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    color: executionState.color,
+                    background: executionState.background,
+                    border: '1px solid rgba(17, 24, 39, 0.08)',
+                  }}
+                >
+                  {executionState.state}
+                </span>
               </div>
             </div>
             <div style={{ marginTop: 16 }}>

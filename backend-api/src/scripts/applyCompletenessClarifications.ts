@@ -470,10 +470,6 @@ function partRowsFromDescriptor(
   return out;
 }
 
-function buildPartCacheKey(name: string, assemblyUnitNumber: string | null) {
-  return partKey(name, assemblyUnitNumber);
-}
-
 function sortRowsForCompare<T extends Record<string, unknown>>(rows: T[], keys: string[]): T[] {
   return [...rows].sort((a, b) => {
     for (const key of keys) {
@@ -1299,7 +1295,7 @@ async function main() {
   }
 
   for (const row of rows) {
-    const brandId = await ensureBrandByKey(row.brandKey, row.brandName, brandTypeId, brandMap, actor);
+    await ensureBrandByKey(row.brandKey, row.brandName, brandTypeId, brandMap, actor);
     if (!brandMap.has(row.brandKey)) {
       createdBrands += 1;
     }
