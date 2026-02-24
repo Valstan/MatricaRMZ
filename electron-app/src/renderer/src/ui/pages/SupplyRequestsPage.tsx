@@ -15,6 +15,7 @@ type Row = {
   arrivedAt?: number | null;
   status: string;
   title: string;
+  itemsCount: number;
   departmentId: string;
   departmentName?: string | null;
   workshopId: string | null;
@@ -22,7 +23,7 @@ type Row = {
   updatedAt: number;
   isIncomplete?: boolean;
 };
-type SortKey = 'requestNumber' | 'compiledAt' | 'sentAt' | 'arrivedAt' | 'status' | 'updatedAt';
+type SortKey = 'requestNumber' | 'itemsCount' | 'compiledAt' | 'sentAt' | 'arrivedAt' | 'status' | 'updatedAt';
 
 function statusLabel(s: string): string {
   switch (s) {
@@ -46,7 +47,6 @@ function statusLabel(s: string): string {
 export function SupplyRequestsPage(props: {
   onOpen: (id: string) => Promise<void>;
   canCreate: boolean;
-  canDelete: boolean;
 }) {
   const { state: listState, patchState } = useListUiState('list:supply_requests', {
     query: '',
@@ -98,6 +98,7 @@ export function SupplyRequestsPage(props: {
     listState.sortDir,
     (row, key) => {
       if (key === 'requestNumber') return String(row.requestNumber ?? '').toLowerCase();
+      if (key === 'itemsCount') return Number(row.itemsCount ?? 0);
       if (key === 'compiledAt') return Number(row.compiledAt ?? 0);
       if (key === 'sentAt') return Number(row.sentAt ?? 0);
       if (key === 'arrivedAt') return Number(row.arrivedAt ?? 0);
@@ -116,6 +117,10 @@ export function SupplyRequestsPage(props: {
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('requestNumber')}>
           Номер {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'requestNumber')}
         </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }}>Описание заявки</th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('itemsCount')}>
+          Кол-во пунктов {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'itemsCount')}
+        </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('compiledAt')}>
           Дата создания {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'compiledAt')}
         </th>
@@ -128,9 +133,6 @@ export function SupplyRequestsPage(props: {
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('status')}>
           Статус {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'status')}
         </th>
-        {props.canDelete && (
-          <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 100 }}>Действия</th>
-        )}
       </tr>
     </thead>
   );
@@ -150,6 +152,22 @@ export function SupplyRequestsPage(props: {
                   }}
                 >
                   {r.requestNumber || r.id}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {r.title || '-'}
+                </td>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    void props.onOpen(r.id);
+                  }}
+                >
+                  {r.itemsCount}
                 </td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
@@ -183,30 +201,11 @@ export function SupplyRequestsPage(props: {
                 >
                   {statusLabel(r.status)}
                 </td>
-                {props.canDelete && (
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} onClick={(ev) => ev.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      onClick={async () => {
-                        if (!confirm('Удалить заявку?')) return;
-                        const result = await window.matrica.supplyRequests.delete(r.id);
-                        if (!result.ok) {
-                          alert(`Ошибка удаления: ${result.error}`);
-                          return;
-                        }
-                        void refresh();
-                      }}
-                      style={{ color: '#b91c1c' }}
-                    >
-                      Удалить
-                    </Button>
-                  </td>
-                )}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={props.canDelete ? 6 : 5}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={7}>
                   Ничего не найдено
                 </td>
               </tr>

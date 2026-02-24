@@ -460,7 +460,7 @@ import type { WorkOrderPayload } from '../domain/workOrder.js';
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
-import type { UiControlSettings, UiPresetId } from '../domain/uiControl.js';
+import type { UiControlSettings } from '../domain/uiControl.js';
 import type {
   ReportPresetCsvResult,
   ReportPresetListResult,
@@ -499,22 +499,7 @@ export type MatricaApi = {
           ok: true;
           theme: string;
           chatSide: string;
-          uiPresetId?: UiPresetId;
           enterAsTab?: boolean;
-          displayPrefs?: {
-            selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-            selectedButtonState: 'active' | 'inactive';
-            departmentButtons: {
-              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-            };
-            sectionButtons: {
-              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-            };
-            listFontSize: number;
-            cardFontSize: number;
-          };
           tabsLayout?: {
             order?: string[];
             hidden?: string[];
@@ -530,23 +515,8 @@ export type MatricaApi = {
     uiSet: (args: {
       theme?: string;
       chatSide?: string;
-      uiPresetId?: UiPresetId;
       enterAsTab?: boolean;
       userId?: string;
-      displayPrefs?: {
-        selectedTarget?: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-        selectedButtonState?: 'active' | 'inactive';
-        departmentButtons?: {
-          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-        };
-        sectionButtons?: {
-          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-        };
-        listFontSize?: number;
-        cardFontSize?: number;
-      } | null;
       tabsLayout?: {
         order?: string[];
         hidden?: string[];
@@ -561,22 +531,7 @@ export type MatricaApi = {
           ok: true;
           theme: string;
           chatSide: string;
-          uiPresetId?: UiPresetId;
           enterAsTab?: boolean;
-          displayPrefs?: {
-            selectedTarget: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-            selectedButtonState: 'active' | 'inactive';
-            departmentButtons: {
-              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-            };
-            sectionButtons: {
-              active: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-              inactive: { fontSize: number; width: number; height: number; paddingX: number; paddingY: number; gap: number };
-            };
-            listFontSize: number;
-            cardFontSize: number;
-          };
           tabsLayout?: {
             order?: string[];
             hidden?: string[];
@@ -594,23 +549,12 @@ export type MatricaApi = {
           ok: true;
           uiDefaultsVersion: number;
           globalDefaults: UiControlSettings;
-          userSettings: UiControlSettings | null;
           effective: UiControlSettings;
         }
       | { ok: false; error: string }
     >;
     uiControlSetGlobal: (args: { uiSettings: UiControlSettings; bumpVersion?: boolean }) => Promise<
       | { ok: true; uiDefaultsVersion: number; globalDefaults: UiControlSettings }
-      | { ok: false; error: string }
-    >;
-    uiControlSetUser: (args: { uiSettings: UiControlSettings }) => Promise<
-      | {
-          ok: true;
-          uiDefaultsVersion: number;
-          globalDefaults: UiControlSettings;
-          userSettings: UiControlSettings;
-          effective: UiControlSettings;
-        }
       | { ok: false; error: string }
     >;
   };
@@ -964,7 +908,10 @@ export type MatricaApi = {
             requestNumber: string;
             compiledAt: number;
             status: SupplyRequestStatus;
+                sentAt?: number | null;
+                arrivedAt?: number | null;
             title: string;
+                itemsCount: number;
             departmentId: string;
             workshopId: string | null;
             sectionId: string | null;

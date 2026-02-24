@@ -1,17 +1,9 @@
 import { ipcMain, net } from 'electron';
-import type { UiControlSettings, UiDisplayPrefs } from '@matricarmz/shared';
+import type { UiControlSettings } from '@matricarmz/shared';
 import {
-  DEFAULT_UI_PRESET_ID,
   DEFAULT_UI_CONTROL_SETTINGS,
-  DEFAULT_UI_DISPLAY_PREFS,
-  UI_PRESET_IDS,
   UI_DEFAULTS_VERSION,
-  mergeUiControlSettings,
-  sanitizeUiPresetId,
   sanitizeUiControlSettings,
-  sanitizeUiDisplayPrefs,
-  uiControlToDisplayPrefs,
-  withUiControlPresetApplied,
 } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
@@ -20,7 +12,6 @@ import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean,
 
 const THEMES = new Set(['auto', 'light', 'dark']);
 const CHAT_SIDES = new Set(['left', 'right']);
-const UI_PRESET_IDS_SET = new Set<string>(UI_PRESET_IDS as readonly string[]);
 
 type TabsLayoutPrefs = {
   order?: string[];
@@ -31,16 +22,6 @@ type TabsLayoutPrefs = {
   collapsedGroups?: string[];
   activeGroup?: string | null;
 };
-
-function parseUiDisplayPrefs(raw: string | null): UiDisplayPrefs {
-  if (!raw) return { ...DEFAULT_UI_DISPLAY_PREFS };
-  try {
-    const parsed = JSON.parse(raw);
-    return sanitizeUiDisplayPrefs(parsed);
-  } catch {
-    return { ...DEFAULT_UI_DISPLAY_PREFS };
-  }
-}
 
 function parseTabsLayout(raw: string | null): Record<string, TabsLayoutPrefs> {
   if (!raw) return {};
@@ -57,20 +38,6 @@ function joinUrl(base: string, path: string) {
   const b = String(base ?? '').trim().replace(/\/+$/, '');
   const p = String(path ?? '').trim().replace(/^\/+/, '');
   return `${b}/${p}`;
-}
-
-async function pushUiDisplayPrefsRemote(args: { apiBaseUrl: string; clientId: string; payloadJson: string }) {
-  const res = await net.fetch(joinUrl(args.apiBaseUrl, '/client/settings/ui-display'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      clientId: args.clientId,
-      uiDisplayPrefs: args.payloadJson,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
 }
 
 async function fetchJsonWithAuth(
@@ -142,9 +109,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
   ipcMain.handle('ui:prefs:get', async (_e, args?: { userId?: string }) => {
     const theme = (await settingsGetString(ctx.sysDb, SettingsKey.UiTheme)) ?? 'auto';
     const chatSide = (await settingsGetString(ctx.sysDb, SettingsKey.UiChatSide)) ?? 'right';
-    const uiPresetRaw = (await settingsGetString(ctx.sysDb, SettingsKey.UiPresetId)) ?? DEFAULT_UI_PRESET_ID;
     const enterAsTab = await settingsGetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, false);
-    const displayPrefs = parseUiDisplayPrefs(await settingsGetString(ctx.sysDb, SettingsKey.UiDisplayPrefs));
     const userId = String(args?.userId ?? '').trim();
     let tabsLayout: TabsLayoutPrefs | null = null;
     if (userId) {
@@ -156,19 +121,16 @@ export function registerSettingsIpc(ctx: IpcContext) {
       ok: true,
       theme: THEMES.has(theme) ? theme : 'auto',
       chatSide: CHAT_SIDES.has(chatSide) ? chatSide : 'right',
-      uiPresetId: sanitizeUiPresetId(uiPresetRaw, DEFAULT_UI_PRESET_ID),
       enterAsTab,
-      displayPrefs,
       tabsLayout,
     };
   });
 
   ipcMain.handle(
     'ui:prefs:set',
-    async (_e, args: { theme?: string; chatSide?: string; uiPresetId?: string; enterAsTab?: boolean; userId?: string; tabsLayout?: TabsLayoutPrefs | null; displayPrefs?: UiDisplayPrefs | null }) => {
+    async (_e, args: { theme?: string; chatSide?: string; enterAsTab?: boolean; userId?: string; tabsLayout?: TabsLayoutPrefs | null }) => {
       const currentTheme = (await settingsGetString(ctx.sysDb, SettingsKey.UiTheme)) ?? 'auto';
       const currentChatSide = (await settingsGetString(ctx.sysDb, SettingsKey.UiChatSide)) ?? 'right';
-      const currentUiPresetId = (await settingsGetString(ctx.sysDb, SettingsKey.UiPresetId)) ?? DEFAULT_UI_PRESET_ID;
       const currentEnterAsTab = await settingsGetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, false);
       const theme =
         args.theme == null ? String(currentTheme).trim() || 'auto' : String(args.theme ?? '').trim() || 'auto';
@@ -177,18 +139,9 @@ export function registerSettingsIpc(ctx: IpcContext) {
       const enterAsTab = args.enterAsTab == null ? currentEnterAsTab : args.enterAsTab === true;
       const safeTheme = THEMES.has(theme) ? theme : 'auto';
       const safeChatSide = CHAT_SIDES.has(chatSide) ? chatSide : 'right';
-      const safeUiPresetId = sanitizeUiPresetId(
-        args.uiPresetId == null ? currentUiPresetId : UI_PRESET_IDS_SET.has(String(args.uiPresetId)) ? String(args.uiPresetId) : currentUiPresetId,
-        DEFAULT_UI_PRESET_ID,
-      );
-      const currentDisplayPrefs = parseUiDisplayPrefs(await settingsGetString(ctx.sysDb, SettingsKey.UiDisplayPrefs));
-      const nextDisplayPrefs = args.displayPrefs == null ? currentDisplayPrefs : sanitizeUiDisplayPrefs(args.displayPrefs);
-      const nextDisplayPrefsJson = JSON.stringify(nextDisplayPrefs);
       await settingsSetString(ctx.sysDb, SettingsKey.UiTheme, safeTheme);
       await settingsSetString(ctx.sysDb, SettingsKey.UiChatSide, safeChatSide);
-      await settingsSetString(ctx.sysDb, SettingsKey.UiPresetId, safeUiPresetId);
       await settingsSetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, enterAsTab);
-      await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, nextDisplayPrefsJson);
 
       const userId = String(args.userId ?? '').trim();
       const nextLayout = safeTabsLayout(args.tabsLayout);
@@ -199,46 +152,22 @@ export function registerSettingsIpc(ctx: IpcContext) {
         await settingsSetString(ctx.sysDb, SettingsKey.UiTabsLayout, JSON.stringify(data));
       }
 
-      if (args.displayPrefs != null) {
-        const apiBaseUrl = String(ctx.mgr.getApiBaseUrl() ?? '').trim();
-        const clientId = String((await settingsGetString(ctx.sysDb, SettingsKey.ClientId)) ?? '').trim();
-        if (apiBaseUrl && clientId) {
-          await pushUiDisplayPrefsRemote({
-            apiBaseUrl,
-            clientId,
-            payloadJson: nextDisplayPrefsJson,
-          }).catch((e) => {
-            ctx.logToFile(`ui display prefs remote push failed: ${String(e)}`);
-          });
-        }
-      }
-
-      return { ok: true, theme: safeTheme, chatSide: safeChatSide, uiPresetId: safeUiPresetId, enterAsTab, displayPrefs: nextDisplayPrefs, tabsLayout: nextLayout };
+      return { ok: true, theme: safeTheme, chatSide: safeChatSide, enterAsTab, tabsLayout: nextLayout };
     },
   );
 
   ipcMain.handle('ui:control:get', async () => {
     try {
       const globalPayload = await fetchClientGlobalDefaults(ctx);
-      const appliedVersionRaw = await settingsGetString(ctx.sysDb, SettingsKey.UiDefaultsVersionApplied);
-      const appliedVersion = Number(appliedVersionRaw ?? 0);
-      if (Number(globalPayload.uiDefaultsVersion) > (Number.isFinite(appliedVersion) ? appliedVersion : 0)) {
-        const globalDisplayPrefs = uiControlToDisplayPrefs(
-          withUiControlPresetApplied(globalPayload.globalDefaults, globalPayload.globalDefaults.presets.defaultPresetId),
-        );
-        await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, JSON.stringify(globalDisplayPrefs)).catch(() => {});
+      const appliedVersion = Number((await settingsGetString(ctx.sysDb, SettingsKey.UiDefaultsVersionApplied)) ?? 0);
+      if (globalPayload.uiDefaultsVersion > (Number.isFinite(appliedVersion) ? appliedVersion : 0)) {
         await settingsSetString(ctx.sysDb, SettingsKey.UiDefaultsVersionApplied, String(globalPayload.uiDefaultsVersion)).catch(() => {});
       }
-      const userRes = await fetchJsonWithAuth(ctx, { path: '/auth/ui-settings', method: 'GET' });
-      const userSettings = userRes?.ok && userRes?.userSettings ? sanitizeUiControlSettings(userRes.userSettings) : null;
-      const effective = userSettings ? mergeUiControlSettings(globalPayload.globalDefaults, userSettings) : globalPayload.globalDefaults;
-      const displayPrefs = uiControlToDisplayPrefs(withUiControlPresetApplied(effective, effective.presets.defaultPresetId));
-      await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, JSON.stringify(displayPrefs)).catch(() => {});
+      const effective = globalPayload.globalDefaults;
       return {
         ok: true,
         uiDefaultsVersion: Number(globalPayload.uiDefaultsVersion ?? UI_DEFAULTS_VERSION),
         globalDefaults: globalPayload.globalDefaults,
-        userSettings,
         effective,
       };
     } catch (e) {
@@ -266,29 +195,5 @@ export function registerSettingsIpc(ctx: IpcContext) {
     }
   });
 
-  ipcMain.handle('ui:control:setUser', async (_e, args: { uiSettings: unknown }) => {
-    try {
-      const safeSettings = sanitizeUiControlSettings(args?.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
-      const res = await fetchJsonWithAuth(ctx, {
-        path: '/auth/ui-settings',
-        method: 'PATCH',
-        body: { uiSettings: safeSettings },
-      });
-      if (!res?.ok) return { ok: false, error: String(res?.error ?? 'request failed') };
-      const globalDefaults = sanitizeUiControlSettings(res.globalDefaults ?? DEFAULT_UI_CONTROL_SETTINGS);
-      const userSettings = sanitizeUiControlSettings(res.userSettings ?? safeSettings);
-      const effective = sanitizeUiControlSettings(res.effective ?? mergeUiControlSettings(globalDefaults, userSettings));
-      const displayPrefs = uiControlToDisplayPrefs(withUiControlPresetApplied(effective, effective.presets.defaultPresetId));
-      await settingsSetString(ctx.sysDb, SettingsKey.UiDisplayPrefs, JSON.stringify(displayPrefs)).catch(() => {});
-      return {
-        ok: true,
-        uiDefaultsVersion: Number(res.uiDefaultsVersion ?? UI_DEFAULTS_VERSION),
-        globalDefaults,
-        userSettings,
-        effective,
-      };
-    } catch (e) {
-      return { ok: false, error: String(e) };
-    }
-  });
+  // ui:control:setUser removed — user-managed UI settings are disabled.
 }

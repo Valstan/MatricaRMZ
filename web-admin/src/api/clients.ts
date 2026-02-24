@@ -11,7 +11,6 @@ export function updateClient(
     torrentEnabled?: boolean;
     loggingEnabled?: boolean;
     loggingMode?: 'dev' | 'prod';
-    uiDisplayPrefs?: string | null;
   },
 ) {
   return apiJson(`/admin/clients/${encodeURIComponent(clientId)}`, {

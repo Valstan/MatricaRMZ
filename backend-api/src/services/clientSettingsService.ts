@@ -8,7 +8,7 @@ import { logWarn } from '../utils/logger.js';
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
 type ClientSettingsPatch = Partial<
-  Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiDisplayPrefs' | 'uiGlobalSettingsJson' | 'uiDefaultsVersion'>
+  Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiGlobalSettingsJson' | 'uiDefaultsVersion'>
 >;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
 type ClientSyncAck = { requestId: string; status: 'ok' | 'error'; error?: string | null; at?: number };
@@ -45,7 +45,6 @@ async function ensureClientSettingsSchemaReady() {
           ADD COLUMN IF NOT EXISTS "sync_request_at" bigint,
           ADD COLUMN IF NOT EXISTS "sync_request_payload" text,
           ADD COLUMN IF NOT EXISTS "last_username" text,
-          ADD COLUMN IF NOT EXISTS "ui_display_prefs" text,
           ADD COLUMN IF NOT EXISTS "ui_global_settings_json" text,
           ADD COLUMN IF NOT EXISTS "ui_defaults_version" integer NOT NULL DEFAULT 1;
       `);
@@ -80,7 +79,6 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     torrentEnabled: true,
     loggingEnabled: true,
     loggingMode: 'dev',
-    uiDisplayPrefs: null,
     uiGlobalSettingsJson: JSON.stringify(DEFAULT_UI_CONTROL_SETTINGS),
     uiDefaultsVersion: UI_DEFAULTS_VERSION,
     syncRequestId: null,
@@ -111,7 +109,6 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
     torrentEnabled: defaults.torrentEnabled,
     loggingEnabled: defaults.loggingEnabled,
     loggingMode: defaults.loggingMode,
-    uiDisplayPrefs: defaults.uiDisplayPrefs,
     uiGlobalSettingsJson: defaults.uiGlobalSettingsJson,
     uiDefaultsVersion: defaults.uiDefaultsVersion,
     syncRequestId: defaults.syncRequestId,
@@ -174,7 +171,6 @@ export async function updateClientSettings(clientId: string, patch: ClientSettin
       ...(patch.torrentEnabled !== undefined ? { torrentEnabled: patch.torrentEnabled } : {}),
       ...(patch.loggingEnabled !== undefined ? { loggingEnabled: patch.loggingEnabled } : {}),
       ...(patch.loggingMode !== undefined ? { loggingMode: patch.loggingMode } : {}),
-      ...(patch.uiDisplayPrefs !== undefined ? { uiDisplayPrefs: patch.uiDisplayPrefs } : {}),
       ...(patch.uiGlobalSettingsJson !== undefined ? { uiGlobalSettingsJson: patch.uiGlobalSettingsJson } : {}),
       ...(patch.uiDefaultsVersion !== undefined ? { uiDefaultsVersion: patch.uiDefaultsVersion } : {}),
       updatedAt: ts,

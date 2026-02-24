@@ -23,7 +23,6 @@ adminClientsRouter.get('/clients', async (_req, res) => {
         torrentEnabled: r.torrentEnabled,
         loggingEnabled: r.loggingEnabled,
         loggingMode: r.loggingMode,
-        uiDisplayPrefs: r.uiDisplayPrefs ?? null,
         lastSeenAt: r.lastSeenAt ?? null,
         lastVersion: r.lastVersion ?? null,
         lastIp: r.lastIp ?? null,
@@ -45,7 +44,6 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
     torrentEnabled: z.boolean().optional(),
     loggingEnabled: z.boolean().optional(),
     loggingMode: z.enum(['dev', 'prod']).optional(),
-    uiDisplayPrefs: z.string().max(20000).nullable().optional(),
   });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -58,13 +56,11 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
       torrentEnabled?: boolean;
       loggingEnabled?: boolean;
       loggingMode?: 'dev' | 'prod';
-      uiDisplayPrefs?: string | null;
     } = {};
     if (parsed.data.updatesEnabled !== undefined) updates.updatesEnabled = parsed.data.updatesEnabled;
     if (parsed.data.torrentEnabled !== undefined) updates.torrentEnabled = parsed.data.torrentEnabled;
     if (parsed.data.loggingEnabled !== undefined) updates.loggingEnabled = parsed.data.loggingEnabled;
     if (parsed.data.loggingMode !== undefined) updates.loggingMode = parsed.data.loggingMode;
-    if (parsed.data.uiDisplayPrefs !== undefined) updates.uiDisplayPrefs = parsed.data.uiDisplayPrefs;
 
     const row = await updateClientSettings(clientId, updates);
     return res.json({
@@ -75,7 +71,6 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
         torrentEnabled: row.torrentEnabled,
         loggingEnabled: row.loggingEnabled,
         loggingMode: row.loggingMode,
-        uiDisplayPrefs: row.uiDisplayPrefs ?? null,
         lastSeenAt: row.lastSeenAt ?? null,
         lastVersion: row.lastVersion ?? null,
         lastIp: row.lastIp ?? null,

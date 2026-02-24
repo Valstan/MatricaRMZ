@@ -1,16 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import type { UiDisplayPrefs, UiPresetId } from '@matricarmz/shared';
-import { DEFAULT_UI_PRESET_ID } from '@matricarmz/shared';
+import type { UiDisplayPrefs } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 
 export function SettingsPage(props: {
-  uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; uiPresetId: UiPresetId; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
+  uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
   onUiPrefsChange: (prefs: {
     theme: 'auto' | 'light' | 'dark';
     chatSide: 'left' | 'right';
-    uiPresetId: UiPresetId;
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
   }) => void;
@@ -27,7 +25,6 @@ export function SettingsPage(props: {
   const [messengerStatus, setMessengerStatus] = useState<string>('');
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
-  const [uiPresetId, setUiPresetId] = useState<UiPresetId>(props.uiPrefs.uiPresetId ?? DEFAULT_UI_PRESET_ID);
   const [enterAsTab, setEnterAsTab] = useState<boolean>(props.uiPrefs.enterAsTab === true);
   const [pwCurrent, setPwCurrent] = useState<string>('');
   const [pwNew, setPwNew] = useState<string>('');
@@ -236,7 +233,6 @@ export function SettingsPage(props: {
   useEffect(() => {
     setUiTheme(props.uiPrefs.theme);
     setChatSide(props.uiPrefs.chatSide);
-    setUiPresetId(props.uiPrefs.uiPresetId ?? DEFAULT_UI_PRESET_ID);
     setEnterAsTab(props.uiPrefs.enterAsTab === true);
   }, [props.uiPrefs]);
 
@@ -302,12 +298,11 @@ export function SettingsPage(props: {
   }
 
   async function handleSaveUiPrefs() {
-    const r = await window.matrica.settings.uiSet({ theme: uiTheme, chatSide, uiPresetId, enterAsTab });
+    const r = await window.matrica.settings.uiSet({ theme: uiTheme, chatSide, enterAsTab });
     if (r && (r as any).ok) {
       props.onUiPrefsChange({
         theme: (r as any).theme,
         chatSide: (r as any).chatSide,
-        uiPresetId: ((r as any).uiPresetId ?? DEFAULT_UI_PRESET_ID) as UiPresetId,
         enterAsTab: (r as any).enterAsTab === true,
         displayPrefs: props.uiPrefs.displayPrefs,
       });
@@ -449,26 +444,6 @@ export function SettingsPage(props: {
               </div>
               <div style={{ color: 'var(--muted)', fontSize: 12 }}>
                 Enter — переход к следующему полю, Shift+Enter — к предыдущему.
-              </div>
-            </div>
-            <div style={{ color: 'var(--muted)' }}>Профиль интерфейса</div>
-            <div style={{ display: 'grid', gap: 6 }}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button variant={uiPresetId === 'small' ? 'primary' : 'ghost'} onClick={() => setUiPresetId('small')}>
-                  Компактный (13"-14")
-                </Button>
-                <Button variant={uiPresetId === 'medium' ? 'primary' : 'ghost'} onClick={() => setUiPresetId('medium')}>
-                  Классический (15"-17")
-                </Button>
-                <Button variant={uiPresetId === 'large' ? 'primary' : 'ghost'} onClick={() => setUiPresetId('large')}>
-                  Широкий (21"-24")
-                </Button>
-                <Button variant={uiPresetId === 'xlarge' ? 'primary' : 'ghost'} onClick={() => setUiPresetId('xlarge')}>
-                  Очень широкий (27"+)
-                </Button>
-              </div>
-              <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-                Вы выбираете один готовый профиль. Тонкая настройка профилей доступна суперадминистратору.
               </div>
             </div>
           </div>

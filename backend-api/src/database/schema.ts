@@ -376,7 +376,6 @@ export const clientSettings = pgTable('client_settings', {
   torrentEnabled: boolean('torrent_enabled').notNull().default(true),
   loggingEnabled: boolean('logging_enabled').notNull().default(true),
   loggingMode: text('logging_mode').notNull().default('dev'),
-  uiDisplayPrefs: text('ui_display_prefs'),
   uiGlobalSettingsJson: text('ui_global_settings_json'),
   uiDefaultsVersion: integer('ui_defaults_version').notNull().default(1),
 

@@ -385,20 +385,6 @@ const matricaApi = {
       chatSide?: string;
       enterAsTab?: boolean;
       userId?: string;
-      displayPrefs?: {
-        selectedTarget?: 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
-        selectedButtonState?: 'active' | 'inactive';
-        departmentButtons?: {
-          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-        };
-        sectionButtons?: {
-          active?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-          inactive?: { fontSize?: number; width?: number; height?: number; paddingX?: number; paddingY?: number; gap?: number };
-        };
-        listFontSize?: number;
-        cardFontSize?: number;
-      } | null;
       tabsLayout?: {
         order?: string[];
         hidden?: string[];
@@ -412,7 +398,6 @@ const matricaApi = {
       ipcRenderer.invoke('ui:prefs:set', args),
     uiControlGet: async () => ipcRenderer.invoke('ui:control:get'),
     uiControlSetGlobal: async (args: { uiSettings: unknown; bumpVersion?: boolean }) => ipcRenderer.invoke('ui:control:setGlobal', args),
-    uiControlSetUser: async (args: { uiSettings: unknown }) => ipcRenderer.invoke('ui:control:setUser', args),
   },
   e2eKeys: {
     status: async () => ipcRenderer.invoke('e2e:keys:status'),

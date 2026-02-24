@@ -403,7 +403,6 @@ const TABLES: TableSpec[] = [
       { id: 'torrentEnabled', label: 'Обновления через торрент', type: 'boolean', col: clientSettings.torrentEnabled },
       { id: 'loggingEnabled', label: 'Логирование', type: 'boolean', col: clientSettings.loggingEnabled },
       { id: 'loggingMode', label: 'Режим логирования', type: 'string', col: clientSettings.loggingMode },
-      { id: 'uiDisplayPrefs', label: 'Настройки интерфейса', type: 'string', col: clientSettings.uiDisplayPrefs },
       { id: 'lastSeenAt', label: 'Последняя активность', type: 'datetime', col: clientSettings.lastSeenAt },
       { id: 'lastVersion', label: 'Версия ПО', type: 'string', col: clientSettings.lastVersion },
       { id: 'lastIp', label: 'Последний IP', type: 'string', col: clientSettings.lastIp },

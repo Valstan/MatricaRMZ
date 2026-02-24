@@ -38,8 +38,7 @@ export type TabId =
   | 'admin'
   | 'audit'
   | 'notes'
-  | 'settings'
-  | 'ui_control';
+  | 'settings';
 
 export type MenuTabId = Exclude<
   TabId,
@@ -94,7 +93,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
-  control: ['reports', 'changes', 'audit', 'ui_control', 'notes', 'masterdata', 'admin'],
+  control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'admin'],
 };
 
 type GroupVisualMeta = { icon: string; subtitle: string; gradient: string };
@@ -150,7 +149,6 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   audit: { icon: '🔍', subtitle: 'Журнал аудита действий', gradient: 'linear-gradient(135deg, #374151 0%, #6b7280 100%)' },
   notes: { icon: '📝', subtitle: 'Личные и общие записи', gradient: 'linear-gradient(135deg, #c2410c 0%, #f97316 100%)' },
   masterdata: { icon: '🗂️', subtitle: 'Общие справочники системы', gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)' },
-  ui_control: { icon: '🎛️', subtitle: 'Визуальные настройки интерфейса', gradient: 'linear-gradient(135deg, #4338ca 0%, #818cf8 100%)' },
   admin: { icon: '🛡️', subtitle: 'Админ. раздел и полномочия', gradient: 'linear-gradient(135deg, #4b5563 0%, #9ca3af 100%)' },
   auth: { icon: '🔐', subtitle: 'Вход и авторизация', gradient: 'linear-gradient(135deg, #334155 0%, #64748b 100%)' },
   settings: { icon: '⚙️', subtitle: 'Параметры программы', gradient: 'linear-gradient(135deg, #475569 0%, #94a3b8 100%)' },
@@ -360,7 +358,6 @@ export function Tabs(props: {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
-    ui_control: 'UI Control Center',
   };
 
   function updateLayout(nextVisibleOrder: MenuTabId[], trashIndex: number, nextHidden: MenuTabId[]) {

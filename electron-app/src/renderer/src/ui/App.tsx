@@ -11,9 +11,16 @@ import type {
   AiAgentEvent,
   UiControlSettings,
   UiDisplayPrefs,
-  UiPresetId,
 } from '@matricarmz/shared';
-import { DEFAULT_UI_CONTROL_SETTINGS, DEFAULT_UI_DISPLAY_PREFS, DEFAULT_UI_PRESET_ID, sanitizeUiControlSettings, sanitizeUiPresetId, uiControlToDisplayPrefs, withUiControlPresetApplied } from '@matricarmz/shared';
+import {
+  DEFAULT_UI_CONTROL_SETTINGS,
+  DEFAULT_UI_DISPLAY_PREFS,
+  DEFAULT_UI_PRESET_ID,
+  sanitizeUiControlSettings,
+  sanitizeUiPresetId,
+  uiControlToDisplayPrefs,
+  withUiControlPresetApplied,
+} from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
@@ -45,7 +52,6 @@ import { ProductsPage } from './pages/ProductsPage.js';
 import { ServicesPage } from './pages/ServicesPage.js';
 import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
-import { UiControlCenterPage } from './pages/UiControlCenterPage.js';
 import { NotesPage } from './pages/NotesPage.js';
 import { HistoryPage } from './pages/HistoryPage.js';
 import { SuperadminAuditPage } from './pages/SuperadminAuditPage.js';
@@ -217,13 +223,11 @@ export function App() {
   const [uiPrefs, setUiPrefs] = useState<{
     theme: 'auto' | 'light' | 'dark';
     chatSide: 'left' | 'right';
-    uiPresetId: UiPresetId;
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
   }>({
     theme: 'auto',
     chatSide: 'right',
-    uiPresetId: DEFAULT_UI_PRESET_ID,
     enterAsTab: false,
     displayPrefs: DEFAULT_UI_DISPLAY_PREFS,
   });
@@ -242,7 +246,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const safe = withUiControlPresetApplied(effectiveUiControl, uiPrefs.uiPresetId);
+    const safe = withUiControlPresetApplied(effectiveUiControl, sanitizeUiPresetId(effectiveUiControl.presets.defaultPresetId ?? DEFAULT_UI_PRESET_ID, DEFAULT_UI_PRESET_ID));
     const displayPrefs = uiControlToDisplayPrefs(safe);
     setUiPrefs((prev) => ({ ...prev, displayPrefs }));
     const root = document.documentElement;
@@ -282,7 +286,7 @@ export function App() {
     root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
     root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
     root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
-  }, [effectiveUiControl, uiPrefs.uiPresetId]);
+  }, [effectiveUiControl]);
 
   function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
     if (a === b) return true;
@@ -327,13 +331,12 @@ export function App() {
       .finally(() => setAuthReady(true));
     void window.matrica.settings.uiGet().then((r: any) => {
       if (r?.ok) {
-        setUiPrefs({
+        setUiPrefs((prev) => ({
+          ...prev,
           theme: r.theme ?? 'auto',
           chatSide: r.chatSide ?? 'right',
-          uiPresetId: sanitizeUiPresetId(r.uiPresetId ?? DEFAULT_UI_PRESET_ID, DEFAULT_UI_PRESET_ID),
           enterAsTab: r.enterAsTab === true,
-          displayPrefs: r.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS,
-        });
+        }));
       }
     });
     void window.matrica.settings.uiControlGet().then((r: any) => {
@@ -751,7 +754,6 @@ export function App() {
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
-    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['ui_control'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
@@ -797,7 +799,6 @@ export function App() {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
-    ui_control: 'UI Control Center',
   };
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -1171,10 +1172,9 @@ export function App() {
       employees: 'Сотрудники',
       employee: 'Карточка сотрудника',
       reports: 'Отчёты',
-      admin: 'Админ',
-      notes: 'Заметки',
-      settings: 'Настройки',
-      ui_control: 'UI Control Center',
+    admin: 'Админ',
+    notes: 'Заметки',
+    settings: 'Настройки',
       auth: 'Вход',
     };
     const parent: Record<string, string> = {
@@ -1526,8 +1526,6 @@ export function App() {
           ? 'Матрица РМЗ — Вход'
         : tab === 'settings'
           ? 'Матрица РМЗ — Настройки'
-        : tab === 'ui_control'
-          ? 'Матрица РМЗ — UI Control Center'
         : tab === 'reports'
           ? 'Матрица РМЗ — Отчёты'
           : tab === 'masterdata'
@@ -2190,7 +2188,6 @@ export function App() {
           <SupplyRequestsPage
             onOpen={openRequest}
             canCreate={caps.canCreateSupplyRequests}
-            canDelete={caps.canEditSupplyRequests}
           />
         )}
 
@@ -2497,13 +2494,6 @@ export function App() {
               void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
               setTab('auth');
             }}
-          />
-        )}
-
-        {tab === 'ui_control' && (
-          <UiControlCenterPage
-            canEditGlobal={String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin'}
-            onApplyEffective={applyEffectiveUiSettings}
           />
         )}
 

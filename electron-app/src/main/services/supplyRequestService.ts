@@ -142,6 +142,7 @@ export async function listSupplyRequests(
         sectionId: string | null;
         updatedAt: number;
         isIncomplete?: boolean;
+        itemsCount: number;
       }[];
     }
   | { ok: false; error: string }
@@ -198,6 +199,7 @@ export async function listSupplyRequests(
       if (qNorm && !hay.includes(qNorm)) continue;
 
       const items = Array.isArray(parsed.items) ? parsed.items : [];
+      const itemsCount = items.length;
       const isIncomplete = items.some((it: any) => {
         const ordered = Number(it?.qty) || 0;
         const deliveries = Array.isArray(it?.deliveries) ? it.deliveries : [];
@@ -214,6 +216,7 @@ export async function listSupplyRequests(
         status: String(parsed.status ?? r.status ?? 'draft') as SupplyRequestStatus,
         title,
         departmentId,
+        itemsCount,
         workshopId: parsed.workshopId ? String(parsed.workshopId) : null,
         sectionId: parsed.sectionId ? String(parsed.sectionId) : null,
         updatedAt: Number(r.updatedAt),

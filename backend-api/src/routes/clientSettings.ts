@@ -6,7 +6,6 @@ import {
   getGlobalUiDefaults,
   getOrCreateClientSettings,
   touchClientSettings,
-  updateClientSettings,
 } from '../services/clientSettingsService.js';
 
 export const clientSettingsRouter = Router();
@@ -50,7 +49,6 @@ clientSettingsRouter.get('/settings', async (req, res) => {
         torrentEnabled: row.torrentEnabled,
         loggingEnabled: row.loggingEnabled,
         loggingMode: row.loggingMode,
-        uiDisplayPrefs: row.uiDisplayPrefs ?? null,
         uiGlobalSettingsJson: globalUiDefaults.settings,
         uiDefaultsVersion: globalUiDefaults.version,
         syncRequestId: row.syncRequestId ?? null,
@@ -63,25 +61,6 @@ clientSettingsRouter.get('/settings', async (req, res) => {
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });
-
-clientSettingsRouter.post('/settings/ui-display', async (req, res) => {
-  const schema = z.object({
-    clientId: z.string().min(2).max(200),
-    uiDisplayPrefs: z.string().min(2).max(20000),
-  });
-  const parsed = schema.safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  try {
-    // client_settings is a server-only table, update via normal SQL service.
-    const row = await updateClientSettings(parsed.data.clientId, {
-      uiDisplayPrefs: parsed.data.uiDisplayPrefs,
-    });
-    return res.json({ ok: true, updatedAt: row.updatedAt });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
 clientSettingsRouter.post('/settings/sync-request/ack', async (req, res) => {
   const schema = z.object({
     clientId: z.string().min(2).max(200),

@@ -32,10 +32,6 @@ export async function me() {
   return apiJson('/auth/me', { method: 'GET' });
 }
 
-export async function uiSettingsGet() {
-  return apiJson('/auth/ui-settings', { method: 'GET' });
-}
-
 export async function profileGet() {
   return apiJson('/auth/profile', { method: 'GET' });
 }

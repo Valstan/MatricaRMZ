@@ -10,7 +10,6 @@ type ClientRow = {
   torrentEnabled: boolean;
   loggingEnabled: boolean;
   loggingMode: 'dev' | 'prod';
-  uiDisplayPrefs: string | null;
   lastSeenAt: number | null;
   lastVersion: string | null;
   lastIp: string | null;
@@ -80,7 +79,6 @@ export function ClientAdminPage() {
       torrentEnabled: patch.torrentEnabled,
       loggingEnabled: patch.loggingEnabled,
       loggingMode: patch.loggingMode,
-      uiDisplayPrefs: patch.uiDisplayPrefs,
     }).catch(() => null);
     if (r && (r as any).ok && (r as any).row) {
       setRows((prev) => prev.map((row) => (row.clientId === clientId ? { ...row, ...(r as any).row } : row)));
@@ -116,26 +114,6 @@ export function ClientAdminPage() {
       setFullSyncStatus(`Ошибки: ${failed.length}/${results.length}. Первые: ${failed.slice(0, 3).map((f) => f.clientId).join(', ')}`);
     }
     setFullSyncLoading(false);
-  }
-
-  async function editUiDisplayPrefs(row: ClientRow) {
-    const current = row.uiDisplayPrefs ? String(row.uiDisplayPrefs) : '';
-    const next = window.prompt(
-      'JSON для ui_display_prefs (пусто = очистить). Изменения применятся после ближайшего poll клиента.',
-      current,
-    );
-    if (next == null) return;
-    const trimmed = String(next).trim();
-    if (!trimmed) {
-      await patchClient(row.clientId, { uiDisplayPrefs: null });
-      return;
-    }
-    try {
-      const parsed = JSON.parse(trimmed);
-      await patchClient(row.clientId, { uiDisplayPrefs: JSON.stringify(parsed) });
-    } catch {
-      setStatus('Ошибка: ui_display_prefs должен быть валидным JSON.');
-    }
   }
 
   if (loading) {
@@ -245,7 +223,6 @@ export function ClientAdminPage() {
                 <th style={{ textAlign: 'left', padding: 10 }}>Обновления</th>
                 <th style={{ textAlign: 'left', padding: 10 }}>Торрент</th>
                 <th style={{ textAlign: 'left', padding: 10 }}>Логи</th>
-                <th style={{ textAlign: 'left', padding: 10 }}>UI отображение</th>
               </tr>
             </thead>
             <tbody>
@@ -325,22 +302,12 @@ export function ClientAdminPage() {
                         <option value="off">Отключить</option>
                       </select>
                     </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <Button variant="ghost" onClick={() => void editUiDisplayPrefs(row)}>
-                          Редактировать JSON
-                        </Button>
-                        <span className="muted" style={{ fontSize: 12 }}>
-                          {row.uiDisplayPrefs ? 'Задано' : 'По умолчанию'}
-                        </span>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} style={{ padding: 12, color: '#6b7280' }}>
+                  <td colSpan={10} style={{ padding: 12, color: '#6b7280' }}>
                     Клиенты ещё не зарегистрированы.
                   </td>
                 </tr>

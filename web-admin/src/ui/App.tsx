@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { DEFAULT_UI_CONTROL_SETTINGS, sanitizeUiControlSettings, withUiControlPresetApplied, type NoteItem, type NoteShareItem } from '@matricarmz/shared';
 
-import { login, logout, me, register, uiSettingsGet } from '../api/auth.js';
+import { login, logout, me, register } from '../api/auth.js';
 import { clearTokens } from '../api/client.js';
 import { presenceMe } from '../api/presence.js';
 import * as masterdata from '../api/masterdata.js';
@@ -187,12 +187,7 @@ export function App() {
     }
     setUser(u);
     setPermissions(perms);
-    const uiSettingsRes = await uiSettingsGet().catch(() => null);
-    if (uiSettingsRes?.ok) {
-      applyUiControlToDocument(uiSettingsRes.effective ?? uiSettingsRes.globalDefaults ?? DEFAULT_UI_CONTROL_SETTINGS);
-    } else {
-      applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
-    }
+    applyUiControlToDocument(DEFAULT_UI_CONTROL_SETTINGS);
     setLoading(false);
   }
 
