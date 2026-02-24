@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 
 import { Button } from '../components/Button.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { FormGrid } from '../components/FormGrid.js';
 import { FormField } from '../components/FormField.js';
@@ -562,6 +564,8 @@ export function ContractDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [contract, setContract] = useState<ContractEntity | null>(null);
   const [status, setStatus] = useState<string>('');
@@ -573,6 +577,7 @@ export function ContractDetailsPage(props: {
   const [defs, setDefs] = useState<AttributeDef[]>([]);
   const [contractProgress, setContractProgress] = useState<number | null>(null);
   const [accountingForm, setAccountingForm] = useState<ContractAccountingForm>(EMPTY_ACCOUNTING_FORM);
+  const dirtyRef = useRef(false);
 
   async function loadContract() {
     try {
@@ -592,6 +597,7 @@ export function ContractDetailsPage(props: {
       let defsList = (await window.matrica.admin.attributeDefs.listByEntityType(contractType.id)) as AttributeDef[];
       defsList = (await ensureAttributeDefs(contractType.id, CONTRACT_ACCOUNTING_FIELDS, defsList as AttributeDefRow[])) as AttributeDef[];
       setDefs(defsList);
+      dirtyRef.current = false;
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -696,6 +702,28 @@ export function ContractDetailsPage(props: {
     { intervalMs: 20000 },
   );
 
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const contractTypeId = entityTypes.find((t) => t.code === 'contract')?.id;
+        if (!contractTypeId) return;
+        const created = await window.matrica.admin.entities.create(contractTypeId);
+        if (created?.ok && 'id' in created && sections) {
+          await window.matrica.admin.entities.setAttr(created.id, 'contract_sections', { ...sections, primary: { ...sections.primary, number: (sections.primary.number ?? '') + ' (копия)' } });
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [sections, entityTypes, props.registerCardCloseActions]);
+
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
     if (typeCode === 'part') {
@@ -774,7 +802,7 @@ export function ContractDetailsPage(props: {
       if (sections) await saveSections();
       await saveAccountingFields({ silent: true, reload: false });
     }
-    props.onClose();
+    dirtyRef.current = false;
   }
 
   async function handleDelete() {
@@ -797,6 +825,7 @@ export function ContractDetailsPage(props: {
 
   function addAddon() {
     if (!sections) return;
+    dirtyRef.current = true;
     setSections({
       ...sections,
       addons: [
@@ -808,6 +837,7 @@ export function ContractDetailsPage(props: {
 
   function removeAddon(idx: number) {
     if (!sections) return;
+    dirtyRef.current = true;
     setSections({
       ...sections,
       addons: sections.addons.filter((_, i) => i !== idx),
@@ -875,18 +905,27 @@ export function ContractDetailsPage(props: {
     <EntityCardShell
       title={headerTitle}
       layout="two-column"
+      cardActions={
+        <CardActionBar
+          canEdit={props.canEditMasterData}
+          onCopyToNew={() => {
+            void (async () => {
+              const contractTypeId = entityTypes.find((t) => t.code === 'contract')?.id;
+              if (!contractTypeId) return;
+              const created = await window.matrica.admin.entities.create(contractTypeId);
+              if (created?.ok && 'id' in created && sections) {
+                await window.matrica.admin.entities.setAttr(created.id, 'contract_sections', { ...sections, primary: { ...sections.primary, number: (sections.primary.number ?? '') + ' (копия)' } });
+              }
+            })();
+          }}
+          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
+          onDelete={() => void handleDelete()}
+          onClose={() => props.requestClose?.()}
+        />
+      }
       actions={
         <RowActions>
-          {props.canEditMasterData && (
-            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-              Сохранить
-            </Button>
-          )}
-          {props.canEditMasterData && (
-            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-              Удалить
-            </Button>
-          )}
           <Button variant="ghost" tone="info" onClick={printContractCard}>
             Распечатать
           </Button>
@@ -905,7 +944,7 @@ export function ContractDetailsPage(props: {
             engineBrandOptions={engineBrandOptions}
             partOptions={partOptions}
             customerOptions={customerOptions}
-            onChange={(primary) => setSections((s) => (s ? { ...s, primary: primary as ContractPrimarySection } : s))}
+            onChange={(primary) => { dirtyRef.current = true; setSections((s) => (s ? { ...s, primary: primary as ContractPrimarySection } : s)); }}
             canEdit={props.canEdit}
             canEditMasterData={props.canEditMasterData}
             createMasterDataItem={createMasterDataItem}
@@ -919,11 +958,12 @@ export function ContractDetailsPage(props: {
               isPrimary={false}
               engineBrandOptions={engineBrandOptions}
               partOptions={partOptions}
-              onChange={(addonSection) =>
+              onChange={(addonSection) => {
+                dirtyRef.current = true;
                 setSections((s) =>
                   s ? { ...s, addons: s.addons.map((a, i) => (i === idx ? addonSection : a)) } : s
-                )
-              }
+                );
+              }}
               onRemove={() => removeAddon(idx)}
               canEdit={props.canEdit}
               canEditMasterData={props.canEditMasterData}
@@ -945,7 +985,7 @@ export function ContractDetailsPage(props: {
                 <Input
                   value={accountingForm.gozName}
                   disabled={!props.canEditMasterData}
-                  onChange={(e) => setAccountingForm((s) => ({ ...s, gozName: e.target.value }))}
+                  onChange={(e) => { dirtyRef.current = true; setAccountingForm((s) => ({ ...s, gozName: e.target.value })); }}
                   style={{ width: '100%' }}
                 />
               </FormField>
@@ -953,7 +993,7 @@ export function ContractDetailsPage(props: {
                 <Input
                   value={accountingForm.igk}
                   disabled={!props.canEditMasterData}
-                  onChange={(e) => setAccountingForm((s) => ({ ...s, igk: e.target.value }))}
+                  onChange={(e) => { dirtyRef.current = true; setAccountingForm((s) => ({ ...s, igk: e.target.value })); }}
                   style={{ width: '100%' }}
                 />
               </FormField>
@@ -963,7 +1003,7 @@ export function ContractDetailsPage(props: {
                     type="checkbox"
                     checked={accountingForm.hasFiles}
                     disabled={!props.canEditMasterData}
-                    onChange={(e) => setAccountingForm((s) => ({ ...s, hasFiles: e.target.checked }))}
+                    onChange={(e) => { dirtyRef.current = true; setAccountingForm((s) => ({ ...s, hasFiles: e.target.checked })); }}
                   />
                   <span>{accountingForm.hasFiles ? 'Да' : 'Нет'}</span>
                 </label>
@@ -988,7 +1028,7 @@ export function ContractDetailsPage(props: {
                 <Input
                   value={accountingForm.separateAccountBank}
                   disabled={!props.canEditMasterData}
-                  onChange={(e) => setAccountingForm((s) => ({ ...s, separateAccountBank: e.target.value }))}
+                  onChange={(e) => { dirtyRef.current = true; setAccountingForm((s) => ({ ...s, separateAccountBank: e.target.value })); }}
                   style={{ width: '100%' }}
                 />
               </FormField>
@@ -996,7 +1036,7 @@ export function ContractDetailsPage(props: {
                 <Input
                   value={accountingForm.comment}
                   disabled={!props.canEditMasterData}
-                  onChange={(e) => setAccountingForm((s) => ({ ...s, comment: e.target.value }))}
+                  onChange={(e) => { dirtyRef.current = true; setAccountingForm((s) => ({ ...s, comment: e.target.value })); }}
                   style={{ width: '100%' }}
                 />
               </FormField>

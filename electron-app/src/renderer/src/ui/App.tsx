@@ -65,6 +65,7 @@ import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
+import type { CardCloseActions } from './cardCloseTypes.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -157,6 +158,36 @@ function appTabTitle(tab: string): string {
   return labels[tab] ?? tab;
 }
 
+const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
+  engine: 'engines',
+  engine_brand: 'engine_brands',
+  request: 'requests',
+  work_order: 'work_orders',
+  part: 'parts',
+  tool: 'tools',
+  tool_property: 'tool_properties',
+  employee: 'employees',
+  contract: 'contracts',
+  counterparty: 'counterparties',
+  product: 'products',
+  service: 'services',
+};
+
+const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
+  'engine',
+  'engine_brand',
+  'request',
+  'work_order',
+  'part',
+  'tool',
+  'tool_property',
+  'employee',
+  'contract',
+  'counterparty',
+  'product',
+  'service',
+];
+
 export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
@@ -180,7 +211,7 @@ export function App() {
   } | null>(null);
   const fullSyncCloseTimer = useRef<number | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
-  const [tab, setTab] = useState<TabId>('history');
+  const [tab, setTabState] = useState<TabId>('history');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
   const [recentVisits, setRecentVisits] = useState<RecentVisitEntry[]>([]);
@@ -240,6 +271,145 @@ export function App() {
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
+  const [cardCloseModalOpen, setCardCloseModalOpen] = useState(false);
+  const [cardCloseCountdown, setCardCloseCountdown] = useState(10);
+  const [cardCloseStatus, setCardCloseStatus] = useState('');
+  const cardCloseActionsRef = useRef<CardCloseActions | null>(null);
+  const cardCloseTargetTabRef = useRef<TabId | null>(null);
+  const cardCloseFromAppRef = useRef(false);
+  const cardCloseInProgressRef = useRef(false);
+  const cardCloseTimerRef = useRef<number | null>(null);
+
+  const isCardTab = useCallback((nextTab: TabId) => CARD_DETAIL_TABS.includes(nextTab), []);
+
+  function clearCardCloseTimer() {
+    if (cardCloseTimerRef.current == null) return;
+    clearInterval(cardCloseTimerRef.current);
+    cardCloseTimerRef.current = null;
+  }
+
+  const registerCardCloseActions = useCallback((actions: CardCloseActions | null) => {
+    cardCloseActionsRef.current = actions;
+  }, []);
+
+  const closeCardSession = useCallback(
+    async (opts: { targetTab: TabId | null; appClose: boolean }) => {
+      if (cardCloseInProgressRef.current && opts.appClose) {
+        return;
+      }
+
+      const targetTab = opts.targetTab;
+      const fromApp = opts.appClose;
+      const actions = cardCloseActionsRef.current;
+      if (!actions) {
+        if (fromApp) {
+          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        } else {
+          if (targetTab) setTabState(targetTab);
+        }
+        return;
+      }
+
+      let dirty = false;
+      try {
+        dirty = Boolean(actions.isDirty());
+      } catch {
+        dirty = true;
+      }
+
+      if (!dirty) {
+        actions.closeWithoutSave();
+        if (fromApp) {
+          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        } else if (targetTab) {
+          setTabState(targetTab);
+        }
+        return;
+      }
+
+      cardCloseInProgressRef.current = true;
+      cardCloseTargetTabRef.current = targetTab;
+      cardCloseFromAppRef.current = fromApp;
+      clearCardCloseTimer();
+      setCardCloseCountdown(10);
+      setCardCloseStatus('');
+      setCardCloseModalOpen(true);
+      cardCloseTimerRef.current = window.setInterval(() => {
+        setCardCloseCountdown((seconds) => {
+          if (seconds <= 1) {
+            clearCardCloseTimer();
+            void finalizeCardClose('save');
+            return 0;
+          }
+          return seconds - 1;
+        });
+      }, 1000);
+    },
+    [setTabState],
+  );
+
+  const finalizeCardClose = useCallback(
+    async (decision: 'save' | 'discard') => {
+      clearCardCloseTimer();
+      setCardCloseModalOpen(false);
+      cardCloseInProgressRef.current = false;
+
+      const actions = cardCloseActionsRef.current;
+      const targetTab = cardCloseTargetTabRef.current;
+      const fromApp = cardCloseFromAppRef.current;
+      cardCloseTargetTabRef.current = null;
+      cardCloseFromAppRef.current = false;
+
+      if (!actions) {
+        if (fromApp) window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        return;
+      }
+
+      try {
+        if (decision === 'save') {
+          await actions.saveAndClose();
+        } else {
+          actions.closeWithoutSave();
+        }
+      } catch (e) {
+        setCardCloseStatus(`Ошибка сохранения: ${String(e)}`);
+        cardCloseInProgressRef.current = false;
+        return;
+      }
+
+      if (targetTab) {
+        setTabState(targetTab);
+      }
+
+      if (fromApp) {
+        window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+      }
+    },
+    [setTabState],
+  );
+
+  const requestTabSwitch = useCallback(
+    (nextTab: TabId) => {
+      if (nextTab === tab) return;
+      if (isCardTab(tab)) {
+        void closeCardSession({ targetTab: nextTab, appClose: false });
+        return;
+      }
+      setTabState(nextTab);
+    },
+    [isCardTab, tab, closeCardSession, setTabState],
+  );
+
+  const setTab = useCallback((nextTab: TabId) => {
+    requestTabSwitch(nextTab);
+  }, [requestTabSwitch]);
+
+  const requestCardClose = useCallback(() => {
+    const parentTab = CARD_PARENT_TAB[tab];
+    if (parentTab) {
+      void closeCardSession({ targetTab: parentTab, appClose: false });
+    }
+  }, [tab, closeCardSession]);
 
   const applyEffectiveUiSettings = useCallback((settings: UiControlSettings) => {
     setEffectiveUiControl(sanitizeUiControlSettings(settings));
@@ -467,6 +637,44 @@ export function App() {
       if (unsubscribe) unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!window.matrica?.app?.onCloseRequest) return;
+    const unsubscribe = window.matrica.app.onCloseRequest(() => {
+      void closeCardSession({ targetTab: null, appClose: true });
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [closeCardSession]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isCardTab(tab)) return;
+      const actions = cardCloseActionsRef.current;
+      let dirty = false;
+      if (actions) {
+        try {
+          dirty = Boolean(actions.isDirty());
+        } catch {
+          dirty = true;
+        }
+      }
+      if (!dirty) {
+        window.matrica.app?.respondToCloseRequest?.({ allowClose: true });
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = 'Карточка закрывается. Сохранить изменения в карточке?';
+      void closeCardSession({ targetTab: null, appClose: true });
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [closeCardSession, isCardTab, tab]);
 
   useEffect(() => {
     const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
@@ -1757,6 +1965,39 @@ export function App() {
     );
   }
 
+  function renderCardCloseModal() {
+    if (!cardCloseModalOpen) return null;
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1200,
+          padding: 20,
+        }}
+      >
+        <div style={{ width: 'min(560px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Карточка закрывается</div>
+          <div style={{ marginTop: 8, color: 'var(--muted)' }}>Сохранить изменения в карточке?</div>
+          <div style={{ marginTop: 10, color: 'var(--muted)' }}>Если не выбрать действие, изменения будут сохранены через {cardCloseCountdown} сек.</div>
+          {cardCloseStatus ? <div style={{ marginTop: 8, color: 'var(--danger)' }}>{cardCloseStatus}</div> : null}
+          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <Button tone="danger" variant="ghost" onClick={() => void finalizeCardClose('discard')}>
+              Не сохранять
+            </Button>
+            <Button variant="ghost" tone="success" onClick={() => void finalizeCardClose('save')}>
+              Сохранить
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderFatalModal() {
     if (!fatalOpen || !fatalError) return null;
     const details = `${fatalError.message}\n${fatalError.stack ?? ''}`.trim();
@@ -2044,6 +2285,7 @@ export function App() {
       >
         {renderFullSyncModal()}
         {renderFatalModal()}
+        {renderCardCloseModal()}
       <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 6, height: '100%', minHeight: 0 }}>
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
@@ -2218,10 +2460,12 @@ export function App() {
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedEngineId(null);
               setEngineDetails(null);
-              setTab('engines');
+              setTabState('engines');
             }}
           />
       )}
@@ -2238,9 +2482,11 @@ export function App() {
             onOpenPart={openPart}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedEngineBrandId(null);
-              setTab('engine_brands');
+              setTabState('engine_brands');
             }}
           />
         )}
@@ -2268,9 +2514,11 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedRequestId(null);
-              setTab('requests');
+              setTabState('requests');
             }}
           />
         )}
@@ -2280,9 +2528,11 @@ export function App() {
             key={selectedWorkOrderId}
             id={selectedWorkOrderId}
             canEdit={caps.canEditWorkOrders}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedWorkOrderId(null);
-              setTab('work_orders');
+              setTabState('work_orders');
             }}
           />
         )}
@@ -2353,9 +2603,11 @@ export function App() {
             canDelete={caps.canDeleteParts}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedPartId(null);
-              setTab('parts');
+              setTabState('parts');
             }}
           />
         )}
@@ -2367,9 +2619,11 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onBack={() => {
               setSelectedToolId(null);
-              setTab('tools');
+              setTabState('tools');
             }}
           />
         )}
@@ -2379,9 +2633,11 @@ export function App() {
             key={selectedToolPropertyId}
             id={selectedToolPropertyId}
             canEdit={caps.canEditMasterData}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onBack={() => {
               setSelectedToolPropertyId(null);
-              setTab('tool_properties');
+              setTabState('tool_properties');
             }}
           />
         )}
@@ -2394,9 +2650,11 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedContractId(null);
-              setTab('contracts');
+              setTabState('contracts');
             }}
           />
         )}
@@ -2408,9 +2666,11 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedCounterpartyId(null);
-              setTab('counterparties');
+              setTabState('counterparties');
             }}
           />
         )}
@@ -2425,9 +2685,11 @@ export function App() {
             canManageUsers={caps.canManageUsers}
             onAccessChanged={triggerEmployeesRefresh}
             me={authStatus.user}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedEmployeeId(null);
-              setTab('employees');
+              setTabState('employees');
             }}
           />
         )}
@@ -2442,9 +2704,11 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedProductId(null);
-              setTab('products');
+              setTabState('products');
             }}
           />
         )}
@@ -2459,9 +2723,11 @@ export function App() {
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
             onClose={() => {
               setSelectedServiceId(null);
-              setTab('services');
+              setTabState('services');
             }}
           />
         )}

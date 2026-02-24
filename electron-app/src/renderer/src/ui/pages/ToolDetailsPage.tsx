@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -9,6 +9,8 @@ import { SectionCard } from '../components/SectionCard.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 
 type Option = { id: string; label: string };
 type EmployeeOption = Option & { departmentId: string | null };
@@ -64,6 +66,8 @@ export function ToolDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onBack: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [status, setStatus] = useState<string>('');
   const [toolNumber, setToolNumber] = useState('');
@@ -94,6 +98,8 @@ export function ToolDetailsPage(props: {
   const [newMoveConfirmedById, setNewMoveConfirmedById] = useState<string>('');
   const [newMoveComment, setNewMoveComment] = useState<string>('');
   const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
+
+  const dirtyRef = useRef(false);
 
   const employeeLabelById = useMemo(() => new Map(employeeOptions.map((o) => [o.id, o.label])), [employeeOptions]);
   const departmentLabelById = useMemo(() => new Map(departmentOptions.map((o) => [o.id, o.label])), [departmentOptions]);
@@ -127,6 +133,7 @@ export function ToolDetailsPage(props: {
         .filter(Boolean) as ToolPropertyRow[];
       setProperties(normalized);
       setStatus('');
+      dirtyRef.current = false;
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -194,6 +201,27 @@ export function ToolDetailsPage(props: {
   }, [props.toolId]);
 
   useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllFields();
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const r = await window.matrica.tools.create();
+        if (r?.ok && r.id) {
+          await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
+          await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [toolNumber, name, serialNumber, description, departmentId, toolCatalogId, receivedAt, retiredAt, retireReason, props.registerCardCloseActions]);
+
+  useEffect(() => {
     const dept = departmentId || currentDepartmentId || null;
     void window.matrica.tools.employees.list({ departmentId: dept }).then((r: any) => {
       if (!r?.ok) return;
@@ -228,6 +256,19 @@ export function ToolDetailsPage(props: {
     const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code, value });
     if (!r.ok) setStatus(`Ошибка: ${r.error}`);
     else setStatus('');
+  }
+
+  async function saveAllFields() {
+    await saveAttribute('tool_number', toolNumber.trim());
+    await saveAttribute('name', name.trim());
+    await saveAttribute('serial_number', serialNumber.trim());
+    await saveAttribute('description', description.trim());
+    await saveAttribute('department_id', departmentId || null);
+    await saveAttribute('tool_catalog_id', toolCatalogId || null);
+    await saveAttribute('received_at', fromInputDate(receivedAt));
+    await saveAttribute('retired_at', fromInputDate(retiredAt));
+    await saveAttribute('retire_reason', retireReason.trim());
+    dirtyRef.current = false;
   }
 
   async function updateProperties(next: ToolPropertyRow[]) {
@@ -412,10 +453,24 @@ export function ToolDetailsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
+      <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={() => {
+            void (async () => {
+              const r = await window.matrica.tools.create();
+              if (r?.ok && r.id) {
+                await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
+                await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+              }
+            })();
+          }}
+          onSaveAndClose={() => { void saveAllFields().then(() => props.onBack()); }}
+          onCloseWithoutSave={() => { dirtyRef.current = false; props.onBack(); }}
+          onClose={() => props.requestClose?.()}
+        />
+      </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button variant="ghost" onClick={props.onBack}>
-          Назад
-        </Button>
         <strong>Карточка инструмента</strong>
         <span style={{ flex: 1 }} />
         <Button tone="info" onClick={printToolCard}>
@@ -433,7 +488,7 @@ export function ToolDetailsPage(props: {
           <div>Табельный номер</div>
           <Input
             value={toolNumber}
-            onChange={(e) => setToolNumber(e.target.value)}
+            onChange={(e) => { setToolNumber(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveAttribute('tool_number', toolNumber.trim())}
             disabled={!props.canEdit}
           />
@@ -473,7 +528,7 @@ export function ToolDetailsPage(props: {
           <div>Серийный номер</div>
           <Input
             value={serialNumber}
-            onChange={(e) => setSerialNumber(e.target.value)}
+            onChange={(e) => { setSerialNumber(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveAttribute('serial_number', serialNumber.trim())}
             disabled={!props.canEdit}
           />
@@ -482,7 +537,7 @@ export function ToolDetailsPage(props: {
           <div>Описание</div>
           <Input
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { setDescription(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveAttribute('description', description.trim())}
             disabled={!props.canEdit}
           />
@@ -514,7 +569,7 @@ export function ToolDetailsPage(props: {
           <Input
             type="date"
             value={receivedAt}
-            onChange={(e) => setReceivedAt(e.target.value)}
+            onChange={(e) => { setReceivedAt(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveAttribute('received_at', fromInputDate(receivedAt))}
             disabled={!props.canEdit}
           />
@@ -524,7 +579,7 @@ export function ToolDetailsPage(props: {
           <Input
             type="date"
             value={retiredAt}
-            onChange={(e) => setRetiredAt(e.target.value)}
+            onChange={(e) => { setRetiredAt(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveAttribute('retired_at', fromInputDate(retiredAt))}
             disabled={!props.canEdit}
           />
@@ -533,7 +588,7 @@ export function ToolDetailsPage(props: {
           <div>Причина снятия</div>
           <Input
             value={retireReason}
-            onChange={(e) => setRetireReason(e.target.value)}
+            onChange={(e) => { setRetireReason(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveAttribute('retire_reason', retireReason.trim())}
             disabled={!props.canEdit}
           />

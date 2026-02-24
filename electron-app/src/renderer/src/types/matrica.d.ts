@@ -1,6 +1,10 @@
 import type { MatricaApi } from '@matricarmz/shared';
 
-type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees'> & {
+type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
+  app: MatricaApi['app'] & {
+    onCloseRequest: (handler: () => void) => () => void;
+    respondToCloseRequest: (args: { allowClose: boolean }) => void;
+  };
   admin: MatricaApi['admin'] & {
     entityTypes: MatricaApi['admin']['entityTypes'] & {
       resyncFromServer: (entityTypeId: string) => Promise<any>;

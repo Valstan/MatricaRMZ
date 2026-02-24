@@ -1,3 +1,5 @@
+import type { PartEngineBrandLink } from './domain/part.js';
+
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
 export type EngineListItem = {
@@ -482,6 +484,8 @@ export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
   app: {
     version: () => Promise<AppVersionResult>;
+    onCloseRequest?: (handler: () => void) => () => void;
+    respondToCloseRequest?: (args: { allowClose: boolean }) => void;
   };
   log: {
     send: (level: LogLevel, message: string) => Promise<void>;
@@ -959,9 +963,7 @@ export type MatricaApi = {
             id: string;
             name?: string;
             article?: string;
-            assemblyUnitNumber?: string;
-            engineBrandQtyMap?: Record<string, number>;
-            engineBrandQty?: number;
+            brandLinks?: PartEngineBrandLink[];
             contractId?: string;
             statusFlags?: Partial<Record<StatusCode, boolean>>;
             updatedAt: number;
@@ -977,6 +979,7 @@ export type MatricaApi = {
             id: string;
             createdAt: number;
             updatedAt: number;
+            brandLinks?: PartEngineBrandLink[];
             attributes: Array<{
               id: string;
               code: string;
@@ -998,6 +1001,29 @@ export type MatricaApi = {
         }
       | { ok: false; error: string }
     >;
+    partBrandLinks: {
+      list: (partId: string) => Promise<
+        | {
+            ok: true;
+            brandLinks: PartEngineBrandLink[];
+          }
+        | { ok: false; error: string }
+      >;
+      upsert: (args: {
+        partId: string;
+        linkId?: string;
+        engineBrandId: string;
+        assemblyUnitNumber: string;
+        quantity: number;
+      }) => Promise<
+        | {
+            ok: true;
+            linkId: string;
+          }
+        | { ok: false; error: string }
+      >;
+      delete: (linkId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    };
     createAttributeDef: (args: {
       code: string;
       name: string;

@@ -14,6 +14,8 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -110,6 +112,8 @@ export function EngineDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
@@ -229,7 +233,6 @@ export function EngineDetailsPage(props: {
       await saveAttr('contract_id', contractId || null);
       for (const c of STATUS_CODES) await saveAttr(c, statusFlags[c] ?? false);
     }
-    props.onClose();
   }
 
   async function handleDelete() {
@@ -288,6 +291,29 @@ export function EngineDetailsPage(props: {
       void auditEditDone();
     };
   }, []);
+
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => sessionHadChanges.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+        sessionHadChanges.current = false;
+      },
+      closeWithoutSave: () => {
+        sessionHadChanges.current = false;
+      },
+      copyToNew: async () => {
+        const r = await window.matrica.engines.create();
+        if (r?.id) {
+          await window.matrica.engines.setAttr(r.id, 'engine_number', engineNumber + ' (копия)');
+          await window.matrica.engines.setAttr(r.id, 'engine_brand', engineBrand || null);
+          await window.matrica.engines.setAttr(r.id, 'engine_brand_id', engineBrandId || null);
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, shippingDate, props.registerCardCloseActions]);
 
   async function saveEngineNumber() {
     if (!props.canEditEngines) return;
@@ -572,18 +598,27 @@ export function EngineDetailsPage(props: {
     <EntityCardShell
       title={headerTitle}
       layout="two-column"
+      cardActions={
+        <CardActionBar
+          canEdit={props.canEditEngines}
+          onCopyToNew={() => {
+            void (async () => {
+              const r = await window.matrica.engines.create();
+              if (r?.id) {
+                await window.matrica.engines.setAttr(r.id, 'engine_number', engineNumber + ' (копия)');
+                await window.matrica.engines.setAttr(r.id, 'engine_brand', engineBrand || null);
+                await window.matrica.engines.setAttr(r.id, 'engine_brand_id', engineBrandId || null);
+              }
+            })();
+          }}
+          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onCloseWithoutSave={() => { sessionHadChanges.current = false; props.onClose(); }}
+          onDelete={() => void handleDelete()}
+          onClose={() => props.requestClose?.()}
+        />
+      }
       actions={
         <RowActions>
-          {props.canEditEngines && (
-            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-              Сохранить
-            </Button>
-          )}
-          {props.canEditEngines && (
-            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-              Удалить
-            </Button>
-          )}
           {props.canPrintEngineCard && (
             <Button
               variant="ghost"

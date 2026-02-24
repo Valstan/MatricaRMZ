@@ -215,7 +215,7 @@ function describeAction(row: AuditRow) {
   }
   if (action.endsWith('.edit_done')) {
     const base = formatBySection(updateBySection[sectionLower] || 'Редактировал');
-    const summary = fromText.replace(/^изменил [^\.]+\.\s*/i, '').trim();
+    const summary = fromText.replace(/^изменил [^.]+\.\s*/i, '').trim();
     return summary ? `${base}. ${summary}` : base;
   }
   if (action.includes('.open') || action.includes('.view') || action.includes('.details')) {

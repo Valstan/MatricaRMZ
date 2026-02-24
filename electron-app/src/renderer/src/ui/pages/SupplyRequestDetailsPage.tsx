@@ -11,6 +11,8 @@ import { SectionCard } from '../components/SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -220,6 +222,8 @@ export function SupplyRequestDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [payload, setPayload] = useState<SupplyRequestPayload | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('');
@@ -411,7 +415,7 @@ export function SupplyRequestDetailsPage(props: {
     if (payload) {
       await saveNow(payload);
     }
-    props.onClose();
+    sessionHadChanges.current = false;
   }
 
   async function handleDelete() {
@@ -494,6 +498,28 @@ export function SupplyRequestDetailsPage(props: {
       void auditEditDone(payloadRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => sessionHadChanges.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      closeWithoutSave: () => {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        sessionHadChanges.current = false;
+      },
+      copyToNew: async () => {
+        const r = await window.matrica.supplyRequests.create();
+        if (r?.ok && r.id && payload) {
+          const copy = { ...payload, id: r.id, requestNumber: '', status: 'draft' as const };
+          await window.matrica.supplyRequests.update({ id: r.id, payload: copy });
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [payload, props.registerCardCloseActions]);
 
   useLiveDataRefresh(
     async () => {
@@ -620,15 +646,33 @@ export function SupplyRequestDetailsPage(props: {
 
   return (
     <div>
+      <div style={{ borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={() => {
+            void (async () => {
+              const r = await window.matrica.supplyRequests.create();
+              if (r?.ok && r.id && payload) {
+                const copy = { ...payload, requestNumber: '', status: 'draft' as const };
+                await window.matrica.supplyRequests.update({ id: r.id, payload: copy });
+              }
+            })();
+          }}
+          onSaveAndClose={() => {
+            void saveAllAndClose().then(() => {
+              props.onClose();
+            });
+          }}
+          onCloseWithoutSave={() => {
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            sessionHadChanges.current = false;
+            props.onClose();
+          }}
+          onDelete={() => void handleDelete()}
+          onClose={() => props.requestClose?.()}
+        />
+      </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        {props.canEdit && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
-          </Button>
-        )}
-        <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-          Удалить
-        </Button>
         {props.canPrint && (
           <>
             <Button

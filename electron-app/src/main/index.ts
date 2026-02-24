@@ -24,6 +24,7 @@ import { setupMenu } from './utils/menu.js';
 let mainWindow: BrowserWindow | null = null;
 let mainWindowReady = false;
 let allowMainWindowShow = false;
+let forceQuit = false;
 let writeSessionAuditEvent:
   | ((action: 'app.session.start' | 'app.session.stop') => Promise<void>)
   | null = null;
@@ -123,6 +124,12 @@ function createWindow(): void {
       message: 'Не удалось загрузить интерфейс приложения.',
       detail: `code=${code}\n${desc}\n${url}\n\nЛог: ${getLogPath()}`,
     });
+  });
+
+  mainWindow.on('close', (event) => {
+    if (forceQuit) return;
+    event.preventDefault();
+    mainWindow?.webContents.send('app:close-request');
   });
 
   mainWindow.on('closed', () => {
@@ -323,6 +330,17 @@ ipcMain.handle('app:ping', async () => {
 
 ipcMain.handle('app:version', async () => {
   return { ok: true, version: app.getVersion() };
+});
+
+ipcMain.on('app:close-response', (_event, args: { allowClose: boolean }) => {
+  if (args?.allowClose) {
+    forceQuit = true;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close();
+    } else {
+      app.quit();
+    }
+  }
 });
 
 

@@ -52,7 +52,7 @@ function formatDefectSupplyTotals(totals: DefectSupplyReportResult['totals']) {
 
 function formatDefectSupplyMetricNotes() {
   const lines = Object.entries(DEFECT_SUPPLY_METRIC_NOTES).map(([key, note]) => {
-    const label = DEFECT_SUPPLY_LABEL_MAP[key as keyof DefectSupplyReportResult['totals']];
+    const label = DEFECT_SUPPLY_LABEL_MAP[key as keyof DefectSupplyReportResult['totals']] ?? key;
     return `<li><strong>${htmlEscape(label)}</strong>: ${htmlEscape(note)}</li>`;
   });
   return `<div class="metrics-guide"><b>Пояснение метрик:</b><ul>${lines.join('')}</ul></div>`;

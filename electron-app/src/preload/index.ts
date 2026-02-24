@@ -5,6 +5,14 @@ const matricaApi = {
   ping: async () => ipcRenderer.invoke('app:ping'),
   app: {
     version: async () => ipcRenderer.invoke('app:version'),
+    onCloseRequest: (handler: () => void) => {
+      const wrapped = () => handler();
+      ipcRenderer.on('app:close-request', wrapped);
+      return () => ipcRenderer.removeListener('app:close-request', wrapped);
+    },
+    respondToCloseRequest: (args: { allowClose: boolean }) => {
+      ipcRenderer.send('app:close-response', args);
+    },
   },
   log: {
     send: async (level: 'debug' | 'info' | 'warn' | 'error', message: string) =>
@@ -287,6 +295,17 @@ const matricaApi = {
     }) => ipcRenderer.invoke('parts:attributeDefCreate', args),
     updateAttribute: async (args: { partId: string; attributeCode: string; value: unknown }) =>
       ipcRenderer.invoke('parts:updateAttribute', args),
+    partBrandLinks: {
+      list: async (args: { partId: string; engineBrandId?: string }) => ipcRenderer.invoke('parts:partBrandLinks:list', args),
+      upsert: async (args: {
+        partId: string;
+        linkId?: string;
+        engineBrandId: string;
+        assemblyUnitNumber: string;
+        quantity: number;
+      }) => ipcRenderer.invoke('parts:partBrandLinks:upsert', args),
+      delete: async (args: { partId: string; linkId: string }) => ipcRenderer.invoke('parts:partBrandLinks:delete', args),
+    },
     delete: async (partId: string) => ipcRenderer.invoke('parts:delete', partId),
     getFiles: async (partId: string) => ipcRenderer.invoke('parts:getFiles', partId),
   },

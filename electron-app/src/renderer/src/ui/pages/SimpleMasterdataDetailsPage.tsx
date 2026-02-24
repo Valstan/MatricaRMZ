@@ -3,7 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
+import { CardActionBar } from '../components/CardActionBar.js';
 import { RowActions } from '../components/RowActions.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
@@ -22,6 +24,8 @@ export function SimpleMasterdataDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [status, setStatus] = useState<string>('');
   const [name, setName] = useState<string>('');
@@ -43,6 +47,7 @@ export function SimpleMasterdataDetailsPage(props: {
   const [unitTypeId, setUnitTypeId] = useState<string>('');
   const [storeTypeId, setStoreTypeId] = useState<string>('');
   const uploadFlow = useFileUploadFlow();
+  const dirtyRef = useRef(false);
 
   async function load() {
     try {
@@ -59,6 +64,7 @@ export function SimpleMasterdataDetailsPage(props: {
       const nextPhotos = Array.isArray(attrs.photos) ? attrs.photos.filter(isFileRef) : [];
       setPhotos(nextPhotos);
       setMainPhotoId(nextPhotos[0]?.id ?? null);
+      dirtyRef.current = false;
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -233,7 +239,7 @@ export function SimpleMasterdataDetailsPage(props: {
       await saveField('unit', unit.trim() || null);
       await saveField('price', price ? Number(price) : null);
     }
-    props.onClose();
+    dirtyRef.current = false;
   }
 
   async function handleDelete() {
@@ -257,6 +263,27 @@ export function SimpleMasterdataDetailsPage(props: {
   useEffect(() => {
     void load();
   }, [props.entityId]);
+
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        if (!entityTypeId) return;
+        const created = await window.matrica.admin.entities.create(entityTypeId);
+        if (created?.ok && 'id' in created) {
+          await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [name, entityTypeId, props.registerCardCloseActions]);
 
   useLiveDataRefresh(
     async () => {
@@ -415,7 +442,7 @@ export function SimpleMasterdataDetailsPage(props: {
           <Input
             value={name}
             disabled={!props.canEdit}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { dirtyRef.current = true; setName(e.target.value); }}
             onBlur={() => void saveName()}
           />
         ),
@@ -429,7 +456,7 @@ export function SimpleMasterdataDetailsPage(props: {
           <textarea
             value={description}
             disabled={!props.canEdit}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { dirtyRef.current = true; setDescription(e.target.value); }}
             onBlur={() => void saveDescription()}
             rows={3}
             style={{
@@ -502,6 +529,7 @@ export function SimpleMasterdataDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="Добавить единицу"
             onChange={(next) => {
+              dirtyRef.current = true;
               const label = unitOptions.find((o) => o.id === next)?.label ?? '';
               setUnit(label);
               void saveField('unit', label.trim() || null);
@@ -527,7 +555,7 @@ export function SimpleMasterdataDetailsPage(props: {
           <Input
             value={price}
             disabled={!props.canEdit}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => { dirtyRef.current = true; setPrice(e.target.value); }}
             onBlur={() => void saveField('price', Number(price) || null)}
             placeholder="0"
           />
@@ -547,20 +575,28 @@ export function SimpleMasterdataDetailsPage(props: {
       layout="two-column"
       actions={
         <RowActions>
-          {props.canEdit && (
-            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-              Сохранить
-            </Button>
-          )}
-          {props.canEdit && (
-            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-              Удалить
-            </Button>
-          )}
           <Button variant="ghost" tone="neutral" onClick={() => void load()}>
             Обновить
           </Button>
         </RowActions>
+      }
+      cardActions={
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={() => {
+            void (async () => {
+              if (!entityTypeId) return;
+              const created = await window.matrica.admin.entities.create(entityTypeId);
+              if (created?.ok && 'id' in created) {
+                await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+              }
+            })();
+          }}
+          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
+          onDelete={() => void handleDelete()}
+          onClose={() => props.requestClose?.()}
+        />
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
     >

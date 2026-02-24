@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { CardActionBar } from '../components/CardActionBar.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 
 type PartOption = { id: string; label: string };
 type BrandPartRow = { id: string; label: string; assemblyUnitNumber: string; quantity: number };
@@ -21,6 +23,8 @@ export function EngineBrandDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [status, setStatus] = useState<string>('');
   const [name, setName] = useState<string>('');
@@ -33,6 +37,7 @@ export function EngineBrandDetailsPage(props: {
   const [partsStatus, setPartsStatus] = useState<string>('');
   const [showAddPart, setShowAddPart] = useState(false);
   const [addPartId, setAddPartId] = useState<string | null>(null);
+  const dirtyRef = useRef(false);
 
   const partLabelById = useMemo(() => new Map(partsOptions.map((p) => [p.id, p.label])), [partsOptions]);
 
@@ -47,6 +52,7 @@ export function EngineBrandDetailsPage(props: {
       setTechDocs(attrs.tech_docs ?? []);
       setAttachments(attrs.attachments ?? []);
       setStatus('');
+      dirtyRef.current = false;
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -117,13 +123,10 @@ export function EngineBrandDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
-    if (!props.canEdit) {
-      props.onClose();
-      return;
-    }
+    if (!props.canEdit) return;
     await saveName();
     await saveDescription();
-    props.onClose();
+    dirtyRef.current = false;
   }
 
   async function handleDelete() {
@@ -336,24 +339,59 @@ export function EngineBrandDetailsPage(props: {
     { enabled: props.canViewMasterData, intervalMs: 20000 },
   );
 
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
+        const type = (types as any[]).find((t: any) => String(t.code) === 'engine_brand');
+        if (!type?.id) return;
+        const created = await window.matrica.admin.entities.create(type.id);
+        if (created?.ok && 'id' in created) {
+          await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+          await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim() || null);
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [name, description, props.registerCardCloseActions]);
+
   const selectedParts = brandParts;
   const headerTitle = name.trim() ? `Марка двигателя: ${name.trim()}` : 'Марка двигателя';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={() => {
+            void (async () => {
+              const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
+              const type = (types as any[]).find((t: any) => String(t.code) === 'engine_brand');
+              if (!type?.id) return;
+              const created = await window.matrica.admin.entities.create(type.id);
+              if (created?.ok && 'id' in created) {
+                await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+                await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim() || null);
+              }
+            })();
+          }}
+          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
+          onDelete={() => void handleDelete()}
+          onClose={() => props.requestClose?.()}
+        />
+      </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
-        {props.canEdit && (
-          <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-            Сохранить
-          </Button>
-        )}
-        {props.canEdit && (
-          <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-            Удалить
-          </Button>
-        )}
         <Button variant="ghost" tone="neutral" onClick={() => void loadBrand()}>
           Обновить
         </Button>
@@ -366,14 +404,14 @@ export function EngineBrandDetailsPage(props: {
           <Input
             value={name}
             disabled={!props.canEdit}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveName()}
           />
           <div style={{ color: 'var(--subtle)', alignSelf: 'start', paddingTop: 6 }}>Описание</div>
           <textarea
             value={description}
             disabled={!props.canEdit}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { setDescription(e.target.value); dirtyRef.current = true; }}
             onBlur={() => void saveDescription()}
             rows={3}
             style={{

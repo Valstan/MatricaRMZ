@@ -963,7 +963,7 @@ th{background:#f1f5f9}
 ${totalsByGroupHtml}
 <table><thead><tr>${headers}</tr></thead><tbody>${rows || `<tr><td colspan="${report.columns.length}">Нет данных</td></tr>`}</tbody></table>
 ${totalsHtml}
-${metricsGuideHtml}
+${totalsGuideHtml}
 </body></html>`;
 }
 

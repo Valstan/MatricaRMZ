@@ -34,12 +34,10 @@ function normalize(s: string) {
     .trim();
 }
 
-function sumMoneyItems(items: unknown[]) {
-  return items.reduce((acc, row) => {
-    if (!row || typeof row !== 'object') return acc;
-    const rowObj = row as Record<string, unknown>;
-    const qty = Number(rowObj.qty);
-    const unitPrice = Number(rowObj.unitPrice);
+function sumMoneyItems(items: Array<{ qty: number; unitPrice: number }>) {
+  return items.reduce<number>((acc, row) => {
+    const qty = Number(row.qty);
+    const unitPrice = Number(row.unitPrice);
     if (!Number.isFinite(qty) || !Number.isFinite(unitPrice)) return acc;
     return acc + qty * unitPrice;
   }, 0);
@@ -47,11 +45,11 @@ function sumMoneyItems(items: unknown[]) {
 
 function getContractAmount(sections: ContractSections): number {
   let total = 0;
-  total += sumMoneyItems(sections.primary.engineBrands as unknown[]);
-  total += sumMoneyItems(sections.primary.parts as unknown[]);
+  total += sumMoneyItems(sections.primary.engineBrands);
+  total += sumMoneyItems(sections.primary.parts);
   for (const addon of sections.addons) {
-    total += sumMoneyItems(addon.engineBrands as unknown[]);
-    total += sumMoneyItems(addon.parts as unknown[]);
+    total += sumMoneyItems(addon.engineBrands);
+    total += sumMoneyItems(addon.parts);
   }
   return total;
 }
@@ -119,12 +117,6 @@ export function ContractsPage(props: {
         if (!row?.id) continue;
         customerById.set(String(row.id), String(row.displayName ?? String(row.id).slice(0, 8)));
       }
-
-      const enginesRes = await window.matrica.engines.list().catch(() => []);
-      const engines = Array.isArray(enginesRes) ? enginesRes : [];
-      const partsRes = await window.matrica.parts.list({ limit: 5000 }).catch(() => ({ ok: false, parts: [] }));
-      const parts = partsRes?.ok && partsRes.parts ? partsRes.parts : [];
-
 
       const details = await Promise.all(
         (listRaw as any[]).map(async (row: any) => {

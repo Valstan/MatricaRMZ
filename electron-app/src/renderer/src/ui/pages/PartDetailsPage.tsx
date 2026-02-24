@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -122,6 +124,8 @@ export function PartDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [part, setPart] = useState<Part | null>(null);
   const [status, setStatus] = useState<string>('');
@@ -157,6 +161,8 @@ export function PartDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [linkOptionsByCode, setLinkOptionsByCode] = useState<Record<string, LinkOpt[]>>({});
   const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
+
+  const dirtyRef = useRef(false);
 
   // Schema extension (add new fields)
   const [addFieldOpen, setAddFieldOpen] = useState(false);
@@ -575,6 +581,31 @@ export function PartDetailsPage(props: {
     }
   }, [part?.id, part?.updatedAt, linkOptionsByCode, linkLoadingByCode]);
 
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const attrs: Record<string, unknown> = {};
+        if (name.trim()) attrs.name = name.trim();
+        if (article.trim()) attrs.article = article.trim();
+        const r = await window.matrica.parts.create(name.trim() || article.trim() ? { attributes: attrs } : undefined);
+        if (r?.ok && r?.part?.id) {
+          dirtyRef.current = false;
+        }
+      },
+    });
+    return () => {
+      props.registerCardCloseActions?.(null);
+    };
+  }, [name, article, props.registerCardCloseActions]);
+
   async function saveAttribute(code: string, value: unknown): Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }> {
     if (!props.canEdit) return { ok: false, error: 'no permission' };
     try {
@@ -619,7 +650,7 @@ export function PartDetailsPage(props: {
     if (props.canEdit) {
       await saveCore();
     }
-    props.onClose();
+    dirtyRef.current = false;
   }
 
   async function handleDelete() {
@@ -680,7 +711,10 @@ export function PartDetailsPage(props: {
           <Input
             value={name}
             disabled={!props.canEdit}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setName(e.target.value);
+            }}
             onBlur={() => void saveAttribute('name', name)}
           />
         ),
@@ -694,7 +728,10 @@ export function PartDetailsPage(props: {
           <Input
             value={article}
             disabled={!props.canEdit}
-            onChange={(e) => setArticle(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setArticle(e.target.value);
+            }}
             onBlur={() => void saveAttribute('article', article)}
           />
         ),
@@ -879,21 +916,40 @@ export function PartDetailsPage(props: {
     <EntityCardShell
       title={headerTitle}
       layout="two-column"
+      cardActions={
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={
+            props.canEdit
+              ? async () => {
+                  const attrs: Record<string, unknown> = {};
+                  if (name.trim()) attrs.name = name.trim();
+                  if (article.trim()) attrs.article = article.trim();
+                  const r = await window.matrica.parts.create(name.trim() || article.trim() ? { attributes: attrs } : undefined);
+                  if (r?.ok && r?.part?.id) {
+                    dirtyRef.current = false;
+                  }
+                }
+              : undefined
+          }
+          onSaveAndClose={
+            props.canEdit
+              ? () => void saveAllAndClose().then(() => props.onClose())
+              : undefined
+          }
+          onCloseWithoutSave={() => {
+            dirtyRef.current = false;
+            props.onClose();
+          }}
+          onDelete={props.canDelete ? () => void handleDelete() : undefined}
+          onClose={props.requestClose ? () => props.requestClose?.() : undefined}
+        />
+      }
       actions={
         <RowActions>
-          {props.canEdit && (
-            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-              Сохранить
-            </Button>
-          )}
           <Button variant="ghost" tone="info" onClick={printPartCard}>
             Распечатать
           </Button>
-          {props.canDelete && (
-            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-              Удалить
-            </Button>
-          )}
         </RowActions>
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

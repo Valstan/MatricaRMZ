@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -165,6 +167,8 @@ export function EmployeeDetailsPage(props: {
   onAccessChanged?: () => void;
   me?: { id: string; role: string; username: string } | null;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
 }) {
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [status, setStatus] = useState('');
@@ -198,6 +202,8 @@ export function EmployeeDetailsPage(props: {
   const [linkOptionsByDefId, setLinkOptionsByDefId] = useState<Record<string, { id: string; label: string }[]>>({});
   const [linkLoadingByDefId, setLinkLoadingByDefId] = useState<Record<string, boolean>>({});
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
+
+  const dirtyRef = useRef(false);
 
   const [departments, setDepartments] = useState<Option[]>([]);
   const [departmentsStatus, setDepartmentsStatus] = useState('');
@@ -420,7 +426,7 @@ export function EmployeeDetailsPage(props: {
       await saveAttr('transfers', transfers);
       await saveAttr('attachments', attachments);
     }
-    props.onClose();
+    dirtyRef.current = false;
   }
 
   async function handleDelete() {
@@ -768,6 +774,35 @@ export function EmployeeDetailsPage(props: {
     setTransfers(Array.isArray(vTransfers) ? vTransfers : []);
   }, [employee?.id, employee?.attributes]);
 
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const r = await window.matrica.employees.create();
+        if (!r?.ok || !r?.id) return;
+        if (lastName.trim()) await window.matrica.employees.setAttr(r.id, 'last_name', lastName.trim());
+        if (firstName.trim()) await window.matrica.employees.setAttr(r.id, 'first_name', firstName.trim());
+        if (middleName.trim()) await window.matrica.employees.setAttr(r.id, 'middle_name', middleName.trim());
+        const full = buildFullName(lastName, firstName, middleName);
+        if (full) await window.matrica.employees.setAttr(r.id, 'full_name', full);
+        if (position.trim()) await window.matrica.employees.setAttr(r.id, 'role', position.trim());
+        if (personnelNumber.trim()) await window.matrica.employees.setAttr(r.id, 'personnel_number', personnelNumber.trim());
+        if (departmentId) await window.matrica.employees.setAttr(r.id, 'department_id', departmentId);
+        dirtyRef.current = false;
+      },
+    });
+    return () => {
+      props.registerCardCloseActions?.(null);
+    };
+  }, [lastName, firstName, middleName, position, personnelNumber, departmentId, props.registerCardCloseActions]);
+
   const computedFullName = buildFullName(lastName, firstName, middleName);
   const departmentOptions = departments;
   const departmentLabel = departmentOptions.find((d) => d.id === departmentId)?.label ?? null;
@@ -804,7 +839,10 @@ export function EmployeeDetailsPage(props: {
         render: (
           <Input
             value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setLastName(e.target.value);
+            }}
             onBlur={() => void saveNameField('last_name', lastName)}
             disabled={!props.canEdit}
             placeholder="Фамилия"
@@ -819,7 +857,10 @@ export function EmployeeDetailsPage(props: {
         render: (
           <Input
             value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setFirstName(e.target.value);
+            }}
             onBlur={() => void saveNameField('first_name', firstName)}
             disabled={!props.canEdit}
             placeholder="Имя"
@@ -834,7 +875,10 @@ export function EmployeeDetailsPage(props: {
         render: (
           <Input
             value={middleName}
-            onChange={(e) => setMiddleName(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setMiddleName(e.target.value);
+            }}
             onBlur={() => void saveNameField('middle_name', middleName)}
             disabled={!props.canEdit}
             placeholder="Отчество"
@@ -849,7 +893,10 @@ export function EmployeeDetailsPage(props: {
         render: (
           <Input
             value={personnelNumber}
-            onChange={(e) => setPersonnelNumber(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setPersonnelNumber(e.target.value);
+            }}
             onBlur={() => void saveAttr('personnel_number', personnelNumber.trim() || null)}
             disabled={!props.canEdit}
             placeholder="Табельный номер"
@@ -865,7 +912,10 @@ export function EmployeeDetailsPage(props: {
           <Input
             type="date"
             value={birthDate}
-            onChange={(e) => setBirthDate(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setBirthDate(e.target.value);
+            }}
             onBlur={() => void saveAttr('birth_date', fromInputDate(birthDate))}
             disabled={!props.canEdit}
           />
@@ -879,7 +929,10 @@ export function EmployeeDetailsPage(props: {
         render: (
           <Input
             value={position}
-            onChange={(e) => setPosition(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setPosition(e.target.value);
+            }}
             onBlur={() => void saveAttr('role', position.trim() || null)}
             disabled={!props.canEdit}
             placeholder="Должность"
@@ -896,6 +949,7 @@ export function EmployeeDetailsPage(props: {
             value={employmentStatus}
             onChange={async (e) => {
               const next = e.target.value === 'fired' ? 'fired' : 'working';
+              dirtyRef.current = true;
               setEmploymentStatus(next);
               await saveAttr('employment_status', next);
               if (next === 'fired' && canToggleAccess) {
@@ -922,7 +976,10 @@ export function EmployeeDetailsPage(props: {
           <Input
             type="date"
             value={hireDate}
-            onChange={(e) => setHireDate(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setHireDate(e.target.value);
+            }}
             onBlur={() => void saveAttr('hire_date', fromInputDate(hireDate))}
             disabled={!props.canEdit}
           />
@@ -937,7 +994,10 @@ export function EmployeeDetailsPage(props: {
           <Input
             type="date"
             value={terminationDate}
-            onChange={(e) => setTerminationDate(e.target.value)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setTerminationDate(e.target.value);
+            }}
             onBlur={() => void saveAttr('termination_date', fromInputDate(terminationDate))}
             disabled={!props.canEdit}
           />
@@ -957,6 +1017,7 @@ export function EmployeeDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="Новое подразделение"
             onChange={(next) => {
+              dirtyRef.current = true;
               setDepartmentId(next);
               void saveAttr('department_id', next || null);
             }}
@@ -1013,18 +1074,41 @@ export function EmployeeDetailsPage(props: {
     <EntityCardShell
       title={headerTitle}
       layout="two-column"
+      cardActions={
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={
+            props.canEdit
+              ? async () => {
+                  const r = await window.matrica.employees.create();
+                  if (!r?.ok || !r?.id) return;
+                  if (lastName.trim()) await window.matrica.employees.setAttr(r.id, 'last_name', lastName.trim());
+                  if (firstName.trim()) await window.matrica.employees.setAttr(r.id, 'first_name', firstName.trim());
+                  if (middleName.trim()) await window.matrica.employees.setAttr(r.id, 'middle_name', middleName.trim());
+                  const full = buildFullName(lastName, firstName, middleName);
+                  if (full) await window.matrica.employees.setAttr(r.id, 'full_name', full);
+                  if (position.trim()) await window.matrica.employees.setAttr(r.id, 'role', position.trim());
+                  if (personnelNumber.trim()) await window.matrica.employees.setAttr(r.id, 'personnel_number', personnelNumber.trim());
+                  if (departmentId) await window.matrica.employees.setAttr(r.id, 'department_id', departmentId);
+                  dirtyRef.current = false;
+                }
+              : undefined
+          }
+          onSaveAndClose={
+            props.canEdit
+              ? () => void saveAllAndClose().then(() => props.onClose())
+              : undefined
+          }
+          onCloseWithoutSave={() => {
+            dirtyRef.current = false;
+            props.onClose();
+          }}
+          onDelete={props.canEdit ? () => void handleDelete() : undefined}
+          onClose={props.requestClose ? () => props.requestClose?.() : undefined}
+        />
+      }
       actions={
         <RowActions>
-          {props.canEdit && (
-            <Button variant="ghost" tone="success" onClick={() => void saveAllAndClose()}>
-              Сохранить
-            </Button>
-          )}
-          {props.canEdit && (
-            <Button variant="ghost" tone="danger" onClick={() => void handleDelete()}>
-              {meRole === 'superadmin' ? 'Удалить' : 'Запросить удаление'}
-            </Button>
-          )}
           <Button variant="ghost" tone="info" onClick={printEmployeeCard}>
             Распечатать
           </Button>

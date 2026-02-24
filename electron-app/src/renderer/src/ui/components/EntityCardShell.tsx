@@ -3,6 +3,7 @@ import React from 'react';
 export function EntityCardShell(props: {
   title: string;
   actions?: React.ReactNode;
+  cardActions?: React.ReactNode;
   status?: React.ReactNode;
   children: React.ReactNode;
   layout?: 'stack' | 'two-column';
@@ -10,6 +11,11 @@ export function EntityCardShell(props: {
   const layout = props.layout ?? 'stack';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {props.cardActions && (
+        <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+          {props.cardActions}
+        </div>
+      )}
       <div
         className="ui-section-header"
         style={{

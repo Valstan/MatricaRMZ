@@ -3,8 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkOrderPayload, WorkOrderWorkLine } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 
 type LinkOpt = { id: string; label: string };
 type ServiceInfo = { id: string; name: string; unit: string; priceRub: number };
@@ -65,7 +67,13 @@ function recalcLocally(payload: WorkOrderPayload): WorkOrderPayload {
   };
 }
 
-export function WorkOrderDetailsPage(props: { id: string; onClose: () => void; canEdit: boolean }) {
+export function WorkOrderDetailsPage(props: {
+  id: string;
+  onClose: () => void;
+  canEdit: boolean;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
+}) {
   const [payload, setPayload] = useState<WorkOrderPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
@@ -74,6 +82,33 @@ export function WorkOrderDetailsPage(props: { id: string; onClose: () => void; c
   const [parts, setParts] = useState<PartInfo[]>([]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        if (payload && props.canEdit) {
+          await flushSave(payload);
+        }
+        dirtyRef.current = false;
+      },
+      closeWithoutSave: () => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const r = await window.matrica.workOrders.create();
+        if (r?.ok && r.id && payload) {
+          await window.matrica.workOrders.update({
+            id: r.id,
+            payload: { ...payload, workOrderNumber: 0 },
+          });
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [payload, props.registerCardCloseActions]);
 
   const serviceOptions: LinkOpt[] = useMemo(() => services.map((s) => ({ id: s.id, label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})` })), [services]);
   const employeeOptions: LinkOpt[] = useMemo(() => employees.map((e) => ({ id: e.id, label: e.displayName })), [employees]);
@@ -193,8 +228,36 @@ export function WorkOrderDetailsPage(props: { id: string; onClose: () => void; c
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+        <CardActionBar
+          canEdit={props.canEdit}
+          onCopyToNew={() => {
+            void (async () => {
+              const r = await window.matrica.workOrders.create();
+              if (r?.ok && r.id && payload) {
+                await window.matrica.workOrders.update({
+                  id: r.id,
+                  payload: { ...payload, workOrderNumber: 0 },
+                });
+              }
+            })();
+          }}
+          onSaveAndClose={() => {
+            void (async () => {
+              if (payload && props.canEdit) await flushSave(payload);
+              dirtyRef.current = false;
+              props.onClose();
+            })();
+          }}
+          onCloseWithoutSave={() => {
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            dirtyRef.current = false;
+            props.onClose();
+          }}
+          onClose={() => props.requestClose?.()}
+        />
+      </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button variant="ghost" onClick={props.onClose}>Назад</Button>
         <div style={{ fontWeight: 700 }}>Наряд №{payload.workOrderNumber}</div>
         <div style={{ color: 'var(--muted)' }}>Итог: {money(payload.totalAmountRub)}</div>
         <div style={{ color: 'var(--muted)' }}>База на человека: {money(payload.basePerWorkerRub)}</div>
