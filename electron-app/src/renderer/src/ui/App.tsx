@@ -1679,6 +1679,14 @@ export function App() {
     },
   );
 
+  const prevTabRef = useRef<TabId | null>(null);
+  useEffect(() => {
+    if (tab === 'engines' && prevTabRef.current !== 'engines' && authStatus.loggedIn) {
+      void refreshEngines();
+    }
+    prevTabRef.current = tab;
+  }, [tab, authStatus.loggedIn]);
+
   // Audit page is hidden in client app.
 
   function triggerEmployeesRefresh() {

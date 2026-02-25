@@ -4,7 +4,8 @@ export type ReportPresetId =
   | 'contracts_finance'
   | 'supply_fulfillment'
   | 'work_order_costs'
-  | 'engine_movements';
+  | 'engine_movements'
+  | 'engines_list';
 
 export type ReportFilterOption = {
   value: string;
@@ -255,6 +256,47 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
       { key: 'note', label: 'Примечание' },
+    ],
+  },
+  {
+    id: 'engines_list',
+    title: 'Отчёт по двигателям',
+    description: 'Список двигателей с фильтрацией по датам, маркам, контрактам, статусу утиля и наличию на заводе.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период (дата создания)', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'date_range', key: 'arrivalPeriod', label: 'Дата прихода', startKey: 'arrivalStartMs', endKey: 'arrivalEndMs' },
+      { type: 'date_range', key: 'shippingPeriod', label: 'Дата отгрузки', startKey: 'shippingStartMs', endKey: 'shippingEndMs' },
+      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+      {
+        type: 'select',
+        key: 'scrapFilter',
+        label: 'Утиль',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'Только утиль' },
+          { value: 'no', label: 'Только не утиль' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'onSiteFilter',
+        label: 'Наличие на заводе',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'На заводе (без даты отгрузки)' },
+          { value: 'no', label: 'Отгруженные' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineBrand', label: 'Марка' },
+      { key: 'contractLabel', label: 'Контракт' },
+      { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
+      { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
+      { key: 'isScrap', label: 'Утиль' },
     ],
   },
 ];

@@ -59,6 +59,7 @@ const TOTAL_LABEL_MAP: Record<string, string> = {
   workOrders: 'Наряды, шт.',
   lines: 'Записей, шт.',
   amountRub: 'Сумма, ₽',
+  onSiteQty: 'На заводе, шт.',
   acceptance: 'Приёмка',
   shipment: 'Отгрузка',
   customer_delivery: 'Доставка заказчику',
@@ -862,6 +863,96 @@ async function buildEngineMovementsReport(
   };
 }
 
+async function buildEnginesListReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const arrivalStart = asNumberOrNull(filters?.arrivalStartMs);
+  const arrivalEnd = asNumberOrNull(filters?.arrivalEndMs);
+  const shippingStart = asNumberOrNull(filters?.shippingStartMs);
+  const shippingEnd = asNumberOrNull(filters?.shippingEndMs);
+  const brandFilter = asArray(filters?.brandIds);
+  const contractFilter = asArray(filters?.contractIds);
+  const scrapFilter = normalizeText(filters?.scrapFilter, 'all');
+  const onSiteFilter = normalizeText(filters?.onSiteFilter, 'all');
+
+  const snapshot = await loadSnapshot(db);
+  const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
+  if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
+
+  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildOptions(snapshot, 'counterparty').map((o) => [o.value, o.label] as const));
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalScrap = 0;
+  let totalOnSite = 0;
+
+  for (const [id, entity] of snapshot.entitiesById.entries()) {
+    if (entity.typeId !== engineTypeId) continue;
+    const attrs = snapshot.attrsByEntity.get(id) ?? {};
+
+    const createdAtRaw = toNumber(attrs.created_at);
+    const arrivalDateRaw = toNumber(attrs.arrival_date);
+    const shippingDateRaw = toNumber(attrs.shipping_date);
+    const isScrap = attrs.is_scrap === true || attrs.is_scrap === 'true' || attrs.is_scrap === 1;
+    const brandId = normalizeText(attrs.engine_brand_id, '');
+    const contractId = normalizeText(attrs.contract_id, '');
+    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
+
+    if (period.startMs != null && createdAtRaw > 0 && createdAtRaw < period.startMs) continue;
+    if (createdAtRaw > 0 && createdAtRaw > period.endMs) continue;
+
+    if (arrivalStart != null && (arrivalDateRaw <= 0 || arrivalDateRaw < arrivalStart)) continue;
+    if (arrivalEnd != null && (arrivalDateRaw <= 0 || arrivalDateRaw > arrivalEnd)) continue;
+
+    if (shippingStart != null && (shippingDateRaw <= 0 || shippingDateRaw < shippingStart)) continue;
+    if (shippingEnd != null && (shippingDateRaw <= 0 || shippingDateRaw > shippingEnd)) continue;
+
+    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
+
+    if (scrapFilter === 'yes' && !isScrap) continue;
+    if (scrapFilter === 'no' && isScrap) continue;
+
+    const onSite = shippingDateRaw <= 0;
+    if (onSiteFilter === 'yes' && !onSite) continue;
+    if (onSiteFilter === 'no' && onSite) continue;
+
+    if (isScrap) totalScrap++;
+    if (onSite) totalOnSite++;
+
+    rows.push({
+      engineNumber: normalizeText(attrs.engine_number ?? attrs.number, id),
+      engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+      contractLabel: resolveContractLabel(contractId, contractOptions),
+      counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
+      arrivalDate: arrivalDateRaw > 0 ? arrivalDateRaw : null,
+      shippingDate: shippingDateRaw > 0 ? shippingDateRaw : null,
+      isScrap: isScrap ? 'Да' : 'Нет',
+    });
+  }
+
+  rows.sort((a, b) => toNumber(b.arrivalDate) - toNumber(a.arrivalDate));
+
+  const preset = getPreset('engines_list');
+  return {
+    ok: true,
+    presetId: 'engines_list',
+    title: preset.title,
+    subtitle: period.startMs ? `${msToDate(period.startMs)} — ${msToDate(period.endMs)}` : `по ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      engines: rows.length,
+      scrapQty: totalScrap,
+      onSiteQty: totalOnSite,
+    },
+    generatedAt: Date.now(),
+  };
+}
+
 export async function getReportPresetList(db: BetterSQLite3Database): Promise<ReportPresetListResult> {
   try {
     const snapshot = await loadSnapshot(db);
@@ -898,6 +989,8 @@ export async function buildReportByPreset(
         return buildWorkOrderCostsReport(db, args.filters);
       case 'engine_movements':
         return buildEngineMovementsReport(db, args.filters);
+      case 'engines_list':
+        return buildEnginesListReport(db, args.filters);
       default:
         return { ok: false, error: `Неизвестный пресет: ${String(args.presetId)}` };
     }

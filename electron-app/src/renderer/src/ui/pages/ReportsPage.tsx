@@ -71,6 +71,7 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   workOrders: 'Наряды, шт.',
   lines: 'Записей, шт.',
   amountRub: 'Сумма, ₽',
+  onSiteQty: 'На заводе, шт.',
   acceptance: 'Приёмка',
   shipment: 'Отгрузка',
   customer_delivery: 'Доставка заказчику',
