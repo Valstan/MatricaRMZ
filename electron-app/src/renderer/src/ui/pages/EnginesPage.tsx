@@ -10,10 +10,13 @@ import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 
+const PAGE_SIZE = 25;
+
 export type EnginesPageUiState = {
   query: string;
   sortKey: 'engineNumber' | 'engineBrand' | 'customerName' | 'arrivalDate' | 'shippingDate';
   sortDir: 'asc' | 'desc';
+  page: number;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -21,6 +24,7 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
     query: '',
     sortKey: 'arrivalDate',
     sortDir: 'desc',
+    page: 0,
   };
 }
 
@@ -46,6 +50,8 @@ export function EnginesPage(props: {
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
 
+  const page = listState.page;
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return props.engines;
@@ -59,10 +65,10 @@ export function EnginesPage(props: {
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) {
-      patchState({ sortDir: sortDir === 'asc' ? 'desc' : 'asc' });
+      patchState({ sortDir: sortDir === 'asc' ? 'desc' : 'asc', page: 0 });
       return;
     }
-    patchState({ sortKey: key, sortDir: 'asc' });
+    patchState({ sortKey: key, sortDir: 'asc', page: 0 });
   }
 
   function sortArrow(key: typeof sortKey) {
@@ -97,6 +103,14 @@ export function EnginesPage(props: {
     });
     return items;
   }, [filtered, sortDir, sortKey]);
+
+  const totalFiltered = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const paged = useMemo(
+    () => sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
+    [sorted, safePage],
+  );
 
   const tableHeader = (
     <thead>
@@ -203,7 +217,11 @@ export function EnginesPage(props: {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру или марке…" />
+          <Input
+            value={query}
+            onChange={(e) => patchState({ query: e.target.value, page: 0 })}
+            placeholder="Поиск по номеру или марке…"
+          />
         </div>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
@@ -214,11 +232,65 @@ export function EnginesPage(props: {
         onScroll={onScroll}
       >
         <TwoColumnList
-          items={sorted}
+          items={paged}
           enabled={twoCol}
           renderColumn={(items) => renderTable(items)}
         />
       </div>
+
+      {totalPages > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: '8px 0 4px',
+            flex: '0 0 auto',
+            fontSize: 13,
+            color: '#4b5563',
+          }}
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={safePage === 0}
+            onClick={() => patchState({ page: 0 })}
+          >
+            &laquo;
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={safePage === 0}
+            onClick={() => patchState({ page: Math.max(0, safePage - 1) })}
+          >
+            &lsaquo; Назад
+          </Button>
+          <span>
+            {safePage + 1} / {totalPages}
+            <span style={{ marginLeft: 8, color: '#9ca3af' }}>
+              ({totalFiltered} всего)
+            </span>
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={safePage >= totalPages - 1}
+            onClick={() => patchState({ page: Math.min(totalPages - 1, safePage + 1) })}
+          >
+            Вперёд &rsaquo;
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={safePage >= totalPages - 1}
+            onClick={() => patchState({ page: totalPages - 1 })}
+          >
+            &raquo;
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

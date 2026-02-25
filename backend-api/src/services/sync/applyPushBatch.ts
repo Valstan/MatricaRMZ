@@ -50,10 +50,6 @@ function nowMs() {
   return Date.now();
 }
 
-function strictSyncDependencies() {
-  return String(process.env.MATRICA_SYNC_STRICT_DEPENDENCIES ?? '0').trim() === '1';
-}
-
 function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'upsert' | 'delete' {
   return row.deleted_at ? 'delete' : 'upsert';
 }
@@ -623,15 +619,6 @@ export async function applyPushBatch(
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.Entities, missingRows.length, 'entity_type');
           addDependencySkippedRows(SyncTableName.Entities, missingRows as Array<Record<string, unknown>>, 'entity_type', 'type_id');
-          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            logWarn('sync dependency strict mode: rows skipped', {
-              table: SyncTableName.Entities,
-              dependency: 'entity_type',
-              missing: missingRows.length,
-              client_id: req.client_id,
-              user: actor.username,
-            });
-          }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.Entities,
             dependency: 'entity_type',
@@ -793,15 +780,6 @@ export async function applyPushBatch(
             'entity_type',
             'entity_type_id',
           );
-          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            logWarn('sync dependency strict mode: rows skipped', {
-              table: SyncTableName.AttributeDefs,
-              dependency: 'entity_type',
-              missing: missingRows.length,
-              client_id: req.client_id,
-              user: actor.username,
-            });
-          }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.AttributeDefs,
             dependency: 'entity_type',
@@ -896,15 +874,6 @@ export async function applyPushBatch(
             'attribute_def',
             'attribute_def_id',
           );
-          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            logWarn('sync dependency strict mode: rows skipped', {
-              table: SyncTableName.AttributeValues,
-              dependency: 'attribute_def',
-              missing: missingRows.length,
-              client_id: req.client_id,
-              user: actor.username,
-            });
-          }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.AttributeValues,
             dependency: 'attribute_def',
@@ -928,15 +897,6 @@ export async function applyPushBatch(
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.AttributeValues, missingRows.length, 'entity');
           addDependencySkippedRows(SyncTableName.AttributeValues, missingRows as Array<Record<string, unknown>>, 'entity', 'entity_id');
-          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            logWarn('sync dependency strict mode: rows skipped', {
-              table: SyncTableName.AttributeValues,
-              dependency: 'entity',
-              missing: missingRows.length,
-              client_id: req.client_id,
-              user: actor.username,
-            });
-          }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.AttributeValues,
             dependency: 'entity',
@@ -1074,15 +1034,6 @@ export async function applyPushBatch(
             'engine_entity',
             'engine_entity_id',
           );
-          if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            logWarn('sync dependency strict mode: rows skipped', {
-              table: SyncTableName.Operations,
-              dependency: 'engine_entity',
-              missing: missingOps.length,
-              client_id: req.client_id,
-              user: actor.username,
-            });
-          }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.Operations,
             dependency: 'engine_entity',

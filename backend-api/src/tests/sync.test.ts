@@ -43,7 +43,7 @@ describe('sync privacy and errors', () => {
     vi.clearAllMocks();
     txMock.select.mockImplementation(makeTxSelectFromTableMap(txRowsByTable));
     process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED = '0';
-    process.env.MATRICA_SYNC_STRICT_DEPENDENCIES = '1';
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   it('pullChangesSince keeps chat privacy for non-admin', async () => {

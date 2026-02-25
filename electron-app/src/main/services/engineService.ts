@@ -43,8 +43,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const engines = await db
     .select()
     .from(entities)
-    .where(and(eq(entities.typeId, engineTypeId), isNull(entities.deletedAt)))
-    .limit(1000);
+    .where(and(eq(entities.typeId, engineTypeId), isNull(entities.deletedAt)));
 
   const defs = await getEngineAttrDefs(db);
   const numberDefId = defs['engine_number'];
