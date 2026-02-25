@@ -3,7 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -46,7 +48,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
   const width = useWindowWidth();
-  const twoCol = width >= 1400;
+  const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
+  const twoCol = isMultiColumn && width >= 1400;
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -317,6 +320,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по ФИО…" />
         </div>
+        <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}

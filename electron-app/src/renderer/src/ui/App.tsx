@@ -2466,6 +2466,7 @@ export function App() {
               setSelectedEngineId(null);
               setEngineDetails(null);
               setTabState('engines');
+              void refreshEngines();
             }}
           />
       )}

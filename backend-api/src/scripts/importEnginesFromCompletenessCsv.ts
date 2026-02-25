@@ -104,11 +104,6 @@ function safeJsonParse(value: string | null | undefined): unknown {
   }
 }
 
-function isBrokenJsonErrorText(errorText: string): boolean {
-  const text = String(errorText || '');
-  return text.includes('SyntaxError') || text.includes('Unexpected non-whitespace character after JSON');
-}
-
 function engineAttributeEquals(expected: unknown, actual: unknown): boolean {
   if (expected == null) return actual == null;
   if (actual == null) return false;

@@ -6,8 +6,10 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type Row = {
@@ -61,7 +63,8 @@ export function ToolsPage(props: {
   const [propertyOptions, setPropertyOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [reportPropertyValueHints, setReportPropertyValueHints] = useState<string[]>([]);
   const width = useWindowWidth();
-  const twoCol = width >= 1400;
+  const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
+  const twoCol = isMultiColumn && width >= 1400;
   const queryTimer = useRef<number | null>(null);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -319,6 +322,7 @@ export function ToolsPage(props: {
         <div style={{ flex: 1, minWidth: 220 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру/названию/серийному…" />
         </div>
+        <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}

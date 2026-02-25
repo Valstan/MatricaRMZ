@@ -6,12 +6,15 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 
 export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<void> }) {
   const width = useWindowWidth();
-  const twoCol = width >= 1400;
+  const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
+  const twoCol = isMultiColumn && width >= 1400;
   type SortKey = 'createdAt' | 'actor' | 'action' | 'section';
   const { state: listState, patchState } = useListUiState('list:audit', {
     fromDate: '',
@@ -250,6 +253,7 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
             Сбросить фильтры
           </Button>
         )}
+        <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
         <span style={{ color: '#6b7280', fontSize: 12 }}>
           Показано: {sorted.length} / {props.audit.length}
         </span>

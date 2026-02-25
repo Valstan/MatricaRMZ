@@ -267,7 +267,7 @@ export async function setEngineAttribute(
   if (existing[0]) {
     await db
       .update(attributeValues)
-      .set({ valueJson: payload, updatedAt: ts, syncStatus: 'pending' })
+      .set({ valueJson: payload, updatedAt: ts, deletedAt: null, syncStatus: 'pending' })
       .where(eq(attributeValues.id, existing[0].id));
   } else {
     await db.insert(attributeValues).values({

@@ -3,7 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -32,7 +34,8 @@ export function CounterpartiesPage(props: {
   const query = String(listState.query ?? '');
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
-  const twoCol = width >= 1400;
+  const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
+  const twoCol = isMultiColumn && width >= 1400;
 
   async function loadType() {
     if (!props.canViewMasterData) return;
@@ -224,6 +227,7 @@ export function CounterpartiesPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/ИНН…" />
         </div>
+        <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}

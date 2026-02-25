@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';

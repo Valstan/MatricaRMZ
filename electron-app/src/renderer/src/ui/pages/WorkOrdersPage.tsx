@@ -3,9 +3,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 
 type Row = {
   id: string;
@@ -36,7 +38,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
-  const twoCol = width >= 1600;
+  const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
+  const twoCol = isMultiColumn && width >= 1600;
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -195,6 +198,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
         <Button variant="ghost" onClick={() => void refresh()}>
           Поиск
         </Button>
+        <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
         <span style={{ color: '#6b7280', fontSize: 12 }}>Итог по списку: {rub(totalRowsAmount)}</span>
       </div>
 

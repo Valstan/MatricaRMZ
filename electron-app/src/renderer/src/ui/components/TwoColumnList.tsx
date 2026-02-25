@@ -60,8 +60,8 @@ export function TwoColumnList<T>(props: {
       const maxColumns = clampInt(props.maxColumns ?? cssMaxColumns, 1, 3);
       const gap = clampInt(props.gapPx ?? readNumberCssVar(root, '--ui-list-auto-columns-gap-px', 10), 0, 32);
 
-      // Adaptive columns are centrally controlled from UI Control Center.
-      const allowAdaptive = autoEnabled;
+      // Adaptive columns are centrally controlled from UI Control Center and local preference.
+      const allowAdaptive = autoEnabled && props.enabled;
       if (!allowAdaptive) {
         setLayout((prev) => (prev.columns === 1 && prev.gap === gap ? prev : { columns: 1, gap }));
         return;
@@ -85,7 +85,7 @@ export function TwoColumnList<T>(props: {
       observer.disconnect();
       window.removeEventListener('resize', recalc);
     };
-  }, [props.gapPx, props.maxColumns, props.items.length, measuredItems.length]);
+  }, [props.enabled, props.gapPx, props.maxColumns, props.items.length, measuredItems.length]);
 
   const columnsData = useMemo(() => splitInColumns(props.items, layout.columns), [layout.columns, props.items]);
 

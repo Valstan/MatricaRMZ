@@ -6,9 +6,11 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 
 export type EnginesPageUiState = {
   query: string;
@@ -95,7 +97,8 @@ export function EnginesPage(props: {
   const sortKey = listState.sortKey;
   const sortDir = listState.sortDir;
   const width = useWindowWidth();
-  const twoCol = width >= 1400;
+  const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
+  const twoCol = isMultiColumn && width >= 1400;
 
   const contractOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -125,27 +128,30 @@ export function EnginesPage(props: {
       const matchesQuery = !q || n.includes(q) || b.includes(q) || c.includes(q);
       if (!matchesQuery) return false;
 
-      const createdAt = e.createdAt ?? e.updatedAt;
-      if (!inDateRange(createdAt, periodFrom, periodTo)) return false;
-      if (!inDateRange(e.arrivalDate ?? null, arrivalFrom, arrivalTo)) return false;
-      if (!inDateRange(e.shippingDate ?? null, shippingFrom, shippingTo)) return false;
+      if (showReport) {
+        const createdAt = e.createdAt ?? e.updatedAt;
+        if (!inDateRange(createdAt, periodFrom, periodTo)) return false;
+        if (!inDateRange(e.arrivalDate ?? null, arrivalFrom, arrivalTo)) return false;
+        if (!inDateRange(e.shippingDate ?? null, shippingFrom, shippingTo)) return false;
 
-      if (contractIds.length > 0 && (!e.contractId || !contractIds.includes(e.contractId))) return false;
-      const brandKey = e.engineBrandId || e.engineBrand || '';
-      if (brandIds.length > 0 && (!brandKey || !brandIds.includes(brandKey))) return false;
+        if (contractIds.length > 0 && (!e.contractId || !contractIds.includes(e.contractId))) return false;
+        const brandKey = e.engineBrandId || e.engineBrand || '';
+        if (brandIds.length > 0 && (!brandKey || !brandIds.includes(brandKey))) return false;
 
-      if (scrapFilter === 'yes' && !e.isScrap) return false;
-      if (scrapFilter === 'no' && e.isScrap) return false;
+        if (scrapFilter === 'yes' && !e.isScrap) return false;
+        if (scrapFilter === 'no' && e.isScrap) return false;
 
-      const onSite = e.shippingDate == null;
-      if (onSiteFilter === 'yes' && !onSite) return false;
-      if (onSiteFilter === 'no' && onSite) return false;
+        const onSite = e.shippingDate == null;
+        if (onSiteFilter === 'yes' && !onSite) return false;
+        if (onSiteFilter === 'no' && onSite) return false;
+      }
 
       return true;
     });
   }, [
     props.engines,
     query,
+    showReport,
     periodFrom,
     periodTo,
     arrivalFrom,
@@ -362,6 +368,7 @@ export function EnginesPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру или марке…" />
         </div>
+        <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 
       {showReport && (
