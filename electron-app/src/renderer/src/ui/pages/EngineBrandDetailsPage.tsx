@@ -315,6 +315,7 @@ export function EngineBrandDetailsPage(props: {
   useLiveDataRefresh(
     async () => {
       if (!props.canViewMasterData) return;
+      if (dirtyRef.current) return;
       await loadBrand();
       await loadBrandParts();
     },
@@ -327,6 +328,10 @@ export function EngineBrandDetailsPage(props: {
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
         await saveAllAndClose();
+      },
+      reset: async () => {
+        await loadBrand();
+        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -366,6 +371,11 @@ export function EngineBrandDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onReset={() => {
+            void loadBrand().then(() => {
+              dirtyRef.current = false;
+            });
+          }}
           onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
@@ -374,9 +384,6 @@ export function EngineBrandDetailsPage(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
-        <Button variant="ghost" tone="neutral" onClick={() => void loadBrand()}>
-          Обновить
-        </Button>
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
@@ -387,14 +394,12 @@ export function EngineBrandDetailsPage(props: {
             value={name}
             disabled={!props.canEdit}
             onChange={(e) => { setName(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveName()}
           />
           <div style={{ color: 'var(--subtle)', alignSelf: 'start', paddingTop: 6 }}>Описание</div>
           <textarea
             value={description}
             disabled={!props.canEdit}
             onChange={(e) => { setDescription(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveDescription()}
             rows={3}
             style={{
               width: '100%',

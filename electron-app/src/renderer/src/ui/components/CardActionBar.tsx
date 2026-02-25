@@ -5,6 +5,7 @@ export type CardActionBarProps = {
   canEdit: boolean;
   onCopyToNew?: (() => void) | undefined;
   onSaveAndClose?: (() => void) | undefined;
+  onReset?: (() => void) | undefined;
   onCloseWithoutSave?: (() => void) | undefined;
   onDelete?: (() => void) | undefined;
   onClose?: (() => void) | undefined;
@@ -26,29 +27,34 @@ export function CardActionBar(props: CardActionBarProps) {
         padding: '6px 0',
       }}
     >
-      {props.canEdit && props.onCopyToNew && (
-        <Button variant="ghost" onClick={props.onCopyToNew}>
-          Скопировать в новую карточку
+      {props.onClose && (
+        <Button variant="ghost" tone="neutral" title="Закрыть с выбором сохранения изменений" onClick={props.onClose}>
+          Закрыть карточку
         </Button>
       )}
       {props.canEdit && props.onSaveAndClose && (
-        <Button variant="ghost" tone="success" onClick={props.onSaveAndClose}>
+        <Button variant="ghost" tone="success" title="Сохранить изменения и закрыть карточку" onClick={props.onSaveAndClose}>
           Сохранить и выйти
         </Button>
       )}
+      {props.canEdit && props.onReset && (
+        <Button variant="ghost" title="Сбросить внесенные изменения" onClick={props.onReset}>
+          Сброс
+        </Button>
+      )}
       {props.onCloseWithoutSave && (
-        <Button variant="ghost" onClick={props.onCloseWithoutSave}>
+        <Button variant="ghost" title="Сбросить изменения и закрыть" onClick={props.onCloseWithoutSave}>
           Выйти без сохранения
         </Button>
       )}
       {props.canEdit && props.onDelete && (
-        <Button variant="ghost" tone="danger" onClick={props.onDelete}>
+        <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={props.onDelete}>
           Удалить карточку
         </Button>
       )}
-      {props.onClose && (
-        <Button variant="ghost" tone="neutral" onClick={props.onClose}>
-          Закрыть карточку
+      {props.canEdit && props.onCopyToNew && (
+        <Button variant="ghost" title="Создать новую карточку с этими же данными" onClick={props.onCopyToNew}>
+          Скопировать в новую карточку
         </Button>
       )}
     </div>

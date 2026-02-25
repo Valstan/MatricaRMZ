@@ -802,9 +802,6 @@ export function RepairChecklistPanel(props: {
         <Button variant="ghost" onClick={() => setCollapsed((v) => !v)}>
           {collapsed ? 'Развернуть' : 'Свернуть'}
         </Button>
-        <Button variant="ghost" onClick={() => void load()}>
-          Обновить
-        </Button>
         {props.canExport && (
           <>
             <Button variant="ghost" onClick={exportJson}>

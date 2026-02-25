@@ -80,7 +80,6 @@ export function WorkOrderDetailsPage(props: {
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
   const [parts, setParts] = useState<PartInfo[]>([]);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
 
   useEffect(() => {
@@ -93,8 +92,11 @@ export function WorkOrderDetailsPage(props: {
         }
         dirtyRef.current = false;
       },
+      reset: async () => {
+        await refresh();
+        dirtyRef.current = false;
+      },
       closeWithoutSave: () => {
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         dirtyRef.current = false;
       },
       copyToNew: async () => {
@@ -108,7 +110,7 @@ export function WorkOrderDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [payload, props.registerCardCloseActions]);
+  }, [payload, props.registerCardCloseActions, props.id]);
 
   const serviceOptions: LinkOpt[] = useMemo(() => services.map((s) => ({ id: s.id, label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})` })), [services]);
   const employeeOptions: LinkOpt[] = useMemo(() => employees.map((e) => ({ id: e.id, label: e.displayName })), [employees]);
@@ -167,6 +169,7 @@ export function WorkOrderDetailsPage(props: {
     setPayload(recalcLocally(r.payload));
     setStatus('');
     setLoading(false);
+    dirtyRef.current = false;
   }
 
   useEffect(() => {
@@ -184,18 +187,10 @@ export function WorkOrderDetailsPage(props: {
     dirtyRef.current = false;
   }
 
-  function scheduleSave(next: WorkOrderPayload) {
-    dirtyRef.current = true;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      void flushSave(next);
-    }, 450);
-  }
-
   function patch(next: WorkOrderPayload) {
     const normalized = recalcLocally(next);
+    dirtyRef.current = true;
     setPayload(normalized);
-    scheduleSave(normalized);
   }
 
   async function applyServiceSnapshot(idx: number, serviceId: string | null) {
@@ -249,8 +244,12 @@ export function WorkOrderDetailsPage(props: {
               props.onClose();
             })();
           }}
+          onReset={() => {
+            void refresh().then(() => {
+              dirtyRef.current = false;
+            });
+          }}
           onCloseWithoutSave={() => {
-            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
             dirtyRef.current = false;
             props.onClose();
           }}

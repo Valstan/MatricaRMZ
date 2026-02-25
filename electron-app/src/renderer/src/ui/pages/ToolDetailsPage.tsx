@@ -207,6 +207,11 @@ export function ToolDetailsPage(props: {
       saveAndClose: async () => {
         await saveAllFields();
       },
+      reset: async () => {
+        await refresh();
+        await refreshMovements();
+        dirtyRef.current = false;
+      },
       closeWithoutSave: () => {
         dirtyRef.current = false;
       },
@@ -239,6 +244,7 @@ export function ToolDetailsPage(props: {
 
   useLiveDataRefresh(
     async () => {
+      if (dirtyRef.current) return;
       await refresh();
       await refreshMovements();
     },
@@ -268,12 +274,14 @@ export function ToolDetailsPage(props: {
     await saveAttribute('received_at', fromInputDate(receivedAt));
     await saveAttribute('retired_at', fromInputDate(retiredAt));
     await saveAttribute('retire_reason', retireReason.trim());
+    await saveAttribute('properties', properties);
+    await saveAttribute('photos', photos);
     dirtyRef.current = false;
   }
 
   async function updateProperties(next: ToolPropertyRow[]) {
+    dirtyRef.current = true;
     setProperties(next);
-    await saveAttribute('properties', next);
   }
 
   async function createDepartment(label: string): Promise<string | null> {
@@ -466,6 +474,13 @@ export function ToolDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => { void saveAllFields().then(() => props.onBack()); }}
+          onReset={() => {
+            void (async () => {
+              await refresh();
+              await refreshMovements();
+              dirtyRef.current = false;
+            })();
+          }}
           onCloseWithoutSave={() => { dirtyRef.current = false; props.onBack(); }}
           onClose={() => props.requestClose?.()}
         />
@@ -489,7 +504,6 @@ export function ToolDetailsPage(props: {
           <Input
             value={toolNumber}
             onChange={(e) => { setToolNumber(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveAttribute('tool_number', toolNumber.trim())}
             disabled={!props.canEdit}
           />
         </div>
@@ -502,11 +516,10 @@ export function ToolDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="+Добавить инструмент"
             onChange={(next) => {
+              dirtyRef.current = true;
               const label = toolCatalogOptions.find((o) => o.id === next)?.label ?? '';
               setToolCatalogId(next ?? '');
               if (label) setName(label);
-              void saveAttribute('tool_catalog_id', next || null);
-              if (label) void saveAttribute('name', label);
             }}
             onCreate={async (label) => {
               const r = await window.matrica.tools.catalog.create({ name: label.trim() });
@@ -516,10 +529,9 @@ export function ToolDetailsPage(props: {
               }
               const id = (r as any).id as string;
               setToolCatalogOptions((prev) => [...prev, { id, label }]);
+              dirtyRef.current = true;
               setToolCatalogId(id);
               setName(label);
-              void saveAttribute('tool_catalog_id', id);
-              void saveAttribute('name', label);
               return id;
             }}
           />
@@ -529,7 +541,6 @@ export function ToolDetailsPage(props: {
           <Input
             value={serialNumber}
             onChange={(e) => { setSerialNumber(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveAttribute('serial_number', serialNumber.trim())}
             disabled={!props.canEdit}
           />
         </div>
@@ -538,7 +549,6 @@ export function ToolDetailsPage(props: {
           <Input
             value={description}
             onChange={(e) => { setDescription(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveAttribute('description', description.trim())}
             disabled={!props.canEdit}
           />
         </div>
@@ -552,14 +562,14 @@ export function ToolDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="Новое подразделение"
             onChange={(next) => {
+              dirtyRef.current = true;
               setDepartmentId(next ?? '');
-              void saveAttribute('department_id', next || null);
             }}
             onCreate={async (label) => {
               const id = await createDepartment(label);
               if (!id) return null;
+              dirtyRef.current = true;
               setDepartmentId(id);
-              void saveAttribute('department_id', id);
               return id;
             }}
           />
@@ -570,7 +580,6 @@ export function ToolDetailsPage(props: {
             type="date"
             value={receivedAt}
             onChange={(e) => { setReceivedAt(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveAttribute('received_at', fromInputDate(receivedAt))}
             disabled={!props.canEdit}
           />
         </div>
@@ -580,7 +589,6 @@ export function ToolDetailsPage(props: {
             type="date"
             value={retiredAt}
             onChange={(e) => { setRetiredAt(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveAttribute('retired_at', fromInputDate(retiredAt))}
             disabled={!props.canEdit}
           />
         </div>
@@ -589,7 +597,6 @@ export function ToolDetailsPage(props: {
           <Input
             value={retireReason}
             onChange={(e) => { setRetireReason(e.target.value); dirtyRef.current = true; }}
-            onBlur={() => void saveAttribute('retire_reason', retireReason.trim())}
             disabled={!props.canEdit}
           />
         </div>
@@ -811,9 +818,8 @@ export function ToolDetailsPage(props: {
         canUpload={props.canUploadFiles && props.canEdit}
         scope={{ ownerType: 'tool', ownerId: props.toolId, category: 'photos' }}
         onChange={async (next) => {
+          dirtyRef.current = true;
           setPhotos(next);
-          const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code: 'photos', value: next });
-          if (!r.ok) return { ok: false as const, error: r.error };
           return { ok: true as const };
         }}
       />

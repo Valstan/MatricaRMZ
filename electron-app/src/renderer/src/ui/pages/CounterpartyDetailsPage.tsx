@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
@@ -71,6 +70,7 @@ export function CounterpartyDetailsPage(props: {
 
   useLiveDataRefresh(
     async () => {
+      if (dirtyRef.current) return;
       await load();
     },
     { intervalMs: 20000 },
@@ -103,6 +103,7 @@ export function CounterpartyDetailsPage(props: {
     setPhone(String(attrs.phone ?? ''));
     setEmail(String(attrs.email ?? ''));
     setAttachments(attrs.attachments ?? []);
+    dirtyRef.current = false;
   }, [entity?.id, entity?.updatedAt]);
 
   useEffect(() => {
@@ -111,6 +112,10 @@ export function CounterpartyDetailsPage(props: {
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
         await saveAllAndClose();
+      },
+      reset: async () => {
+        await load();
+        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -156,6 +161,7 @@ export function CounterpartyDetailsPage(props: {
       await saveAttr('address', address.trim() || null);
       await saveAttr('phone', phone.trim() || null);
       await saveAttr('email', email.trim() || null);
+      await saveAttr('attachments', attachments);
     }
     dirtyRef.current = false;
   }
@@ -190,7 +196,7 @@ export function CounterpartyDetailsPage(props: {
         label: 'Название',
         value: name,
         render: (
-          <Input value={name} disabled={!props.canEdit} onChange={(e) => { setName(e.target.value); dirtyRef.current = true; }} onBlur={() => void saveAttr('name', name.trim())} />
+          <Input value={name} disabled={!props.canEdit} onChange={(e) => { setName(e.target.value); dirtyRef.current = true; }} />
         ),
       },
       {
@@ -199,7 +205,7 @@ export function CounterpartyDetailsPage(props: {
         label: 'ИНН',
         value: inn,
         render: (
-          <Input value={inn} disabled={!props.canEdit} onChange={(e) => { setInn(e.target.value); dirtyRef.current = true; }} onBlur={() => void saveAttr('inn', inn.trim() || null)} />
+          <Input value={inn} disabled={!props.canEdit} onChange={(e) => { setInn(e.target.value); dirtyRef.current = true; }} />
         ),
       },
       {
@@ -208,7 +214,7 @@ export function CounterpartyDetailsPage(props: {
         label: 'КПП',
         value: kpp,
         render: (
-          <Input value={kpp} disabled={!props.canEdit} onChange={(e) => { setKpp(e.target.value); dirtyRef.current = true; }} onBlur={() => void saveAttr('kpp', kpp.trim() || null)} />
+          <Input value={kpp} disabled={!props.canEdit} onChange={(e) => { setKpp(e.target.value); dirtyRef.current = true; }} />
         ),
       },
       {
@@ -217,7 +223,7 @@ export function CounterpartyDetailsPage(props: {
         label: 'Адрес',
         value: address,
         render: (
-          <Input value={address} disabled={!props.canEdit} onChange={(e) => { setAddress(e.target.value); dirtyRef.current = true; }} onBlur={() => void saveAttr('address', address.trim() || null)} />
+          <Input value={address} disabled={!props.canEdit} onChange={(e) => { setAddress(e.target.value); dirtyRef.current = true; }} />
         ),
       },
       {
@@ -226,7 +232,7 @@ export function CounterpartyDetailsPage(props: {
         label: 'Телефон',
         value: phone,
         render: (
-          <Input value={phone} disabled={!props.canEdit} onChange={(e) => { setPhone(e.target.value); dirtyRef.current = true; }} onBlur={() => void saveAttr('phone', phone.trim() || null)} />
+          <Input value={phone} disabled={!props.canEdit} onChange={(e) => { setPhone(e.target.value); dirtyRef.current = true; }} />
         ),
       },
       {
@@ -235,7 +241,7 @@ export function CounterpartyDetailsPage(props: {
         label: 'Email',
         value: email,
         render: (
-          <Input value={email} disabled={!props.canEdit} onChange={(e) => { setEmail(e.target.value); dirtyRef.current = true; }} onBlur={() => void saveAttr('email', email.trim() || null)} />
+          <Input value={email} disabled={!props.canEdit} onChange={(e) => { setEmail(e.target.value); dirtyRef.current = true; }} />
         ),
       },
       {
@@ -250,7 +256,11 @@ export function CounterpartyDetailsPage(props: {
             canView={props.canViewFiles}
             canUpload={props.canUploadFiles && props.canEdit}
             scope={{ ownerType: 'customer', ownerId: entity.id, category: 'attachments' }}
-            onChange={(next) => saveAttr('attachments', next)}
+            onChange={(next) => {
+              dirtyRef.current = true;
+              setAttachments(next);
+              return Promise.resolve({ ok: true as const });
+            }}
           />
         ),
       },
@@ -280,6 +290,11 @@ export function CounterpartyDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onReset={() => {
+            void load().then(() => {
+              dirtyRef.current = false;
+            });
+          }}
           onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
@@ -289,9 +304,6 @@ export function CounterpartyDetailsPage(props: {
         <div style={{ fontSize: 20, fontWeight: 800 }}>{headerTitle}</div>
         <div style={{ flex: 1 }} />
         {status && <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{status}</div>}
-        <Button variant="ghost" tone="neutral" onClick={() => void load()}>
-          Обновить
-        </Button>
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>

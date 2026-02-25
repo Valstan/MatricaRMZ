@@ -71,6 +71,10 @@ export function ToolPropertyDetailsPage(props: {
         await saveAttr('params', params.trim());
         dirtyRef.current = false;
       },
+      reset: async () => {
+        await refresh();
+        dirtyRef.current = false;
+      },
       closeWithoutSave: () => {
         dirtyRef.current = false;
       },
@@ -106,6 +110,11 @@ export function ToolPropertyDetailsPage(props: {
             props.onBack();
           })();
         }}
+        onReset={() => {
+          void refresh().then(() => {
+            dirtyRef.current = false;
+          });
+        }}
         onCloseWithoutSave={() => {
           dirtyRef.current = false;
           props.onBack();
@@ -130,10 +139,6 @@ export function ToolPropertyDetailsPage(props: {
               setName(e.target.value);
               dirtyRef.current = true;
             }}
-            onBlur={() => {
-              void saveAttr('name', name.trim());
-              dirtyRef.current = false;
-            }}
             placeholder="Например: Материал"
             disabled={!props.canEdit}
           />
@@ -147,10 +152,6 @@ export function ToolPropertyDetailsPage(props: {
               dirtyRef.current = true;
             }}
             options={paramHints.map((v) => ({ value: v }))}
-            onBlur={() => {
-              void saveAttr('params', params.trim());
-              dirtyRef.current = false;
-            }}
             placeholder="Например: сталь 45"
             disabled={!props.canEdit}
           />

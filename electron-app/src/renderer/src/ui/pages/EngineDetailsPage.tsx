@@ -180,7 +180,6 @@ export function EngineDetailsPage(props: {
     const label = (linkLists.engine_brand ?? []).find((o) => o.id === engineBrandId)?.label ?? '';
     if (!label) return;
     setEngineBrand(label);
-    void saveAttr('engine_brand', label);
   }, [engineBrandId, engineBrand, linkLists.engine_brand]);
 
   useEffect(() => {
@@ -190,7 +189,6 @@ export function EngineDetailsPage(props: {
     );
     if (!match) return;
     setEngineBrandId(match.id);
-    void saveAttr('engine_brand_id', match.id);
   }, [engineBrandId, engineBrand, linkLists.engine_brand]);
 
   useEffect(() => {
@@ -211,7 +209,6 @@ export function EngineDetailsPage(props: {
       setSaveStatus('Сохраняю...');
       await window.matrica.engines.setAttr(props.engineId, code, value);
       await props.onEngineUpdated();
-      sessionHadChanges.current = true;
       setSaveStatus('Сохранено');
       setTimeout(() => setSaveStatus(''), 700);
     } catch (e) {
@@ -233,6 +230,7 @@ export function EngineDetailsPage(props: {
       await saveAttr('contract_id', contractId || null);
       for (const c of STATUS_CODES) await saveAttr(c, statusFlags[c] ?? false);
     }
+    sessionHadChanges.current = false;
   }
 
   async function handleDelete() {
@@ -300,6 +298,10 @@ export function EngineDetailsPage(props: {
         await saveAllAndClose();
         sessionHadChanges.current = false;
       },
+      reset: async () => {
+        await props.onReload();
+        sessionHadChanges.current = false;
+      },
       closeWithoutSave: () => {
         sessionHadChanges.current = false;
       },
@@ -314,11 +316,6 @@ export function EngineDetailsPage(props: {
     });
     return () => { props.registerCardCloseActions?.(null); };
   }, [engineNumber, engineBrand, engineBrandId, arrivalDate, shippingDate, props.registerCardCloseActions]);
-
-  async function saveEngineNumber() {
-    if (!props.canEditEngines) return;
-    await saveAttr('engine_number', engineNumber);
-  }
 
   async function saveAttachments(next: any[]) {
     try {
@@ -427,8 +424,10 @@ export function EngineDetailsPage(props: {
         <Input
           value={engineNumber}
           disabled={!props.canEditEngines}
-          onChange={(e) => setEngineNumber(e.target.value)}
-          onBlur={() => void saveEngineNumber()}
+          onChange={(e) => {
+            sessionHadChanges.current = true;
+            setEngineNumber(e.target.value);
+          }}
         />
       ),
     },
@@ -448,19 +447,16 @@ export function EngineDetailsPage(props: {
             onChange={(next) => {
               const nextId = next ?? '';
               const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
+              sessionHadChanges.current = true;
               setEngineBrandId(nextId);
               setEngineBrand(label);
-              void saveAttr('engine_brand_id', next || null);
-              if (next) void saveAttr('engine_brand', label || null);
-              else void saveAttr('engine_brand', null);
             }}
             onCreate={async (label) => {
               const id = await createMasterDataItem('engine_brand', label);
               if (!id) return null;
+              sessionHadChanges.current = true;
               setEngineBrandId(id);
               setEngineBrand(label);
-              void saveAttr('engine_brand_id', id);
-              void saveAttr('engine_brand', label);
               return id;
             }}
           />
@@ -480,8 +476,10 @@ export function EngineDetailsPage(props: {
           type="date"
           value={arrivalDate}
           disabled={!props.canEditEngines}
-          onChange={(e) => setArrivalDate(e.target.value)}
-          onBlur={() => void saveAttr('arrival_date', fromInputDate(arrivalDate))}
+          onChange={(e) => {
+            sessionHadChanges.current = true;
+            setArrivalDate(e.target.value);
+          }}
         />
       ),
     },
@@ -495,8 +493,10 @@ export function EngineDetailsPage(props: {
           type="date"
           value={shippingDate}
           disabled={!props.canEditEngines}
-          onChange={(e) => setShippingDate(e.target.value)}
-          onBlur={() => void saveAttr('shipping_date', fromInputDate(shippingDate))}
+          onChange={(e) => {
+            sessionHadChanges.current = true;
+            setShippingDate(e.target.value);
+          }}
         />
       ),
     },
@@ -513,8 +513,8 @@ export function EngineDetailsPage(props: {
             disabled={!props.canEditEngines}
             onChange={(e) => {
               const next = e.target.checked;
+              sessionHadChanges.current = true;
               setIsScrap(next);
-              void saveAttr('is_scrap', next);
             }}
           />
           <span>{isScrap ? 'Да' : 'Нет'}</span>
@@ -534,8 +534,8 @@ export function EngineDetailsPage(props: {
             disabled={!props.canEditEngines}
             onChange={(e) => {
               const next = e.target.checked;
+              sessionHadChanges.current = true;
               setStatusFlags((prev) => ({ ...prev, [code]: next }));
-              void saveAttr(code, next);
             }}
           />
           <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
@@ -557,8 +557,8 @@ export function EngineDetailsPage(props: {
               createLabel="Новый контрагент"
               onChange={(next) => {
                 const v = next ?? '';
+                sessionHadChanges.current = true;
                 setCustomerId(v);
-                void saveAttr('customer_id', next ?? null);
               }}
               onCreate={async (label) => createMasterDataItem('customer', label)}
             />
@@ -580,8 +580,8 @@ export function EngineDetailsPage(props: {
               createLabel="Номер контракта"
               onChange={(next) => {
                 const v = next ?? '';
+                sessionHadChanges.current = true;
                 setContractId(v);
-                void saveAttr('contract_id', next ?? null);
               }}
               onCreate={async (label) => createMasterDataItem('contract', label)}
             />
@@ -612,6 +612,11 @@ export function EngineDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onReset={() => {
+            void props.onReload().then(() => {
+              sessionHadChanges.current = false;
+            });
+          }}
           onCloseWithoutSave={() => { sessionHadChanges.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
@@ -641,9 +646,6 @@ export function EngineDetailsPage(props: {
               Распечатать
             </Button>
           )}
-          <Button variant="ghost" tone="neutral" onClick={props.onReload}>
-            Обновить
-          </Button>
         </RowActions>
       }
       status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div> : null}
@@ -692,6 +694,11 @@ export function EngineDetailsPage(props: {
               setIsScrap(Boolean(props.engine.attributes?.is_scrap));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
+              const attrs = props.engine.attributes ?? {};
+              const flags: Partial<Record<StatusCode, boolean>> = {};
+              for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
+              setStatusFlags(flags);
+              sessionHadChanges.current = false;
             }}
           >
             Отменить

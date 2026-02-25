@@ -626,6 +626,7 @@ export function PartDetailsPage(props: {
 
   useLiveDataRefresh(
     async () => {
+      if (dirtyRef.current) return;
       await load();
       await loadEngineBrands();
       await loadCustomers();
@@ -698,6 +699,7 @@ export function PartDetailsPage(props: {
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = Boolean(byCode[c]?.value);
     setStatusFlags(flags);
+    dirtyRef.current = false;
   }, [part?.id, part?.updatedAt]);
 
   useEffect(() => {
@@ -707,8 +709,7 @@ export function PartDetailsPage(props: {
     const match = customerOptions.find((c) => normalizeForMatch(c.label) === normalized);
     if (!match) return;
     setSupplierId(match.id);
-    if (props.canEdit) void saveAttribute('supplier_id', match.id);
-  }, [part?.id, supplierId, supplier, customerOptions, props.canEdit]);
+  }, [part?.id, supplierId, supplier, customerOptions]);
 
   function getLinkTargetTypeCode(attr: Attribute): string | null {
     const meta = attr.metaJson;
@@ -745,6 +746,10 @@ export function PartDetailsPage(props: {
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
         await saveAllAndClose();
+      },
+      reset: async () => {
+        await load();
+        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -870,7 +875,6 @@ export function PartDetailsPage(props: {
               dirtyRef.current = true;
               setName(e.target.value);
             }}
-            onBlur={() => void saveAttribute('name', name)}
           />
         ),
       },
@@ -887,7 +891,6 @@ export function PartDetailsPage(props: {
               dirtyRef.current = true;
               setArticle(e.target.value);
             }}
-            onBlur={() => void saveAttribute('article', article)}
           />
         ),
       },
@@ -900,8 +903,10 @@ export function PartDetailsPage(props: {
           <Textarea
             value={description}
             disabled={!props.canEdit}
-            onChange={(e) => setDescription(e.target.value)}
-            onBlur={() => void saveAttribute('description', description)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setDescription(e.target.value);
+            }}
           />
         ),
       },
@@ -915,8 +920,10 @@ export function PartDetailsPage(props: {
             type="date"
             value={purchaseDate}
             disabled={!props.canEdit}
-            onChange={(e) => setPurchaseDate(e.target.value)}
-            onBlur={() => void saveAttribute('purchase_date', fromInputDate(purchaseDate))}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setPurchaseDate(e.target.value);
+            }}
           />
         ),
       },
@@ -935,20 +942,18 @@ export function PartDetailsPage(props: {
               canCreate={props.canEdit}
               createLabel="Новый поставщик"
               onChange={(next) => {
+                dirtyRef.current = true;
                 setSupplierId(next ?? '');
                 const label = customerOptions.find((c) => c.id === next)?.label ?? '';
                 setSupplier(label);
-                void saveAttribute('supplier_id', next || null);
-                void saveAttribute('supplier', label || supplier);
               }}
               onCreate={async (label) => {
                 const id = await createMasterDataEntity('customer', label);
                 if (!id) return null;
                 const clean = label.trim();
+                dirtyRef.current = true;
                 setSupplierId(id);
                 setSupplier(clean);
-                void saveAttribute('supplier_id', id);
-                void saveAttribute('supplier', clean);
                 return id;
               }}
             />
@@ -972,14 +977,14 @@ export function PartDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="Новый контракт"
             onChange={(next) => {
+              dirtyRef.current = true;
               setContractId(next ?? '');
-              void saveAttribute('contract_id', next || null);
             }}
             onCreate={async (label) => {
               const id = await createMasterDataEntity('contract', label);
               if (!id) return null;
+              dirtyRef.current = true;
               setContractId(id);
-              void saveAttribute('contract_id', id);
               return id;
             }}
           />
@@ -998,8 +1003,8 @@ export function PartDetailsPage(props: {
               disabled={!props.canEdit}
               onChange={(e) => {
                 const next = e.target.checked;
+                dirtyRef.current = true;
                 setStatusFlags((prev) => ({ ...prev, [code]: next }));
-                void saveAttribute(code, next);
               }}
             />
             <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
@@ -1093,9 +1098,6 @@ export function PartDetailsPage(props: {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <strong>Марки двигателя и сборочные номера</strong>
           <span style={{ flex: 1 }} />
-          <Button variant="ghost" tone="neutral" onClick={() => void loadEngineBrands()}>
-            Обновить справочник
-          </Button>
         </div>
         {engineBrandStatus && (
           <div style={{ color: engineBrandStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{engineBrandStatus}</div>
@@ -1224,6 +1226,7 @@ export function PartDetailsPage(props: {
               ? () => void saveAllAndClose().then(() => props.onClose())
               : undefined
           }
+          onReset={props.canEdit ? () => void load().then(() => { dirtyRef.current = false; }) : undefined}
           onCloseWithoutSave={() => {
             dirtyRef.current = false;
             props.onClose();

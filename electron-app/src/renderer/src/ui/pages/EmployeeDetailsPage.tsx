@@ -195,6 +195,7 @@ export function EmployeeDetailsPage(props: {
   const [customDataType, setCustomDataType] = useState('text');
   const [customLinkTargetCode, setCustomLinkTargetCode] = useState('');
   const [customLinkTouched, setCustomLinkTouched] = useState(false);
+  const [customDraftValues, setCustomDraftValues] = useState<Record<string, unknown>>({});
   const [entityTypes, setEntityTypes] = useState<EntityTypeRow[]>([]);
   const [employeeTypeId, setEmployeeTypeId] = useState<string>('');
   const [employeeDefs, setEmployeeDefs] = useState<AttrDef[]>([]);
@@ -323,6 +324,7 @@ export function EmployeeDetailsPage(props: {
 
   useLiveDataRefresh(
     async () => {
+      if (dirtyRef.current) return;
       await loadEmployee();
       await loadAccountPerms();
     },
@@ -425,6 +427,14 @@ export function EmployeeDetailsPage(props: {
       await saveAttr('department_id', departmentId || null);
       await saveAttr('transfers', transfers);
       await saveAttr('attachments', attachments);
+      for (const def of customDefs) {
+        await saveAttr(def.code, (customDraftValues as any)[def.code] ?? null);
+      }
+      if (employmentStatus === 'fired' && canToggleAccess) {
+        const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
+        setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
+        if (r.ok) props.onAccessChanged?.();
+      }
     }
     dirtyRef.current = false;
   }
@@ -631,7 +641,9 @@ export function EmployeeDetailsPage(props: {
   }
 
   function renderCustomField(def: AttrDef) {
-    const value = employee?.attributes?.[def.code];
+    const value = Object.prototype.hasOwnProperty.call(customDraftValues, def.code)
+      ? customDraftValues[def.code]
+      : employee?.attributes?.[def.code];
     if (def.dataType === 'boolean') {
       return (
         <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -641,7 +653,8 @@ export function EmployeeDetailsPage(props: {
             disabled={!props.canEdit}
             onChange={(e) => {
               if (!props.canEdit) return;
-              void saveAttr(def.code, e.target.checked);
+              dirtyRef.current = true;
+              setCustomDraftValues((prev) => ({ ...prev, [def.code]: e.target.checked }));
             }}
           />
           <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{value === true ? 'да' : 'нет'}</span>
@@ -658,7 +671,8 @@ export function EmployeeDetailsPage(props: {
           disabled={!props.canEdit}
           onChange={(e) => {
             if (!props.canEdit) return;
-            void saveAttr(def.code, fromInputDate(e.target.value));
+            dirtyRef.current = true;
+            setCustomDraftValues((prev) => ({ ...prev, [def.code]: fromInputDate(e.target.value) }));
           }}
         />
       );
@@ -672,7 +686,8 @@ export function EmployeeDetailsPage(props: {
           onChange={(e) => {
             if (!props.canEdit) return;
             const next = e.target.value === '' ? null : Number(e.target.value);
-            void saveAttr(def.code, Number.isFinite(next as number) ? next : null);
+            dirtyRef.current = true;
+            setCustomDraftValues((prev) => ({ ...prev, [def.code]: Number.isFinite(next as number) ? next : null }));
           }}
           placeholder="число"
         />
@@ -688,7 +703,8 @@ export function EmployeeDetailsPage(props: {
             if (!props.canEdit) return;
             try {
               const next = e.target.value ? JSON.parse(e.target.value) : null;
-              void saveAttr(def.code, next);
+              dirtyRef.current = true;
+              setCustomDraftValues((prev) => ({ ...prev, [def.code]: next }));
             } catch {
               // ignore parse errors while typing
             }
@@ -708,7 +724,8 @@ export function EmployeeDetailsPage(props: {
               const id = await createLinkedEntity(def, label);
               if (!id) return null;
               await ensureLinkOptions(def);
-              void saveAttr(def.code, id);
+              dirtyRef.current = true;
+              setCustomDraftValues((prev) => ({ ...prev, [def.code]: id }));
               return id;
             }
           : null;
@@ -720,7 +737,8 @@ export function EmployeeDetailsPage(props: {
           placeholder={loading ? 'Загрузка…' : '(не выбрано)'}
           onChange={(next) => {
             if (!props.canEdit) return;
-            void saveAttr(def.code, next || null);
+            dirtyRef.current = true;
+            setCustomDraftValues((prev) => ({ ...prev, [def.code]: next || null }));
           }}
           {...(createHandler ? { onCreate: createHandler, createLabel: `Новая запись (${targetCode})` } : {})}
         />
@@ -733,7 +751,8 @@ export function EmployeeDetailsPage(props: {
         disabled={!props.canEdit}
         onChange={(e) => {
           if (!props.canEdit) return;
-          void saveAttr(def.code, e.target.value);
+          dirtyRef.current = true;
+          setCustomDraftValues((prev) => ({ ...prev, [def.code]: e.target.value }));
         }}
         placeholder={def.code}
       />
@@ -772,7 +791,11 @@ export function EmployeeDetailsPage(props: {
     const termMs = typeof vTermination === 'number' ? vTermination : vTermination != null ? Number(vTermination) : null;
     setTerminationDate(toInputDate(Number.isFinite(termMs as number) ? (termMs as number) : null));
     setTransfers(Array.isArray(vTransfers) ? vTransfers : []);
-  }, [employee?.id, employee?.attributes]);
+    const draft: Record<string, unknown> = {};
+    for (const def of customDefs) draft[def.code] = (attrs as any)?.[def.code];
+    setCustomDraftValues(draft);
+    dirtyRef.current = false;
+  }, [employee?.id, employee?.attributes, customDefs]);
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -780,6 +803,11 @@ export function EmployeeDetailsPage(props: {
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
         await saveAllAndClose();
+      },
+      reset: async () => {
+        await loadEmployee();
+        await loadAccountPerms();
+        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -801,7 +829,7 @@ export function EmployeeDetailsPage(props: {
     return () => {
       props.registerCardCloseActions?.(null);
     };
-  }, [lastName, firstName, middleName, position, personnelNumber, departmentId, props.registerCardCloseActions]);
+  }, [lastName, firstName, middleName, position, personnelNumber, departmentId, props.registerCardCloseActions, customDefs, customDraftValues]);
 
   const computedFullName = buildFullName(lastName, firstName, middleName);
   const departmentOptions = departments;
@@ -819,16 +847,6 @@ export function EmployeeDetailsPage(props: {
     [entityTypes, standardType?.code, recommendedType?.code],
   );
 
-  async function saveNameField(code: 'last_name' | 'first_name' | 'middle_name', value: string) {
-    await saveAttr(code, value.trim() || null);
-    const nextFull = buildFullName(
-      code === 'last_name' ? value : lastName,
-      code === 'first_name' ? value : firstName,
-      code === 'middle_name' ? value : middleName,
-    );
-    await saveAttr('full_name', nextFull || null);
-  }
-
   const mainFields = orderFieldsByDefs(
     [
       {
@@ -843,7 +861,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setLastName(e.target.value);
             }}
-            onBlur={() => void saveNameField('last_name', lastName)}
             disabled={!props.canEdit}
             placeholder="Фамилия"
           />
@@ -861,7 +878,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setFirstName(e.target.value);
             }}
-            onBlur={() => void saveNameField('first_name', firstName)}
             disabled={!props.canEdit}
             placeholder="Имя"
           />
@@ -879,7 +895,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setMiddleName(e.target.value);
             }}
-            onBlur={() => void saveNameField('middle_name', middleName)}
             disabled={!props.canEdit}
             placeholder="Отчество"
           />
@@ -897,7 +912,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setPersonnelNumber(e.target.value);
             }}
-            onBlur={() => void saveAttr('personnel_number', personnelNumber.trim() || null)}
             disabled={!props.canEdit}
             placeholder="Табельный номер"
           />
@@ -916,7 +930,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setBirthDate(e.target.value);
             }}
-            onBlur={() => void saveAttr('birth_date', fromInputDate(birthDate))}
             disabled={!props.canEdit}
           />
         ),
@@ -933,7 +946,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setPosition(e.target.value);
             }}
-            onBlur={() => void saveAttr('role', position.trim() || null)}
             disabled={!props.canEdit}
             placeholder="Должность"
           />
@@ -947,17 +959,10 @@ export function EmployeeDetailsPage(props: {
         render: (
           <select
             value={employmentStatus}
-            onChange={async (e) => {
+            onChange={(e) => {
               const next = e.target.value === 'fired' ? 'fired' : 'working';
               dirtyRef.current = true;
               setEmploymentStatus(next);
-              await saveAttr('employment_status', next);
-              if (next === 'fired' && canToggleAccess) {
-                const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
-                setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
-                await loadAccountPerms();
-                if (r.ok) props.onAccessChanged?.();
-              }
             }}
             disabled={!props.canEdit}
             style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
@@ -980,7 +985,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setHireDate(e.target.value);
             }}
-            onBlur={() => void saveAttr('hire_date', fromInputDate(hireDate))}
             disabled={!props.canEdit}
           />
         ),
@@ -998,7 +1002,6 @@ export function EmployeeDetailsPage(props: {
               dirtyRef.current = true;
               setTerminationDate(e.target.value);
             }}
-            onBlur={() => void saveAttr('termination_date', fromInputDate(terminationDate))}
             disabled={!props.canEdit}
           />
         ),
@@ -1019,13 +1022,12 @@ export function EmployeeDetailsPage(props: {
             onChange={(next) => {
               dirtyRef.current = true;
               setDepartmentId(next);
-              void saveAttr('department_id', next || null);
             }}
             onCreate={async (label) => {
               const id = await createDepartment(label);
               if (!id) return null;
+              dirtyRef.current = true;
               setDepartmentId(id);
-              void saveAttr('department_id', id);
               return id;
             }}
           />
@@ -1099,6 +1101,16 @@ export function EmployeeDetailsPage(props: {
               ? () => void saveAllAndClose().then(() => props.onClose())
               : undefined
           }
+          onReset={
+            props.canEdit
+              ? () =>
+                  void (async () => {
+                    await loadEmployee();
+                    await loadAccountPerms();
+                    dirtyRef.current = false;
+                  })()
+              : undefined
+          }
           onCloseWithoutSave={() => {
             dirtyRef.current = false;
             props.onClose();
@@ -1164,8 +1176,8 @@ export function EmployeeDetailsPage(props: {
                 onClick={async () => {
                   if (!props.canEdit) return;
                   const next = transfers.filter((x) => x.id !== t.id);
+                  dirtyRef.current = true;
                   setTransfers(next);
-                  await saveAttr('transfers', next);
                 }}
                 disabled={!props.canEdit}
               >
@@ -1199,10 +1211,10 @@ export function EmployeeDetailsPage(props: {
                 ...transfers,
                 { id: String(Date.now()), kind: transferKind, date, value },
               ];
+              dirtyRef.current = true;
               setTransfers(next);
               setTransferValue('');
               setTransferDate('');
-              await saveAttr('transfers', next);
             }}
             disabled={!props.canEdit}
           >
@@ -1219,9 +1231,9 @@ export function EmployeeDetailsPage(props: {
           canUpload={props.canUploadFiles}
           scope={{ ownerType: 'employee', ownerId: props.employeeId, category: 'attachments' }}
           onChange={async (next) => {
+            dirtyRef.current = true;
             setAttachments(next);
-            const r = await window.matrica.employees.setAttr(props.employeeId, 'attachments', next);
-            return r.ok ? { ok: true as const } : { ok: false as const, error: r.error ?? 'unknown' };
+            return { ok: true as const };
           }}
         />
       </div>
@@ -1230,11 +1242,7 @@ export function EmployeeDetailsPage(props: {
         className="entity-card-span-full"
         title="Дополнительные поля"
         style={{ border: '1px solid var(--border)' }}
-        actions={
-          <Button variant="ghost" onClick={() => void loadCustomDefs()}>
-            Обновить
-          </Button>
-        }
+        actions={undefined}
       >
 
         <div style={{ marginTop: 10 }}>
@@ -1359,9 +1367,6 @@ export function EmployeeDetailsPage(props: {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <strong>Пользователи и права доступа</strong>
           <span style={{ flex: 1 }} />
-          <Button variant="ghost" onClick={() => void loadAccountPerms()}>
-            Обновить
-          </Button>
         </div>
 
           {accountUser ? (
@@ -1527,9 +1532,6 @@ export function EmployeeDetailsPage(props: {
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <strong>Права</strong>
                 <span style={{ flex: 1 }} />
-                <Button variant="ghost" onClick={() => void loadAccountPerms()}>
-                  Обновить
-                </Button>
               </div>
 
               <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>

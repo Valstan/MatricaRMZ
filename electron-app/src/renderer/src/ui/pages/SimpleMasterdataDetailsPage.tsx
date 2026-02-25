@@ -4,7 +4,6 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { CardActionBar } from '../components/CardActionBar.js';
-import { RowActions } from '../components/RowActions.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -271,6 +270,10 @@ export function SimpleMasterdataDetailsPage(props: {
       saveAndClose: async () => {
         await saveAllAndClose();
       },
+      reset: async () => {
+        await load();
+        dirtyRef.current = false;
+      },
       closeWithoutSave: () => {
         dirtyRef.current = false;
       },
@@ -287,6 +290,7 @@ export function SimpleMasterdataDetailsPage(props: {
 
   useLiveDataRefresh(
     async () => {
+      if (dirtyRef.current) return;
       await load();
     },
     { intervalMs: 20000 },
@@ -443,7 +447,6 @@ export function SimpleMasterdataDetailsPage(props: {
             value={name}
             disabled={!props.canEdit}
             onChange={(e) => { dirtyRef.current = true; setName(e.target.value); }}
-            onBlur={() => void saveName()}
           />
         ),
       },
@@ -457,7 +460,6 @@ export function SimpleMasterdataDetailsPage(props: {
             value={description}
             disabled={!props.canEdit}
             onChange={(e) => { dirtyRef.current = true; setDescription(e.target.value); }}
-            onBlur={() => void saveDescription()}
             rows={3}
             style={{
               width: '100%',
@@ -486,17 +488,17 @@ export function SimpleMasterdataDetailsPage(props: {
             canCreate={props.canEdit}
             createLabel="Добавить контрагента"
             onChange={(next) => {
+              dirtyRef.current = true;
               const label = storeOptions.find((o) => o.id === next)?.label ?? '';
               setShop(label);
-              void saveField('shop', label.trim() || null);
             }}
             onCreate={async (label) => {
               const id = await createLookupEntity(storeTypeId, label);
               if (!id) return null;
               const opt = { id, label: label.trim() };
               setStoreOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+              dirtyRef.current = true;
               setShop(label.trim());
-              void saveField('shop', label.trim() || null);
               return id;
             }}
           />
@@ -511,8 +513,10 @@ export function SimpleMasterdataDetailsPage(props: {
           <Input
             value={article}
             disabled={!props.canEdit}
-            onChange={(e) => setArticle(e.target.value)}
-            onBlur={() => void saveField('article', article.trim() || null)}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setArticle(e.target.value);
+            }}
           />
         ),
       },
@@ -532,15 +536,14 @@ export function SimpleMasterdataDetailsPage(props: {
               dirtyRef.current = true;
               const label = unitOptions.find((o) => o.id === next)?.label ?? '';
               setUnit(label);
-              void saveField('unit', label.trim() || null);
             }}
             onCreate={async (label) => {
               const id = await createLookupEntity(unitTypeId, label);
               if (!id) return null;
               const opt = { id, label: label.trim() };
               setUnitOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+              dirtyRef.current = true;
               setUnit(label.trim());
-              void saveField('unit', label.trim() || null);
               return id;
             }}
           />
@@ -556,7 +559,6 @@ export function SimpleMasterdataDetailsPage(props: {
             value={price}
             disabled={!props.canEdit}
             onChange={(e) => { dirtyRef.current = true; setPrice(e.target.value); }}
-            onBlur={() => void saveField('price', Number(price) || null)}
             placeholder="0"
           />
         ),
@@ -573,13 +575,6 @@ export function SimpleMasterdataDetailsPage(props: {
     <EntityCardShell
       title={headerTitle}
       layout="two-column"
-      actions={
-        <RowActions>
-          <Button variant="ghost" tone="neutral" onClick={() => void load()}>
-            Обновить
-          </Button>
-        </RowActions>
-      }
       cardActions={
         <CardActionBar
           canEdit={props.canEdit}
@@ -593,6 +588,11 @@ export function SimpleMasterdataDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onReset={() => {
+            void load().then(() => {
+              dirtyRef.current = false;
+            });
+          }}
           onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}

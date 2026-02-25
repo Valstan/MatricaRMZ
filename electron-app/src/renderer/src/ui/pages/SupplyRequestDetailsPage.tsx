@@ -237,7 +237,6 @@ export function SupplyRequestDetailsPage(props: {
   const [uiDefs, setUiDefs] = useState<AttributeDefRow[]>([]);
   const [coreDefsReady, setCoreDefsReady] = useState(false);
 
-  const saveTimer = useRef<any>(null);
   const lastSavedJson = useRef<string>('');
   const initialSessionJson = useRef<string>('');
   const sessionHadChanges = useRef<boolean>(false);
@@ -358,7 +357,7 @@ export function SupplyRequestDetailsPage(props: {
         unit: it.unit || match.unit || '',
       };
     });
-    if (changed || payload.version !== 2) scheduleSave({ ...payload, version: 2, items });
+    if (changed || payload.version !== 2) scheduleSave({ ...payload, version: 2, items }, false);
   }, [payload, productOptions]);
 
   async function enrichUnitIfMissing(optionId: string) {
@@ -435,17 +434,12 @@ export function SupplyRequestDetailsPage(props: {
     }
   }
 
-  function scheduleSave(next: SupplyRequestPayload) {
+  function scheduleSave(next: SupplyRequestPayload, markSessionChange = true) {
     setPayload(next);
     payloadRef.current = next;
-    if (!props.canEdit) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      const json = JSON.stringify(next);
-      if (initialSessionJson.current && json !== initialSessionJson.current) sessionHadChanges.current = true;
-      if (json === lastSavedJson.current) return;
-      void saveNow(next);
-    }, 450);
+    if (!markSessionChange) return;
+    const json = JSON.stringify(next);
+    if (initialSessionJson.current && json !== initialSessionJson.current) sessionHadChanges.current = true;
   }
 
   function diffSummaryRu(initial: any, cur: any): { fieldsChanged: string[]; summaryRu: string } {
@@ -506,8 +500,11 @@ export function SupplyRequestDetailsPage(props: {
       saveAndClose: async () => {
         await saveAllAndClose();
       },
+      reset: async () => {
+        await load();
+        sessionHadChanges.current = false;
+      },
       closeWithoutSave: () => {
-        if (saveTimer.current) clearTimeout(saveTimer.current);
         sessionHadChanges.current = false;
       },
       copyToNew: async () => {
@@ -519,10 +516,11 @@ export function SupplyRequestDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [payload, props.registerCardCloseActions]);
+  }, [payload, props.registerCardCloseActions, props.id]);
 
   useLiveDataRefresh(
     async () => {
+      if (sessionHadChanges.current) return;
       await load();
     },
     { intervalMs: 60000 },
@@ -615,7 +613,6 @@ export function SupplyRequestDetailsPage(props: {
             value={payload.title}
             disabled={!props.canEdit}
             onChange={(e) => scheduleSave({ ...payload, title: e.target.value })}
-            onBlur={() => void saveNow(payload)}
             placeholder="Краткое описание заявки…"
           />
         ),
@@ -663,8 +660,12 @@ export function SupplyRequestDetailsPage(props: {
               props.onClose();
             });
           }}
+          onReset={() => {
+            void load().then(() => {
+              sessionHadChanges.current = false;
+            });
+          }}
           onCloseWithoutSave={() => {
-            if (saveTimer.current) clearTimeout(saveTimer.current);
             sessionHadChanges.current = false;
             props.onClose();
           }}
@@ -697,9 +698,6 @@ export function SupplyRequestDetailsPage(props: {
         )}
         <div style={{ flex: 1 }} />
         {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div>}
-        <Button variant="ghost" tone="neutral" onClick={() => void load()}>
-          Обновить
-        </Button>
       </div>
       {payload ? (
         <div style={{ marginTop: 6, color: 'var(--subtle)', fontSize: 12 }}>
@@ -1225,7 +1223,6 @@ export function SupplyRequestDetailsPage(props: {
         canUpload={props.canUploadFiles && props.canEdit}
         onChange={async (next) => {
           scheduleSave({ ...payload, attachments: next });
-          await saveNow({ ...payload, attachments: next });
           return { ok: true as const };
         }}
       />

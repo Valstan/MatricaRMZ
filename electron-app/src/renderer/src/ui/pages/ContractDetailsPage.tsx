@@ -696,6 +696,7 @@ export function ContractDetailsPage(props: {
 
   useLiveDataRefresh(
     async () => {
+      if (dirtyRef.current) return;
       await loadContract();
       await loadProgress();
     },
@@ -708,6 +709,11 @@ export function ContractDetailsPage(props: {
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
         await saveAllAndClose();
+      },
+      reset: async () => {
+        await loadContract();
+        await loadProgress();
+        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -919,6 +925,13 @@ export function ContractDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onReset={() => {
+            void (async () => {
+              await loadContract();
+              await loadProgress();
+              dirtyRef.current = false;
+            })();
+          }}
           onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
@@ -928,9 +941,6 @@ export function ContractDetailsPage(props: {
         <RowActions>
           <Button variant="ghost" tone="info" onClick={printContractCard}>
             Распечатать
-          </Button>
-          <Button variant="ghost" tone="neutral" onClick={() => void loadContract()}>
-            Обновить
           </Button>
         </RowActions>
       }
