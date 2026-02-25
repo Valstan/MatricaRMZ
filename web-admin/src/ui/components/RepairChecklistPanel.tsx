@@ -84,6 +84,25 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function normalizeNumber(v: unknown) {
+  const n = Number(v);
+  if (Number.isFinite(n)) return n;
+  return 0;
+}
+
+function getBrandLinkForPart(part: unknown, brandId: string | undefined) {
+  const brand = String(brandId || '').trim();
+  if (!brand || !part || typeof part !== 'object') return null;
+  const links = Array.isArray((part as any).brandLinks) ? (part as any).brandLinks : [];
+  const link = links.find((x: any) => String(x?.engineBrandId || '').trim() === brand);
+  if (!link) return null;
+  return {
+    id: String(link.id ?? ''),
+    assemblyUnitNumber: String(link.assemblyUnitNumber ?? ''),
+    quantity: Number.isFinite(Number(link.quantity)) ? Number(link.quantity) : 0,
+  };
+}
+
 function emptyAnswersForTemplate(t: RepairChecklistTemplate): RepairChecklistAnswers {
   const ans: RepairChecklistAnswers = {};
   for (const it of t.items) {
@@ -376,12 +395,16 @@ export function RepairChecklistPanel(props: {
     void (async () => {
       const r = await partsApi.listParts({ engineBrandId: props.engineBrandId, limit: 5000 });
       if (!r.ok) return;
-      const rows = (r.parts ?? []).map((p: any) => ({
-        part_name: String(p.name ?? p.article ?? p.id),
-        part_number: '',
-        repairable_qty: '',
-        scrap_qty: '',
-      }));
+      const rows = (r.parts ?? []).map((p: any) => {
+        const link = getBrandLinkForPart(p, props.engineBrandId);
+        return {
+          part_name: String(p?.name ?? p?.article ?? p?.id),
+          part_number: String(link?.assemblyUnitNumber ?? ''),
+          quantity: normalizeNumber(link?.quantity),
+          repairable_qty: normalizeNumber(link?.quantity),
+          scrap_qty: 0,
+        };
+      });
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
@@ -406,12 +429,16 @@ export function RepairChecklistPanel(props: {
     void (async () => {
       const r = await partsApi.listParts({ engineBrandId: props.engineBrandId, limit: 5000 });
       if (!r.ok) return;
-      const rows = (r.parts ?? []).map((p: any) => ({
-        part_name: String(p.name ?? p.article ?? p.id),
-        assembly_unit_number: String(p.assemblyUnitNumber ?? ''),
-        present: false,
-        note: '',
-      }));
+      const rows = (r.parts ?? []).map((p: any) => {
+        const link = getBrandLinkForPart(p, props.engineBrandId);
+        return {
+          part_name: String(p?.name ?? p?.article ?? p?.id),
+          assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+          quantity: normalizeNumber(link?.quantity),
+          present: false,
+          actual_qty: 0,
+        };
+      });
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);

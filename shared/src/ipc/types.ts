@@ -1,4 +1,4 @@
-import type { PartEngineBrandLink } from './domain/part.js';
+import type { PartEngineBrandLink } from '../domain/part.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -1002,7 +1002,7 @@ export type MatricaApi = {
       | { ok: false; error: string }
     >;
     partBrandLinks: {
-      list: (partId: string) => Promise<
+      list: (args: { partId?: string; engineBrandId?: string }) => Promise<
         | {
             ok: true;
             brandLinks: PartEngineBrandLink[];
@@ -1022,7 +1022,7 @@ export type MatricaApi = {
           }
         | { ok: false; error: string }
       >;
-      delete: (linkId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+      delete: (args: { partId: string; linkId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
     createAttributeDef: (args: {
       code: string;

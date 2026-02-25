@@ -194,6 +194,7 @@ app.whenReady().then(() => {
   void (async () => {
     try {
       const { loadRuntimeInitDeps } = await import('./bootstrap/runtimeInitDeps.js');
+      const { alignSchemaWithServer } = await import('./services/syncService.js');
       const {
         openSqlite,
         migrateSqlite,
@@ -217,6 +218,13 @@ app.whenReady().then(() => {
         const migrationsFolder = join(app.getAppPath(), 'drizzle');
         logToFile(`sqlite migrationsFolder=${migrationsFolder}`);
         migrateSqlite(db, sqlite, migrationsFolder);
+        const alignResult = await alignSchemaWithServer(db, apiBaseUrl, { allowUnauthenticated: true }).catch((e) => ({
+          ok: false as const,
+          reason: String(e),
+        }));
+        if (!alignResult.ok && alignResult.reason !== 'auth_required') {
+          logToFile(`schema align before seed skipped: ${alignResult.reason}`);
+        }
         await seedIfNeeded(db);
       } catch (e) {
         logToFile(`sqlite migrate/seed failed: ${String(e)}`);

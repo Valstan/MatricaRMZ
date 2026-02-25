@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/backend-api",
-  "version": "1.6.7",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -27,6 +27,7 @@
     "erp:legacy-cleanup": "tsx src/scripts/erpLegacyCleanup.ts",
     "masterdata:import-engine-brand-part-matrix": "tsx src/scripts/importEngineBrandPartMatrix.ts",
     "masterdata:import-contracts-goz": "tsx src/scripts/importContractsGoz.ts",
+    "parts:migrate-brand-junction": "tsx src/scripts/migratePartBrandJunction.ts",
     "masterdata:sync-engines-completeness-csv": "tsx src/scripts/importEnginesFromCompletenessCsv.ts"
   },
   "dependencies": {

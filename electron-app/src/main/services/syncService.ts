@@ -77,6 +77,41 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.Notes]: 500,
   [SyncTableName.NoteShares]: 500,
 };
+const SQLITE_BIND_PARAM_LIMIT = 900;
+const CHUNK_SIZE_FALLBACK = 200;
+
+function getUpsertChunkSize(rows: Array<Record<string, unknown>>) {
+  if (!rows.length) return CHUNK_SIZE_FALLBACK;
+  const keyCount = Math.max(
+    1,
+    rows.reduce((maxKeys, row) => {
+      const keys = row ? Object.keys(row).length : 0;
+      return Math.max(maxKeys, keys);
+    }, 0),
+  );
+  return Math.max(1, Math.min(CHUNK_SIZE_FALLBACK, Math.floor(SQLITE_BIND_PARAM_LIMIT / keyCount)));
+}
+
+async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
+  db: BetterSQLite3Database,
+  drizzleTable: any,
+  rows: T[],
+  conflictTarget: any,
+  conflictSet: Record<string, unknown>,
+) {
+  if (rows.length === 0) return;
+  const chunkSize = getUpsertChunkSize(rows);
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    await db
+      .insert(drizzleTable)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: conflictTarget,
+        set: conflictSet,
+      });
+  }
+}
 
 const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
 const SYNC_V2_ENABLED = String(process.env.MATRICA_SYNC_V2 ?? '1') !== '0';
@@ -128,6 +163,51 @@ type SyncSchemaTable = {
 type SyncSchemaSnapshot = {
   generatedAt: number;
   tables: Record<string, SyncSchemaTable>;
+};
+
+type ServerEntityTypeRow = {
+  id: string;
+  code: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+  deleted_at?: number | null;
+};
+
+type ServerAttributeDefRow = {
+  id: string;
+  entity_type_id: string;
+  code: string;
+  name: string;
+  data_type: string;
+  is_required: boolean;
+  sort_order: number;
+  meta_json?: string | null;
+  created_at: number;
+  updated_at: number;
+  deleted_at?: number | null;
+};
+
+type ServerSchemaSnapshot = {
+  ok: boolean;
+  entity_types: ServerEntityTypeRow[];
+  attribute_defs: ServerAttributeDefRow[];
+  fingerprint: string;
+};
+
+type LedgerPushSubmitResponse = {
+  ok: boolean;
+  applied?: number;
+  applied_rows?: Array<{ table?: SyncTableName; rowId?: string; row_id?: string }>;
+  id_remaps?: {
+    entity_types?: Record<string, string>;
+    attribute_defs?: Record<string, string>;
+  };
+  skipped?: Array<{
+    table: SyncTableName;
+    row_id: string;
+    reason: string;
+  }>;
 };
 
 function quoteIdent(name: string) {
@@ -518,6 +598,206 @@ async function fetchAuthed(
   }
 
   return first;
+}
+
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value ?? ''));
+}
+
+function mergeAttributeValuesByDefId(sqlite: any, fromDefId: string, toDefId: string, ts: number) {
+  if (!fromDefId || !toDefId || fromDefId === toDefId) return;
+  sqlite
+    .prepare(
+      `DELETE FROM attribute_values
+       WHERE attribute_def_id = ?
+         AND entity_id IN (
+           SELECT src.entity_id
+           FROM attribute_values src
+           JOIN attribute_values dst
+             ON dst.entity_id = src.entity_id
+            AND dst.attribute_def_id = ?
+           WHERE src.attribute_def_id = ?
+         )`,
+    )
+    .run(fromDefId, toDefId, fromDefId);
+  sqlite.prepare('UPDATE attribute_values SET attribute_def_id = ?, updated_at = ? WHERE attribute_def_id = ?').run(toDefId, ts, fromDefId);
+}
+
+function remapAttributeDefInSqlite(sqlite: any, fromDefId: string, toDefId: string, ts: number) {
+  if (!fromDefId || !toDefId || fromDefId === toDefId) return;
+  mergeAttributeValuesByDefId(sqlite, fromDefId, toDefId, ts);
+  const target = sqlite.prepare('SELECT id FROM attribute_defs WHERE id = ? LIMIT 1').get(toDefId) as { id?: string } | undefined;
+  if (target?.id) {
+    sqlite.prepare('DELETE FROM attribute_defs WHERE id = ?').run(fromDefId);
+    return;
+  }
+  sqlite.prepare('UPDATE attribute_defs SET id = ?, updated_at = ? WHERE id = ?').run(toDefId, ts, fromDefId);
+}
+
+function remapEntityTypeInSqlite(sqlite: any, fromTypeId: string, toTypeId: string, ts: number) {
+  if (!fromTypeId || !toTypeId || fromTypeId === toTypeId) return;
+  const duplicateDefs = sqlite
+    .prepare(
+      `SELECT src.id AS src_id, dst.id AS dst_id
+       FROM attribute_defs src
+       JOIN attribute_defs dst
+         ON dst.entity_type_id = ?
+        AND src.entity_type_id = ?
+        AND dst.code = src.code`,
+    )
+    .all(toTypeId, fromTypeId) as Array<{ src_id?: string; dst_id?: string }>;
+  for (const pair of duplicateDefs) {
+    const srcId = String(pair.src_id ?? '');
+    const dstId = String(pair.dst_id ?? '');
+    if (!srcId || !dstId || srcId === dstId) continue;
+    remapAttributeDefInSqlite(sqlite, srcId, dstId, ts);
+  }
+  sqlite.prepare('UPDATE entities SET type_id = ?, updated_at = ? WHERE type_id = ?').run(toTypeId, ts, fromTypeId);
+  sqlite.prepare('UPDATE attribute_defs SET entity_type_id = ?, updated_at = ? WHERE entity_type_id = ?').run(toTypeId, ts, fromTypeId);
+  const target = sqlite.prepare('SELECT id FROM entity_types WHERE id = ? LIMIT 1').get(toTypeId) as { id?: string } | undefined;
+  if (target?.id) {
+    sqlite.prepare('DELETE FROM entity_types WHERE id = ?').run(fromTypeId);
+    return;
+  }
+  sqlite.prepare('UPDATE entity_types SET id = ?, updated_at = ? WHERE id = ?').run(toTypeId, ts, fromTypeId);
+}
+
+async function applyServerIdRemaps(db: BetterSQLite3Database, idRemaps: LedgerPushSubmitResponse['id_remaps'] | null | undefined) {
+  void db;
+  const sqlite = getSqliteHandle();
+  if (!sqlite || !idRemaps) return;
+  const entityTypeMap = (idRemaps.entity_types ?? {}) as Record<string, string>;
+  const attrDefMap = (idRemaps.attribute_defs ?? {}) as Record<string, string>;
+  const entityTypeEntries = Object.entries(entityTypeMap).filter(
+    ([fromId, toId]) => looksLikeUuid(fromId) && looksLikeUuid(toId) && fromId !== toId,
+  );
+  const attrDefEntries = Object.entries(attrDefMap).filter(
+    ([fromId, toId]) => looksLikeUuid(fromId) && looksLikeUuid(toId) && fromId !== toId,
+  );
+  if (entityTypeEntries.length === 0 && attrDefEntries.length === 0) return;
+  const ts = nowMs();
+  const applyTx = sqlite.transaction(() => {
+    for (const [fromId, toId] of entityTypeEntries) {
+      remapEntityTypeInSqlite(sqlite, fromId, toId, ts);
+    }
+    for (const [fromId, toId] of attrDefEntries) {
+      remapAttributeDefInSqlite(sqlite, fromId, toId, ts);
+    }
+  });
+  applyTx();
+}
+
+export async function alignSchemaWithServer(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  opts?: { allowUnauthenticated?: boolean },
+) {
+  const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  if (!baseUrl) return { ok: false as const, reason: 'empty_api_base' };
+  const url = `${baseUrl}/ledger/schema/snapshot`;
+  const res = await fetchAuthed(db, baseUrl, url, { method: 'GET' }, { attempts: 2, timeoutMs: 20_000, label: 'pull' }).catch(
+    () => null,
+  );
+  if (!res) return { ok: false as const, reason: 'network_error' };
+  if (!res.ok) {
+    if ((res.status === 401 || res.status === 403) && opts?.allowUnauthenticated) {
+      return { ok: false as const, reason: 'auth_required' };
+    }
+    const body = await safeBodyText(res);
+    logSync(`schema align fetch failed status=${res.status} body=${body}`);
+    return { ok: false as const, reason: `http_${res.status}` };
+  }
+  const payload = (await res.json().catch(() => null)) as ServerSchemaSnapshot | null;
+  if (!payload || payload.ok !== true || !Array.isArray(payload.entity_types) || !Array.isArray(payload.attribute_defs)) {
+    return { ok: false as const, reason: 'invalid_schema_payload' };
+  }
+  const fingerprint = String(payload.fingerprint ?? '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) {
+    return { ok: false as const, reason: 'invalid_fingerprint' };
+  }
+  const sqlite = getSqliteHandle();
+  if (!sqlite) return { ok: false as const, reason: 'sqlite_unavailable' };
+  const ts = nowMs();
+  const alignTx = sqlite.transaction(() => {
+    for (const typeRow of payload.entity_types) {
+      const serverId = String(typeRow.id ?? '').trim();
+      const code = String(typeRow.code ?? '').trim();
+      if (!looksLikeUuid(serverId) || !code) continue;
+      const existingByCode = sqlite.prepare('SELECT id FROM entity_types WHERE code = ? LIMIT 1').get(code) as { id?: string } | undefined;
+      const localId = String(existingByCode?.id ?? '').trim();
+      if (localId && localId !== serverId) {
+        remapEntityTypeInSqlite(sqlite, localId, serverId, ts);
+      }
+      sqlite
+        .prepare(
+          `INSERT INTO entity_types (id, code, name, created_at, updated_at, deleted_at, sync_status)
+           VALUES (?, ?, ?, ?, ?, ?, 'synced')
+           ON CONFLICT(id) DO UPDATE SET
+             code = excluded.code,
+             name = excluded.name,
+             updated_at = excluded.updated_at,
+             deleted_at = excluded.deleted_at,
+             sync_status = 'synced'`,
+        )
+        .run(
+          serverId,
+          code,
+          String(typeRow.name ?? '').trim() || code,
+          Number(typeRow.created_at ?? ts),
+          Number(typeRow.updated_at ?? ts),
+          typeRow.deleted_at ?? null,
+        );
+    }
+
+    for (const defRow of payload.attribute_defs) {
+      const serverId = String(defRow.id ?? '').trim();
+      const typeId = String(defRow.entity_type_id ?? '').trim();
+      const code = String(defRow.code ?? '').trim();
+      if (!looksLikeUuid(serverId) || !looksLikeUuid(typeId) || !code) continue;
+
+      const existingByKey = sqlite
+        .prepare('SELECT id FROM attribute_defs WHERE entity_type_id = ? AND code = ? LIMIT 1')
+        .get(typeId, code) as { id?: string } | undefined;
+      const localId = String(existingByKey?.id ?? '').trim();
+      if (localId && localId !== serverId) {
+        remapAttributeDefInSqlite(sqlite, localId, serverId, ts);
+      }
+
+      sqlite
+        .prepare(
+          `INSERT INTO attribute_defs (
+             id, entity_type_id, code, name, data_type, is_required, sort_order, meta_json, created_at, updated_at, deleted_at, sync_status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+           ON CONFLICT(id) DO UPDATE SET
+             entity_type_id = excluded.entity_type_id,
+             code = excluded.code,
+             name = excluded.name,
+             data_type = excluded.data_type,
+             is_required = excluded.is_required,
+             sort_order = excluded.sort_order,
+             meta_json = excluded.meta_json,
+             updated_at = excluded.updated_at,
+             deleted_at = excluded.deleted_at,
+             sync_status = 'synced'`,
+        )
+        .run(
+          serverId,
+          typeId,
+          code,
+          String(defRow.name ?? '').trim() || code,
+          String(defRow.data_type ?? 'text'),
+          defRow.is_required ? 1 : 0,
+          Number(defRow.sort_order ?? 0),
+          defRow.meta_json ?? null,
+          Number(defRow.created_at ?? ts),
+          Number(defRow.updated_at ?? ts),
+          defRow.deleted_at ?? null,
+        );
+    }
+  });
+  alignTx();
+  await settingsSetString(db, SettingsKey.SyncSchemaFingerprint, fingerprint);
+  return { ok: true as const, fingerprint };
 }
 
 async function getSyncStateNumber(db: BetterSQLite3Database, key: SettingsKey, fallback: number) {
@@ -1535,20 +1815,14 @@ async function applyPulledChanges(
       const updatedAt = Number.isFinite(Number(row.updatedAt ?? NaN)) ? Number(row.updatedAt) : createdAt;
       return { ...row, createdAt, updatedAt };
     });
-    await db
-      .insert(entityTypes)
-      .values(groups.entity_types)
-      .onConflictDoUpdate({
-        target: entityTypes.id,
-        set: {
-          code: sql`excluded.code`,
-          name: sql`excluded.name`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, entityTypes, groups.entity_types, entityTypes.id, {
+      code: sql`excluded.code`,
+      name: sql`excluded.name`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
     await maybeYieldAfterBatch(groups.entity_types.length);
   }
   if (groups.entities.length > 0) {
@@ -1567,19 +1841,13 @@ async function applyPulledChanges(
   }
   if (groups.entities.length > 0) {
     emitApply(SyncTableName.Entities, groups.entities.length);
-    await db
-      .insert(entities)
-      .values(groups.entities)
-      .onConflictDoUpdate({
-        target: entities.id,
-        set: {
-          typeId: sql`excluded.type_id`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, entities, groups.entities, entities.id, {
+      typeId: sql`excluded.type_id`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
     await maybeYieldAfterBatch(groups.entities.length);
   }
   if (groups.attribute_defs.length > 0) {
@@ -1628,194 +1896,140 @@ async function applyPulledChanges(
   }
   if (groups.attribute_defs.length > 0) {
     emitApply(SyncTableName.AttributeDefs, groups.attribute_defs.length);
-    await db
-      .insert(attributeDefs)
-      .values(groups.attribute_defs)
-      .onConflictDoUpdate({
-        target: attributeDefs.id,
-        set: {
-          entityTypeId: sql`excluded.entity_type_id`,
-          code: sql`excluded.code`,
-          name: sql`excluded.name`,
-          dataType: sql`excluded.data_type`,
-          isRequired: sql`excluded.is_required`,
-          sortOrder: sql`excluded.sort_order`,
-          metaJson: sql`excluded.meta_json`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, attributeDefs, groups.attribute_defs, attributeDefs.id, {
+      entityTypeId: sql`excluded.entity_type_id`,
+      code: sql`excluded.code`,
+      name: sql`excluded.name`,
+      dataType: sql`excluded.data_type`,
+      isRequired: sql`excluded.is_required`,
+      sortOrder: sql`excluded.sort_order`,
+      metaJson: sql`excluded.meta_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
     await maybeYieldAfterBatch(groups.attribute_defs.length);
   }
   if (groups.attribute_values.length > 0) {
     emitApply(SyncTableName.AttributeValues, groups.attribute_values.length);
-    await db
-      .insert(attributeValues)
-      .values(groups.attribute_values)
-      .onConflictDoUpdate({
-        // Rows are pre-remapped by (entityId, attributeDefId) above, so conflict by id is safer:
-        // it avoids PRIMARY KEY crashes when local id and pair drifted in old clients.
-        target: attributeValues.id,
-        set: {
-          entityId: sql`excluded.entity_id`,
-          attributeDefId: sql`excluded.attribute_def_id`,
-          valueJson: sql`excluded.value_json`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, attributeValues, groups.attribute_values, attributeValues.id, {
+      // Rows are pre-remapped by (entityId, attributeDefId) above, so conflict by id is safer:
+      // it avoids PRIMARY KEY crashes when local id and pair drifted in old clients.
+      entityId: sql`excluded.entity_id`,
+      attributeDefId: sql`excluded.attribute_def_id`,
+      valueJson: sql`excluded.value_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
     await maybeYieldAfterBatch(groups.attribute_values.length);
   }
   if (groups.operations.length > 0) {
     emitApply(SyncTableName.Operations, groups.operations.length);
-    await db
-      .insert(operations)
-      .values(groups.operations)
-      .onConflictDoUpdate({
-        target: operations.id,
-        set: {
-          engineEntityId: sql`excluded.engine_entity_id`,
-          operationType: sql`excluded.operation_type`,
-          status: sql`excluded.status`,
-          note: sql`excluded.note`,
-          performedAt: sql`excluded.performed_at`,
-          performedBy: sql`excluded.performed_by`,
-          metaJson: sql`excluded.meta_json`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, operations, groups.operations, operations.id, {
+      engineEntityId: sql`excluded.engine_entity_id`,
+      operationType: sql`excluded.operation_type`,
+      status: sql`excluded.status`,
+      note: sql`excluded.note`,
+      performedAt: sql`excluded.performed_at`,
+      performedBy: sql`excluded.performed_by`,
+      metaJson: sql`excluded.meta_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
     await maybeYieldAfterBatch(groups.operations.length);
   }
   if (groups.audit_log.length > 0) {
     emitApply(SyncTableName.AuditLog, groups.audit_log.length);
-    await db
-      .insert(auditLog)
-      .values(groups.audit_log)
-      .onConflictDoUpdate({
-        target: auditLog.id,
-        set: {
-          actor: sql`excluded.actor`,
-          action: sql`excluded.action`,
-          entityId: sql`excluded.entity_id`,
-          tableName: sql`excluded.table_name`,
-          payloadJson: sql`excluded.payload_json`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
-    await maybeYieldAfterBatch(groups.chat_messages.length);
+    await upsertPulledRowsInChunks(db, auditLog, groups.audit_log, auditLog.id, {
+      actor: sql`excluded.actor`,
+      action: sql`excluded.action`,
+      entityId: sql`excluded.entity_id`,
+      tableName: sql`excluded.table_name`,
+      payloadJson: sql`excluded.payload_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+    await maybeYieldAfterBatch(groups.audit_log.length);
   }
 
   if (groups.chat_messages.length > 0) {
     emitApply(SyncTableName.ChatMessages, groups.chat_messages.length);
-    await db
-      .insert(chatMessages)
-      .values(groups.chat_messages)
-      .onConflictDoUpdate({
-        target: chatMessages.id,
-        set: {
-          senderUserId: sql`excluded.sender_user_id`,
-          senderUsername: sql`excluded.sender_username`,
-          recipientUserId: sql`excluded.recipient_user_id`,
-          messageType: sql`excluded.message_type`,
-          bodyText: sql`excluded.body_text`,
-          payloadJson: sql`excluded.payload_json`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, chatMessages, groups.chat_messages, chatMessages.id, {
+      senderUserId: sql`excluded.sender_user_id`,
+      senderUsername: sql`excluded.sender_username`,
+      recipientUserId: sql`excluded.recipient_user_id`,
+      messageType: sql`excluded.message_type`,
+      bodyText: sql`excluded.body_text`,
+      payloadJson: sql`excluded.payload_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
   }
 
   if (groups.chat_reads.length > 0) {
     emitApply(SyncTableName.ChatReads, groups.chat_reads.length);
-    await db
-      .insert(chatReads)
-      .values(groups.chat_reads)
-      .onConflictDoUpdate({
-        target: chatReads.id,
-        set: {
-          messageId: sql`excluded.message_id`,
-          userId: sql`excluded.user_id`,
-          readAt: sql`excluded.read_at`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, chatReads, groups.chat_reads, chatReads.id, {
+      messageId: sql`excluded.message_id`,
+      userId: sql`excluded.user_id`,
+      readAt: sql`excluded.read_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
   }
 
   if (groups.notes.length > 0) {
     emitApply(SyncTableName.Notes, groups.notes.length);
-    await db
-      .insert(notes)
-      .values(groups.notes)
-      .onConflictDoUpdate({
-        target: notes.id,
-        set: {
-          ownerUserId: sql`excluded.owner_user_id`,
-          title: sql`excluded.title`,
-          bodyJson: sql`excluded.body_json`,
-          importance: sql`excluded.importance`,
-          dueAt: sql`excluded.due_at`,
-          sortOrder: sql`excluded.sort_order`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, notes, groups.notes, notes.id, {
+      ownerUserId: sql`excluded.owner_user_id`,
+      title: sql`excluded.title`,
+      bodyJson: sql`excluded.body_json`,
+      importance: sql`excluded.importance`,
+      dueAt: sql`excluded.due_at`,
+      sortOrder: sql`excluded.sort_order`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
   }
 
   if (groups.note_shares.length > 0) {
     emitApply(SyncTableName.NoteShares, groups.note_shares.length);
-    await db
-      .insert(noteShares)
-      .values(groups.note_shares)
-      .onConflictDoUpdate({
-        // Rows are pre-remapped by (noteId, recipientUserId), then upserted by id
-        // to avoid accidental PRIMARY KEY collisions during full-pull replay.
-        target: noteShares.id,
-        set: {
-          noteId: sql`excluded.note_id`,
-          recipientUserId: sql`excluded.recipient_user_id`,
-          hidden: sql`excluded.hidden`,
-          sortOrder: sql`excluded.sort_order`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, noteShares, groups.note_shares, noteShares.id, {
+      // Rows are pre-remapped by (noteId, recipientUserId), then upserted by id
+      // to avoid accidental PRIMARY KEY collisions during full-pull replay.
+      noteId: sql`excluded.note_id`,
+      recipientUserId: sql`excluded.recipient_user_id`,
+      hidden: sql`excluded.hidden`,
+      sortOrder: sql`excluded.sort_order`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
   }
 
   if (groups.user_presence.length > 0) {
     emitApply(SyncTableName.UserPresence, groups.user_presence.length);
-    await db
-      .insert(userPresence)
-      .values(groups.user_presence)
-      .onConflictDoUpdate({
-        target: userPresence.id,
-        set: {
-          userId: sql`excluded.user_id`,
-          lastActivityAt: sql`excluded.last_activity_at`,
-          updatedAt: sql`excluded.updated_at`,
-          lastServerSeq: sql`excluded.last_server_seq`,
-          deletedAt: sql`excluded.deleted_at`,
-          syncStatus: 'synced',
-        },
-      });
+    await upsertPulledRowsInChunks(db, userPresence, groups.user_presence, userPresence.id, {
+      userId: sql`excluded.user_id`,
+      lastActivityAt: sql`excluded.last_activity_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
   }
 
   // Обновим время локального состояния (для диагностики) один раз на пачку.
@@ -2034,6 +2248,11 @@ export async function runSync(
           error: 'local database rebuilt for schema compatibility; please login again',
         };
       }
+      emitStage('prepare', 'выравнивание справочников schema с сервером', { service: 'schema' });
+      const alignResult = await alignSchemaWithServer(db, currentApiBaseUrl, { allowUnauthenticated: false });
+      if (!alignResult.ok && alignResult.reason !== 'auth_required') {
+        logSync(`schema align skipped reason=${alignResult.reason}`);
+      }
       emitStage('prepare', 'проверка локальной базы', { service: 'schema' });
       const lastRepairAt = await settingsGetNumber(db, SettingsKey.SyncRepairLastRunAt, 0);
       const lastPulledSeq = await settingsGetNumber(db, SettingsKey.LastPulledServerSeq, 0);
@@ -2232,7 +2451,12 @@ export async function runSync(
           }
           const ledgerTxs = pushedPacks.flatMap((pack) => (pack.rows as any[]).map((row) => toLedgerTx(pack.table, row)));
           const idempotencyKey = randomUUID();
-          const pushBody = { txs: ledgerTxs, idempotency_key: idempotencyKey };
+          const schemaFingerprint = await settingsGetString(db, SettingsKey.SyncSchemaFingerprint).catch(() => null);
+          const pushBody = {
+            txs: ledgerTxs,
+            idempotency_key: idempotencyKey,
+            ...(schemaFingerprint ? { schema_fingerprint: schemaFingerprint } : {}),
+          };
           const pushUrl = `${currentApiBaseUrl}/ledger/tx/submit`;
           const r = await fetchAuthed(
             db,
@@ -2245,6 +2469,27 @@ export async function runSync(
             const body = await safeBodyText(r);
             logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
             if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
+            const bodyJson = (() => {
+              try {
+                return body ? (JSON.parse(body) as Record<string, unknown>) : null;
+              } catch {
+                return null;
+              }
+            })();
+            if (bodyJson?.error === 'schema_outdated' || bodyJson?.action === 'pull_schema') {
+              const serverFingerprint = String(bodyJson?.server_fingerprint ?? '').trim().toLowerCase();
+              if (/^[a-f0-9]{64}$/.test(serverFingerprint)) {
+                await settingsSetString(db, SettingsKey.SyncSchemaFingerprint, serverFingerprint).catch(() => {});
+              }
+              const aligned = await alignSchemaWithServer(db, currentApiBaseUrl, { allowUnauthenticated: false });
+              logRecovery('schema_outdated_align', { status: r.status, ok: aligned.ok ? 1 : 0, reason: aligned.reason ?? 'ok' });
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
             if (!attemptedChatReadsFix && r.status >= 500 && isChatReadsDuplicateError(body)) {
               const chatReadsPack = pushedPacks.find((p) => p.table === SyncTableName.ChatReads);
               const messageIds = (chatReadsPack?.rows as any[] | undefined)
@@ -2368,12 +2613,18 @@ export async function runSync(
             }
             throw new Error(`push HTTP ${r.status}: ${body || 'no body'}`);
           }
-          const json = (await r.json()) as {
-            ok: boolean;
-            applied?: number;
-            applied_rows?: Array<{ table?: SyncTableName; rowId?: string; row_id?: string }>;
-          };
+          const json = (await r.json()) as LedgerPushSubmitResponse;
           pushed = json.applied ?? 0;
+          await applyServerIdRemaps(db, json.id_remaps ?? null).catch((e) => {
+            logSync(`push id_remaps apply failed err=${formatError(e)}`);
+          });
+          if (Array.isArray(json.skipped) && json.skipped.length > 0) {
+            const sample = json.skipped
+              .slice(0, 5)
+              .map((row: NonNullable<LedgerPushSubmitResponse['skipped']>[number]) => `${row.table}:${row.row_id}:${row.reason}`)
+              .join(', ');
+            logSync(`push skipped rows count=${json.skipped.length} sample=${sample}`);
+          }
 
           const appliedRows = Array.isArray(json.applied_rows) ? json.applied_rows : null;
           if (appliedRows) {

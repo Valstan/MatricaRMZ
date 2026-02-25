@@ -21,6 +21,7 @@ export const EntityTypeCode = {
   Tool: 'tool',
   ToolProperty: 'tool_property',
   ToolCatalog: 'tool_catalog',
+  PartEngineBrand: 'part_engine_brand',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];

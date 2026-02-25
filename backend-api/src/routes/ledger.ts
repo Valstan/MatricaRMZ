@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
 import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { asc, gt, isNull } from 'drizzle-orm';
 import {
   createSignedCheckpoint,
@@ -46,6 +46,54 @@ const txSchema = z.object({
   row_id: z.string().uuid().optional(),
 });
 
+type SchemaSnapshotPayload = {
+  entity_types: Array<Record<string, unknown>>;
+  attribute_defs: Array<Record<string, unknown>>;
+  fingerprint: string;
+};
+
+function buildSchemaFingerprint(snapshot: Omit<SchemaSnapshotPayload, 'fingerprint'>): string {
+  const entityPairs = snapshot.entity_types
+    .map((row) => `${String(row.code ?? '')}:${String(row.id ?? '')}`)
+    .sort((a, b) => a.localeCompare(b));
+  const attrPairs = snapshot.attribute_defs
+    .map((row) => `${String(row.entity_type_id ?? '')}::${String(row.code ?? '')}:${String(row.id ?? '')}`)
+    .sort((a, b) => a.localeCompare(b));
+  const payload = JSON.stringify({ entityPairs, attrPairs });
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+async function getServerSchemaSnapshot(): Promise<SchemaSnapshotPayload> {
+  const typeRows = await db.select().from(entityTypes).where(isNull(entityTypes.deletedAt)).orderBy(asc(entityTypes.code));
+  const defRows = await db
+    .select()
+    .from(attributeDefs)
+    .where(isNull(attributeDefs.deletedAt))
+    .orderBy(asc(attributeDefs.entityTypeId), asc(attributeDefs.code));
+  const entityTypesSyncRows = typeRows.map((row) => SyncTableRegistry.toSyncRow(SyncTableName.EntityTypes, row));
+  const attrDefsSyncRows = defRows.map((row) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeDefs, row));
+  const fingerprint = buildSchemaFingerprint({
+    entity_types: entityTypesSyncRows,
+    attribute_defs: attrDefsSyncRows,
+  });
+  return {
+    entity_types: entityTypesSyncRows,
+    attribute_defs: attrDefsSyncRows,
+    fingerprint,
+  };
+}
+
+ledgerRouter.get('/schema/snapshot', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
+  try {
+    const snapshot = await getServerSchemaSnapshot();
+    return res.json({ ok: true, ...snapshot });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 ledgerRouter.post('/tx/submit', async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
   if (!user) return res.status(401).json({ ok: false, error: 'auth required' });
@@ -53,6 +101,7 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
     .object({
       txs: z.array(txSchema).min(1).max(5000),
       idempotency_key: z.string().uuid().optional(),
+      schema_fingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -68,6 +117,18 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
   }
 
   try {
+    const clientSchemaFingerprint = parsed.data.schema_fingerprint ?? null;
+    if (clientSchemaFingerprint) {
+      const serverSnapshot = await getServerSchemaSnapshot();
+      if (serverSnapshot.fingerprint !== clientSchemaFingerprint) {
+        return res.status(409).json({
+          ok: false,
+          error: 'schema_outdated',
+          action: 'pull_schema',
+          server_fingerprint: serverSnapshot.fingerprint,
+        });
+      }
+    }
     const txs = parsed.data.txs.map((tx) => ({
       type: tx.type,
       table: tx.table,
@@ -82,6 +143,8 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
       last_seq: result.lastSeq,
       block_height: result.blockHeight,
       applied_rows: result.appliedRows ?? [],
+      id_remaps: result.idRemaps,
+      skipped: result.skipped,
     };
 
     // Cache the successful response for idempotency replay

@@ -174,6 +174,24 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function getBrandLinkForPart(part: unknown, engineBrandId: string | undefined) {
+  const brandId = String(engineBrandId || '').trim();
+  if (!brandId || !part || typeof part !== 'object') return null;
+  const links = Array.isArray((part as any).brandLinks) ? (part as any).brandLinks : [];
+  const link = links.find((x: any) => String(x?.engineBrandId || '').trim() === brandId);
+  if (!link) return null;
+  return {
+    partNumber: String(link.assemblyUnitNumber ?? ''),
+    assemblyUnitNumber: String(link.assemblyUnitNumber ?? ''),
+    quantity: Number.isFinite(Number(link.quantity)) ? Number(link.quantity) : 0,
+  };
+}
+
+function toQtyValue(v: unknown) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 function emptyAnswersForTemplate(t: RepairChecklistTemplate): RepairChecklistAnswers {
   const ans: RepairChecklistAnswers = {};
   for (const it of t.items) {
@@ -351,10 +369,12 @@ export function RepairChecklistPanel(props: {
           for (const p of (partsRes as any).parts) {
             const label = String(p.name ?? p.article ?? p.id);
             options.push({ id: `part:${p.id}`, label });
-            const qtyNum = Number((p as any).engineBrandQty ?? 0);
+            const link = getBrandLinkForPart(p, props.engineBrandId);
+            const linkQty = Number(link?.quantity ?? NaN);
+            const qtyNum = Number.isFinite(linkQty) ? linkQty : 0;
             metaByLabel[label] = {
-              partNumber: String((p as any).assemblyUnitNumber ?? ''),
-              quantity: Number.isFinite(qtyNum) && qtyNum > 0 ? Math.floor(qtyNum) : 0,
+              partNumber: String(link?.partNumber ?? ''),
+              quantity: toQtyValue(qtyNum),
             };
           }
         }
@@ -395,10 +415,12 @@ export function RepairChecklistPanel(props: {
           for (const p of (partsRes as any).parts) {
             const label = String(p.name ?? p.article ?? p.id);
             options.push({ id: `part:${p.id}`, label });
-            const qtyNum = Number((p as any).engineBrandQty ?? 0);
+            const link = getBrandLinkForPart(p, props.engineBrandId);
+            const linkQty = Number(link?.quantity ?? NaN);
+            const qtyNum = Number.isFinite(linkQty) ? linkQty : 0;
             metaByLabel[label] = {
-              assemblyUnitNumber: String((p as any).assemblyUnitNumber ?? ''),
-              quantity: Number.isFinite(qtyNum) && qtyNum > 0 ? Math.floor(qtyNum) : 0,
+              assemblyUnitNumber: String(link?.assemblyUnitNumber ?? ''),
+              quantity: toQtyValue(qtyNum),
             };
           }
         }
@@ -473,13 +495,17 @@ export function RepairChecklistPanel(props: {
     void (async () => {
       const r = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
       if (!r.ok) return;
-      const rows = r.parts.map((p) => ({
-        part_name: String(p.name ?? p.article ?? p.id),
-        part_number: String((p as any).assemblyUnitNumber ?? ''),
-        quantity: Number.isFinite(Number((p as any).engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number((p as any).engineBrandQty ?? 0))) : 0,
-        repairable_qty: Number.isFinite(Number((p as any).engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number((p as any).engineBrandQty ?? 0))) : 0,
-        scrap_qty: 0,
-      }));
+      const rows = r.parts.map((p) => {
+        const link = getBrandLinkForPart(p, props.engineBrandId);
+        const qty = toQtyValue(link?.quantity ?? 0);
+        return {
+          part_name: String(p.name ?? p.article ?? p.id),
+          part_number: String(link?.partNumber ?? ''),
+          quantity: qty,
+          repairable_qty: qty,
+          scrap_qty: 0,
+        };
+      });
       const normalized = normalizeDefectRows(rows as any);
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
       setAnswers(next);
@@ -505,13 +531,16 @@ export function RepairChecklistPanel(props: {
     void (async () => {
       const r = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
       if (!r.ok) return;
-      const rows = r.parts.map((p: any) => ({
-        part_name: String(p.name ?? p.article ?? p.id),
-        assembly_unit_number: String(p.assemblyUnitNumber ?? ''),
-        quantity: Number.isFinite(Number(p.engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number(p.engineBrandQty ?? 0))) : 0,
-        present: false,
-        actual_qty: 0,
-      }));
+      const rows = r.parts.map((p: any) => {
+        const link = getBrandLinkForPart(p, props.engineBrandId);
+        return {
+          part_name: String(p.name ?? p.article ?? p.id),
+          assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+          quantity: toQtyValue(link?.quantity ?? 0),
+          present: false,
+          actual_qty: 0,
+        };
+      });
       const normalized = normalizeCompletenessRows(rows as any);
       const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
       setAnswers(next);
@@ -559,10 +588,11 @@ export function RepairChecklistPanel(props: {
       return;
     }
     const rows = r.parts.map((p: any) => {
-      const qty = Number.isFinite(Number(p.engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number(p.engineBrandQty ?? 0))) : 0;
+      const link = getBrandLinkForPart(p, props.engineBrandId);
+      const qty = toQtyValue(link?.quantity ?? 0);
       return {
         part_name: String(p.name ?? p.article ?? p.id),
-        part_number: String(p.assemblyUnitNumber ?? ''),
+        part_number: String(link?.partNumber ?? ''),
         quantity: qty,
         repairable_qty: qty,
         scrap_qty: 0,
@@ -584,10 +614,11 @@ export function RepairChecklistPanel(props: {
       return;
     }
     const rows = r.parts.map((p: any) => {
-      const qty = Number.isFinite(Number(p.engineBrandQty ?? 0)) ? Math.max(0, Math.floor(Number(p.engineBrandQty ?? 0))) : 0;
+      const link = getBrandLinkForPart(p, props.engineBrandId);
+      const qty = toQtyValue(link?.quantity ?? 0);
       return {
         part_name: String(p.name ?? p.article ?? p.id),
-        assembly_unit_number: String(p.assemblyUnitNumber ?? ''),
+        assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
         quantity: qty,
         present: false,
         actual_qty: 0,

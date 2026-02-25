@@ -4,7 +4,6 @@ import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
-import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
@@ -31,12 +30,21 @@ type Attribute = {
 
 type LinkOpt = { id: string; label: string };
 
+type PartBrandLink = {
+  id: string;
+  partId: string;
+  engineBrandId: string;
+  assemblyUnitNumber: string;
+  quantity: number;
+};
+
 type EntityTypeRow = { id: string; code: string; name: string };
 
 type Part = {
   id: string;
   createdAt: number;
   updatedAt: number;
+  brandLinks?: PartBrandLink[];
   attributes: Attribute[];
 };
 
@@ -134,7 +142,6 @@ export function PartDetailsPage(props: {
   // Core fields (better UX: always-visible inputs)
   const [name, setName] = useState<string>('');
   const [article, setArticle] = useState<string>('');
-  const [assemblyUnitNumber, setAssemblyUnitNumber] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [purchaseDate, setPurchaseDate] = useState<string>(''); // yyyy-mm-dd
   const [supplier, setSupplier] = useState<string>('');
@@ -144,8 +151,11 @@ export function PartDetailsPage(props: {
 
   // Links: engine brands
   const [engineBrandOptions, setEngineBrandOptions] = useState<Array<{ id: string; label: string }>>([]);
-  const [engineBrandIds, setEngineBrandIds] = useState<string[]>([]);
   const [engineBrandStatus, setEngineBrandStatus] = useState<string>('');
+  const [brandLinks, setBrandLinks] = useState<PartBrandLink[]>([]);
+  const [brandLinksStatus, setBrandLinksStatus] = useState<string>('');
+  const [brandLinkDrafts, setBrandLinkDrafts] = useState<Record<string, { engineBrandId: string; assemblyUnitNumber: string; quantity: number }>>({});
+  const [newBrandLink, setNewBrandLink] = useState({ engineBrandId: '', assemblyUnitNumber: '', quantity: 1 });
   const [contractId, setContractId] = useState<string>('');
   const [contractOptions, setContractOptions] = useState<LinkOpt[]>([]);
   const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
@@ -291,6 +301,151 @@ export function PartDetailsPage(props: {
     } catch (e) {
       setEngineBrandOptions([]);
       setEngineBrandStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  function getDraft(linkId: string, link: PartBrandLink) {
+    const draft = brandLinkDrafts[linkId];
+    if (draft) {
+      return {
+        engineBrandId: draft.engineBrandId ?? '',
+        assemblyUnitNumber: draft.assemblyUnitNumber ?? '',
+        quantity: Number.isFinite(draft.quantity) ? draft.quantity : 0,
+      };
+    }
+    return {
+      engineBrandId: link.engineBrandId ?? '',
+      assemblyUnitNumber: link.assemblyUnitNumber ?? '',
+      quantity: Number.isFinite(link.quantity) ? link.quantity : 0,
+    };
+  }
+
+  function setDraft(linkId: string, patch: Partial<{ engineBrandId: string; assemblyUnitNumber: string; quantity: number }>) {
+    const current = getDraft(linkId, brandLinks.find((b) => b.id === linkId) ?? ({} as PartBrandLink));
+    setBrandLinkDrafts((prev) => ({
+      ...prev,
+      [linkId]: {
+        engineBrandId: patch.engineBrandId ?? current.engineBrandId,
+        assemblyUnitNumber: patch.assemblyUnitNumber ?? current.assemblyUnitNumber,
+        quantity: Number.isFinite(patch.quantity ?? current.quantity) ? Number(patch.quantity ?? current.quantity) : current.quantity,
+      },
+    }));
+  }
+
+  async function upsertBrandLink(link: {
+    linkId?: string;
+    engineBrandId: string;
+    assemblyUnitNumber: string;
+    quantity: number;
+  }) {
+    if (!props.canEdit) return;
+    const engineBrandId = String(link.engineBrandId || '').trim();
+    const assemblyUnitNumber = String(link.assemblyUnitNumber || '').trim();
+    const quantity = Number(link.quantity);
+    if (!engineBrandId) {
+      setBrandLinksStatus('Ошибка: выберите марку двигателя');
+      return;
+    }
+    if (!assemblyUnitNumber) {
+      setBrandLinksStatus('Ошибка: заполните номер сборочной единицы');
+      return;
+    }
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      setBrandLinksStatus('Ошибка: количество должно быть числом ≥ 0');
+      return;
+    }
+
+    const payload = {
+      partId: props.partId,
+      engineBrandId,
+      assemblyUnitNumber,
+      quantity,
+      ...(link.linkId ? { linkId: link.linkId } : {}),
+    };
+    const r = await window.matrica.parts.partBrandLinks.upsert(payload);
+    if (!r?.ok) {
+      setBrandLinksStatus(`Ошибка: ${String(r?.error ?? 'unknown')}`);
+      return;
+    }
+
+    setBrandLinksStatus('Сохранено');
+    setBrandLinkDrafts((prev) => {
+      const next = { ...prev };
+      if (link.linkId) delete next[link.linkId];
+      return next;
+    });
+    await loadBrandLinks();
+    setTimeout(() => {
+      setBrandLinksStatus((prev) => (prev.startsWith('Ошибка') ? prev : ''));
+    }, 1500);
+  }
+
+  async function deleteBrandLink(linkId: string) {
+    if (!props.canEdit) return;
+    const ok = confirm('Удалить связь с маркой двигателя?');
+    if (!ok) return;
+    const r = await window.matrica.parts.partBrandLinks.delete({ partId: props.partId, linkId });
+    if (!r?.ok) {
+      setBrandLinksStatus(`Ошибка: ${String(r?.error ?? 'unknown')}`);
+      return;
+    }
+    await loadBrandLinks();
+    setBrandLinksStatus('Удалено');
+    setTimeout(() => setBrandLinksStatus(''), 1200);
+  }
+
+  function sortBrandLinks(rows: PartBrandLink[]): PartBrandLink[] {
+    return [...rows].sort((a, b) => {
+      const aAsm = (a.assemblyUnitNumber || '').trim();
+      const bAsm = (b.assemblyUnitNumber || '').trim();
+      const cmpAsm = aAsm.localeCompare(bAsm, 'ru');
+      if (cmpAsm !== 0) return cmpAsm;
+      return String(a.engineBrandId).localeCompare(String(b.engineBrandId), 'ru');
+    });
+  }
+
+  function normalizeBrandLinksFromPart(partValue: Part): PartBrandLink[] {
+    const raw = (partValue as Part & { brandLinks?: unknown }).brandLinks;
+    if (!Array.isArray(raw)) return [];
+    const out: PartBrandLink[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const v = item as Record<string, unknown>;
+      const id = String(v.id ?? '').trim();
+      const partId = String(v.partId ?? '').trim();
+      const engineBrandId = String(v.engineBrandId ?? '').trim();
+      const assemblyUnitNumber = String(v.assemblyUnitNumber ?? '').trim();
+      const quantity = Number(v.quantity);
+      if (!id || !partId || !engineBrandId) continue;
+      out.push({
+        id,
+        partId,
+        engineBrandId,
+        assemblyUnitNumber,
+        quantity: Number.isFinite(quantity) ? quantity : 0,
+      });
+    }
+    return out;
+  }
+
+  async function loadBrandLinks(partId?: string) {
+    const pid = String(partId || props.partId || '').trim();
+    if (!pid) return;
+    try {
+      setBrandLinksStatus('Загрузка связей…');
+      const r = await window.matrica.parts.partBrandLinks.list({ partId: pid });
+      if (!r.ok) {
+        setBrandLinksStatus(`Ошибка: ${String(r.error)}`);
+        setBrandLinks([]);
+        return;
+      }
+      setBrandLinks(sortBrandLinks(r.brandLinks));
+      setBrandLinksStatus('');
+      setBrandLinkDrafts({});
+      setNewBrandLink((prev) => ({ ...prev, quantity: 1, assemblyUnitNumber: prev.assemblyUnitNumber || '' }));
+    } catch (e) {
+      setBrandLinksStatus(`Ошибка: ${String(e)}`);
+      setBrandLinks([]);
     }
   }
 
@@ -484,7 +639,6 @@ export function PartDetailsPage(props: {
     const desired = [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
       { code: 'article', name: 'Артикул / обозначение', dataType: 'text', sortOrder: 20 },
-      { code: 'assembly_unit_number', name: 'Номер сборочной единицы', dataType: 'text', sortOrder: 25 },
       { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 30 },
       { code: 'purchase_date', name: 'Дата покупки', dataType: 'date', sortOrder: 40 },
       {
@@ -518,25 +672,29 @@ export function PartDetailsPage(props: {
 
     const vName = byCode.name?.value;
     const vArticle = byCode.article?.value;
-    const vAssemblyUnitNumber = byCode.assembly_unit_number?.value;
     const vDesc = byCode.description?.value;
     const vPurchase = byCode.purchase_date?.value;
     const vSupplier = byCode.supplier?.value;
-    const vBrands = byCode.engine_brand_ids?.value;
     const vSupplierId = byCode.supplier_id?.value;
     const vContractId = byCode.contract_id?.value;
 
     setName(typeof vName === 'string' ? vName : vName == null ? '' : String(vName));
     setArticle(typeof vArticle === 'string' ? vArticle : vArticle == null ? '' : String(vArticle));
-    setAssemblyUnitNumber(
-      typeof vAssemblyUnitNumber === 'string' ? vAssemblyUnitNumber : vAssemblyUnitNumber == null ? '' : String(vAssemblyUnitNumber),
-    );
     setDescription(typeof vDesc === 'string' ? vDesc : vDesc == null ? '' : String(vDesc));
     setPurchaseDate(typeof vPurchase === 'number' ? toInputDate(vPurchase) : '');
     setSupplier(typeof vSupplier === 'string' ? vSupplier : vSupplier == null ? '' : String(vSupplier));
     setSupplierId(typeof vSupplierId === 'string' ? vSupplierId : vSupplierId == null ? '' : String(vSupplierId));
-    setEngineBrandIds(Array.isArray(vBrands) ? vBrands.filter((x): x is string => typeof x === 'string') : []);
     setContractId(typeof vContractId === 'string' ? vContractId : vContractId == null ? '' : String(vContractId));
+    const linked = normalizeBrandLinksFromPart(part);
+    if (linked.length > 0) {
+      setBrandLinks(sortBrandLinks(linked));
+      setBrandLinkDrafts({});
+      setBrandLinksStatus('');
+    } else {
+      setBrandLinks([]);
+      setBrandLinkDrafts({});
+      void loadBrandLinks(String(part.id));
+    }
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = Boolean(byCode[c]?.value);
     setStatusFlags(flags);
@@ -637,7 +795,6 @@ export function PartDetailsPage(props: {
     // Save sequentially (simple + predictable)
     await saveAttribute('name', name);
     await saveAttribute('article', article);
-    await saveAttribute('assembly_unit_number', assemblyUnitNumber);
     await saveAttribute('description', description);
     await saveAttribute('purchase_date', fromInputDate(purchaseDate));
     await saveAttribute('supplier_id', supplierId || null);
@@ -681,17 +838,15 @@ export function PartDetailsPage(props: {
   const coreCodes = new Set([
     'name',
     'article',
-    'assembly_unit_number',
     'description',
     'purchase_date',
     'supplier',
     'supplier_id',
-    'engine_brand_ids',
     'contract_id',
     ...STATUS_CODES,
   ]);
   // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
-  const hiddenFromExtra = new Set(['engine_brand_ids', 'drawings', 'tech_docs', 'attachments']);
+  const hiddenFromExtra = new Set(['assembly_unit_number', 'engine_brand_ids', 'engine_brand_qty_map', 'drawings', 'tech_docs', 'attachments']);
   const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code) && !hiddenFromExtra.has(a.code));
 
   const attrByCode = new Map<string, Attribute>();
@@ -733,20 +888,6 @@ export function PartDetailsPage(props: {
               setArticle(e.target.value);
             }}
             onBlur={() => void saveAttribute('article', article)}
-          />
-        ),
-      },
-      {
-        code: 'assembly_unit_number',
-        defaultOrder: 25,
-        label: 'Номер сборочной единицы',
-        value: assemblyUnitNumber,
-        render: (
-          <Input
-            value={assemblyUnitNumber}
-            disabled={!props.canEdit}
-            onChange={(e) => setAssemblyUnitNumber(e.target.value)}
-            onBlur={() => void saveAttribute('assembly_unit_number', assemblyUnitNumber)}
           />
         ),
       },
@@ -869,11 +1010,157 @@ export function PartDetailsPage(props: {
     partDefs,
   );
 
+  function BrandLinksEditor() {
+    const statusText = brandLinksStatus;
+    const canEdit = props.canEdit;
+    const rowStyle: React.CSSProperties = { display: 'grid', gap: 10 };
+
+    const rows = brandLinks.map((link) => {
+      const draft = getDraft(link.id, link);
+      const brandName = engineBrandLabelById.get(link.engineBrandId) ?? link.engineBrandId;
+      const normalizedOriginalQuantity = Number.isFinite(link.quantity) ? Number(link.quantity) : 0;
+      const isDirty =
+        draft.engineBrandId !== link.engineBrandId ||
+        draft.assemblyUnitNumber !== (link.assemblyUnitNumber || '') ||
+        draft.quantity !== normalizedOriginalQuantity;
+
+      return (
+        <div key={link.id} style={rowStyle}>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: canEdit ? '2fr 2.2fr 1fr 150px' : '2fr 2.2fr 1fr', alignItems: 'end' }}>
+            <SearchSelect
+              value={draft.engineBrandId || null}
+              options={engineBrandOptions}
+              disabled={!canEdit}
+              placeholder="Марка двигателя"
+              onChange={(next) => setDraft(link.id, { engineBrandId: next || '' })}
+            />
+            <Input
+              value={draft.assemblyUnitNumber}
+              disabled={!canEdit}
+              placeholder="Номер сборочной единицы"
+              onChange={(e) => setDraft(link.id, { assemblyUnitNumber: e.target.value })}
+            />
+            <Input
+              type="number"
+              value={Number.isFinite(draft.quantity) ? String(draft.quantity) : '0'}
+              disabled={!canEdit}
+              min={0}
+              step="1"
+              onChange={(e) => {
+                const parsed = Number(e.target.value);
+                setDraft(link.id, { quantity: Number.isFinite(parsed) ? parsed : draft.quantity });
+              }}
+            />
+            {canEdit && (
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <Button
+                  variant="ghost"
+                  tone="success"
+                  onClick={() =>
+                    void upsertBrandLink({
+                      linkId: link.id,
+                      engineBrandId: draft.engineBrandId,
+                      assemblyUnitNumber: draft.assemblyUnitNumber,
+                      quantity: Number.isFinite(draft.quantity) ? draft.quantity : 0,
+                    })
+                  }
+                  disabled={!isDirty || !draft.engineBrandId || !draft.assemblyUnitNumber}
+                >
+                  Сохранить
+                </Button>
+                <Button
+                  variant="ghost"
+                  tone="danger"
+                  onClick={() => void deleteBrandLink(link.id)}
+                  disabled={!canEdit}
+                >
+                  Удалить
+                </Button>
+              </div>
+            )}
+          </div>
+          <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
+            Текущая запись: {brandName} — {link.assemblyUnitNumber || 'без сборочного'} (шт. {link.quantity})
+          </div>
+        </div>
+      );
+    });
+
+    const canAdd = canEdit && Boolean(newBrandLink.engineBrandId.trim()) && Boolean(newBrandLink.assemblyUnitNumber.trim());
+
+    return (
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <strong>Марки двигателя и сборочные номера</strong>
+          <span style={{ flex: 1 }} />
+          <Button variant="ghost" tone="neutral" onClick={() => void loadEngineBrands()}>
+            Обновить справочник
+          </Button>
+        </div>
+        {engineBrandStatus && (
+          <div style={{ color: engineBrandStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{engineBrandStatus}</div>
+        )}
+
+        {canEdit && (
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '2fr 2.2fr 1fr 150px', alignItems: 'end' }}>
+            <SearchSelect
+              value={newBrandLink.engineBrandId || null}
+              options={engineBrandOptions}
+              disabled={!canEdit}
+              placeholder="Выберите марку"
+              onChange={(next) => setNewBrandLink((prev) => ({ ...prev, engineBrandId: next || '' }))}
+            />
+            <Input
+              value={newBrandLink.assemblyUnitNumber}
+              disabled={!canEdit}
+              placeholder="Номер сборочной единицы"
+              onChange={(e) => setNewBrandLink((prev) => ({ ...prev, assemblyUnitNumber: e.target.value }))}
+            />
+            <Input
+              type="number"
+              value={String(newBrandLink.quantity)}
+              disabled={!canEdit}
+              min={0}
+              step="1"
+              onChange={(e) => {
+                const parsed = Number(e.target.value);
+                setNewBrandLink((prev) => ({ ...prev, quantity: Number.isFinite(parsed) ? parsed : 0 }));
+              }}
+            />
+            <Button
+              variant="ghost"
+              tone="success"
+              onClick={() => {
+                if (!canAdd) return;
+                void upsertBrandLink(newBrandLink);
+              }}
+              disabled={!canAdd}
+            >
+              Добавить
+            </Button>
+          </div>
+        )}
+
+        {brandLinks.length === 0 ? (
+          <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Связей не задано.</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>{rows}</div>
+        )}
+
+        {statusText && <div style={{ color: statusText.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{statusText}</div>}
+      </div>
+    );
+  }
+
   function printPartCard() {
     if (!part) return;
     const mainRows: Array<[string, string]> = mainFields.map((f) => [f.label, String(f.value ?? '')]);
-    const compatibility = engineBrandIds
-      .map((id) => engineBrandLabelById.get(id) ?? id)
+    const compatibility = brandLinks
+      .map((link) => {
+        const brand = engineBrandLabelById.get(link.engineBrandId) ?? link.engineBrandId;
+        const asm = link.assemblyUnitNumber ? ` (${link.assemblyUnitNumber})` : '';
+        return `${brand}${asm} — ${link.quantity}`;
+      })
       .filter(Boolean)
       .join(', ');
     const extraRows = extraAttrs.map((a) => [a.name || a.code, formatValue(a.value)]);
@@ -1026,52 +1313,7 @@ export function PartDetailsPage(props: {
           </div>
 
           <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <strong>Связи</strong>
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Марки двигателя</div>
-                <span style={{ flex: 1 }} />
-                <Button variant="ghost" tone="neutral" onClick={() => void loadEngineBrands()}>
-                  Обновить
-                </Button>
-              </div>
-
-              {engineBrandStatus && (
-                <div style={{ marginTop: 8, color: engineBrandStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>
-                  {engineBrandStatus}
-                </div>
-              )}
-
-              <div style={{ marginTop: 10 }}>
-                <MultiSearchSelect
-                  values={engineBrandIds}
-                  options={engineBrandOptions}
-                  disabled={!props.canEdit}
-                  placeholder="Выберите марки двигателя"
-                  onChange={(next) => {
-                    const sorted = [...next];
-                    sorted.sort((a, b) => (engineBrandLabelById.get(a) ?? a).localeCompare(engineBrandLabelById.get(b) ?? b, 'ru'));
-                    setEngineBrandIds(sorted);
-                    void saveAttribute('engine_brand_ids', sorted);
-                  }}
-                />
-                {engineBrandOptions.length === 0 && (
-                  <div style={{ marginTop: 8, color: 'var(--subtle)', fontSize: 13 }}>
-                    Справочник пуст (создайте марки в «Справочники»).
-                  </div>
-                )}
-              </div>
-
-              <div style={{ marginTop: 10, color: 'var(--subtle)', fontSize: 12 }}>
-                Выбрано: {engineBrandIds.length}
-                {engineBrandIds.length > 0 && (
-                  <>
-                    {' '}
-                    — {engineBrandIds.map((id) => engineBrandLabelById.get(id) ?? id.slice(0, 8)).join(', ')}
-                  </>
-                )}
-              </div>
-            </div>
+            <BrandLinksEditor />
           </div>
         </SectionCard>
 

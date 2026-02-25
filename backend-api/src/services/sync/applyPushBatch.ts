@@ -67,6 +67,19 @@ export type AppliedSyncChange = {
   payloadJson: string;
 };
 
+export type SyncIdRemaps = {
+  entity_types: Record<string, string>;
+  attribute_defs: Record<string, string>;
+};
+
+export type SyncSkippedRow = {
+  table: SyncTableName;
+  row_id: string;
+  reason: string;
+  dependency?: string;
+  missing_id?: string;
+};
+
 type ApplyPushOptions = {
   collectChanges?: AppliedSyncChange[];
   /** @deprecated No longer used. Change log has been removed. Kept for API compat. */
@@ -100,7 +113,7 @@ export async function applyPushBatch(
   req: SyncPushRequest,
   actorRaw: SyncActor,
   applyOpts: ApplyPushOptions = {},
-): Promise<{ applied: number; changes?: AppliedSyncChange[] }> {
+): Promise<{ applied: number; changes?: AppliedSyncChange[]; idRemaps: SyncIdRemaps; skipped: SyncSkippedRow[] }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
   const actorRole = String(actor.role ?? '').toLowerCase();
@@ -108,11 +121,34 @@ export async function applyPushBatch(
   const collected = applyOpts.collectChanges ?? null;
   const telegramNotifications: TelegramNotification[] = [];
   const skipCounters = new Map<string, number>();
+  const skippedRows: SyncSkippedRow[] = [];
 
   function addSkipMetric(kind: 'dependency' | 'conflict', table: SyncTableName, count: number, dependency?: string) {
     if (!Number.isFinite(count) || count <= 0) return;
     const key = `${kind}|${table}|${dependency ?? ''}`;
     skipCounters.set(key, (skipCounters.get(key) ?? 0) + Math.floor(count));
+  }
+
+  function addSkippedRow(entry: SyncSkippedRow) {
+    if (!entry.row_id) return;
+    skippedRows.push(entry);
+  }
+
+  function addDependencySkippedRows(
+    table: SyncTableName,
+    rows: Array<Record<string, unknown>>,
+    dependency: string,
+    missingIdField: string,
+  ) {
+    for (const row of rows) {
+      addSkippedRow({
+        table,
+        row_id: String(row.id ?? ''),
+        reason: 'missing_dependency',
+        dependency,
+        missing_id: String(row[missingIdField] ?? ''),
+      });
+    }
   }
 
   function parseRows<T>(
@@ -132,6 +168,13 @@ export async function applyPushBatch(
       invalid += 1;
       const id = (row as any)?.id;
       if (sampleIds.length < 5 && id) sampleIds.push(String(id));
+      if (id) {
+        addSkippedRow({
+          table,
+          row_id: String(id),
+          reason: 'invalid_row',
+        });
+      }
     }
     if (invalid > 0) {
       logWarn('sync invalid rows dropped', {
@@ -367,6 +410,7 @@ export async function applyPushBatch(
         }
       }
       let conflicts = 0;
+      const conflictIds: string[] = [];
       const filtered = rows.filter((r) => {
         const cur = map.get(String(r.id));
         if (!cur || !Number.isFinite(cur.updatedAt)) return true;
@@ -375,6 +419,7 @@ export async function applyPushBatch(
         if (incomingSeq != null && currentSeq != null) {
           if (incomingSeq < currentSeq) {
             conflicts += 1;
+            conflictIds.push(String(r.id));
             return false;
           }
           return incomingSeq >= currentSeq;
@@ -385,6 +430,7 @@ export async function applyPushBatch(
           // If server already has a tombstone with a known seq, do not allow seq-less undelete.
           if (!incomingDeleted && cur.deletedAt != null) {
             conflicts += 1;
+            conflictIds.push(String(r.id));
             return false;
           }
           if (incomingDeleted && cur.deletedAt == null) return true;
@@ -402,6 +448,13 @@ export async function applyPushBatch(
             client_id: req.client_id,
             user: actor.username,
           });
+          for (const rowId of conflictIds) {
+            addSkippedRow({
+              table: tableName,
+              row_id: rowId,
+              reason: 'conflict',
+            });
+          }
         } else if (!opts?.allowConflicts) {
           throw new Error(`sync_conflict: ${tableName} (${conflicts})`);
         }
@@ -569,8 +622,15 @@ export async function applyPushBatch(
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.type_id)));
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.Entities, missingRows.length, 'entity_type');
+          addDependencySkippedRows(SyncTableName.Entities, missingRows as Array<Record<string, unknown>>, 'entity_type', 'type_id');
           if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
+            logWarn('sync dependency strict mode: rows skipped', {
+              table: SyncTableName.Entities,
+              dependency: 'entity_type',
+              missing: missingRows.length,
+              client_id: req.client_id,
+              user: actor.username,
+            });
           }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.Entities,
@@ -727,8 +787,20 @@ export async function applyPushBatch(
         const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.AttributeDefs, missingRows.length, 'entity_type');
+          addDependencySkippedRows(
+            SyncTableName.AttributeDefs,
+            missingRows as Array<Record<string, unknown>>,
+            'entity_type',
+            'entity_type_id',
+          );
           if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            throw new Error(`sync_dependency_missing: entity_type (${missingRows.length})`);
+            logWarn('sync dependency strict mode: rows skipped', {
+              table: SyncTableName.AttributeDefs,
+              dependency: 'entity_type',
+              missing: missingRows.length,
+              client_id: req.client_id,
+              user: actor.username,
+            });
           }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.AttributeDefs,
@@ -818,8 +890,20 @@ export async function applyPushBatch(
         const missingRows = rows.filter((r) => !existingDefIds.has(String(r.attribute_def_id)));
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.AttributeValues, missingRows.length, 'attribute_def');
+          addDependencySkippedRows(
+            SyncTableName.AttributeValues,
+            missingRows as Array<Record<string, unknown>>,
+            'attribute_def',
+            'attribute_def_id',
+          );
           if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            throw new Error(`sync_dependency_missing: attribute_def (${missingRows.length})`);
+            logWarn('sync dependency strict mode: rows skipped', {
+              table: SyncTableName.AttributeValues,
+              dependency: 'attribute_def',
+              missing: missingRows.length,
+              client_id: req.client_id,
+              user: actor.username,
+            });
           }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.AttributeValues,
@@ -843,8 +927,15 @@ export async function applyPushBatch(
         const missingRows = rows.filter((r) => !existingEntityIds.has(String(r.entity_id)));
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.AttributeValues, missingRows.length, 'entity');
+          addDependencySkippedRows(SyncTableName.AttributeValues, missingRows as Array<Record<string, unknown>>, 'entity', 'entity_id');
           if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            throw new Error(`sync_dependency_missing: entity (${missingRows.length})`);
+            logWarn('sync dependency strict mode: rows skipped', {
+              table: SyncTableName.AttributeValues,
+              dependency: 'entity',
+              missing: missingRows.length,
+              client_id: req.client_id,
+              user: actor.username,
+            });
           }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.AttributeValues,
@@ -977,8 +1068,20 @@ export async function applyPushBatch(
         const missingOps = engineScopedOps.filter((r) => !existingEngineIds.has(String(r.engine_entity_id)));
         if (missingOps.length > 0) {
           addSkipMetric('dependency', SyncTableName.Operations, missingOps.length, 'engine_entity');
+          addDependencySkippedRows(
+            SyncTableName.Operations,
+            missingOps as Array<Record<string, unknown>>,
+            'engine_entity',
+            'engine_entity_id',
+          );
           if (strictSyncDependencies() && !applyOpts.allowSyncConflicts) {
-            throw new Error(`sync_dependency_missing: engine_entity (${missingOps.length})`);
+            logWarn('sync dependency strict mode: rows skipped', {
+              table: SyncTableName.Operations,
+              dependency: 'engine_entity',
+              missing: missingOps.length,
+              client_id: req.client_id,
+              user: actor.username,
+            });
           }
           logWarn('sync dependency rows skipped', {
             table: SyncTableName.Operations,
@@ -1108,7 +1211,22 @@ export async function applyPushBatch(
             const existingSet = new Set(existingRecipients.map((r) => String(r.id)));
             const missing = recipientIds.filter((id) => !existingSet.has(String(id)));
             if (missing.length > 0) {
-              throw new Error(`sync_dependency_missing: recipient_user (${missing.length})`);
+              addSkipMetric('dependency', SyncTableName.ChatMessages, missing.length, 'recipient_user');
+              const missingSet = new Set(missing);
+              const missingRows = rows.filter((r) => {
+                const recipient = r.recipient_user_id ? String(r.recipient_user_id) : '';
+                return recipient && missingSet.has(recipient);
+              });
+              addDependencySkippedRows(
+                SyncTableName.ChatMessages,
+                missingRows as Array<Record<string, unknown>>,
+                'recipient_user',
+                'recipient_user_id',
+              );
+              rows = rows.filter((r) => {
+                const recipient = r.recipient_user_id ? String(r.recipient_user_id) : '';
+                return !(recipient && missingSet.has(recipient));
+              });
             }
           }
         }
@@ -1328,7 +1446,7 @@ export async function applyPushBatch(
       const raw = grouped.get(SyncTableName.NoteShares) ?? [];
       const parsedAll = parseRows(SyncTableName.NoteShares, raw, noteShareRowSchema);
       if (parsedAll.length > 0 && actor.id) {
-        const rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll, SyncTableName.NoteShares);
+        let rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll, SyncTableName.NoteShares);
         const noteIds = Array.from(new Set(rows.map((r) => String(r.note_id))));
         const notesRows =
           noteIds.length === 0
@@ -1352,7 +1470,18 @@ export async function applyPushBatch(
             .limit(50_000);
           const existingSet = new Set(existingRecipients.map((r) => String(r.id)));
           const missing = recipientIds.filter((id) => !existingSet.has(String(id)));
-          if (missing.length > 0) throw new Error(`sync_dependency_missing: note_recipient (${missing.length})`);
+          if (missing.length > 0) {
+            addSkipMetric('dependency', SyncTableName.NoteShares, missing.length, 'note_recipient');
+            const missingSet = new Set(missing);
+            const missingRows = rows.filter((r) => missingSet.has(String(r.recipient_user_id)));
+            addDependencySkippedRows(
+              SyncTableName.NoteShares,
+              missingRows as Array<Record<string, unknown>>,
+              'note_recipient',
+              'recipient_user_id',
+            );
+            rows = rows.filter((r) => !missingSet.has(String(r.recipient_user_id)));
+          }
         }
 
         const shareKey = (noteId: string, recipientId: string) => `${noteId}::${recipientId}`;
@@ -1446,7 +1575,11 @@ export async function applyPushBatch(
       });
     }
 
-    return { applied, ...(collected ? { changes: collected } : {}) };
+    const idRemaps: SyncIdRemaps = {
+      entity_types: Object.fromEntries(entityTypeIdRemap.entries()),
+      attribute_defs: Object.fromEntries(attributeDefIdRemap.entries()),
+    };
+    return { applied, ...(collected ? { changes: collected } : {}), idRemaps, skipped: skippedRows };
   });
 
   if (telegramNotifications.length > 0) {

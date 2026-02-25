@@ -138,9 +138,48 @@ export const syncPushRequestSchema = z.object({
   client_id: z.string().min(1),
   // Список upsert пачек по таблицам
   upserts: z.array(syncTableUpsertSchema),
+  // Отпечаток schema snapshot (entity_types + attribute_defs) клиента.
+  schema_fingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
 });
 
 export type SyncPushRequest = z.infer<typeof syncPushRequestSchema>;
+
+export const syncIdRemapsSchema = z.object({
+  entity_types: z.record(z.string(), z.string()),
+  attribute_defs: z.record(z.string(), z.string()),
+});
+
+export const syncSkippedRowSchema = z.object({
+  table: z.nativeEnum(SyncTableName),
+  row_id: z.string().uuid(),
+  reason: z.string().min(1),
+  dependency: z.string().optional(),
+  missing_id: z.string().optional(),
+});
+
+export const syncPushSubmitResponseSchema = z.object({
+  ok: z.boolean(),
+  applied: z.number().int().nonnegative().optional(),
+  db_applied: z.number().int().nonnegative().optional(),
+  last_seq: z.number().int().nonnegative().optional(),
+  block_height: z.number().int().nonnegative().optional(),
+  applied_rows: z
+    .array(
+      z.object({
+        table: z.nativeEnum(SyncTableName),
+        rowId: z.string().uuid().optional(),
+        row_id: z.string().uuid().optional(),
+      }),
+    )
+    .optional(),
+  id_remaps: syncIdRemapsSchema.optional(),
+  skipped: z.array(syncSkippedRowSchema).optional(),
+  error: z.string().optional(),
+  action: z.string().optional(),
+  server_fingerprint: z.string().optional(),
+});
+
+export type SyncPushSubmitResponse = z.infer<typeof syncPushSubmitResponseSchema>;
 
 export const syncPullResponseSchema = z.object({
   sync_protocol_version: z.number().int().min(1).default(2),

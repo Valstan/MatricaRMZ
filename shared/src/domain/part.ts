@@ -35,3 +35,11 @@ export type PartEngineLink = {
   note?: string;
 };
 
+export type PartEngineBrandLink = {
+  id: string;
+  partId: string;
+  engineBrandId: string;
+  assemblyUnitNumber: string;
+  quantity: number;
+};
+

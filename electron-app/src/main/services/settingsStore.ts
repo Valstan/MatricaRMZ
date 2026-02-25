@@ -17,6 +17,7 @@ export const SettingsKey = {
   SyncRequestLastId: 'sync.request.lastId',
   LastFullPullDurationMs: 'sync.fullPull.durationMs',
   SyncRepairLastRunAt: 'sync.repair.lastRunAt',
+  SyncSchemaFingerprint: 'sync.schemaFingerprint',
 
   // Client schema/migrations
   ClientSchemaVersion: 'schema.clientVersion',

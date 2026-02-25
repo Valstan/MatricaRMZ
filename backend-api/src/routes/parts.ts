@@ -1,7 +1,17 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { createPart, createPartAttributeDef, deletePart, getPart, listParts, updatePartAttribute } from '../services/partsService.js';
+import {
+  createPart,
+  createPartAttributeDef,
+  deletePart,
+  deletePartBrandLink,
+  getPart,
+  listPartBrandLinks,
+  listParts,
+  upsertPartBrandLink,
+  updatePartAttribute,
+} from '../services/partsService.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { logDebug, logError, logInfo } from '../utils/logger.js';
@@ -172,6 +182,103 @@ partsRouter.delete('/:id', requirePermission(PermissionCode.PartsDelete), async 
 
     const result = await deletePart({ partId: id, actor });
     if (!result.ok) {
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.get('/:id/brand-links', requirePermission(PermissionCode.PartsView), async (req, res) => {
+  try {
+    const partId = String(req.params.id || '');
+    if (!partId) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const querySchema = z.object({
+      engineBrandId: z.string().optional(),
+    });
+    const parsed = querySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const result = await listPartBrandLinks({
+      partId,
+      ...(parsed.data.engineBrandId !== undefined && { engineBrandId: parsed.data.engineBrandId }),
+    });
+    if (!result.ok) {
+      if (result.error === 'missing partId') return res.status(400).json(result);
+      if (result.error === 'part not found') return res.status(404).json(result);
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.put('/:id/brand-links', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: edit brand links via /erp API' });
+  }
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const partId = String(req.params.id || '');
+    if (!partId) return res.status(400).json({ ok: false, error: 'missing id' });
+
+    const schema = z.object({
+      linkId: z.string().optional(),
+      engineBrandId: z.string().min(1),
+      assemblyUnitNumber: z.string().min(1),
+      quantity: z.coerce.number().finite().nonnegative(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const result = await upsertPartBrandLink({
+      actor,
+      partId,
+      ...(parsed.data.linkId !== undefined && { linkId: parsed.data.linkId }),
+      engineBrandId: parsed.data.engineBrandId,
+      assemblyUnitNumber: parsed.data.assemblyUnitNumber,
+      quantity: parsed.data.quantity,
+    });
+    if (!result.ok) {
+      if (result.error.startsWith('missing ') || result.error.startsWith('quantity')) return res.status(400).json(result);
+      if (
+        result.error === 'part not found' ||
+        result.error === 'engine brand not found' ||
+        result.error === 'link not found' ||
+        result.error === 'link does not belong to this part'
+      )
+        return res.status(404).json(result);
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.delete('/:id/brand-links/:linkId', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: edit brand links via /erp API' });
+  }
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const partId = String(req.params.id || '');
+    const linkId = String(req.params.linkId || '');
+    if (!partId) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!linkId) return res.status(400).json({ ok: false, error: 'missing linkId' });
+
+    const result = await deletePartBrandLink({ actor, partId, linkId });
+    if (!result.ok) {
+      if (result.error === 'missing partId' || result.error === 'missing linkId') return res.status(400).json(result);
+      if (
+        result.error === 'part not found' ||
+        result.error === 'link not found' ||
+        result.error === 'link does not belong to this part'
+      )
+        return res.status(404).json(result);
       return res.status(500).json(result);
     }
     return res.json(result);

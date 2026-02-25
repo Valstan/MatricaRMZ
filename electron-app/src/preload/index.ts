@@ -296,14 +296,21 @@ const matricaApi = {
     updateAttribute: async (args: { partId: string; attributeCode: string; value: unknown }) =>
       ipcRenderer.invoke('parts:updateAttribute', args),
     partBrandLinks: {
-      list: async (args: { partId: string; engineBrandId?: string }) => ipcRenderer.invoke('parts:partBrandLinks:list', args),
+      list: async (args: { partId?: string; engineBrandId?: string }) => ipcRenderer.invoke('parts:partBrandLinks:list', args),
       upsert: async (args: {
         partId: string;
         linkId?: string;
         engineBrandId: string;
         assemblyUnitNumber: string;
         quantity: number;
-      }) => ipcRenderer.invoke('parts:partBrandLinks:upsert', args),
+      }) =>
+        ipcRenderer.invoke('parts:partBrandLinks:upsert', {
+          partId: args.partId,
+          engineBrandId: args.engineBrandId,
+          assemblyUnitNumber: args.assemblyUnitNumber,
+          quantity: args.quantity,
+          ...(args.linkId ? { linkId: args.linkId } : {}),
+        }),
       delete: async (args: { partId: string; linkId: string }) => ipcRenderer.invoke('parts:partBrandLinks:delete', args),
     },
     delete: async (partId: string) => ipcRenderer.invoke('parts:delete', partId),

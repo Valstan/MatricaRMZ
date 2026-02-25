@@ -668,36 +668,56 @@ export function MasterdataPage(props: {
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return;
     }
-    setEngineBrandPartIds(r.parts.map((p) => String(p.id)));
+    const ids = r.parts.map((p) => String(p?.id || '')).filter(Boolean);
+    setEngineBrandPartIds(ids);
   }
 
   async function updateBrandParts(nextIds: string[]) {
     const brandId = selectedEntityId;
     if (!brandId) return;
+    if (!props.canEditMasterData) return;
     const prev = new Set(engineBrandPartIds);
     const next = new Set(nextIds);
     const toAdd = nextIds.filter((id) => !prev.has(id));
     const toRemove = engineBrandPartIds.filter((id) => !next.has(id));
 
     for (const partId of toAdd) {
-      const pr = await window.matrica.parts.get(partId);
-      if (!pr.ok) continue;
-      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
-      const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
-      if (current.includes(brandId)) continue;
-      const updated = [...current, brandId];
-      await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+      const links = await window.matrica.parts.partBrandLinks.list({ partId });
+      if (!links.ok) {
+        setPartsStatus(`Ошибка: ${links.error ?? 'не удалось загрузить связи'}`);
+        return;
+      }
+      const exists = links.brandLinks.find((l) => l.engineBrandId === brandId);
+      if (exists?.id) continue;
+      const fallbackAssembly = links.brandLinks.find((l) => l.assemblyUnitNumber?.trim())?.assemblyUnitNumber?.trim() || 'не задано';
+      const up = await window.matrica.parts.partBrandLinks.upsert({
+        partId,
+        engineBrandId: brandId,
+        assemblyUnitNumber: fallbackAssembly || 'не задано',
+        quantity: 0,
+      });
+      if (!up.ok) {
+        setPartsStatus(`Ошибка: ${up.error ?? 'не удалось создать связь'}`);
+        return;
+      }
     }
 
     for (const partId of toRemove) {
-      const pr = await window.matrica.parts.get(partId);
-      if (!pr.ok) continue;
-      const attr = pr.part.attributes.find((a: any) => a.code === 'engine_brand_ids');
-      const current = Array.isArray(attr?.value) ? attr.value.filter((x: any): x is string => typeof x === 'string') : [];
-      if (!current.includes(brandId)) continue;
-      const updated = current.filter((id) => id !== brandId);
-      await window.matrica.parts.updateAttribute({ partId, attributeCode: 'engine_brand_ids', value: updated });
+      const links = await window.matrica.parts.partBrandLinks.list({ partId });
+      if (!links.ok) {
+        setPartsStatus(`Ошибка: ${links.error ?? 'не удалось загрузить связи'}`);
+        return;
+      }
+      const current = links.brandLinks.find((l) => l.engineBrandId === brandId);
+      if (!current?.id) continue;
+      const del = await window.matrica.parts.partBrandLinks.delete({ partId, linkId: String(current.id) });
+      if (!del.ok) {
+        setPartsStatus(`Ошибка: ${del.error ?? 'не удалось удалить связь'}`);
+        return;
+      }
     }
+    setPartsStatus('Сохранено');
+    setTimeout(() => setPartsStatus(''), 900);
   }
 
   async function refreshIncomingLinks(entityId: string) {

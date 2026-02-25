@@ -58,5 +58,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
       rowId: r.rowId,
       op: r.op,
     })),
+    idRemaps: result.idRemaps,
+    skipped: result.skipped,
   };
 }

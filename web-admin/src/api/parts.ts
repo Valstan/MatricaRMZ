@@ -16,3 +16,12 @@ export function createPart(args: { attributes?: Record<string, unknown> }) {
     body: JSON.stringify(args ?? {}),
   });
 }
+
+export function listBrandLinks(args: { partId: string; engineBrandId?: string }) {
+  const partId = String(args.partId || '').trim();
+  if (!partId) throw new Error('partId is required');
+  const params = new URLSearchParams();
+  if (args.engineBrandId) params.set('engineBrandId', args.engineBrandId);
+  const suffix = params.toString();
+  return apiJson(`/parts/${encodeURIComponent(partId)}/brand-links${suffix ? `?${suffix}` : ''}`, { method: 'GET' });
+}

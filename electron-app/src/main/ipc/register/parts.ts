@@ -3,7 +3,18 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult } from '../ipcContext.js';
 
-import { partsCreate, partsCreateAttributeDef, partsDelete, partsGet, partsGetFiles, partsList, partsUpdateAttribute } from '../../services/partsService.js';
+import {
+  partsBrandLinksDelete,
+  partsBrandLinksList,
+  partsBrandLinksUpsert,
+  partsCreate,
+  partsCreateAttributeDef,
+  partsDelete,
+  partsGet,
+  partsGetFiles,
+  partsList,
+  partsUpdateAttribute,
+} from '../../services/partsService.js';
 
 export function registerPartsIpc(ctx: IpcContext) {
   ipcMain.handle('parts:list', async (_e, args?: { q?: string; limit?: number; engineBrandId?: string }) => {
@@ -32,6 +43,39 @@ export function registerPartsIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'parts.edit');
     if (!gate.ok) return gate as any;
     return partsUpdateAttribute(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('parts:partBrandLinks:list', async (_e, args: { partId?: string; engineBrandId?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: parts are not available (server sync disabled)' };
+    const gate = await requirePermOrResult(ctx, 'parts.view');
+    if (!gate.ok) return gate as any;
+    return partsBrandLinksList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle(
+    'parts:partBrandLinks:upsert',
+    async (
+      _e,
+      args: {
+        partId: string;
+        linkId?: string;
+        engineBrandId: string;
+        assemblyUnitNumber: string;
+        quantity: number;
+      },
+    ) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: parts are not available (server sync disabled)' };
+      const gate = await requirePermOrResult(ctx, 'parts.edit');
+      if (!gate.ok) return gate as any;
+      return partsBrandLinksUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle('parts:partBrandLinks:delete', async (_e, args: { partId: string; linkId: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: parts are not available (server sync disabled)' };
+    const gate = await requirePermOrResult(ctx, 'parts.edit');
+    if (!gate.ok) return gate as any;
+    return partsBrandLinksDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle(

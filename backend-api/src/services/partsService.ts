@@ -3,6 +3,16 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import { AttributeDataType, EntityTypeCode, SyncTableName, STATUS_CODES, type StatusCode } from '@matricarmz/shared';
 
+type PartEngineBrandLink = {
+  id: string;
+  partId: string;
+  engineBrandId: string;
+  assemblyUnitNumber: string;
+  quantity: number;
+};
+
+const PART_ENGINE_BRAND_ENTITY_TYPE_CODE = (EntityTypeCode as { PartEngineBrand?: string }).PartEngineBrand || 'part_engine_brand';
+
 import { db } from '../database/db.js';
 import { changeRequests, rowOwners, attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
 import type { AuthUser } from '../auth/jwt.js';
@@ -295,6 +305,113 @@ async function ensurePartEntityType(): Promise<string> {
   return id;
 }
 
+async function getPartEngineBrandTypeId(): Promise<string | null> {
+  const rows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(eq(entityTypes.code, PART_ENGINE_BRAND_ENTITY_TYPE_CODE))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function ensurePartEngineBrandAttributeDefs(partEngineBrandTypeId: string): Promise<void> {
+  const existing = await db
+    .select({ code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, partEngineBrandTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(10_000);
+  const have = new Set(existing.map((r) => String(r.code)));
+
+  const ts = nowMs();
+  async function ensure(code: string, name: string, dataType: string, sortOrder: number, metaJson?: string | null) {
+    if (have.has(code)) return;
+    const id = randomUUID();
+    await db.insert(attributeDefs).values({
+      id,
+      entityTypeId: partEngineBrandTypeId,
+      code,
+      name,
+      dataType,
+      isRequired: false,
+      sortOrder,
+      metaJson: metaJson ?? null,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+    await recordSyncChanges(syncActor(), [
+      {
+        tableName: SyncTableName.AttributeDefs,
+        rowId: id,
+        op: 'upsert',
+        payload: attributeDefPayload({
+          id,
+          entityTypeId: partEngineBrandTypeId,
+          code,
+          name,
+          dataType,
+          isRequired: false,
+          sortOrder,
+          metaJson: metaJson ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        }),
+        ts,
+      },
+    ]);
+    have.add(code);
+  }
+
+  await ensure('part_id', 'Деталь', AttributeDataType.Link, 10, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Part }));
+  await ensure('engine_brand_id', 'Марка двигателя', AttributeDataType.Link, 20, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineBrand }));
+  await ensure('assembly_unit_number', 'Номер сборочной единицы', AttributeDataType.Text, 30);
+  await ensure('quantity', 'Количество', AttributeDataType.Number, 40);
+}
+
+async function ensurePartEngineBrandEntityType(): Promise<string> {
+  const existing = await getPartEngineBrandTypeId();
+  if (existing) {
+    await ensurePartEngineBrandAttributeDefs(existing);
+    return existing;
+  }
+
+  const id = randomUUID();
+  const ts = nowMs();
+  await db.insert(entityTypes).values({
+    id,
+    code: PART_ENGINE_BRAND_ENTITY_TYPE_CODE,
+    name: 'Связь деталь ↔ марка',
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'synced',
+  });
+
+  await recordSyncChanges(syncActor(), [
+    {
+      tableName: SyncTableName.EntityTypes,
+      rowId: id,
+      op: 'upsert',
+      payload: entityTypePayload({
+        id,
+        code: PART_ENGINE_BRAND_ENTITY_TYPE_CODE,
+        name: 'Связь деталь ↔ марка',
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      }),
+      ts,
+    },
+  ]);
+
+  await ensurePartEngineBrandAttributeDefs(id);
+  return id;
+}
+
 async function findPartDuplicateId(args: {
   typeId: string;
   attrDefs: { id: string; code: string }[];
@@ -583,6 +700,95 @@ export async function createPartAttributeDef(args: {
   }
 }
 
+async function listPartBrandLinksInternal(args?: { partIds?: string[]; partId?: string; engineBrandId?: string }): Promise<PartEngineBrandLink[]> {
+  const partBrandTypeId = await ensurePartEngineBrandEntityType();
+  const attrDefRows = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, partBrandTypeId), isNull(attributeDefs.deletedAt)));
+  const attrDefByCode = new Map(attrDefRows.map((r) => [String(r.code), String(r.id)] as [string, string]));
+  const partIdAttrId = attrDefByCode.get('part_id');
+  const engineBrandIdAttrId = attrDefByCode.get('engine_brand_id');
+  const assemblyUnitAttrId = attrDefByCode.get('assembly_unit_number');
+  const quantityAttrId = attrDefByCode.get('quantity');
+  if (!partIdAttrId || !engineBrandIdAttrId || !assemblyUnitAttrId || !quantityAttrId) return [];
+
+  const entityRows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, partBrandTypeId), isNull(entities.deletedAt)))
+    .limit(20_000);
+  const linkEntityIds = entityRows.map((r) => String(r.id));
+  if (linkEntityIds.length === 0) return [];
+
+  const valueRows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, linkEntityIds as any),
+        inArray(attributeValues.attributeDefId, [partIdAttrId, engineBrandIdAttrId, assemblyUnitAttrId, quantityAttrId] as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(120_000);
+
+  const parsedByEntity = new Map<
+    string,
+    {
+      partId?: string;
+      engineBrandId?: string;
+      assemblyUnitNumber?: string;
+      quantity?: number;
+    }
+  >();
+  for (const row of valueRows as any[]) {
+    const entityId = String(row.entityId);
+    const val = row.valueJson ? safeJsonParse(String(row.valueJson)) : null;
+    const current = parsedByEntity.get(entityId) ?? {};
+    if (row.attributeDefId === partIdAttrId && typeof val === 'string' && val.trim()) {
+      current.partId = val.trim();
+    } else if (row.attributeDefId === engineBrandIdAttrId && typeof val === 'string' && val.trim()) {
+      current.engineBrandId = val.trim();
+    } else if (row.attributeDefId === assemblyUnitAttrId && typeof val === 'string') {
+      current.assemblyUnitNumber = val.trim();
+    } else if (row.attributeDefId === quantityAttrId) {
+      const n = typeof val === 'number' ? val : Number(val);
+      if (Number.isFinite(n)) {
+        current.quantity = n;
+      }
+    }
+    parsedByEntity.set(entityId, current);
+  }
+
+  const normalizedPartId = args?.partId ? String(args.partId) : null;
+  const normalizedEngineBrandId = args?.engineBrandId ? String(args.engineBrandId) : null;
+  const normalizedPartIds = args?.partIds ? new Set(args.partIds.map((id) => String(id))) : null;
+
+  const result: PartEngineBrandLink[] = [];
+  for (const row of entityRows) {
+    const link = parsedByEntity.get(row.id);
+    if (!link?.partId || !link.engineBrandId || !link.assemblyUnitNumber) continue;
+    if (normalizedPartId && link.partId !== normalizedPartId) continue;
+    if (normalizedEngineBrandId && link.engineBrandId !== normalizedEngineBrandId) continue;
+    if (normalizedPartIds && !normalizedPartIds.has(link.partId)) continue;
+
+    result.push({
+      id: row.id,
+      partId: link.partId,
+      engineBrandId: link.engineBrandId,
+      assemblyUnitNumber: link.assemblyUnitNumber,
+      quantity: Number(link.quantity ?? 0),
+    });
+  }
+
+  return result;
+}
+
 export async function listParts(args?: { q?: string; limit?: number; engineBrandId?: string }): Promise<
   | {
       ok: true;
@@ -590,9 +796,9 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         id: string;
         name?: string;
         article?: string;
-        assemblyUnitNumber?: string;
-        engineBrandQtyMap?: Record<string, number>;
-        engineBrandQty?: number;
+        contractId?: string;
+        statusFlags?: Partial<Record<StatusCode, boolean>>;
+        brandLinks?: PartEngineBrandLink[];
         updatedAt: number;
         createdAt: number;
       }[];
@@ -605,19 +811,25 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const engineBrandId = args?.engineBrandId ? String(args.engineBrandId).trim() : '';
 
-    // Получаем все сущности типа Part
     const entityRows = await db
       .select({ id: entities.id, createdAt: entities.createdAt, updatedAt: entities.updatedAt })
       .from(entities)
       .where(and(eq(entities.typeId, typeId), isNull(entities.deletedAt)))
       .orderBy(desc(entities.updatedAt))
       .limit(limit);
-
     if (!entityRows.length) {
       return { ok: true, parts: [] };
     }
 
-    // Получаем атрибуты для поиска (name, article)
+    const partIds = entityRows.map((r) => r.id);
+    const brandLinks = await listPartBrandLinksInternal({ partIds });
+    const brandLinksByPart: Record<string, PartEngineBrandLink[]> = {};
+    for (const link of brandLinks) {
+      const bucket = brandLinksByPart[link.partId] ?? [];
+      bucket.push(link);
+      brandLinksByPart[link.partId] = bucket;
+    }
+
     const nameAttr = await db
       .select({ id: attributeDefs.id })
       .from(attributeDefs)
@@ -628,31 +840,11 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       .from(attributeDefs)
       .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'article')))
       .limit(1);
-    const brandAttr = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'engine_brand_ids')))
-      .limit(1);
-    const assemblyAttr = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'assembly_unit_number')))
-      .limit(1);
-    const brandQtyMapAttr = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'engine_brand_qty_map')))
-      .limit(1);
 
     const nameAttrId = nameAttr[0]?.id;
     const articleAttrId = articleAttr[0]?.id;
-    const brandAttrId = brandAttr[0]?.id;
-    const assemblyAttrId = assemblyAttr[0]?.id;
-    const brandQtyMapAttrId = brandQtyMapAttr[0]?.id;
 
-    const entityIds = entityRows.map((r) => r.id);
-    
-    const attrRows = nameAttrId || articleAttrId || assemblyAttrId || brandQtyMapAttrId
+    const attrRows = nameAttrId || articleAttrId
       ? await db
           .select({
             entityId: attributeValues.entityId,
@@ -662,69 +854,17 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           .from(attributeValues)
           .where(
             and(
-              nameAttrId && articleAttrId && assemblyAttrId && brandQtyMapAttrId
-                ? or(
-                    eq(attributeValues.attributeDefId, nameAttrId),
-                    eq(attributeValues.attributeDefId, articleAttrId),
-                    eq(attributeValues.attributeDefId, assemblyAttrId),
-                    eq(attributeValues.attributeDefId, brandQtyMapAttrId),
-                  )
-                : nameAttrId && articleAttrId && brandQtyMapAttrId
-                  ? or(
-                      eq(attributeValues.attributeDefId, nameAttrId),
-                      eq(attributeValues.attributeDefId, articleAttrId),
-                      eq(attributeValues.attributeDefId, brandQtyMapAttrId),
-                    )
-                  : nameAttrId && assemblyAttrId && brandQtyMapAttrId
-                    ? or(
-                        eq(attributeValues.attributeDefId, nameAttrId),
-                        eq(attributeValues.attributeDefId, assemblyAttrId),
-                        eq(attributeValues.attributeDefId, brandQtyMapAttrId),
-                      )
-                    : articleAttrId && assemblyAttrId && brandQtyMapAttrId
-                      ? or(
-                          eq(attributeValues.attributeDefId, articleAttrId),
-                          eq(attributeValues.attributeDefId, assemblyAttrId),
-                          eq(attributeValues.attributeDefId, brandQtyMapAttrId),
-                        )
-                : nameAttrId && articleAttrId
-                  ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, articleAttrId))
-                  : nameAttrId && assemblyAttrId
-                    ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, assemblyAttrId))
-                : nameAttrId && brandQtyMapAttrId
-                  ? or(eq(attributeValues.attributeDefId, nameAttrId), eq(attributeValues.attributeDefId, brandQtyMapAttrId))
-                    : articleAttrId && assemblyAttrId
-                      ? or(eq(attributeValues.attributeDefId, articleAttrId), eq(attributeValues.attributeDefId, assemblyAttrId))
-                : articleAttrId && brandQtyMapAttrId
-                  ? or(eq(attributeValues.attributeDefId, articleAttrId), eq(attributeValues.attributeDefId, brandQtyMapAttrId))
-                : assemblyAttrId && brandQtyMapAttrId
-                  ? or(eq(attributeValues.attributeDefId, assemblyAttrId), eq(attributeValues.attributeDefId, brandQtyMapAttrId))
-                      : nameAttrId
-                        ? eq(attributeValues.attributeDefId, nameAttrId)
-                        : articleAttrId
-                          ? eq(attributeValues.attributeDefId, articleAttrId)
-                : assemblyAttrId
-                  ? eq(attributeValues.attributeDefId, assemblyAttrId)
-                  : eq(attributeValues.attributeDefId, brandQtyMapAttrId!),
-              inArray(attributeValues.entityId, entityIds),
+              or(
+                ...(nameAttrId ? [eq(attributeValues.attributeDefId, nameAttrId)] : []),
+                ...(articleAttrId ? [eq(attributeValues.attributeDefId, articleAttrId)] : []),
+              ),
+              inArray(attributeValues.entityId, partIds),
               isNull(attributeValues.deletedAt),
             ),
           )
           .limit(10_000)
       : [];
 
-    const brandRows = brandAttrId
-      ? await db
-          .select({
-            entityId: attributeValues.entityId,
-            valueJson: attributeValues.valueJson,
-          })
-          .from(attributeValues)
-          .where(and(eq(attributeValues.attributeDefId, brandAttrId), inArray(attributeValues.entityId, entityIds), isNull(attributeValues.deletedAt)))
-          .limit(10_000)
-      : [];
-
-    // contract_id and status flags for progress aggregation
     const contractIdAttr = await db
       .select({ id: attributeDefs.id })
       .from(attributeDefs)
@@ -747,7 +887,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
               valueJson: attributeValues.valueJson,
             })
             .from(attributeValues)
-            .where(and(inArray(attributeValues.attributeDefId, extraDefIds), inArray(attributeValues.entityId, entityIds), isNull(attributeValues.deletedAt)))
+            .where(and(inArray(attributeValues.attributeDefId, extraDefIds), inArray(attributeValues.entityId, partIds), isNull(attributeValues.deletedAt)))
             .limit(50_000)
         : [];
     const contractIdByEntity: Record<string, string | null> = {};
@@ -767,7 +907,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       }
     }
 
-    const attrsByEntity: Record<string, { name?: string; article?: string; assemblyUnitNumber?: string; engineBrandQtyMap?: Record<string, number> }> = {};
+    const attrsByEntity: Record<string, { name?: string; article?: string }> = {};
     for (const attr of attrRows) {
       if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
       const val = attr.valueJson ? safeJsonParse(attr.valueJson) : null;
@@ -777,32 +917,13 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
           entityAttrs.name = val;
         } else if (attr.attributeDefId === articleAttrId && typeof val === 'string') {
           entityAttrs.article = val;
-        } else if (attr.attributeDefId === assemblyAttrId && typeof val === 'string') {
-          entityAttrs.assemblyUnitNumber = val;
-        } else if (attr.attributeDefId === brandQtyMapAttrId && val && typeof val === 'object' && !Array.isArray(val)) {
-          const nextMap: Record<string, number> = {};
-          for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
-            const n = Number(v);
-            if (!Number.isFinite(n) || n < 0) continue;
-            nextMap[String(k)] = n;
-          }
-          entityAttrs.engineBrandQtyMap = nextMap;
         }
       }
     }
 
-    const brandsByEntity: Record<string, string[]> = {};
-    for (const row of brandRows) {
-      const val = row.valueJson ? safeJsonParse(row.valueJson) : null;
-      if (Array.isArray(val)) {
-        brandsByEntity[row.entityId] = val.filter((x): x is string => typeof x === 'string');
-      }
-    }
-
-    // Фильтрация по поисковому запросу
     let filtered = entityRows;
     if (qNorm) {
-      filtered = entityRows.filter((e) => {
+      filtered = filtered.filter((e) => {
         const attrs = attrsByEntity[e.id] || {};
         const name = normalizeSearch(attrs.name || '');
         const article = normalizeSearch(attrs.article || '');
@@ -810,26 +931,22 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       });
     }
     if (engineBrandId) {
-      filtered = filtered.filter((e) => (brandsByEntity[e.id] ?? []).includes(engineBrandId));
+      filtered = filtered.filter((e) => (brandLinksByPart[e.id] ?? []).some((link) => link.engineBrandId === engineBrandId));
     }
 
     const parts = filtered.map((e) => {
-      const attrs = attrsByEntity[e.id];
+      const attrs = attrsByEntity[e.id] || {};
       const contractId = contractIdByEntity[e.id];
       const statusFlags = statusFlagsByEntity[e.id];
       return {
         id: e.id,
-        ...(attrs?.name && { name: attrs.name }),
-        ...(attrs?.article && { article: attrs.article }),
-        ...(attrs?.assemblyUnitNumber && { assemblyUnitNumber: attrs.assemblyUnitNumber }),
-        ...(attrs?.engineBrandQtyMap && { engineBrandQtyMap: attrs.engineBrandQtyMap }),
-        ...(engineBrandId &&
-          attrs?.engineBrandQtyMap &&
-          attrs.engineBrandQtyMap[engineBrandId] != null && { engineBrandQty: attrs.engineBrandQtyMap[engineBrandId] }),
-        createdAt: Number(e.createdAt),
-        updatedAt: Number(e.updatedAt),
+        ...(attrs.name && { name: attrs.name }),
+        ...(attrs.article && { article: attrs.article }),
         ...(contractId != null && { contractId }),
         ...(statusFlags && Object.keys(statusFlags).length > 0 && { statusFlags }),
+        ...(brandLinksByPart[e.id]?.length ? { brandLinks: brandLinksByPart[e.id] } : {}),
+        createdAt: Number(e.createdAt),
+        updatedAt: Number(e.updatedAt),
       };
     });
 
@@ -846,6 +963,7 @@ export async function getPart(args: { partId: string }): Promise<
         id: string;
         createdAt: number;
         updatedAt: number;
+        brandLinks?: PartEngineBrandLink[];
         attributes: Array<{
           id: string;
           code: string;
@@ -906,6 +1024,7 @@ export async function getPart(args: { partId: string }): Promise<
       const val = av.valueJson ? safeJsonParse(String(av.valueJson)) : null;
       valuesByDefId[av.attributeDefId] = val;
     }
+    const brandLinks = await listPartBrandLinksInternal({ partId });
 
     const attributes = attrDefs.map((ad) => ({
       id: ad.id,
@@ -924,9 +1043,361 @@ export async function getPart(args: { partId: string }): Promise<
         id: entity.id,
         createdAt: Number(entity.createdAt),
         updatedAt: Number(entity.updatedAt),
+        brandLinks,
         attributes,
       },
     };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listPartBrandLinks(args: {
+  partId: string;
+  engineBrandId?: string;
+}): Promise<{ ok: true; brandLinks: PartEngineBrandLink[] } | { ok: false; error: string }> {
+  try {
+    const partId = String(args.partId || '').trim();
+    if (!partId) return { ok: false, error: 'missing partId' };
+    const engineBrandId = args.engineBrandId ? String(args.engineBrandId).trim() : '';
+
+    const partTypeId = await ensurePartEntityType();
+    const partExists = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, partId), eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!partExists.length) return { ok: false, error: 'part not found' };
+
+    const links = await (engineBrandId ? listPartBrandLinksInternal({ partId, engineBrandId }) : listPartBrandLinksInternal({ partId }));
+    return { ok: true, brandLinks: links };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertPartBrandLink(args: {
+  actor: AuthUser;
+  partId: string;
+  linkId?: string;
+  engineBrandId: string;
+  assemblyUnitNumber: string;
+  quantity: number;
+}): Promise<{ ok: true; linkId: string } | { ok: false; error: string }> {
+  try {
+    const partId = String(args.partId || '').trim();
+    const linkId = args.linkId ? String(args.linkId) : '';
+    const engineBrandId = String(args.engineBrandId || '').trim();
+    const assemblyUnitNumber = String(args.assemblyUnitNumber || '').trim();
+    const qty = Number(args.quantity);
+    if (!partId) return { ok: false, error: 'missing partId' };
+    if (!engineBrandId) return { ok: false, error: 'missing engineBrandId' };
+    if (!assemblyUnitNumber) return { ok: false, error: 'missing assemblyUnitNumber' };
+    if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: 'quantity must be a non-negative number' };
+
+    const partTypeId = await ensurePartEntityType();
+    const partExists = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, partId), eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!partExists.length) return { ok: false, error: 'part not found' };
+
+    const partBrandTypeId = await ensurePartEngineBrandEntityType();
+    const engineBrandTypeRows = await db
+      .select({ id: entityTypes.id })
+      .from(entityTypes)
+      .where(eq(entityTypes.code, EntityTypeCode.EngineBrand))
+      .limit(1);
+    const engineBrandTypeId = engineBrandTypeRows[0]?.id ? String(engineBrandTypeRows[0].id) : null;
+    if (!engineBrandTypeId) return { ok: false, error: 'engine brand entity type not found' };
+
+    const engineBrandEntity = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, engineBrandId), eq(entities.typeId, engineBrandTypeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!engineBrandEntity.length) return { ok: false, error: 'engine brand not found' };
+
+    const linkAttrDefs = await db
+      .select({ id: attributeDefs.id, code: attributeDefs.code })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, partBrandTypeId), isNull(attributeDefs.deletedAt)));
+    const attrDefByCode = new Map(linkAttrDefs.map((r) => [r.code, String(r.id)]));
+    const partIdAttrId = attrDefByCode.get('part_id');
+    const engineBrandIdAttrId = attrDefByCode.get('engine_brand_id');
+    const asmAttrId = attrDefByCode.get('assembly_unit_number');
+    const qtyAttrId = attrDefByCode.get('quantity');
+    if (!partIdAttrId || !engineBrandIdAttrId || !asmAttrId || !qtyAttrId) return { ok: false, error: 'part-engine-brand attributes are not ready' };
+
+    const ts = nowMs();
+    let targetLinkId = linkId || '';
+
+    if (targetLinkId) {
+      const existingLink = await db
+        .select({ id: entities.id })
+        .from(entities)
+        .where(and(eq(entities.id, targetLinkId), eq(entities.typeId, partBrandTypeId), isNull(entities.deletedAt)))
+        .limit(1);
+      if (!existingLink.length) return { ok: false, error: 'link not found' };
+
+      const linkByPart = await listPartBrandLinksInternal({ partId });
+      if (!linkByPart.some((link) => link.id === targetLinkId)) {
+        return { ok: false, error: 'link does not belong to this part' };
+      }
+    } else {
+      const existingByPair = await listPartBrandLinksInternal({ partId, engineBrandId });
+      targetLinkId = existingByPair[0]?.id || randomUUID();
+    }
+
+    if (!linkId && !targetLinkId) targetLinkId = randomUUID();
+
+    const linkExists = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, targetLinkId), eq(entities.typeId, partBrandTypeId), isNull(entities.deletedAt)))
+      .limit(1);
+
+    if (!linkExists.length) {
+      await db.insert(entities).values({
+        id: targetLinkId,
+        typeId: partBrandTypeId,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'pending',
+      });
+      await recordSyncChanges(syncActor(args.actor), [
+        {
+          tableName: SyncTableName.Entities,
+          rowId: targetLinkId,
+          op: 'upsert',
+          payload: entityPayload({
+            id: targetLinkId,
+            typeId: partBrandTypeId,
+            createdAt: ts,
+            updatedAt: ts,
+            deletedAt: null,
+            syncStatus: 'pending',
+          }),
+          ts,
+        },
+      ]);
+      await db
+        .insert(rowOwners)
+        .values({
+          id: randomUUID(),
+          tableName: SyncTableName.Entities,
+          rowId: targetLinkId,
+          ownerUserId: args.actor.id,
+          ownerUsername: args.actor.username,
+          createdAt: ts,
+        })
+        .onConflictDoNothing();
+    }
+
+    const payloadRows: Array<{ code: string; value: unknown; defId: string }> = [
+      { code: 'part_id', value: partId, defId: partIdAttrId },
+      { code: 'engine_brand_id', value: engineBrandId, defId: engineBrandIdAttrId },
+      { code: 'assembly_unit_number', value: assemblyUnitNumber, defId: asmAttrId },
+      { code: 'quantity', value: qty, defId: qtyAttrId },
+    ];
+
+    for (const payload of payloadRows) {
+      const existing = await db
+        .select({ id: attributeValues.id, createdAt: attributeValues.createdAt })
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, targetLinkId), eq(attributeValues.attributeDefId, payload.defId), isNull(attributeValues.deletedAt)))
+        .limit(1);
+      const rowId = existing[0]?.id ? String(existing[0].id) : randomUUID();
+      const createdAt = existing[0]?.createdAt ? Number(existing[0].createdAt) : ts;
+      const valueJson = toValueJson(payload.value);
+
+      await db
+        .insert(attributeValues)
+        .values({
+          id: rowId,
+          entityId: targetLinkId,
+          attributeDefId: payload.defId,
+          valueJson,
+          createdAt,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        })
+        .onConflictDoUpdate({
+          target: [attributeValues.entityId, attributeValues.attributeDefId],
+          set: {
+            valueJson,
+            updatedAt: ts,
+            syncStatus: 'pending',
+          },
+        });
+      await recordSyncChanges(syncActor(args.actor), [
+        {
+          tableName: SyncTableName.AttributeValues,
+          rowId,
+          op: 'upsert',
+          payload: attributeValuePayload({
+            id: rowId,
+            entityId: targetLinkId,
+            attributeDefId: payload.defId,
+            valueJson,
+            createdAt,
+            updatedAt: ts,
+            deletedAt: null,
+            syncStatus: 'pending',
+          }),
+          ts,
+        },
+      ]);
+    }
+
+    const currentLink = await db
+      .select({ id: entities.id, createdAt: entities.createdAt })
+      .from(entities)
+      .where(and(eq(entities.id, targetLinkId), isNull(entities.deletedAt)))
+      .limit(1);
+    await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, targetLinkId));
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.Entities,
+        rowId: targetLinkId,
+        op: 'upsert',
+        payload: entityPayload({
+          id: targetLinkId,
+          typeId: partBrandTypeId,
+          createdAt: Number(currentLink[0]?.createdAt ?? ts),
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
+
+    const auditId = randomUUID();
+    await db.insert(auditLog).values({
+      id: auditId,
+      actor: args.actor.username,
+      action: 'partBrandLink.upsert',
+      entityId: targetLinkId,
+      tableName: 'entities',
+      payloadJson: JSON.stringify({ partId, engineBrandId, quantity: qty, assemblyUnitNumber }),
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'pending',
+    });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'partBrandLink.upsert',
+          entityId: targetLinkId,
+          tableName: 'entities',
+          payloadJson: JSON.stringify({ partId, engineBrandId, quantity: qty, assemblyUnitNumber }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
+
+    return { ok: true, linkId: targetLinkId };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deletePartBrandLink(args: { actor: AuthUser; partId: string; linkId: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const partId = String(args.partId || '').trim();
+    const linkId = String(args.linkId || '').trim();
+    if (!partId) return { ok: false, error: 'missing partId' };
+    if (!linkId) return { ok: false, error: 'missing linkId' };
+
+    const partTypeId = await ensurePartEntityType();
+    const partExists = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, partId), eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!partExists.length) return { ok: false, error: 'part not found' };
+
+    const partBrandTypeId = await ensurePartEngineBrandEntityType();
+    const linkExists = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, linkId), eq(entities.typeId, partBrandTypeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!linkExists.length) return { ok: false, error: 'link not found' };
+
+    const links = await listPartBrandLinksInternal({ partId });
+    if (!links.some((link) => link.id === linkId)) return { ok: false, error: 'link does not belong to this part' };
+
+    const ts = nowMs();
+    const curRows = await db.select({ id: entities.id, createdAt: entities.createdAt }).from(entities).where(eq(entities.id, linkId)).limit(1);
+    await db.update(entities).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, linkId));
+    const cur = curRows[0] as any;
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.Entities,
+        rowId: linkId,
+        op: 'upsert',
+        payload: entityPayload({
+          id: linkId,
+          typeId: partBrandTypeId,
+          createdAt: Number(cur?.createdAt ?? ts),
+          updatedAt: ts,
+          deletedAt: ts,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
+
+    const auditId = randomUUID();
+    await db.insert(auditLog).values({
+      id: auditId,
+      actor: args.actor.username,
+      action: 'partBrandLink.delete',
+      entityId: linkId,
+      tableName: 'entities',
+      payloadJson: JSON.stringify({ linkId }),
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'pending',
+    });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'partBrandLink.delete',
+          entityId: linkId,
+          tableName: 'entities',
+          payloadJson: JSON.stringify({ linkId }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts,
+      },
+    ]);
+
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

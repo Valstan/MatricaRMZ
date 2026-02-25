@@ -9,7 +9,7 @@ import type { AuthUser } from '../auth/jwt.js';
 import { getSuperadminUserId } from '../services/employeeAuthService.js';
 import { createEntity, setEntityAttribute, upsertAttributeDef, upsertEntityType } from '../services/adminMasterdataService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
-import { createPart } from '../services/partsService.js';
+import { createPart, listPartBrandLinks, upsertPartBrandLink } from '../services/partsService.js';
 
 const DEFAULT_CORRECTION_FILES = ['/home/valstan/уточнение1.csv', '/home/valstan/уточнение2.csv'];
 const APPLY_SYNC_CONFLICTS = (() => {
@@ -17,6 +17,7 @@ const APPLY_SYNC_CONFLICTS = (() => {
   if (!raw) return true;
   return !['0', 'false', 'off', 'no'].includes(raw);
 })();
+const IGNORE_FAILURES = process.argv.includes('--ignore-failures') || process.env.MATRICA_IMPORT_IGNORE_FAILURES === '1';
 
 type ClarificationPart = {
   qty: number;
@@ -36,7 +37,7 @@ type ClarificationEngineRow = {
 
 type ParsedPartDescriptor = {
   name: string;
-  assemblyUnitNumber: string | null;
+  brandAssemblyPairs: Array<{ brandKeys: string[]; assemblyUnitNumber: string }>;
   isScrapAll: boolean;
 };
 
@@ -44,7 +45,7 @@ type PartColumnHeader = {
   index: number;
   key: string;
   name: string;
-  assemblyUnitNumber: string | null;
+  brandAssemblyPairs: Array<{ brandKeys: string[]; assemblyUnitNumber: string }>;
   isScrapAll: boolean;
 };
 
@@ -52,8 +53,6 @@ type CatalogPart = {
   id: string;
   name: string;
   assemblyUnitNumber: string | null;
-  brandIds: string[];
-  qtyByBrandId: Record<string, number>;
   key: string;
 };
 
@@ -209,8 +208,8 @@ function parseNumericQty(value: string): number {
   return Math.floor(n);
 }
 
-function partKey(name: string, assemblyUnitNumber: string | null): string {
-  return `${normalizeToken(name)}|${normalizeToken(assemblyUnitNumber ?? '')}`;
+function partKey(name: string, _assemblyUnitNumber?: string | null): string {
+  return normalizeToken(name);
 }
 
 function stripHeaderSuffixes(raw: string): string {
@@ -221,26 +220,120 @@ function stripHeaderSuffixes(raw: string): string {
     .trim();
 }
 
-function parsePartDescriptor(rawHeader: string): ParsedPartDescriptor | null {
-  const source = cleanCell(rawHeader);
-  if (!source) return null;
+function normalizeAssembly(rawAssembly: string): string {
+  return cleanCell(rawAssembly).replace(/^сб\.?\s*/i, '').trim();
+}
 
-  let name = source;
-  let assemblyUnitNumber: string | null = null;
-  const isScrapAll = /\(\s*100\s*%?\s*зам\)/i.test(source);
+function parseBrandAssemblyPairs(rawHeader: string): Array<{ brandKeys: string[]; assemblyUnitNumber: string }> {
+  const source = stripHeaderSuffixes(cleanCell(rawHeader));
+  if (!source) return [];
 
-  const lead = source.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,80})\s+([А-ЯA-ZЁ].+)$/i);
-  if (lead?.[1] && lead[2]) {
-    assemblyUnitNumber = cleanCell(lead[1]).replace(/,$/, '');
-    name = cleanCell(lead[2]);
+  const seenByAssembly = new Map<string, Set<string>>();
+
+  const addPair = (assemblyRaw: string, label: string): void => {
+    const assemblyUnitNumber = normalizeAssembly(assemblyRaw);
+    if (!assemblyUnitNumber) return;
+
+    const chunks = label
+      .split(',')
+      .map((value) => cleanCell(value))
+      .filter((value) => Boolean(value));
+    const brandKeys = new Set<string>();
+
+    for (const chunk of chunks) {
+      const m = chunk.match(/^(.*?)(В[-\s]*\d{1,3}(?:[-\s]*[А-ЯA-ZА-Яа-я0-9]+)*)\s*$/i);
+      if (!m?.[2]) {
+        continue;
+      }
+      const brandKey = normalizeBrandKey(cleanCell(m[2]));
+      if (brandKey) brandKeys.add(brandKey);
+    }
+    const set = seenByAssembly.get(assemblyUnitNumber) ?? new Set<string>();
+    for (const key of brandKeys) set.add(key);
+    seenByAssembly.set(assemblyUnitNumber, set);
+  };
+
+  for (const segment of source.split(';').map((value) => cleanCell(value)).filter(Boolean)) {
+    const match = segment.match(/^(.*)\(\s*сб\.?\s*([^)]+)\s*\)\s*$/i);
+    if (!match?.[1] || !match?.[2]) continue;
+    addPair(match[2], match[1]);
   }
 
-  name = stripHeaderSuffixes(name);
+  if (seenByAssembly.size === 0) {
+    const lead = source.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,80})\s+([А-ЯA-ZЁ].+)$/i);
+    if (lead?.[1] && lead[2]) {
+      addPair(lead[1], lead[2]);
+    }
+  }
+
+  const brandAssemblyPairs: Array<{ brandKeys: string[]; assemblyUnitNumber: string }> = [];
+  for (const [assemblyUnitNumber, keysSet] of seenByAssembly.entries()) {
+    brandAssemblyPairs.push({
+      brandKeys: [...keysSet].sort((a, b) => a.localeCompare(b)),
+      assemblyUnitNumber,
+    });
+  }
+
+  return brandAssemblyPairs;
+}
+
+function resolveAssemblyForBrand(pairs: Array<{ brandKeys: string[]; assemblyUnitNumber: string }>, brandKeyRaw: string): string {
+  const targetBrandKey = normalizeBrandKey(brandKeyRaw);
+  if (!targetBrandKey) {
+    const fallback = pairs.find((p) => p.brandKeys.length === 0);
+    return cleanCell(fallback?.assemblyUnitNumber ?? '');
+  }
+  for (const pair of pairs) {
+    if (pair.brandKeys.includes(targetBrandKey)) return cleanCell(pair.assemblyUnitNumber);
+  }
+  const fallback = pairs.find((p) => p.brandKeys.length === 0);
+  return cleanCell(fallback?.assemblyUnitNumber ?? '');
+}
+
+function parsePartDescriptor(rawHeader: string): ParsedPartDescriptor | null {
+  const source = stripHeaderSuffixes(cleanCell(rawHeader));
+  if (!source) return null;
+
+  const brandAssemblyPairs = parseBrandAssemblyPairs(source);
+  if (brandAssemblyPairs.length === 0) return null;
+
+  const isScrapAll = /\(\s*100\s*%?\s*зам\)/i.test(rawHeader);
+  const nameCandidates = new Set<string>();
+  for (const segment of source.split(';').map((value) => cleanCell(value)).filter(Boolean)) {
+    const partLabel = segment.replace(/\(\s*сб\.?\s*[^)]+\s*\)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (!partLabel) continue;
+
+    for (const chunk of partLabel.split(',').map((value) => cleanCell(value)).filter(Boolean)) {
+      const m = chunk.match(/^(.*?)(В[-\s]*\d{1,3}(?:[-\s]*[А-ЯA-ZА-Яа-я0-9]+)*)\s*$/i);
+      if (!m?.[2]) {
+        if (chunk) nameCandidates.add(chunk);
+        continue;
+      }
+      const namePart = cleanCell(m[1] ?? '');
+      if (namePart) nameCandidates.add(namePart);
+    }
+  }
+
+  let name = '';
+  for (const candidate of nameCandidates) {
+    const cleaned = stripHeaderSuffixes(candidate);
+    if (cleaned) {
+      name = cleaned;
+      break;
+    }
+  }
+  if (!name) {
+    const lead = source.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,80})\s+([А-ЯA-ZЁ].+)$/i);
+    if (lead?.[2]) name = stripHeaderSuffixes(lead[2]);
+  } else if (/^(?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,80}\s+/i.test(name)) {
+    const lead = name.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,80})\s+([А-ЯA-ZЁ].+)$/i);
+    if (lead?.[2]) name = stripHeaderSuffixes(lead[2]);
+  }
   if (!name) return null;
 
   return {
     name,
-    assemblyUnitNumber: assemblyUnitNumber || null,
+    brandAssemblyPairs,
     isScrapAll,
   };
 }
@@ -287,7 +380,10 @@ function readCsvText(path: string): string {
 
 function getCorrectionFilePaths(): string[] {
   if (process.argv.length > 2) {
-    const args = process.argv.slice(2).map((p) => p.trim()).filter(Boolean);
+    const args = process.argv
+      .slice(2)
+      .map((p) => p.trim())
+      .filter((p) => Boolean(p) && !p.startsWith('--'));
     if (args.length > 0) return args;
   }
   const envValue = process.env.MATRICA_COMPLETENESS_CORRECTION_FILES?.trim();
@@ -325,9 +421,9 @@ function parseClarificationFile(path: string): { rows: ClarificationEngineRow[];
     if (!parsed) continue;
     partColumns.push({
       index: i,
-      key: partKey(parsed.name, parsed.assemblyUnitNumber),
+      key: partKey(parsed.name),
       name: parsed.name,
-      assemblyUnitNumber: parsed.assemblyUnitNumber,
+      brandAssemblyPairs: parsed.brandAssemblyPairs,
       isScrapAll: parsed.isScrapAll,
     });
   }
@@ -456,7 +552,27 @@ function collectRowsByEngineAndBrand(rows: ClarificationEngineRow[]): Map<string
 
 function mergePartDescriptors(acc: Map<string, PartColumnHeader>, add: Map<string, PartColumnHeader>) {
   for (const [key, h] of add) {
-    if (!acc.has(key)) acc.set(key, h);
+    const existing = acc.get(key);
+    if (!existing) {
+      acc.set(key, h);
+      continue;
+    }
+
+    if (!existing.isScrapAll && h.isScrapAll) existing.isScrapAll = true;
+
+    const existingPairsByAssembly = new Map<string, Set<string>>();
+    for (const existingPair of existing.brandAssemblyPairs) {
+      existingPairsByAssembly.set(existingPair.assemblyUnitNumber, new Set(existingPair.brandKeys));
+    }
+    for (const pair of h.brandAssemblyPairs) {
+      const keys = existingPairsByAssembly.get(pair.assemblyUnitNumber) ?? new Set<string>();
+      for (const brandKey of pair.brandKeys) keys.add(brandKey);
+      existingPairsByAssembly.set(pair.assemblyUnitNumber, keys);
+    }
+    existing.brandAssemblyPairs = [...existingPairsByAssembly.entries()].map(([assemblyUnitNumber, brandKeys]) => ({
+      assemblyUnitNumber,
+      brandKeys: [...brandKeys].sort((a, b) => a.localeCompare(b)),
+    }));
   }
 }
 
@@ -465,7 +581,7 @@ function partRowsFromDescriptor(
 ): Map<string, ParsedPartDescriptor> {
   const out = new Map<string, ParsedPartDescriptor>();
   for (const h of map.values()) {
-    out.set(h.key, { name: h.name, assemblyUnitNumber: h.assemblyUnitNumber, isScrapAll: h.isScrapAll });
+    out.set(h.key, { name: h.name, brandAssemblyPairs: h.brandAssemblyPairs, isScrapAll: h.isScrapAll });
   }
   return out;
 }
@@ -741,8 +857,6 @@ async function loadPartCatalog(): Promise<Map<string, CatalogPart>> {
   }
 
   const asmDefId = defByCode.get('assembly_unit_number') ?? null;
-  const brandIdsDefId = defByCode.get('engine_brand_ids') ?? null;
-  const qtyMapDefId = defByCode.get('engine_brand_qty_map') ?? null;
 
   const partRows = await db
     .select({ id: entities.id })
@@ -763,7 +877,7 @@ async function loadPartCatalog(): Promise<Map<string, CatalogPart>> {
     .where(
       and(
         inArray(attributeValues.entityId, partIds as any),
-        inArray(attributeValues.attributeDefId, [nameDefId, asmDefId, brandIdsDefId, qtyMapDefId].filter(Boolean) as string[]),
+        inArray(attributeValues.attributeDefId, [nameDefId, asmDefId].filter(Boolean) as string[]),
         isNull(attributeValues.deletedAt),
       ),
     )
@@ -772,16 +886,7 @@ async function loadPartCatalog(): Promise<Map<string, CatalogPart>> {
   const byPart = new Map<string, Record<string, unknown>>();
   for (const row of values) {
     const map = byPart.get(String(row.entityId)) ?? {};
-    const defCode =
-      row.attributeDefId === nameDefId
-        ? 'name'
-        : row.attributeDefId === asmDefId
-          ? 'assembly_unit_number'
-          : row.attributeDefId === brandIdsDefId
-            ? 'engine_brand_ids'
-            : row.attributeDefId === qtyMapDefId
-              ? 'engine_brand_qty_map'
-              : null;
+    const defCode = row.attributeDefId === nameDefId ? 'name' : row.attributeDefId === asmDefId ? 'assembly_unit_number' : null;
     if (!defCode) continue;
     map[defCode] = safeJsonParse(row.valueJson == null ? null : String(row.valueJson));
     byPart.set(String(row.entityId), map);
@@ -794,26 +899,11 @@ async function loadPartCatalog(): Promise<Map<string, CatalogPart>> {
     if (!name) continue;
 
     const assemblyUnitNumber = typeof data.assembly_unit_number === 'string' ? (data.assembly_unit_number as string) : null;
-    const brandIds = Array.isArray(data.engine_brand_ids)
-      ? data.engine_brand_ids.filter((v): v is string => typeof v === 'string')
-      : [];
-    const qtyByBrandId: Record<string, number> = {};
-    if (typeof data.engine_brand_qty_map === 'object' && data.engine_brand_qty_map !== null && !Array.isArray(data.engine_brand_qty_map)) {
-      for (const [k, raw] of Object.entries(data.engine_brand_qty_map)) {
-        const value = Number(raw);
-        if (Number.isFinite(value) && value >= 0) {
-          qtyByBrandId[k] = Math.floor(value);
-        }
-      }
-    }
-
-    const key = partKey(name, assemblyUnitNumber);
+    const key = partKey(name);
     out.set(key, {
       id: String(row.id),
       name,
       assemblyUnitNumber,
-      brandIds,
-      qtyByBrandId,
       key,
     });
   }
@@ -946,7 +1036,8 @@ async function upsertChecklistsForEngine(
     const header = partHeaders.get(key);
     const catalogPart = catalog.get(key);
     const partName = header?.name || catalogPart?.name || '';
-    const partNumber = header?.assemblyUnitNumber || catalogPart?.assemblyUnitNumber || '';
+    const resolvedAssembly = cleanCell(resolveAssemblyForBrand(header?.brandAssemblyPairs ?? [], row.brandKey));
+    const partNumber = resolvedAssembly || catalogPart?.assemblyUnitNumber || '';
     const qty = partInfo.qty;
     const scrapQty = partInfo.isScrapAll ? qty : 0;
     const repairableQty = Math.max(qty - scrapQty, 0);
@@ -1147,20 +1238,19 @@ async function ensurePartForRow(
   partKeyValue: string,
   descriptor: ParsedPartDescriptor,
   targetBrandId: string,
+  targetBrandKey: string,
   desiredQty: number,
   catalog: Map<string, CatalogPart>,
   actor: AuthUser,
 ): Promise<{ created: boolean; changed: boolean }> {
   const rec = catalog.get(partKeyValue);
+  const resolvedAssembly = cleanCell(resolveAssemblyForBrand(descriptor.brandAssemblyPairs, targetBrandKey) || rec?.assemblyUnitNumber || 'не указан');
 
   if (!rec) {
     const created = await createPart({
       actor,
       attributes: {
         name: descriptor.name,
-        ...(descriptor.assemblyUnitNumber ? { assembly_unit_number: descriptor.assemblyUnitNumber } : {}),
-        engine_brand_ids: [targetBrandId],
-        engine_brand_qty_map: { [targetBrandId]: desiredQty },
       },
     });
 
@@ -1171,21 +1261,36 @@ async function ensurePartForRow(
       const fallback: CatalogPart = {
         id: duplicateId,
         name: descriptor.name,
-        assemblyUnitNumber: descriptor.assemblyUnitNumber,
-        brandIds: [targetBrandId],
-        qtyByBrandId: { [targetBrandId]: desiredQty },
+        assemblyUnitNumber: resolvedAssembly || null,
         key: partKeyValue,
       };
       catalog.set(partKeyValue, fallback);
+      const upserted = await upsertPartBrandLink({
+        actor,
+        partId: duplicateId,
+        engineBrandId: targetBrandId,
+        assemblyUnitNumber: resolvedAssembly,
+        quantity: Math.max(0, Math.floor(desiredQty)),
+      });
+      if (!upserted.ok) throw new Error(`Не удалось создать связь детали ${descriptor.name} с брендом: ${upserted.error}`);
       return { created: false, changed: true };
+    }
+
+    const upserted = await upsertPartBrandLink({
+      actor,
+      partId: created.part.id,
+      engineBrandId: targetBrandId,
+      assemblyUnitNumber: resolvedAssembly,
+      quantity: Math.max(0, Math.floor(desiredQty)),
+    });
+    if (!upserted.ok) {
+      throw new Error(`Не удалось создать связь детали ${descriptor.name} с брендом: ${upserted.error}`);
     }
 
     const createdPart: CatalogPart = {
       id: created.part.id,
       name: descriptor.name,
-      assemblyUnitNumber: descriptor.assemblyUnitNumber,
-      brandIds: [targetBrandId],
-      qtyByBrandId: { [targetBrandId]: desiredQty },
+      assemblyUnitNumber: resolvedAssembly || null,
       key: partKeyValue,
     };
     catalog.set(partKeyValue, createdPart);
@@ -1193,28 +1298,41 @@ async function ensurePartForRow(
   }
 
   let changed = false;
-  const nextBrandIds = new Set(rec.brandIds);
-  nextBrandIds.add(targetBrandId);
-  const nextBrandIdsSorted = [...nextBrandIds].sort((a, b) => a.localeCompare(b));
-
-  if (normalizeValueForCompare([...rec.brandIds].sort((a, b) => a.localeCompare(b)).join(',')) !== normalizeValueForCompare(nextBrandIdsSorted.join(','))) {
-    const setRes = await setAttributeWithRetry(actor, rec.id, 'engine_brand_ids', nextBrandIdsSorted, { touchEntity: false });
-    if (!setRes.ok) {
-      throw new Error(`Не удалось обновить марки детали ${rec.id}: ${setRes.error}`);
-    }
-    rec.brandIds = nextBrandIdsSorted;
-    changed = true;
+  const existingLinks = await listPartBrandLinks({ partId: rec.id });
+  if (!existingLinks.ok) {
+    throw new Error(`Не удалось загрузить существующие связи детали ${rec.id}: ${existingLinks.error}`);
   }
+  const existingLink = existingLinks.brandLinks.find((link) => link.engineBrandId === targetBrandId);
+  const targetQty = Math.floor(desiredQty);
 
-  const nextQty = desiredQty;
-  const currentQty = rec.qtyByBrandId[targetBrandId] ?? 0;
-  if (currentQty !== nextQty) {
-    const nextQtyMap = { ...rec.qtyByBrandId, [targetBrandId]: nextQty };
-    const setRes = await setAttributeWithRetry(actor, rec.id, 'engine_brand_qty_map', nextQtyMap, { touchEntity: false });
-    if (!setRes.ok) {
-      throw new Error(`Не удалось обновить количество детали ${rec.id}: ${setRes.error}`);
+  if (existingLink) {
+    const normalizedDesiredQty = Number.isFinite(targetQty) ? targetQty : 0;
+    const desiredAssembly = resolvedAssembly || existingLink.assemblyUnitNumber || 'не указан';
+    changed = existingLink.assemblyUnitNumber !== desiredAssembly || existingLink.quantity !== normalizedDesiredQty;
+    if (changed) {
+      const upserted = await upsertPartBrandLink({
+        actor,
+        partId: rec.id,
+        linkId: existingLink.id,
+        engineBrandId: targetBrandId,
+        assemblyUnitNumber: desiredAssembly,
+        quantity: normalizedDesiredQty,
+      });
+      if (!upserted.ok) {
+        throw new Error(`Не удалось обновить связь детали ${rec.id}: ${upserted.error}`);
+      }
     }
-    rec.qtyByBrandId = nextQtyMap;
+  } else {
+    const upserted = await upsertPartBrandLink({
+      actor,
+      partId: rec.id,
+      engineBrandId: targetBrandId,
+      assemblyUnitNumber: resolvedAssembly,
+      quantity: Math.max(0, Math.floor(desiredQty)),
+    });
+    if (!upserted.ok) {
+      throw new Error(`Не удалось создать связь детали ${rec.id} с брендом: ${upserted.error}`);
+    }
     changed = true;
   }
 
@@ -1280,6 +1398,7 @@ async function main() {
   let reusedCounterparties = 0;
   let createdParts = 0;
   let updatedParts = 0;
+  let failedPartRows = 0;
 
   const targetQtyByBrand = new Map<string, Map<string, ClarificationPart>>();
   for (const row of rows) {
@@ -1326,9 +1445,20 @@ async function main() {
     for (const [partKeyValue, value] of byPart.entries()) {
       const descriptor = partDescriptors.get(partKeyValue);
       if (!descriptor) continue;
-      const result = await ensurePartForRow(partKeyValue, descriptor, brandId, value.qty, partCatalog, actor);
-      createdParts += result.created ? 1 : 0;
-      updatedParts += result.changed ? 1 : 0;
+      try {
+        const result = await ensurePartForRow(partKeyValue, descriptor, brandId, brandKey, value.qty, partCatalog, actor);
+        createdParts += result.created ? 1 : 0;
+        updatedParts += result.changed ? 1 : 0;
+      } catch (error) {
+        if (!IGNORE_FAILURES) throw error;
+        failedPartRows += 1;
+        logStage('part-row-failed', {
+          brandKey,
+          partKey: partKeyValue,
+          partName: descriptor.name,
+          error: String(error),
+        });
+      }
     }
   }
 
@@ -1414,6 +1544,7 @@ async function main() {
     reusedCounterparties,
     createdParts,
     updatedParts,
+    failedPartRows,
     engineAttrChanges,
     enginesUpdated,
     enginesMissing,

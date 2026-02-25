@@ -8,7 +8,13 @@ import { attributeDefs, attributeValues, entities, entityTypes } from '../databa
 import type { AuthUser } from '../auth/jwt.js';
 import { getSuperadminUserId } from '../services/employeeAuthService.js';
 import { createEntity, setEntityAttribute, softDeleteEntity, upsertAttributeDef, upsertEntityType } from '../services/adminMasterdataService.js';
-import { createPart, listParts, updatePartAttribute } from '../services/partsService.js';
+import {
+  createPart,
+  deletePartBrandLink,
+  listParts,
+  listPartBrandLinks,
+  upsertPartBrandLink,
+} from '../services/partsService.js';
 import { getRepairChecklistForEngine, listRepairChecklistTemplates, saveRepairChecklistForEngine } from '../services/checklistService.js';
 
 type DesiredBrand = { key: string; name: string };
@@ -23,8 +29,12 @@ type DesiredEngine = {
 type DesiredPart = {
   key: string;
   name: string;
-  assemblyUnitNumber: string | null;
   qtyByBrandKey: Map<string, number>;
+  assemblyByBrandKey: Map<string, string>;
+};
+type BrandAssemblyPair = {
+  brandKeys: string[];
+  assemblyUnitNumber: string;
 };
 
 type ParsedCsvData = {
@@ -41,6 +51,8 @@ const IMPORT_ALLOW_SYNC_CONFLICTS = (() => {
   if (!raw) return true;
   return !['0', 'false', 'off'].includes(raw);
 })();
+const IGNORE_FAILURES = process.argv.includes('--ignore-failures') || process.env.MATRICA_IMPORT_IGNORE_FAILURES === '1';
+const SKIP_CHECKLISTS = process.argv.includes('--skip-checklists') || process.env.MATRICA_IMPORT_SKIP_CHECKLISTS === '1';
 
 function nowMs() {
   return Date.now();
@@ -90,6 +102,11 @@ function safeJsonParse(value: string | null | undefined): unknown {
   } catch {
     return value;
   }
+}
+
+function isBrokenJsonErrorText(errorText: string): boolean {
+  const text = String(errorText || '');
+  return text.includes('SyntaxError') || text.includes('Unexpected non-whitespace character after JSON');
 }
 
 function engineAttributeEquals(expected: unknown, actual: unknown): boolean {
@@ -230,25 +247,100 @@ function stripQtySuffix(name: string): string {
   return cleanCell(name).replace(/,\s*\d+\s*шт\.?\s*$/i, '').trim();
 }
 
-function parsePartDescriptor(rawHeader: string): { name: string; assemblyUnitNumber: string | null } | null {
-  const source = cleanCell(rawHeader);
-  if (!source) return null;
-  let name = source;
-  let assemblyUnitNumber: string | null = null;
-
-  const lead = source.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,60})\s+([А-ЯA-ZЁ].+)$/i);
-  if (lead?.[1] && lead[2]) {
-    assemblyUnitNumber = cleanCell(lead[1]).replace(/,$/, '');
-    name = cleanCell(lead[2]);
-  }
-
-  name = stripQtySuffix(name);
-  if (!name) return null;
-  return { name, assemblyUnitNumber: assemblyUnitNumber || null };
+function stripHeaderSuffixes(rawHeader: string): string {
+  return cleanCell(rawHeader)
+    .replace(/,\s*\d+\s*шт\.?\s*$/gi, ' ')
+    .replace(/\(\s*100\s*%?\s*зам[^)]*\)\s*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function partKey(name: string, assemblyUnitNumber: string | null): string {
-  return `${normalizeToken(name)}|${normalizeToken(assemblyUnitNumber ?? '')}`;
+function normalizeAssembly(rawAssembly: string): string {
+  return cleanCell(rawAssembly).replace(/^сб\.?\s*/i, '').trim();
+}
+
+function parseBrandAssemblyPairs(rawHeader: string): BrandAssemblyPair[] {
+  const source = stripHeaderSuffixes(rawHeader);
+  if (!source) return [];
+
+  const byAssembly = new Map<string, Set<string>>();
+  const addPair = (assemblyRaw: string, label: string): void => {
+    const assemblyUnitNumber = normalizeAssembly(assemblyRaw);
+    if (!assemblyUnitNumber) return;
+
+    const chunks = label
+      .split(',')
+      .map((value) => cleanCell(value))
+      .filter(Boolean);
+    const brandKeys = new Set<string>();
+
+    for (const chunk of chunks) {
+      const m = chunk.match(/\b(В[-\s]?\d{1,3}(?:[-\s]?[А-ЯA-ZА-Яа-я0-9]+)*)\s*$/u);
+      if (!m?.[0]) continue;
+      const key = normalizeBrandKey(m[0]);
+      if (key) brandKeys.add(key);
+    }
+
+    const set = byAssembly.get(assemblyUnitNumber) ?? new Set<string>();
+    for (const key of brandKeys) set.add(key);
+    byAssembly.set(assemblyUnitNumber, set);
+  };
+
+  for (const segmentRaw of source.split(';').map((x) => cleanCell(x)).filter(Boolean)) {
+    const m = segmentRaw.match(/^(.*)\(\s*сб\.?\s*([^)]+)\s*\)\s*$/i);
+    if (!m?.[1] || !m?.[2]) continue;
+    addPair(m[2], m[1]);
+  }
+
+  if (byAssembly.size === 0) {
+    const lead = source.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,60})\s+([А-ЯA-ZЁ].+)$/i);
+    if (lead?.[1] && lead[2]) {
+      addPair(lead[1], lead[2]);
+    }
+  }
+
+  const out: BrandAssemblyPair[] = [];
+  for (const [assemblyUnitNumber, keys] of byAssembly.entries()) {
+    out.push({ brandKeys: [...keys].sort((a, b) => a.localeCompare(b)), assemblyUnitNumber });
+  }
+  return out;
+}
+
+function resolveAssemblyForBrand(pairs: BrandAssemblyPair[], brandKeyRaw: string): string {
+  const targetBrandKey = normalizeBrandKey(brandKeyRaw);
+  if (!targetBrandKey) {
+    return pairs[0]?.assemblyUnitNumber ? pairs[0].assemblyUnitNumber : '';
+  }
+  for (const pair of pairs) {
+    if (pair.brandKeys.includes(targetBrandKey)) return pair.assemblyUnitNumber;
+  }
+  return pairs[0]?.assemblyUnitNumber ? pairs[0].assemblyUnitNumber : '';
+}
+
+function parsePartDescriptor(rawHeader: string): { name: string; brandAssemblyPairs: BrandAssemblyPair[] } | null {
+  const brandAssemblyPairs = parseBrandAssemblyPairs(rawHeader);
+  const source = stripHeaderSuffixes(rawHeader);
+  let name = '';
+  for (const segment of source.split(';').map((x) => cleanCell(x)).filter(Boolean)) {
+    const partLabel = segment.replace(/\(\s*сб\.?\s*[^)]+\s*\)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (!partLabel) continue;
+    name = partLabel;
+    if (name) break;
+  }
+  if (!name) {
+    const lead = source.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,60})\s+([А-ЯA-ZЁ].+)$/i);
+    if (lead?.[2]) name = cleanCell(lead[2]);
+  } else if (/^(?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,60}\s+/i.test(name)) {
+    const lead = name.match(/^((?:Сб\.?\s*)?[0-9][0-9A-Za-zА-Яа-я./,\- ]{3,60})\s+([А-ЯA-ZЁ].+)$/i);
+    if (lead?.[2]) name = cleanCell(lead[2]);
+  }
+  name = stripQtySuffix(name).trim();
+  if (!name) return null;
+  return { name, brandAssemblyPairs };
+}
+
+function partKey(name: string): string {
+  return normalizeToken(name);
 }
 
 function readCsvText(path: string): string {
@@ -347,20 +439,24 @@ function parseSourceCsv(path: string): ParsedCsvData {
       if (qty <= 0) continue;
       const parsed = parsePartDescriptor(headerCells[col] ?? '');
       if (!parsed) continue;
-      const key = partKey(parsed.name, parsed.assemblyUnitNumber);
+      const resolvedAssemblyUnitNumber = resolveAssemblyForBrand(parsed.brandAssemblyPairs, brandKey) || null;
+      const key = partKey(parsed.name);
       const cur = parts.get(key);
       if (!cur) {
         const qtyByBrandKey = new Map<string, number>();
+        const assemblyByBrandKey = new Map<string, string>();
         qtyByBrandKey.set(brandKey, qty);
+        if (resolvedAssemblyUnitNumber) assemblyByBrandKey.set(brandKey, resolvedAssemblyUnitNumber);
         parts.set(key, {
           key,
           name: parsed.name,
-          assemblyUnitNumber: parsed.assemblyUnitNumber,
           qtyByBrandKey,
+          assemblyByBrandKey,
         });
       } else {
         const prev = cur.qtyByBrandKey.get(brandKey) ?? 0;
         if (qty > prev) cur.qtyByBrandKey.set(brandKey, qty); // MAX strategy
+        if (resolvedAssemblyUnitNumber) cur.assemblyByBrandKey.set(brandKey, resolvedAssemblyUnitNumber);
       }
     }
   }
@@ -544,24 +640,21 @@ async function loadPartTypeId(): Promise<string> {
   return String(rows[0].id);
 }
 
-async function loadExistingPartByKey(partTypeId: string): Promise<Map<string, { id: string; brandIds: string[]; qtyMap: Record<string, number> }>> {
+async function loadExistingPartByKey(partTypeId: string): Promise<Map<string, { id: string }>> {
   const defs = await db
     .select({ id: attributeDefs.id, code: attributeDefs.code })
     .from(attributeDefs)
     .where(and(eq(attributeDefs.entityTypeId, partTypeId), isNull(attributeDefs.deletedAt)))
     .limit(1000);
-  const defByCode = new Map(defs.map((d) => [String(d.code), String(d.id)]));
+  const defByCode = new Map(defs.map((d) => [String(d.code), String(d.id)] as [string, string]));
   const nameDef = defByCode.get('name');
-  const asmDef = defByCode.get('assembly_unit_number');
-  const brandsDef = defByCode.get('engine_brand_ids');
-  const qtyMapDef = defByCode.get('engine_brand_qty_map');
   if (!nameDef) return new Map();
 
   const partsRows = await db.select({ id: entities.id }).from(entities).where(and(eq(entities.typeId, partTypeId), isNull(entities.deletedAt))).limit(200000);
   const partIds = partsRows.map((r) => String(r.id));
   if (partIds.length === 0) return new Map();
 
-  const neededDefs = [nameDef, asmDef, brandsDef, qtyMapDef].filter(Boolean) as string[];
+  const neededDefs = [nameDef];
   const vals = await db
     .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -576,21 +669,14 @@ async function loadExistingPartByKey(partTypeId: string): Promise<Map<string, { 
     byPart.set(id, obj);
   }
 
-  const out = new Map<string, { id: string; brandIds: string[]; qtyMap: Record<string, number> }>();
+  const out = new Map<string, { id: string }>();
   for (const partId of partIds) {
     const attrs = byPart.get(partId) ?? {};
     const name = typeof attrs[nameDef] === 'string' ? String(attrs[nameDef]) : '';
-    const asm = asmDef && typeof attrs[asmDef] === 'string' ? String(attrs[asmDef]) : null;
     if (!name) continue;
-    const key = partKey(name, asm);
-    const brandIds = brandsDef && Array.isArray(attrs[brandsDef]) ? (attrs[brandsDef] as unknown[]).filter((x): x is string => typeof x === 'string') : [];
-    const rawMap = qtyMapDef && attrs[qtyMapDef] && typeof attrs[qtyMapDef] === 'object' && !Array.isArray(attrs[qtyMapDef]) ? (attrs[qtyMapDef] as Record<string, unknown>) : {};
-    const qtyMap: Record<string, number> = {};
-    for (const [k, v] of Object.entries(rawMap)) {
-      const n = Number(v);
-      if (Number.isFinite(n) && n >= 0) qtyMap[String(k)] = Math.floor(n);
-    }
-    out.set(key, { id: partId, brandIds, qtyMap });
+    const key = partKey(name);
+    if (out.has(key)) continue;
+    out.set(key, { id: partId });
   }
   return out;
 }
@@ -769,75 +855,78 @@ async function main() {
     }
   }
 
-  const desiredBrandIds = new Set<string>([...brandIdByKey.values()]);
-
   const existingPartByKey = await loadExistingPartByKey(partTypeId);
   let createdParts = 0;
   let updatedParts = 0;
   let cleanedParts = 0;
+  let failedPartRows = 0;
   let partIndex = 0;
 
   for (const desiredPart of parsed.parts.values()) {
     partIndex += 1;
-    let rec = existingPartByKey.get(desiredPart.key);
-    if (!rec) {
-      const created = await createPart({
-        actor,
-        attributes: {
-          name: desiredPart.name,
-          ...(desiredPart.assemblyUnitNumber ? { assembly_unit_number: desiredPart.assemblyUnitNumber } : {}),
-        },
+    try {
+      let rec = existingPartByKey.get(desiredPart.key);
+      if (!rec) {
+        const created = await createPart({
+          actor,
+          attributes: { name: desiredPart.name },
+        });
+        if (!created.ok) throw new Error(`Failed to create part: ${desiredPart.name} (${created.error})`);
+        rec = { id: created.part.id };
+        existingPartByKey.set(desiredPart.key, rec);
+        createdParts += 1;
+      }
+      const currentLinks = await listPartBrandLinks({ partId: rec.id });
+      if (!currentLinks.ok) throw new Error(`Failed to list brand links for part ${rec.id}: ${currentLinks.error}`);
+      const currentByBrandId = new Map<string, { linkId: string; assemblyUnitNumber: string; quantity: number }>();
+      for (const link of currentLinks.brandLinks) {
+        const brandId = String((link as any).engineBrandId || '').trim();
+        if (!brandId) continue;
+        if (!currentByBrandId.has(brandId)) {
+          currentByBrandId.set(brandId, {
+            linkId: String((link as any).id),
+            assemblyUnitNumber: String((link as any).assemblyUnitNumber || ''),
+            quantity: Number((link as any).quantity) || 0,
+          });
+        }
+      }
+
+      const desiredBrandIdsForPart = new Set<string>();
+      for (const [brandKey, qty] of desiredPart.qtyByBrandKey.entries()) {
+        const brandId = brandIdByKey.get(brandKey);
+        if (!brandId) continue;
+        desiredBrandIdsForPart.add(brandId);
+        const desiredAssembly = cleanCell(desiredPart.assemblyByBrandKey.get(brandKey) || currentByBrandId.get(brandId)?.assemblyUnitNumber || '');
+        if (!desiredAssembly) continue;
+        const existingLink = currentByBrandId.get(brandId);
+        const res = await upsertPartBrandLink({
+          actor,
+          partId: rec.id,
+          ...(existingLink ? { linkId: existingLink.linkId } : {}),
+          engineBrandId: brandId,
+          assemblyUnitNumber: desiredAssembly,
+          quantity: qty,
+        });
+        if (!res.ok) throw new Error(`Failed to upsert part brand link for part ${rec.id} brand ${brandId}: ${res.error}`);
+      }
+      for (const [brandId, link] of currentByBrandId.entries()) {
+        if (desiredBrandIdsForPart.has(brandId)) continue;
+        const del = await deletePartBrandLink({ actor, partId: rec.id, linkId: link.linkId });
+        if (!del.ok) throw new Error(`Failed to delete obsolete part brand link for part ${rec.id} brand ${brandId}: ${del.error}`);
+        cleanedParts += 1;
+      }
+      updatedParts += 1;
+    } catch (error) {
+      if (!IGNORE_FAILURES) throw error;
+      failedPartRows += 1;
+      logStage('part-row-failed', {
+        partKey: desiredPart.key,
+        partName: desiredPart.name,
+        error: String(error),
       });
-      if (!created.ok) throw new Error(`Failed to create part: ${desiredPart.name} (${created.error})`);
-      rec = { id: created.part.id, brandIds: [], qtyMap: {} };
-      existingPartByKey.set(desiredPart.key, rec);
-      createdParts += 1;
     }
-
-    const nextQtyMap: Record<string, number> = {};
-    for (const [brandKey, qty] of desiredPart.qtyByBrandKey.entries()) {
-      const brandId = brandIdByKey.get(brandKey);
-      if (!brandId) continue;
-      nextQtyMap[brandId] = qty;
-    }
-    const nextBrandIds = Object.keys(nextQtyMap).sort((a, b) => a.localeCompare(b));
-
-    const curBrandIds = [...rec.brandIds].sort((a, b) => a.localeCompare(b));
-    const curQtyMapJson = JSON.stringify(Object.fromEntries(Object.entries(rec.qtyMap).sort(([a], [b]) => a.localeCompare(b))));
-    const nextQtyMapJson = JSON.stringify(Object.fromEntries(Object.entries(nextQtyMap).sort(([a], [b]) => a.localeCompare(b))));
-
-    if (JSON.stringify(curBrandIds) !== JSON.stringify(nextBrandIds)) {
-      const upd = await updatePartAttribute({ partId: rec.id, attributeCode: 'engine_brand_ids', value: nextBrandIds, actor });
-      if (!upd.ok) throw new Error(`Failed to update engine_brand_ids for part ${rec.id}: ${upd.error}`);
-    }
-    if (curQtyMapJson !== nextQtyMapJson) {
-      const upd = await updatePartAttribute({ partId: rec.id, attributeCode: 'engine_brand_qty_map', value: nextQtyMap, actor });
-      if (!upd.ok) throw new Error(`Failed to update engine_brand_qty_map for part ${rec.id}: ${upd.error}`);
-    }
-    updatedParts += 1;
     if (partIndex % 50 === 0 || partIndex === parsed.parts.size) {
-      logStage('parts-progress', { processed: partIndex, total: parsed.parts.size, createdParts, updatedParts, cleanedParts });
-    }
-  }
-
-  const desiredPartKeys = new Set(parsed.parts.keys());
-  for (const [key, rec] of existingPartByKey.entries()) {
-    if (desiredPartKeys.has(key)) continue;
-    const nextBrandIds = rec.brandIds.filter((id) => !desiredBrandIds.has(id));
-    const nextQtyMap = Object.fromEntries(Object.entries(rec.qtyMap).filter(([brandId]) => !desiredBrandIds.has(brandId)));
-    const curBrandIds = [...rec.brandIds].sort((a, b) => a.localeCompare(b));
-    const sortedNextBrandIds = [...nextBrandIds].sort((a, b) => a.localeCompare(b));
-    if (JSON.stringify(curBrandIds) !== JSON.stringify(sortedNextBrandIds)) {
-      const upd = await updatePartAttribute({ partId: rec.id, attributeCode: 'engine_brand_ids', value: sortedNextBrandIds, actor });
-      if (!upd.ok) throw new Error(`Failed to cleanup engine_brand_ids for part ${rec.id}: ${upd.error}`);
-      cleanedParts += 1;
-    }
-    const curQtyJson = JSON.stringify(Object.fromEntries(Object.entries(rec.qtyMap).sort(([a], [b]) => a.localeCompare(b))));
-    const nextQtyJson = JSON.stringify(Object.fromEntries(Object.entries(nextQtyMap).sort(([a], [b]) => a.localeCompare(b))));
-    if (curQtyJson !== nextQtyJson) {
-      const upd = await updatePartAttribute({ partId: rec.id, attributeCode: 'engine_brand_qty_map', value: nextQtyMap, actor });
-      if (!upd.ok) throw new Error(`Failed to cleanup engine_brand_qty_map for part ${rec.id}: ${upd.error}`);
-      cleanedParts += 1;
+      logStage('parts-progress', { processed: partIndex, total: parsed.parts.size, createdParts, updatedParts, cleanedParts, failedPartRows });
     }
   }
 
@@ -1031,6 +1120,7 @@ async function main() {
   let syncedDefectChecklists = 0;
   let syncedCompletenessChecklists = 0;
   let checklistSyncConflictsRecovered = 0;
+  let failedChecklistRows = 0;
 
   const partsByBrandKey = new Map<string, Array<{ partName: string; partNumber: string; quantity: number }>>();
   for (const brand of parsed.brands.values()) partsByBrandKey.set(brand.key, []);
@@ -1039,7 +1129,7 @@ async function main() {
       const rows = partsByBrandKey.get(brandKey) ?? [];
       rows.push({
         partName: part.name,
-        partNumber: part.assemblyUnitNumber ?? '',
+        partNumber: part.assemblyByBrandKey.get(brandKey) ?? '',
         quantity: qty,
       });
       partsByBrandKey.set(brandKey, rows);
@@ -1050,145 +1140,156 @@ async function main() {
   }
 
   let checklistIndex = 0;
-  for (const engine of parsed.engines.values()) {
+  const checklistEngines = SKIP_CHECKLISTS ? [] : [...parsed.engines.values()];
+  if (SKIP_CHECKLISTS) {
+    logStage('checklists-skipped', { reason: 'flag --skip-checklists is enabled' });
+  }
+  for (const engine of checklistEngines) {
     checklistIndex += 1;
     const engineNumber = normalizeEngineNumber(engine.engineNumber);
     const engineId = engineIdByDesiredNumber.get(engineNumber);
     if (!engineId) continue;
     const rows = partsByBrandKey.get(engine.brandKey) ?? [];
 
-    const defectRows = rows.map((r) => ({
-      part_name: r.partName,
-      part_number: r.partNumber,
-      quantity: r.quantity,
-      repairable_qty: r.quantity,
-      scrap_qty: 0,
-    }));
-    const existingDefectChecklist = await getRepairChecklistForEngine(engineId, 'defect');
-    if (!existingDefectChecklist.ok) {
-      throw new Error(`Failed to read defect checklist for engine ${engineNumber}: ${existingDefectChecklist.error}`);
-    }
-    const existingDefectPayload = existingDefectChecklist.payload;
-    const hasDefectPayload = areChecklistMetaEqual(existingDefectPayload, engine.brandName, engineNumber) && areDefectRowsEqual(existingDefectPayload, defectRows);
+    try {
+      const defectRows = rows.map((r) => ({
+        part_name: r.partName,
+        part_number: r.partNumber,
+        quantity: r.quantity,
+        repairable_qty: r.quantity,
+        scrap_qty: 0,
+      }));
+      const existingDefectChecklist = await getRepairChecklistForEngine(engineId, 'defect');
+      if (!existingDefectChecklist.ok) {
+        throw new Error(`Failed to read defect checklist for engine ${engineNumber}: ${existingDefectChecklist.error}`);
+      }
+      const existingDefectPayload = existingDefectChecklist.payload;
+      const hasDefectPayload = areChecklistMetaEqual(existingDefectPayload, engine.brandName, engineNumber) && areDefectRowsEqual(existingDefectPayload, defectRows);
 
-    if (!hasDefectPayload) {
-      const defectPayload = {
-        kind: 'repair_checklist' as const,
-        templateId: defectTemplate.id,
-        templateVersion: defectTemplate.version,
-        stage: 'defect',
-        engineEntityId: engineId,
-        filledBy: actor.username,
-        filledAt: nowMs(),
-        answers: {
-          engine_brand: { kind: 'text' as const, value: engine.brandName },
-          engine_number: { kind: 'text' as const, value: engineNumber },
-          defect_items: { kind: 'table' as const, rows: defectRows },
-        },
-        attachments: existingDefectPayload?.attachments ?? [],
-      };
-      const defectSave = await saveRepairChecklistForEngine({
-        engineId,
-        stage: 'defect',
-        operationId: existingDefectChecklist.operationId ?? null,
-        payload: defectPayload as any,
-        actor: { id: actor.id, username: actor.username },
-        allowSyncConflicts: false,
-      });
-      if (!defectSave.ok && IMPORT_ALLOW_SYNC_CONFLICTS && defectSave.error.includes('sync_conflict')) {
-        logStage('checklist-save-conflict-recovered', {
-          engineNumber,
-          checklistStage: 'defect',
-          operationId: existingDefectChecklist.operationId ?? null,
-          error: defectSave.error,
-        });
-        const retryDefectSave = await saveRepairChecklistForEngine({
+      if (!hasDefectPayload) {
+        const defectPayload = {
+          kind: 'repair_checklist' as const,
+          templateId: defectTemplate.id,
+          templateVersion: defectTemplate.version,
+          stage: 'defect',
+          engineEntityId: engineId,
+          filledBy: actor.username,
+          filledAt: nowMs(),
+          answers: {
+            engine_brand: { kind: 'text' as const, value: engine.brandName },
+            engine_number: { kind: 'text' as const, value: engineNumber },
+            defect_items: { kind: 'table' as const, rows: defectRows },
+          },
+          attachments: existingDefectPayload?.attachments ?? [],
+        };
+        const defectSave = await saveRepairChecklistForEngine({
           engineId,
           stage: 'defect',
           operationId: existingDefectChecklist.operationId ?? null,
           payload: defectPayload as any,
           actor: { id: actor.id, username: actor.username },
-          allowSyncConflicts: true,
+          allowSyncConflicts: false,
         });
-        if (!retryDefectSave.ok) {
-          throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${retryDefectSave.error}`);
+        if (!defectSave.ok && IMPORT_ALLOW_SYNC_CONFLICTS && defectSave.error.includes('sync_conflict')) {
+          logStage('checklist-save-conflict-recovered', {
+            engineNumber,
+            checklistStage: 'defect',
+            operationId: existingDefectChecklist.operationId ?? null,
+            error: defectSave.error,
+          });
+          const retryDefectSave = await saveRepairChecklistForEngine({
+            engineId,
+            stage: 'defect',
+            operationId: existingDefectChecklist.operationId ?? null,
+            payload: defectPayload as any,
+            actor: { id: actor.id, username: actor.username },
+            allowSyncConflicts: true,
+          });
+          if (!retryDefectSave.ok) {
+            throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${retryDefectSave.error}`);
+          }
+          checklistSyncConflictsRecovered += 1;
+        } else if (!defectSave.ok) {
+          throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${defectSave.error}`);
         }
-        checklistSyncConflictsRecovered += 1;
-      } else if (!defectSave.ok) {
-        throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${defectSave.error}`);
+        syncedDefectChecklists += 1;
       }
-      syncedDefectChecklists += 1;
-    }
 
-    const completenessRows = rows.map((r) => ({
-      part_name: r.partName,
-      assembly_unit_number: r.partNumber,
-      quantity: r.quantity,
-      present: false,
-      actual_qty: 0,
-    }));
-    const existingCompletenessChecklist = await getRepairChecklistForEngine(engineId, 'completeness');
-    if (!existingCompletenessChecklist.ok) {
-      throw new Error(`Failed to read completeness checklist for engine ${engineNumber}: ${existingCompletenessChecklist.error}`);
-    }
-    const existingCompletenessPayload = existingCompletenessChecklist.payload;
-    const hasCompletenessPayload =
-      areChecklistMetaEqual(existingCompletenessPayload, engine.brandName, engineNumber) &&
-      areCompletenessRowsEqual(existingCompletenessPayload, completenessRows);
-    if (!hasCompletenessPayload) {
-      const completenessPayload = {
-        kind: 'repair_checklist' as const,
-        templateId: completenessTemplate.id,
-        templateVersion: completenessTemplate.version,
-        stage: 'completeness',
-        engineEntityId: engineId,
-        filledBy: actor.username,
-        filledAt: nowMs(),
-        answers: {
-          engine_brand: { kind: 'text' as const, value: engine.brandName },
-          engine_number: { kind: 'text' as const, value: engineNumber },
-          completeness_items: { kind: 'table' as const, rows: completenessRows },
-        },
-        attachments: existingCompletenessPayload?.attachments ?? [],
-      };
-      const completenessSave = await saveRepairChecklistForEngine({
-        engineId,
-        stage: 'completeness',
-        operationId: existingCompletenessChecklist.operationId ?? null,
-        payload: completenessPayload as any,
-        actor: { id: actor.id, username: actor.username },
-        allowSyncConflicts: false,
-      });
-      if (!completenessSave.ok && IMPORT_ALLOW_SYNC_CONFLICTS && completenessSave.error.includes('sync_conflict')) {
-        logStage('checklist-save-conflict-recovered', {
-          engineNumber,
-          checklistStage: 'completeness',
-          operationId: existingCompletenessChecklist.operationId ?? null,
-          error: completenessSave.error,
-        });
-        const retryCompletenessSave = await saveRepairChecklistForEngine({
+      const completenessRows = rows.map((r) => ({
+        part_name: r.partName,
+        assembly_unit_number: r.partNumber,
+        quantity: r.quantity,
+        present: false,
+        actual_qty: 0,
+      }));
+      const existingCompletenessChecklist = await getRepairChecklistForEngine(engineId, 'completeness');
+      if (!existingCompletenessChecklist.ok) {
+        throw new Error(`Failed to read completeness checklist for engine ${engineNumber}: ${existingCompletenessChecklist.error}`);
+      }
+      const existingCompletenessPayload = existingCompletenessChecklist.payload;
+      const hasCompletenessPayload =
+        areChecklistMetaEqual(existingCompletenessPayload, engine.brandName, engineNumber) &&
+        areCompletenessRowsEqual(existingCompletenessPayload, completenessRows);
+      if (!hasCompletenessPayload) {
+        const completenessPayload = {
+          kind: 'repair_checklist' as const,
+          templateId: completenessTemplate.id,
+          templateVersion: completenessTemplate.version,
+          stage: 'completeness',
+          engineEntityId: engineId,
+          filledBy: actor.username,
+          filledAt: nowMs(),
+          answers: {
+            engine_brand: { kind: 'text' as const, value: engine.brandName },
+            engine_number: { kind: 'text' as const, value: engineNumber },
+            completeness_items: { kind: 'table' as const, rows: completenessRows },
+          },
+          attachments: existingCompletenessPayload?.attachments ?? [],
+        };
+        const completenessSave = await saveRepairChecklistForEngine({
           engineId,
           stage: 'completeness',
           operationId: existingCompletenessChecklist.operationId ?? null,
           payload: completenessPayload as any,
           actor: { id: actor.id, username: actor.username },
-          allowSyncConflicts: true,
+          allowSyncConflicts: false,
         });
-        if (!retryCompletenessSave.ok) {
-          throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${retryCompletenessSave.error}`);
+        if (!completenessSave.ok && IMPORT_ALLOW_SYNC_CONFLICTS && completenessSave.error.includes('sync_conflict')) {
+          logStage('checklist-save-conflict-recovered', {
+            engineNumber,
+            checklistStage: 'completeness',
+            operationId: existingCompletenessChecklist.operationId ?? null,
+            error: completenessSave.error,
+          });
+          const retryCompletenessSave = await saveRepairChecklistForEngine({
+            engineId,
+            stage: 'completeness',
+            operationId: existingCompletenessChecklist.operationId ?? null,
+            payload: completenessPayload as any,
+            actor: { id: actor.id, username: actor.username },
+            allowSyncConflicts: true,
+          });
+          if (!retryCompletenessSave.ok) {
+            throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${retryCompletenessSave.error}`);
+          }
+          checklistSyncConflictsRecovered += 1;
+        } else if (!completenessSave.ok) {
+          throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${completenessSave.error}`);
         }
-        checklistSyncConflictsRecovered += 1;
-      } else if (!completenessSave.ok) {
-        throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${completenessSave.error}`);
+        syncedCompletenessChecklists += 1;
       }
-      syncedCompletenessChecklists += 1;
+    } catch (error) {
+      if (!IGNORE_FAILURES) throw error;
+      failedChecklistRows += 1;
+      logStage('checklist-row-failed', { engineNumber, engineId, error: String(error) });
     }
-    if (checklistIndex % 100 === 0 || checklistIndex === parsed.engines.size) {
+    if (checklistIndex % 100 === 0 || checklistIndex === checklistEngines.length) {
       logStage('checklists-progress', {
         processed: checklistIndex,
-        total: parsed.engines.size,
+        total: checklistEngines.length,
         syncedDefectChecklists,
         syncedCompletenessChecklists,
+        failedChecklistRows,
       });
     }
   }
@@ -1209,6 +1310,7 @@ async function main() {
           createdParts,
           updatedParts,
           cleanedParts,
+          failedPartRows,
           createdEngines,
           updatedEngines,
           deletedEngines,
@@ -1222,6 +1324,7 @@ async function main() {
           supplierLinksMissing,
           syncedDefectChecklists,
           syncedCompletenessChecklists,
+          failedChecklistRows,
           engineAttributeConflictsRecovered,
           checklistSyncConflictsRecovered,
         },

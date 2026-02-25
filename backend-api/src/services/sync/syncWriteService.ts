@@ -12,7 +12,7 @@ import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matrica
 import { db } from '../../database/db.js';
 import { ledgerTxIndex } from '../../database/schema.js';
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
-import { applyPushBatch, type AppliedSyncChange } from './applyPushBatch.js';
+import { applyPushBatch, type AppliedSyncChange, type SyncIdRemaps, type SyncSkippedRow } from './applyPushBatch.js';
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -47,6 +47,10 @@ export type SyncWriteResult = {
   blockHeight: number;
   /** Details of each applied change. */
   appliedRows: AppliedSyncChange[];
+  /** Canonical id remaps discovered while applying push batch. */
+  idRemaps: SyncIdRemaps;
+  /** Rows accepted by ledger but skipped on DB apply with reason. */
+  skipped: SyncSkippedRow[];
 };
 
 // ────────────────────────────────────────────────────────────
@@ -105,7 +109,15 @@ export async function writeSyncChanges(
   opts: SyncWriteOptions = {},
 ): Promise<SyncWriteResult> {
   if (inputs.length === 0) {
-    return { dbApplied: 0, ledgerApplied: 0, lastSeq: 0, blockHeight: 0, appliedRows: [] };
+    return {
+      dbApplied: 0,
+      ledgerApplied: 0,
+      lastSeq: 0,
+      blockHeight: 0,
+      appliedRows: [],
+      idRemaps: { entity_types: {}, attribute_defs: {} },
+      skipped: [],
+    };
   }
 
   const ts = nowMs();
@@ -214,5 +226,7 @@ export async function writeSyncChanges(
     lastSeq: ledgerResult.lastSeq,
     blockHeight: ledgerResult.blockHeight,
     appliedRows: collected,
+    idRemaps: dbResult.idRemaps,
+    skipped: dbResult.skipped,
   };
 }

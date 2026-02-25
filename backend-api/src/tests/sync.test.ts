@@ -217,7 +217,7 @@ describe('sync privacy and errors', () => {
     expect(r.applied).toBeGreaterThan(0);
   });
 
-  it('applyPushBatch surfaces missing dependency errors', async () => {
+  it('applyPushBatch soft-skips rows with missing dependencies', async () => {
     txRowsByTable.set(entityTypes, []);
 
     const req: SyncPushRequest = {
@@ -239,9 +239,9 @@ describe('sync privacy and errors', () => {
       ],
     };
 
-    await expect(
-      applyPushBatch(req, { id: '66666666-6666-6666-6666-666666666666', username: 'user', role: 'user' }),
-    ).rejects.toThrow('sync_dependency_missing');
+    const result = await applyPushBatch(req, { id: '66666666-6666-6666-6666-666666666666', username: 'user', role: 'user' });
+    expect(result.applied).toBe(1); // user_presence heartbeat
+    expect(result.skipped.some((row) => row.table === SyncTableName.Entities && row.reason === 'missing_dependency')).toBe(true);
   });
 
   it('applyPushBatch rejects seq-less undelete over tombstone with known server seq', async () => {

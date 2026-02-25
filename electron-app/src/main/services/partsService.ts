@@ -192,6 +192,109 @@ export async function partsGetFiles(
   }
 }
 
+export async function partsBrandLinksList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { partId?: string; engineBrandId?: string },
+): Promise<{ ok: true; brandLinks: unknown[] } | { ok: false; error: string }> {
+  try {
+    const partId = String(args.partId || '').trim();
+    const engineBrandId = String(args.engineBrandId || '').trim();
+
+    if (partId) {
+      const query = new URLSearchParams();
+      if (engineBrandId) query.set('engineBrandId', engineBrandId);
+      const qs = query.toString();
+      const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/brand-links${qs ? `?${qs}` : ''}`, {
+        method: 'GET',
+      });
+      if (!r.ok) return { ok: false, error: `part brand links ${formatHttpError(r)}` };
+      if (!r.json?.ok) return { ok: false, error: 'bad part brand links response' };
+      return r.json as any;
+    }
+
+    if (!engineBrandId) return { ok: false, error: 'partId or engineBrandId is required' };
+
+    // Backward compatible fallback: fetch parts by brand and flatten their links.
+    const query = new URLSearchParams();
+    query.set('engineBrandId', engineBrandId);
+    query.set('limit', '5000');
+    const r = await httpAuthed(db, apiBaseUrl, `/parts?${query.toString()}`, { method: 'GET' });
+    if (!r.ok) return { ok: false, error: `part list ${formatHttpError(r)}` };
+    if (!r.json?.ok || !Array.isArray(r.json.parts)) return { ok: false, error: 'bad part list response' };
+    const brandLinks = (r.json.parts as any[])
+      .flatMap((p) => (Array.isArray(p?.brandLinks) ? p.brandLinks : []))
+      .filter((l) => String((l as any)?.engineBrandId || '').trim() === engineBrandId);
+    return { ok: true, brandLinks };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partsBrandLinksUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: {
+    partId: string;
+    linkId?: string;
+    engineBrandId: string;
+    assemblyUnitNumber: string;
+    quantity: number;
+  },
+): Promise<{ ok: true; linkId: string } | { ok: false; error: string }> {
+  try {
+    const partId = String(args.partId || '');
+    if (!partId) return { ok: false, error: 'partId is empty' };
+    if (!args.engineBrandId) return { ok: false, error: 'engineBrandId is empty' };
+    if (!args.assemblyUnitNumber) return { ok: false, error: 'assemblyUnitNumber is empty' };
+    if (typeof args.quantity !== 'number' || !Number.isFinite(args.quantity) || args.quantity < 0) {
+      return { ok: false, error: 'quantity must be a non-negative number' };
+    }
+
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/brand-links`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        engineBrandId: args.engineBrandId,
+        assemblyUnitNumber: args.assemblyUnitNumber,
+        quantity: args.quantity,
+        ...(args.linkId ? { linkId: args.linkId } : {}),
+      }),
+    });
+    if (!r.ok) return { ok: false, error: `part brand link ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad part brand link response' };
+    if (!r.json.linkId) return { ok: false, error: 'bad part brand link response: missing linkId' };
+    return r.json as any;
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partsBrandLinksDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { partId: string; linkId: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const partId = String(args.partId || '');
+    const linkId = String(args.linkId || '');
+    if (!partId) return { ok: false, error: 'partId is empty' };
+    if (!linkId) return { ok: false, error: 'linkId is empty' };
+
+    const r = await httpAuthed(
+      db,
+      apiBaseUrl,
+      `/parts/${encodeURIComponent(partId)}/brand-links/${encodeURIComponent(linkId)}`,
+      { method: 'DELETE' },
+    );
+    if (!r.ok) return { ok: false, error: `delete part brand link ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad delete part brand link response' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function partsCreateAttributeDef(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

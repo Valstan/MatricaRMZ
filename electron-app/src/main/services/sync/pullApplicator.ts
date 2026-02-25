@@ -35,6 +35,41 @@ const CLIENT_TABLES: Record<SyncTableName, any> = {
   [SyncTableName.Notes]: notes,
   [SyncTableName.NoteShares]: noteShares,
 };
+const SQLITE_BIND_PARAM_LIMIT = 900;
+const CHUNK_SIZE_FALLBACK = 200;
+
+function getUpsertChunkSize(rows: Array<Record<string, unknown>>) {
+  if (!rows.length) return CHUNK_SIZE_FALLBACK;
+  const keyCount = Math.max(
+    1,
+    rows.reduce((maxKeys, row) => {
+      const keys = row ? Object.keys(row).length : 0;
+      return Math.max(maxKeys, keys);
+    }, 0),
+  );
+  return Math.max(1, Math.min(CHUNK_SIZE_FALLBACK, Math.floor(SQLITE_BIND_PARAM_LIMIT / keyCount)));
+}
+
+async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
+  db: BetterSQLite3Database,
+  drizzleTable: any,
+  rows: T[],
+  conflictTarget: any,
+  conflictSet: Record<string, unknown>,
+) {
+  if (rows.length === 0) return;
+  const chunkSize = getUpsertChunkSize(rows);
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    await db
+      .insert(drizzleTable)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: conflictTarget,
+        set: conflictSet,
+      });
+  }
+}
 
 /**
  * Build the `set` clause for `onConflictDoUpdate` from registry fields.
@@ -95,13 +130,7 @@ export async function upsertPulledRows(
 
   const setClause = buildConflictSet(entry);
 
-  await db
-    .insert(drizzleTable)
-    .values(values as any)
-    .onConflictDoUpdate({
-      target: conflictTarget,
-      set: setClause,
-    });
+  await upsertPulledRowsInChunks(db, drizzleTable, values as any, conflictTarget, setClause);
 
   return rows.length;
 }
