@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
+import { AttributeDataType, EntityTypeCode, STATUS_CODES, STATUS_LABELS, statusDateCode } from '@matricarmz/shared';
 import { attributeDefs, entityTypes } from './schema.js';
 
 function nowMs() {
@@ -125,8 +125,15 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(engineTypeId, 'engine_number', 'Номер двигателя', AttributeDataType.Text, 10);
   await ensureAttrDef(engineTypeId, 'engine_brand', 'Марка двигателя', AttributeDataType.Text, 20);
   await ensureAttrDef(engineTypeId, 'arrival_date', 'Дата прихода', AttributeDataType.Date, 25);
-  await ensureAttrDef(engineTypeId, 'shipping_date', 'Дата отгрузки', AttributeDataType.Date, 26);
-  await ensureAttrDef(engineTypeId, 'is_scrap', 'Утиль (неремонтнопригоден)', AttributeDataType.Boolean, 27);
+  for (const code of STATUS_CODES) {
+    await ensureAttrDef(
+      engineTypeId,
+      statusDateCode(code),
+      `Дата ${STATUS_LABELS[code]}`,
+      AttributeDataType.Date,
+      41 + STATUS_CODES.indexOf(code) * 2,
+    );
+  }
   await ensureAttrDef(
     engineTypeId,
     'engine_brand_id',

@@ -14,6 +14,23 @@ function safeJsonParse(value: string | null): unknown {
   }
 }
 
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
+}
+
 function isServerOnly(metaJson: string | null): boolean {
   if (!metaJson) return false;
   try {
@@ -95,6 +112,7 @@ export async function listEmployeesSummary(
     employeeDefByCode.personnel_number,
     employeeDefByCode.access_enabled,
     employeeDefByCode.system_role,
+    employeeDefByCode.attachments,
   ].filter(Boolean) as string[];
 
   const vals =
@@ -158,6 +176,7 @@ export async function listEmployeesSummary(
     const personnelNumber = String(pick(employeeDefByCode.personnel_number) ?? '').trim();
     const accessEnabled = pick(employeeDefByCode.access_enabled) === true;
     const systemRole = String(pick(employeeDefByCode.system_role) ?? '').trim();
+    const attachmentPreviews = toAttachmentPreviews(pick(employeeDefByCode.attachments));
     return {
       id: entityId,
       displayName: fullName || computedName || undefined,
@@ -176,6 +195,7 @@ export async function listEmployeesSummary(
       deleteRequestedAt: null,
       deleteRequestedById: null,
       deleteRequestedByUsername: null,
+      ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
     };
   });
 }

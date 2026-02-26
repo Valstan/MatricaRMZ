@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { listClients, updateClient } from '../api/clients.js';
 import { requestClientSync } from '../api/diagnostics.js';
 import { Button } from './components/Button.js';
+import { formatMoscowDateTime } from './utils/dateUtils.js';
+import { matchesQueryInRecord } from './utils/search.js';
 
 type ClientRow = {
   clientId: string;
@@ -21,8 +23,7 @@ type ClientRow = {
 
 function formatDate(ms: number | null) {
   if (!ms) return '—';
-  const d = new Date(ms);
-  return d.toLocaleString('ru-RU');
+  return formatMoscowDateTime(ms);
 }
 
 function toLoggingUi(row: ClientRow): 'full' | 'partial' | 'off' {
@@ -38,14 +39,6 @@ export function ClientAdminPage() {
   const [fullSyncSelection, setFullSyncSelection] = useState<Record<string, boolean>>({});
   const [fullSyncStatus, setFullSyncStatus] = useState<string>('');
   const [fullSyncLoading, setFullSyncLoading] = useState<boolean>(false);
-
-  function normalize(s: string | null | undefined) {
-    return String(s ?? '')
-      .toLowerCase()
-      .replaceAll('ё', 'е')
-      .replaceAll(/\s+/g, ' ')
-      .trim();
-  }
 
   function isOnline(lastSeenAt: number | null) {
     if (!lastSeenAt) return false;
@@ -121,13 +114,7 @@ export function ClientAdminPage() {
   }
 
   const filtered = rows.filter((row) => {
-    const q = normalize(query);
-    if (!q) return true;
-    return (
-      normalize(row.clientId).includes(q) ||
-      normalize(row.lastHostname).includes(q) ||
-      normalize(row.lastIp).includes(q)
-    );
+    return matchesQueryInRecord(query, row);
   });
 
   return (
@@ -138,7 +125,7 @@ export function ClientAdminPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск по Client ID / Hostname / IP…"
+            placeholder="Поиск по всем данным клиента…"
             style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
           />
         </div>

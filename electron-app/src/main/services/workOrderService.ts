@@ -182,8 +182,8 @@ export async function listWorkOrders(
           [
             payload.workOrderNumber,
             payload.partName,
-            JSON.stringify(payload.works ?? []),
-            JSON.stringify(payload.crew ?? []),
+            row.note ?? '',
+            JSON.stringify(payload),
           ].join(' '),
         );
         if (!hay.includes(qNorm)) continue;

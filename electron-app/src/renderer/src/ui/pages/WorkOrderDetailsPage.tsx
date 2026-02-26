@@ -71,6 +71,9 @@ export function WorkOrderDetailsPage(props: {
   id: string;
   onClose: () => void;
   canEdit: boolean;
+  onOpenPart?: (partId: string) => void;
+  onOpenService?: (serviceId: string) => void;
+  onOpenEmployee?: (employeeId: string) => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
@@ -249,10 +252,6 @@ export function WorkOrderDetailsPage(props: {
               dirtyRef.current = false;
             });
           }}
-          onCloseWithoutSave={() => {
-            dirtyRef.current = false;
-            props.onClose();
-          }}
           onClose={() => props.requestClose?.()}
         />
       </div>
@@ -272,16 +271,32 @@ export function WorkOrderDetailsPage(props: {
           onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
         />
         <div style={{ color: 'var(--muted)' }}>Изделие</div>
-        <SearchSelect
-          value={payload.partId}
-          options={partOptions}
-          disabled={!props.canEdit}
-          onChange={(next) => {
-            const p = parts.find((x) => x.id === next);
-            patch({ ...payload, partId: p?.id ?? null, partName: p?.label ?? '' });
-          }}
-          placeholder="Выберите деталь"
-        />
+        <div style={{ display: 'grid', gap: 6 }}>
+          <SearchSelect
+            value={payload.partId}
+            options={partOptions}
+            disabled={!props.canEdit}
+            onChange={(next) => {
+              const p = parts.find((x) => x.id === next);
+              patch({ ...payload, partId: p?.id ?? null, partName: p?.label ?? '' });
+            }}
+            placeholder="Выберите деталь"
+          />
+          {payload.partId && props.onOpenPart ? (
+            <Button
+              variant="outline"
+              tone="neutral"
+              size="sm"
+              onClick={() => {
+                const partId = payload.partId;
+                if (!partId) return;
+                props.onOpenPart?.(partId);
+              }}
+            >
+              Открыть
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
@@ -301,13 +316,20 @@ export function WorkOrderDetailsPage(props: {
             {payload.works.map((line, idx) => (
               <tr key={`work-line-${idx}`}>
                 <td style={{ padding: 8 }}>
-                  <SearchSelect
-                    value={line.serviceId}
-                    options={serviceOptions}
-                    disabled={!props.canEdit}
-                    onChange={(next) => void applyServiceSnapshot(idx, next)}
-                    placeholder="Выберите услугу"
-                  />
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <SearchSelect
+                      value={line.serviceId}
+                      options={serviceOptions}
+                      disabled={!props.canEdit}
+                      onChange={(next) => void applyServiceSnapshot(idx, next)}
+                      placeholder="Выберите услугу"
+                    />
+                    {line.serviceId && props.onOpenService ? (
+                      <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
+                        Открыть
+                      </Button>
+                    ) : null}
+                  </div>
                 </td>
                 <td style={{ padding: 8 }}>
                   <Input
@@ -390,17 +412,24 @@ export function WorkOrderDetailsPage(props: {
             {payload.crew.map((member, idx) => (
               <tr key={`crew-${idx}-${member.employeeId}`}>
                 <td style={{ padding: 8 }}>
-                  <SearchSelect
-                    value={member.employeeId || null}
-                    options={employeeOptions}
-                    disabled={!props.canEdit}
-                    onChange={(next) => {
-                      const e = employees.find((x) => x.id === next);
-                      const crew = payload.crew.map((c, i) => (i === idx ? { ...c, employeeId: e?.id || '', employeeName: e?.displayName || '' } : c));
-                      patch({ ...payload, crew });
-                    }}
-                    placeholder="Выберите сотрудника"
-                  />
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <SearchSelect
+                      value={member.employeeId || null}
+                      options={employeeOptions}
+                      disabled={!props.canEdit}
+                      onChange={(next) => {
+                        const e = employees.find((x) => x.id === next);
+                        const crew = payload.crew.map((c, i) => (i === idx ? { ...c, employeeId: e?.id || '', employeeName: e?.displayName || '' } : c));
+                        patch({ ...payload, crew });
+                      }}
+                      placeholder="Выберите сотрудника"
+                    />
+                    {member.employeeId && props.onOpenEmployee ? (
+                      <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(member.employeeId as string)}>
+                        Открыть
+                      </Button>
+                    ) : null}
+                  </div>
                 </td>
                 <td style={{ padding: 8 }}>
                   <Input

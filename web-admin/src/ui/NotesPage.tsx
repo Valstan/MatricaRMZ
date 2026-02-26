@@ -6,6 +6,7 @@ import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { deleteNote, hideNote, listNoteUsers, listNotes, reorderNote, shareNote, unshareNote, upsertNote } from '../api/notes.js';
 import { fileUrl, uploadSmallFile } from '../api/chat.js';
+import { formatMoscowDateTime } from './utils/dateUtils.js';
 
 type NoteDraft = {
   id: string;
@@ -40,7 +41,7 @@ function parseDueColor(dueAt: number | null, now: number) {
 
 function formatDate(ms: number | null) {
   if (!ms) return '';
-  return new Date(ms).toLocaleString('ru-RU');
+  return formatMoscowDateTime(ms);
 }
 
 export function NotesPage(props: {

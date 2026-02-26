@@ -72,8 +72,8 @@ export function SearchSelect(props: {
   }
 
   return (
-    <div ref={dropdown.rootRef} style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div ref={dropdown.rootRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', minWidth: 0 }}>
         <input
           ref={searchInputRef}
           value={dropdown.query}
@@ -125,6 +125,7 @@ export function SearchSelect(props: {
           }}
           style={{
             flex: 1,
+            minWidth: 0,
             padding: '8px 10px',
             borderRadius: 10,
             border: '1px solid var(--input-border)',
@@ -144,6 +145,7 @@ export function SearchSelect(props: {
               close();
             }}
             style={{
+              flexShrink: 0,
               padding: '8px 10px',
               borderRadius: 10,
               border: '1px solid var(--button-ghost-border)',

@@ -13,6 +13,10 @@ import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
 import { createApp } from './app.js';
 
+if (!process.env.TZ) {
+  process.env.TZ = 'Europe/Moscow';
+}
+
 const app = createApp();
 
 const port = Number(process.env.PORT ?? 3001);

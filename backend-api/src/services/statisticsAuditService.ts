@@ -57,6 +57,19 @@ function parsePayload(raw: string | null | undefined): any {
   }
 }
 
+function getMoscowDatePartsAtEpoch(epochMs: number) {
+  const shifted = new Date(epochMs + 3 * 60 * 60 * 1000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
+function moscowDayStartMs(year: number, month: number, day: number, hour = 0) {
+  return Date.UTC(year, month - 1, day, hour, 0, 0, 0) - 3 * 60 * 60 * 1000;
+}
+
 function sectionOf(actionRaw: string) {
   const action = String(actionRaw ?? '').toLowerCase();
   if (action.startsWith('app.session.')) return 'Сессия приложения';
@@ -126,24 +139,27 @@ function docLabel(payload: any, section: string) {
 }
 
 function parseDateInput(raw: string | undefined): Date {
-  if (!raw) return new Date();
+  const fallback = getMoscowDatePartsAtEpoch(nowMs());
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw).trim());
-  if (!m) return new Date();
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+  if (!m) return new Date(moscowDayStartMs(fallback.year, fallback.month, fallback.day));
+  return new Date(moscowDayStartMs(Number(m[1]), Number(m[2]), Number(m[3])));
 }
 
 function startOfDayMs(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0).getTime();
+  const parts = getMoscowDatePartsAtEpoch(date.getTime());
+  return moscowDayStartMs(parts.year, parts.month, parts.day);
 }
 
 function dayAtHourMs(date: Date, hour: number) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, 0, 0, 0).getTime();
+  const parts = getMoscowDatePartsAtEpoch(date.getTime());
+  return moscowDayStartMs(parts.year, parts.month, parts.day, hour);
 }
 
 function dayIso(date: Date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const { year, month, day } = getMoscowDatePartsAtEpoch(date.getTime());
+  const y = year;
+  const m = String(month).padStart(2, '0');
+  const d = String(day).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
@@ -256,38 +272,65 @@ async function recomputeDailySummary(dateValue: Date, cutoffHour: number) {
     const action = String(row.action ?? '');
     return action === 'app.session.start' || action === 'app.session.stop';
   });
-  const byActorClient = new Map<string, Array<{ at: number; action: string }>>();
+  const byActorSession = new Map<
+    string,
+    {
+      actor: string;
+      events: Array<{ at: number; action: string }>;
+    }
+  >();
   for (const row of sessionEvents) {
-    const clientId = String(row.clientId ?? 'unknown');
     const actor = String(row.actor ?? '').trim().toLowerCase();
-    const key = `${actor}::${clientId}`;
-    const listForKey = byActorClient.get(key) ?? [];
-    listForKey.push({ at: Number(row.createdAt), action: String(row.action) });
-    byActorClient.set(key, listForKey);
+    if (!actor) continue;
+    const bucket =
+      byActorSession.get(actor) ??
+      ({
+        actor: String(row.actor ?? '').trim(),
+        events: [],
+      } as { actor: string; events: Array<{ at: number; action: string }> });
+    bucket.events.push({ at: Number(row.createdAt), action: String(row.action) });
+    if (!bucket.actor) bucket.actor = String(row.actor ?? '').trim() || actor;
+    byActorSession.set(actor, bucket);
   }
 
-  const clipAdd = (actor: string, startAt: number, endAt: number) => {
-    const start = Math.max(rangeStart, startAt);
-    const end = Math.min(rangeEnd, endAt);
-    if (end <= start) return;
-    ensureActor(actor).onlineMs += end - start;
-  };
-  for (const [key, events] of byActorClient.entries()) {
-    const actor = key.split('::')[0] ?? '';
+  for (const [key, payload] of byActorSession.entries()) {
+    const actor = payload.actor || key;
+    const events = payload.events;
     if (!actor) continue;
-    let openAt: number | null = null;
+    events.sort((a, b) => {
+      if (a.at !== b.at) return a.at - b.at;
+      if (a.action === b.action) return 0;
+      if (a.action === 'app.session.start') return -1;
+      return 1;
+    });
+
+    let activeSessions = 0;
+    let segmentStart: number | null = null;
     for (const event of events) {
       if (event.action === 'app.session.start') {
-        if (openAt != null) clipAdd(actor, openAt, event.at);
-        openAt = event.at;
+        if (activeSessions === 0) {
+          const start = Math.max(rangeStart, event.at);
+          if (start < rangeEnd) segmentStart = start;
+        }
+        activeSessions += 1;
       } else if (event.action === 'app.session.stop') {
-        if (openAt != null) {
-          clipAdd(actor, openAt, event.at);
-          openAt = null;
+        if (activeSessions > 0) {
+          activeSessions -= 1;
+          if (activeSessions === 0 && segmentStart != null) {
+            const end = Math.min(rangeEnd, event.at);
+            if (end > segmentStart) ensureActor(actor).onlineMs += end - segmentStart;
+            segmentStart = null;
+          }
         }
       }
     }
-    if (openAt != null) clipAdd(actor, openAt, rangeEnd);
+    if (segmentStart != null && segmentStart < rangeEnd) {
+      ensureActor(actor).onlineMs += rangeEnd - segmentStart;
+    }
+  }
+
+  for (const payload of byActor.values()) {
+    if (payload.onlineMs < 0) payload.onlineMs = 0;
   }
 
   const rows = Array.from(byActor.values())

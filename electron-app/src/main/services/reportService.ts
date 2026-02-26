@@ -3,6 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { BrowserWindow } from 'electron';
 
 import { attributeDefs, attributeValues, entities, operations } from '../database/schema.js';
+import { formatMoscowDate, formatRuNumber } from '../utils/dateUtils.js';
 
 export {
   buildReportByPreset,
@@ -43,7 +44,7 @@ const DEFECT_SUPPLY_METRIC_NOTES: Record<keyof DefectSupplyReportResult['totals'
 };
 
 function formatDefectSupplyValue(raw: number): string {
-  return raw.toLocaleString('ru-RU');
+  return formatRuNumber(raw);
 }
 
 function formatDefectSupplyTotals(totals: DefectSupplyReportResult['totals']) {
@@ -114,8 +115,8 @@ async function renderHtmlWindow(html: string) {
 
 function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: number; endMs: number; contractLabels: string[] }) {
   const title = 'Статистика по дефектовке и комплектности';
-  const startLabel = data.startMs ? new Date(data.startMs).toLocaleDateString('ru-RU') : '—';
-  const periodLabel = `${startLabel} — ${new Date(data.endMs).toLocaleDateString('ru-RU')}`;
+  const startLabel = data.startMs ? formatMoscowDate(data.startMs) : '—';
+  const periodLabel = `${startLabel} — ${formatMoscowDate(data.endMs)}`;
   const contractsLabel = data.contractLabels.length ? data.contractLabels.join(', ') : 'Все контракты';
   const contractSummary = data.totalsByContract
     .map(

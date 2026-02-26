@@ -6,6 +6,7 @@ import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
 import { SearchSelect } from './SearchSelect.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 
 function safeJsonStringify(v: unknown) {
   try {
@@ -174,6 +175,14 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function buildDefectActDateNumber(defectActNumber: string, defectEndDate: number | null): string {
+  const actNumber = defectActNumber.trim();
+  const dateLabel = defectEndDate ? formatMoscowDate(defectEndDate) : '';
+  if (dateLabel && actNumber) return `${dateLabel}, № ${actNumber}`;
+  if (actNumber) return `№ ${actNumber}`;
+  return dateLabel;
+}
+
 function getBrandLinkForPart(part: unknown, engineBrandId: string | undefined) {
   const brandId = String(engineBrandId || '').trim();
   if (!brandId || !part || typeof part !== 'object') return null;
@@ -214,6 +223,8 @@ export function RepairChecklistPanel(props: {
   engineNumber?: string;
   engineBrand?: string;
   engineBrandId?: string;
+  contractNumber?: string;
+  arrivalDate?: number | null;
   canViewFiles?: boolean;
   canUploadFiles?: boolean;
   defaultCollapsed?: boolean;
@@ -236,6 +247,7 @@ export function RepairChecklistPanel(props: {
   >({});
   const [completenessOptionsStatus, setCompletenessOptionsStatus] = useState<string>('');
   const [defectCreateKind, setDefectCreateKind] = useState<'part' | 'node'>('part');
+  const [defectAutoFieldIds, setDefectAutoFieldIds] = useState<string[]>([]);
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const panelTitle =
@@ -250,6 +262,28 @@ export function RepairChecklistPanel(props: {
       : props.stage === 'completeness'
         ? 'Вложения к акту комплектности'
         : 'Вложения к контрольному листу';
+  const lockedFieldIds = useMemo(() => {
+    const locked = new Set<string>();
+    const brand = String(props.engineBrand ?? '').trim();
+    const number = String(props.engineNumber ?? '').trim();
+    const contractNumber = String(props.contractNumber ?? '').trim();
+    const hasArrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate);
+
+    if (props.stage === 'defect' || props.stage === 'completeness') {
+      if (brand) locked.add('engine_brand');
+      if (number) locked.add('engine_number');
+    }
+    if (props.stage === 'completeness' && contractNumber) {
+      locked.add('contract_number');
+    }
+    if (props.stage === 'repair') {
+      if (brand || number) locked.add('engine_mark_number');
+      if (hasArrivalDate) locked.add('delivery_date');
+      for (const fieldId of defectAutoFieldIds) locked.add(fieldId);
+    }
+
+    return locked;
+  }, [defectAutoFieldIds, props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
 
   async function load() {
     setStatus('Загрузка чек-листа...');
@@ -314,21 +348,24 @@ export function RepairChecklistPanel(props: {
     setAnswers((prev) => (Object.keys(prev).length ? prev : emptyAnswersForTemplate(activeTemplate)));
   }, [activeTemplate?.id]);
 
-  // Автоподстановка из свойств двигателя (только если поле в чек-листе пустое).
+  // Автоподстановка повторяющихся данных из карточки двигателя.
   useEffect(() => {
     if (!activeTemplate) return;
     const hasItem = (id: string) => activeTemplate.items.some((it) => it.id === id);
     const brand = String(props.engineBrand ?? '').trim();
     const num = String(props.engineNumber ?? '').trim();
-    if (!brand && !num) return;
+    const contractNumber = String(props.contractNumber ?? '').trim();
+    const arrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate) ? props.arrivalDate : null;
     const next = { ...answers } as RepairChecklistAnswers;
     let changed = false;
     const isDefect = props.stage === 'defect';
+    const isCompleteness = props.stage === 'completeness';
+    const isRepair = props.stage === 'repair';
 
     if (hasItem('engine_brand') && brand) {
       const a: any = (answers as any).engine_brand;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isDefect && current !== brand) || (!isDefect && !current.trim())) {
+      if (((isDefect || isCompleteness) && current !== brand) || (!(isDefect || isCompleteness) && !current.trim())) {
         (next as any).engine_brand = { kind: 'text', value: brand };
         changed = true;
       }
@@ -336,17 +373,33 @@ export function RepairChecklistPanel(props: {
     if (hasItem('engine_number') && num) {
       const a: any = (answers as any).engine_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isDefect && current !== num) || (!isDefect && !current.trim())) {
+      if (((isDefect || isCompleteness) && current !== num) || (!(isDefect || isCompleteness) && !current.trim())) {
         (next as any).engine_number = { kind: 'text', value: num };
         changed = true;
       }
     }
-    if (!isDefect && hasItem('engine_mark_number')) {
+    if (isRepair && hasItem('engine_mark_number')) {
       const a: any = (answers as any).engine_mark_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim()) {
-        const value = brand && num ? `${brand}, № ${num}` : brand || num;
+      const value = brand && num ? `${brand}, № ${num}` : brand || num;
+      if (value && current !== value) {
         (next as any).engine_mark_number = { kind: 'text', value };
+        changed = true;
+      }
+    }
+    if (isCompleteness && hasItem('contract_number') && contractNumber) {
+      const a: any = (answers as any).contract_number;
+      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+      if (current !== contractNumber) {
+        (next as any).contract_number = { kind: 'text', value: contractNumber };
+        changed = true;
+      }
+    }
+    if (isRepair && hasItem('delivery_date') && arrivalDate) {
+      const a: any = (answers as any).delivery_date;
+      const current = a?.kind === 'date' && Number.isFinite(a.value) ? Number(a.value) : null;
+      if (current !== arrivalDate) {
+        (next as any).delivery_date = { kind: 'date', value: arrivalDate };
         changed = true;
       }
     }
@@ -354,7 +407,80 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-  }, [activeTemplate?.id, props.engineBrand, props.engineNumber, props.stage]);
+  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
+
+  useEffect(() => {
+    if (props.stage !== 'repair') {
+      setDefectAutoFieldIds([]);
+      return;
+    }
+    if (!activeTemplate) return;
+    const hasItem = (id: string) => activeTemplate.items.some((it) => it.id === id);
+    if (!hasItem('defect_act_date_number') && !hasItem('passport_details')) {
+      setDefectAutoFieldIds([]);
+      return;
+    }
+
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await window.matrica.checklists.engineGet({ engineId: props.engineId, stage: 'defect' });
+        if (!alive) return;
+        if (!r.ok) {
+          setDefectAutoFieldIds([]);
+          return;
+        }
+        const defectAnswers = (r.payload?.answers ?? {}) as RepairChecklistAnswers;
+        const next = { ...answers } as RepairChecklistAnswers;
+        const nextAutoFieldIds: string[] = [];
+        let changed = false;
+
+        if (hasItem('defect_act_date_number')) {
+          const actNumberAnswer: any = (defectAnswers as any).defect_act_number;
+          const actNumber = actNumberAnswer?.kind === 'text' ? String(actNumberAnswer.value ?? '') : '';
+          const defectEndDateAnswer: any = (defectAnswers as any).defect_end_date;
+          const defectEndDate =
+            defectEndDateAnswer?.kind === 'date' && Number.isFinite(defectEndDateAnswer.value) ? Number(defectEndDateAnswer.value) : null;
+          const value = buildDefectActDateNumber(actNumber, defectEndDate);
+          if (value) {
+            const currentAnswer: any = (answers as any).defect_act_date_number;
+            const current = currentAnswer?.kind === 'text' ? String(currentAnswer.value ?? '') : '';
+            if (current !== value) {
+              (next as any).defect_act_date_number = { kind: 'text', value };
+              changed = true;
+            }
+            nextAutoFieldIds.push('defect_act_date_number');
+          }
+        }
+
+        if (hasItem('passport_details')) {
+          const passportNumberAnswer: any = (defectAnswers as any).passport_number;
+          const passportNumber = passportNumberAnswer?.kind === 'text' ? String(passportNumberAnswer.value ?? '').trim() : '';
+          if (passportNumber) {
+            const currentAnswer: any = (answers as any).passport_details;
+            const current = currentAnswer?.kind === 'text' ? String(currentAnswer.value ?? '') : '';
+            if (current !== passportNumber) {
+              (next as any).passport_details = { kind: 'text', value: passportNumber };
+              changed = true;
+            }
+            nextAutoFieldIds.push('passport_details');
+          }
+        }
+
+        setDefectAutoFieldIds(nextAutoFieldIds);
+        if (!changed) return;
+        setAnswers(next);
+        if (props.canEdit) void save(next);
+      } catch {
+        if (!alive) return;
+        setDefectAutoFieldIds([]);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [activeTemplate?.id, props.canEdit, props.engineId, props.stage]);
 
   useEffect(() => {
     if (props.stage !== 'defect') return;
@@ -757,7 +883,7 @@ export function RepairChecklistPanel(props: {
     <div class="meta">
       <div><b>Двигатель:</b> ${escapeHtml(String(props.engineBrand ?? ''))} ${escapeHtml(String(props.engineNumber ?? ''))}</div>
       <div><b>Шаблон:</b> ${escapeHtml(activeTemplate.name)} (v${escapeHtml(String(activeTemplate.version))})</div>
-      <div><b>Дата:</b> ${escapeHtml(new Date().toLocaleString('ru-RU'))}</div>
+      <div><b>Дата:</b> ${escapeHtml(formatMoscowDateTime(Date.now()))}</div>
     </div>
     <table class="doc-table">
       <thead><tr><th style="width:40%">Поле</th><th>Значение</th></tr></thead>
@@ -767,12 +893,12 @@ export function RepairChecklistPanel(props: {
             const a: any = (answers as any)[it.id];
             if (!a) return `<tr><td>${escapeHtml(it.label)}</td><td class="muted">—</td></tr>`;
             if (a.kind === 'text') return `<tr><td>${escapeHtml(it.label)}</td><td>${escapeHtml(String(a.value ?? ''))}</td></tr>`;
-            if (a.kind === 'date') return `<tr><td>${escapeHtml(it.label)}</td><td>${a.value ? escapeHtml(new Date(a.value).toLocaleDateString('ru-RU')) : ''}</td></tr>`;
+            if (a.kind === 'date') return `<tr><td>${escapeHtml(it.label)}</td><td>${a.value ? escapeHtml(formatMoscowDate(a.value)) : ''}</td></tr>`;
             if (a.kind === 'boolean') return `<tr><td>${escapeHtml(it.label)}</td><td>${formatBool(a.value)}</td></tr>`;
             if (a.kind === 'signature')
               return `<tr><td>${escapeHtml(it.label)}</td><td>ФИО: ${escapeHtml(String(a.fio ?? ''))}<br/>Должность: ${escapeHtml(
                 String(a.position ?? ''),
-              )}<br/>Дата: ${a.signedAt ? escapeHtml(new Date(a.signedAt).toLocaleDateString('ru-RU')) : ''}</td></tr>`;
+              )}<br/>Дата: ${a.signedAt ? escapeHtml(formatMoscowDate(a.signedAt)) : ''}</td></tr>`;
             if (a.kind === 'table')
               return `<tr><td>${escapeHtml(it.label)}</td><td>${renderTable(it, a)}</td></tr>`;
             return `<tr><td>${escapeHtml(it.label)}</td><td class="muted">—</td></tr>`;
@@ -901,6 +1027,7 @@ export function RepairChecklistPanel(props: {
             const isDefectResultsTable = props.stage === 'defect' && it.kind === 'table' && it.id === 'defect_items';
             const isCompletenessGroupsTable = props.stage === 'completeness' && it.kind === 'table' && it.id === 'completeness_items';
             const isWideTableRow = isDefectResultsTable || isCompletenessGroupsTable;
+            const isLockedField = lockedFieldIds.has(it.id);
             return (
               <React.Fragment key={it.id}>
                 <div style={{ color: '#334155', ...(isWideTableRow ? { gridColumn: '1 / -1' } : {}) }}>
@@ -910,9 +1037,9 @@ export function RepairChecklistPanel(props: {
                   {it.kind === 'text' && (
                     <Input
                       value={a?.kind === 'text' ? a.value : ''}
-                      disabled={!props.canEdit || (props.stage === 'defect' && (it.id === 'engine_brand' || it.id === 'engine_number'))}
+                      disabled={!props.canEdit || isLockedField}
                       onChange={(e) => {
-                        if (props.stage === 'defect' && (it.id === 'engine_brand' || it.id === 'engine_number')) return;
+                        if (isLockedField) return;
                         const next = { ...answers, [it.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
                         setAnswers(next);
                       }}
@@ -924,8 +1051,9 @@ export function RepairChecklistPanel(props: {
                     <Input
                       type="date"
                       value={a?.kind === 'date' && a.value ? toInputDate(a.value) : ''}
-                      disabled={!props.canEdit}
+                      disabled={!props.canEdit || isLockedField}
                       onChange={(e) => {
+                        if (isLockedField) return;
                         const nextVal = fromInputDate(e.target.value);
                         const next = { ...answers, [it.id]: { kind: 'date', value: nextVal } } as RepairChecklistAnswers;
                         setAnswers(next);

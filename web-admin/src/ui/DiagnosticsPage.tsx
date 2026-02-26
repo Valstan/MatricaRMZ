@@ -14,6 +14,7 @@ import {
 } from '../api/diagnostics.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
+import { matchesQueryInRecord } from './utils/search.js';
 
 type Report = { server: ConsistencySnapshot; clients: ConsistencyClientReport[] };
 type ClientView = ConsistencyClientReport & { deviceKey: string; deviceName: string; aliases?: ConsistencyClientReport[] };
@@ -314,13 +315,7 @@ export function DiagnosticsPage() {
           return c.status !== 'ok' || counts.pending > 0 || counts.error > 0;
         })
       : list;
-    const q = clientQuery.trim().toLowerCase();
-    const filtered = q
-      ? baseFiltered.filter((c) => {
-          const name = inferDeviceName(c).toLowerCase();
-          return String(c.clientId).toLowerCase().includes(q) || name.includes(q);
-        })
-      : baseFiltered;
+    const filtered = baseFiltered.filter((client) => matchesQueryInRecord(clientQuery, client, [inferDeviceName(client)]));
     const baseSorted = filtered.slice().sort((a, b) => {
       const ac = clientCounts(a);
       const bc = clientCounts(b);
@@ -403,7 +398,7 @@ export function DiagnosticsPage() {
         <h2 style={{ margin: '8px 0' }}>Диагностика</h2>
         <span style={{ flex: 1 }} />
         <div style={{ width: 260 }}>
-          <Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Фильтр по клиенту…" />
+          <Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Поиск по всем данным клиента…" />
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
           <input type="checkbox" checked={showOnlyIssues} onChange={(e) => setShowOnlyIssues(e.target.checked)} />

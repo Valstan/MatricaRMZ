@@ -16,6 +16,7 @@ import {
   upsertEntityType,
   softDeleteEntity,
 } from '../api/masterdata.js';
+import { formatMoscowDate } from './utils/dateUtils.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -40,7 +41,7 @@ function fromInputDate(v: string): number | null {
 function formatDateLabel(v: string): string {
   const ms = fromInputDate(v);
   if (!ms) return '';
-  return new Date(ms).toLocaleDateString('ru-RU');
+  return formatMoscowDate(ms);
 }
 
 const REQUIRED_DEFS = [

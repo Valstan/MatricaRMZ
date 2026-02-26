@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 
 type Row = {
   id: string;
@@ -24,6 +26,7 @@ type Row = {
   sectionId: string | null;
   updatedAt: number;
   isIncomplete?: boolean;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 type SortKey = 'requestNumber' | 'itemsCount' | 'compiledAt' | 'sentAt' | 'arrivedAt' | 'status' | 'updatedAt';
 
@@ -55,10 +58,12 @@ export function SupplyRequestsPage(props: {
     month: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
+    showPreviews: true,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:supply_requests');
   const query = String(listState.query ?? '');
   const month = String(listState.month ?? '');
+  const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
@@ -136,6 +141,11 @@ export function SupplyRequestsPage(props: {
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('status')}>
           Статус {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'status')}
         </th>
+        {showPreviews && (
+          <th style={{ textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 220 }}>
+            Превью
+          </th>
+        )}
       </tr>
     </thead>
   );
@@ -178,7 +188,7 @@ export function SupplyRequestsPage(props: {
                     void props.onOpen(r.id);
                   }}
                 >
-                  {r.compiledAt ? new Date(r.compiledAt).toLocaleDateString('ru-RU') : '-'}
+                  {r.compiledAt ? formatMoscowDate(r.compiledAt) : '-'}
                 </td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
@@ -186,7 +196,7 @@ export function SupplyRequestsPage(props: {
                     void props.onOpen(r.id);
                   }}
                 >
-                  {r.sentAt ? new Date(r.sentAt).toLocaleDateString('ru-RU') : '-'}
+                  {r.sentAt ? formatMoscowDate(r.sentAt) : '-'}
                 </td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
@@ -194,7 +204,7 @@ export function SupplyRequestsPage(props: {
                     void props.onOpen(r.id);
                   }}
                 >
-                  {r.arrivedAt ? new Date(r.arrivedAt).toLocaleDateString('ru-RU') : '-'}
+                  {r.arrivedAt ? formatMoscowDate(r.arrivedAt) : '-'}
                 </td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
@@ -204,11 +214,21 @@ export function SupplyRequestsPage(props: {
                 >
                   {statusLabel(r.status)}
                 </td>
+                {showPreviews && (
+                  <td
+                    style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer', textAlign: 'right' }}
+                    onClick={() => {
+                      void props.onOpen(r.id);
+                    }}
+                  >
+                    <ListRowThumbs files={r.attachmentPreviews ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={7}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={showPreviews ? 8 : 7}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -237,13 +257,16 @@ export function SupplyRequestsPage(props: {
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/тексту/товарам…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным заявки…" />
         </div>
         <div style={{ width: 180 }}>
           <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
-          Поиск
+          Применить фильтр
+        </Button>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>

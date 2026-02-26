@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails } from '@matricarmz/shared';
-import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
+import { parseContractSections, STATUS_CODES, STATUS_LABELS, statusDateCode, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -13,6 +13,7 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -41,10 +42,17 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function normalizeDateInput(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function formatDateLabel(v: string): string {
   const ms = fromInputDate(v);
   if (!ms) return '';
-  return new Date(ms).toLocaleDateString('ru-RU');
+  return formatMoscowDate(ms);
 }
 
 function keyValueTable(rows: Array<[string, string]>) {
@@ -59,7 +67,16 @@ function fileListHtml(list: unknown) {
     ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
     : [];
   if (items.length === 0) return '<div class="muted">Нет файлов</div>';
-  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
+  return `<ul>${items
+    .map((f) => {
+      const entry = f as { name: string; isObsolete?: boolean };
+      const obsoleteBadge =
+        entry.isObsolete === true
+          ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;">Устаревшая версия</span>'
+          : '';
+      return `<li>${escapeHtml(String(entry.name))}${obsoleteBadge}</li>`;
+    })
+    .join('')}</ul>`;
 }
 
 function printEngineReport(
@@ -111,6 +128,9 @@ export function EngineDetailsPage(props: {
   canExportReports?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onOpenEngineBrand?: (engineBrandId: string) => void;
+  onOpenCounterparty?: (counterpartyId: string) => void;
+  onOpenContract?: (contractId: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -121,10 +141,6 @@ export function EngineDetailsPage(props: {
   const [arrivalDate, setArrivalDate] = useState(
     toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
   );
-  const [shippingDate, setShippingDate] = useState(
-    toInputDate(props.engine.attributes?.shipping_date as number | null | undefined),
-  );
-  const [isScrap, setIsScrap] = useState(Boolean(props.engine.attributes?.is_scrap));
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
@@ -133,6 +149,14 @@ export function EngineDetailsPage(props: {
     const out: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) {
       out[c] = Boolean(attrs[c]);
+    }
+    return out;
+  });
+  const [statusDates, setStatusDates] = useState<Partial<Record<StatusCode, number | null>>>(() => {
+    const attrs = props.engine.attributes ?? {};
+    const out: Partial<Record<StatusCode, number | null>> = {};
+    for (const c of STATUS_CODES) {
+      out[c] = normalizeDateInput(attrs[statusDateCode(c)]);
     }
     return out;
   });
@@ -155,8 +179,6 @@ export function EngineDetailsPage(props: {
     engineNumber: string;
     engineBrand: string;
     arrivalDate: string;
-    shippingDate: string;
-    isScrap: string;
   } | null>(null);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
@@ -165,14 +187,15 @@ export function EngineDetailsPage(props: {
     setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
     setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
     setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
-    setShippingDate(toInputDate(props.engine.attributes?.shipping_date as number | null | undefined));
-    setIsScrap(Boolean(props.engine.attributes?.is_scrap));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
     const attrs = props.engine.attributes ?? {};
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
     setStatusFlags(flags);
+    const dates: Partial<Record<StatusCode, number | null>> = {};
+    for (const c of STATUS_CODES) dates[c] = normalizeDateInput(attrs[statusDateCode(c)]);
+    setStatusDates(dates);
   }, [props.engineId, props.engine.updatedAt]);
 
   useEffect(() => {
@@ -192,13 +215,27 @@ export function EngineDetailsPage(props: {
   }, [engineBrandId, engineBrand, linkLists.engine_brand]);
 
   useEffect(() => {
+    if (!contractId) {
+      setCustomerId('');
+      return;
+    }
+    void (async () => {
+      try {
+        const contract = await window.matrica.admin.entities.get(contractId);
+        const sections = parseContractSections((contract as { attributes?: Record<string, unknown> })?.attributes ?? {});
+        setCustomerId(sections.primary.customerId ?? '');
+      } catch {
+        setCustomerId('');
+      }
+    })();
+  }, [contractId]);
+
+  useEffect(() => {
     // Reset “editing session” baseline on engine switch.
     initialSnapshot.current = {
       engineNumber: String(props.engine.attributes?.engine_number ?? ''),
       engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
       arrivalDate: toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
-      shippingDate: toInputDate(props.engine.attributes?.shipping_date as number | null | undefined),
-      isScrap: String(Boolean(props.engine.attributes?.is_scrap)),
     };
     sessionHadChanges.current = false;
   }, [props.engineId]);
@@ -224,11 +261,12 @@ export function EngineDetailsPage(props: {
       await saveAttr('engine_brand_id', engineBrandId || null);
       await saveAttr('engine_brand', brandLabel || null);
       await saveAttr('arrival_date', fromInputDate(arrivalDate));
-      await saveAttr('shipping_date', fromInputDate(shippingDate));
-      await saveAttr('is_scrap', isScrap === true);
       await saveAttr('customer_id', customerId || null);
       await saveAttr('contract_id', contractId || null);
-      for (const c of STATUS_CODES) await saveAttr(c, statusFlags[c] ?? false);
+      for (const c of STATUS_CODES) {
+        await saveAttr(c, statusFlags[c] ?? false);
+        await saveAttr(statusDateCode(c), statusDates[c] ?? null);
+      }
     }
     sessionHadChanges.current = false;
   }
@@ -263,8 +301,6 @@ export function EngineDetailsPage(props: {
       push('Номер', base?.engineNumber ?? '', String(engineNumber ?? ''));
       push('Марка', base?.engineBrand ?? '', String(engineBrand ?? ''));
       push('Дата прихода', base?.arrivalDate ?? '', String(arrivalDate ?? ''));
-      push('Дата отгрузки', base?.shippingDate ?? '', String(shippingDate ?? ''));
-      push('Утиль', base?.isScrap ?? '', String(isScrap));
       if (!fieldsChanged.length) return;
       await window.matrica.audit.add({
         action: 'ui.engine.edit_done',
@@ -315,7 +351,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, shippingDate, props.registerCardCloseActions]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, contractId, statusFlags, statusDates, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
     try {
@@ -366,24 +402,25 @@ export function EngineDetailsPage(props: {
         sortOrder: 20,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }),
       },
-      { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 25 },
-      { code: 'shipping_date', name: 'Дата отгрузки', dataType: 'date', sortOrder: 26 },
-      { code: 'is_scrap', name: 'Утиль (неремонтнопригоден)', dataType: 'boolean', sortOrder: 27 },
-      ...STATUS_CODES.map((code, i) => ({ code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 28 + i })),
-      {
-        code: 'customer_id',
-        name: 'Контрагент',
-        dataType: 'link',
-        sortOrder: 30,
-        metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
-      },
       {
         code: 'contract_id',
         name: 'Контракт',
         dataType: 'link',
-        sortOrder: 40,
+        sortOrder: 22,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
       },
+      {
+        code: 'customer_id',
+        name: 'Контрагент',
+        dataType: 'link',
+        sortOrder: 23,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
+      },
+      { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 25 },
+      ...STATUS_CODES.flatMap((code, i) => [
+        { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 30 + i * 2 },
+        { code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date', sortOrder: 31 + i * 2 },
+      ]),
     ];
     void ensureAttributeDefs(engineTypeId, desired, engineDefs).then((next) => {
       if (next.length !== engineDefs.length) setEngineDefs(next);
@@ -460,6 +497,11 @@ export function EngineDetailsPage(props: {
               return id;
             }}
           />
+          {engineBrandId && props.onOpenEngineBrand ? (
+            <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEngineBrand?.(engineBrandId)}>
+              Открыть
+            </Button>
+          ) : null}
           {(linkLists.engine_brand ?? []).length === 0 && (
             <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
           )}
@@ -483,116 +525,105 @@ export function EngineDetailsPage(props: {
         />
       ),
     },
-    {
-      code: 'shipping_date',
-      defaultOrder: 26,
-      label: 'Дата отгрузки',
-      value: shippingDate,
-      render: (
-        <Input
-          type="date"
-          value={shippingDate}
-          disabled={!props.canEditEngines}
-          onChange={(e) => {
-            sessionHadChanges.current = true;
-            setShippingDate(e.target.value);
-          }}
-        />
-      ),
-    },
-    {
-      code: 'is_scrap',
-      defaultOrder: 27,
-      label: 'Неремонтнопригоден / утиль',
-      value: isScrap ? 'да' : 'нет',
-      render: (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={isScrap}
-            disabled={!props.canEditEngines}
-            onChange={(e) => {
-              const next = e.target.checked;
-              sessionHadChanges.current = true;
-              setIsScrap(next);
-            }}
-          />
-          <span>{isScrap ? 'Да' : 'Нет'}</span>
-        </label>
-      ),
-    },
-    ...STATUS_CODES.map((code) => ({
-      code,
-      defaultOrder: 28 + STATUS_CODES.indexOf(code),
-      label: STATUS_LABELS[code],
-      value: statusFlags[code] ? 'да' : 'нет',
-      render: (
-        <label key={code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={!!statusFlags[code]}
-            disabled={!props.canEditEngines}
-            onChange={(e) => {
-              const next = e.target.checked;
-              sessionHadChanges.current = true;
-              setStatusFlags((prev) => ({ ...prev, [code]: next }));
-            }}
-          />
-          <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
-        </label>
-      ),
-    })),
-    props.canViewMasterData
-      ? {
-          code: 'customer_id',
-          defaultOrder: 30,
-          label: 'Контрагент',
-          value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
-          render: (
-            <SearchSelectWithCreate
-              value={customerId || null}
-              options={linkLists.customer_id ?? []}
-              disabled={!props.canEditEngines}
-              canCreate={props.canEditMasterData}
-              createLabel="Новый контрагент"
-              onChange={(next) => {
-                const v = next ?? '';
-                sessionHadChanges.current = true;
-                setCustomerId(v);
-              }}
-              onCreate={async (label) => createMasterDataItem('customer', label)}
-            />
-          ),
-        }
-      : null,
     props.canViewMasterData
       ? {
           code: 'contract_id',
-          defaultOrder: 40,
+          defaultOrder: 22,
           label: 'Контракт',
           value: (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId,
           render: (
-            <SearchSelectWithCreate
-              value={contractId || null}
-              options={linkLists.contract_id ?? []}
-              disabled={!props.canEditEngines}
-              canCreate={props.canEditMasterData}
-              createLabel="Номер контракта"
-              onChange={(next) => {
-                const v = next ?? '';
-                sessionHadChanges.current = true;
-                setContractId(v);
-              }}
-              onCreate={async (label) => createMasterDataItem('contract', label)}
-            />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <SearchSelectWithCreate
+                value={contractId || null}
+                options={linkLists.contract_id ?? []}
+                disabled={!props.canEditEngines}
+                canCreate={props.canEditMasterData}
+                createLabel="Номер контракта"
+                onChange={(next) => {
+                  const v = next ?? '';
+                  sessionHadChanges.current = true;
+                  setContractId(v);
+                }}
+                onCreate={async (label) => createMasterDataItem('contract', label)}
+              />
+              {contractId && props.onOpenContract ? (
+                <Button
+                  variant="outline"
+                  tone="neutral"
+                  size="sm"
+                  onClick={() => props.onOpenContract?.(contractId)}
+                >
+                  Открыть
+                </Button>
+              ) : null}
+            </div>
           ),
         }
       : null,
+    props.canViewMasterData
+      ? {
+          code: 'customer_id',
+          defaultOrder: 23,
+          label: 'Контрагент',
+          value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
+          render: (
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Input value={(linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId} disabled />
+              {customerId && props.onOpenCounterparty ? (
+                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCounterparty?.(customerId)}>
+                  Открыть
+                </Button>
+              ) : null}
+            </div>
+          ),
+        }
+      : null,
+    ...STATUS_CODES.map((code) => {
+      const dateValue = toInputDate(statusDates[code] ?? null);
+      return {
+        code,
+        defaultOrder: 30 + STATUS_CODES.indexOf(code) * 2,
+        label: STATUS_LABELS[code],
+        value: statusFlags[code] ? 'да' : 'нет',
+        render: (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={!!statusFlags[code]}
+                disabled={!props.canEditEngines}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  sessionHadChanges.current = true;
+                  setStatusFlags((prev) => ({ ...prev, [code]: next }));
+                  setStatusDates((prev) => ({
+                    ...prev,
+                    [code]: next ? prev[code] ?? Date.now() : null,
+                  }));
+                }}
+              />
+              <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
+            </label>
+            <Input
+              type="date"
+              value={dateValue}
+              disabled={!props.canEditEngines}
+              onChange={(e) => {
+                sessionHadChanges.current = true;
+                setStatusDates((prev) => ({ ...prev, [code]: fromInputDate(e.target.value) }));
+              }}
+            />
+          </div>
+        ),
+      };
+    }),
   ].filter(Boolean);
   const mainFields = orderFieldsByDefs(mainFieldItems as any[], engineDefs);
 
   const orderedPrintRows = mainFields.map((f) => [f.label, String(f.value ?? '')] as [string, string]);
   const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
+  const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
+  const arrivalDateMsForChecklist = fromInputDate(arrivalDate);
 
   return (
     <EntityCardShell
@@ -617,7 +648,6 @@ export function EngineDetailsPage(props: {
               sessionHadChanges.current = false;
             });
           }}
-          onCloseWithoutSave={() => { sessionHadChanges.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
         />
@@ -690,14 +720,15 @@ export function EngineDetailsPage(props: {
               setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
               setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
               setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
-              setShippingDate(toInputDate(props.engine.attributes?.shipping_date as number | null | undefined));
-              setIsScrap(Boolean(props.engine.attributes?.is_scrap));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
               const attrs = props.engine.attributes ?? {};
               const flags: Partial<Record<StatusCode, boolean>> = {};
               for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
               setStatusFlags(flags);
+              const dates: Partial<Record<StatusCode, number | null>> = {};
+              for (const c of STATUS_CODES) dates[c] = normalizeDateInput(attrs[statusDateCode(c)]);
+              setStatusDates(dates);
               sessionHadChanges.current = false;
             }}
           >
@@ -723,6 +754,8 @@ export function EngineDetailsPage(props: {
             canExport={props.canExportReports === true}
             engineNumber={engineNumber}
             engineBrand={engineBrand}
+            contractNumber={contractLabelForChecklist}
+            arrivalDate={arrivalDateMsForChecklist}
             {...(engineBrandId ? { engineBrandId } : {})}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
@@ -741,6 +774,8 @@ export function EngineDetailsPage(props: {
             canExport={props.canExportReports === true}
             engineNumber={engineNumber}
             engineBrand={engineBrand}
+            contractNumber={contractLabelForChecklist}
+            arrivalDate={arrivalDateMsForChecklist}
             {...(engineBrandId ? { engineBrandId } : {})}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
@@ -758,6 +793,8 @@ export function EngineDetailsPage(props: {
           canExport={props.canExportReports === true}
           engineNumber={engineNumber}
           engineBrand={engineBrand}
+          contractNumber={contractLabelForChecklist}
+          arrivalDate={arrivalDateMsForChecklist}
           {...(engineBrandId ? { engineBrandId } : {})}
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}

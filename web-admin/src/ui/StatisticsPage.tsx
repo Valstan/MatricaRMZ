@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 
 import { getAuditStatisticsStatus } from '../api/audit.js';
 import { Button } from './components/Button.js';
+import { formatMoscowDateTime, formatRuNumber } from './utils/dateUtils.js';
 
 type StatsStatus = {
   schedulerStarted: boolean;
@@ -46,12 +47,12 @@ function fmtMs(ms: number | null) {
 
 function fmtTs(ms: number | null) {
   if (!ms) return '—';
-  return new Date(ms).toLocaleString('ru-RU');
+  return formatMoscowDateTime(ms);
 }
 
 function fmtCount(v: number | null | undefined) {
   const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n.toLocaleString('ru-RU') : '0';
+  return Number.isFinite(n) ? formatRuNumber(n) : '0';
 }
 
 function colorByHealth(health: 'ok' | 'warn' | 'critical') {

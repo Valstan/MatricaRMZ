@@ -115,10 +115,6 @@ export function ToolPropertyDetailsPage(props: {
             dirtyRef.current = false;
           });
         }}
-        onCloseWithoutSave={() => {
-          dirtyRef.current = false;
-          props.onBack();
-        }}
         onClose={() => props.requestClose?.()}
       />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

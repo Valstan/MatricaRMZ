@@ -29,6 +29,7 @@ export async function partsList(
         assemblyUnitNumber?: string;
         engineBrandQtyMap?: Record<string, number>;
         engineBrandQty?: number;
+        attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
         updatedAt: number;
         createdAt: number;
       }>;

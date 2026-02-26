@@ -17,7 +17,9 @@ export type EngineListItem = {
   createdAt?: number;
   updatedAt: number;
   syncStatus: string;
+  contractSignedAt?: number | null;
   statusFlags?: Partial<Record<StatusCode, boolean>>;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 
 export type EngineDetails = {
@@ -59,6 +61,7 @@ export type ToolListItem = {
   retiredAt?: number | null;
   updatedAt: number;
   createdAt: number;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 
 export type ToolDetails = {
@@ -117,6 +120,7 @@ export type EmployeeListItem = {
   deleteRequestedByUsername?: string | null;
   personnelNumber?: string | null;
   updatedAt: number;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 
 export type EmployeeAttributeDef = {
@@ -920,6 +924,7 @@ export type MatricaApi = {
             workshopId: string | null;
             sectionId: string | null;
             updatedAt: number;
+            attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
           }[];
         }
       | { ok: false; error: string }
@@ -966,6 +971,7 @@ export type MatricaApi = {
             brandLinks?: PartEngineBrandLink[];
             contractId?: string;
             statusFlags?: Partial<Record<StatusCode, boolean>>;
+            attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
             updatedAt: number;
             createdAt: number;
           }>;

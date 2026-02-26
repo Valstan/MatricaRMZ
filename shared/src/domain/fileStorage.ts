@@ -8,6 +8,8 @@ export type FileRef = {
   mime: string | null; // MIME type (если известен)
   sha256: string; // хэш содержимого (для диагностики/кеша)
   createdAt: number; // ms epoch
+  // UI-метка в карточках сущностей: файл помечен как устаревшая версия.
+  isObsolete?: boolean;
 };
 
 

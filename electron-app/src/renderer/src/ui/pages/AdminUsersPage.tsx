@@ -4,6 +4,7 @@ import type { AdminUserPermissionsPayload, AdminUserSummary, PermissionDelegatio
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 
 export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: string; role: string; username: string } | null }) {
   const canManageUsers = props.canManageUsers;
@@ -398,7 +399,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                       {selectedUser.deleteRequestedAt ? (
                         <div style={{ display: 'grid', gap: 8 }}>
                           <div style={{ color: '#6b7280', fontSize: 12 }}>
-                            Запрос на удаление: {new Date(selectedUser.deleteRequestedAt).toLocaleString('ru-RU')}
+                            Запрос на удаление: {formatMoscowDateTime(selectedUser.deleteRequestedAt)}
                             {selectedUser.deleteRequestedByUsername ? ` • ${selectedUser.deleteRequestedByUsername}` : ''}
                           </div>
                           {meRole === 'superadmin' && !selectedIsSelf && (
@@ -696,7 +697,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                                 </td>
                                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{fromU} → {toU}</td>
                                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
-                                  {new Date(d.startsAt).toLocaleDateString('ru-RU')} — {new Date(d.endsAt).toLocaleDateString('ru-RU')}
+                                  {formatMoscowDate(d.startsAt)} — {formatMoscowDate(d.endsAt)}
                                 </td>
                                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{state}</td>
                                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, width: 140 }}>

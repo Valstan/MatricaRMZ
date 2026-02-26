@@ -9,6 +9,7 @@ import { SearchSelect } from './SearchSelect.js';
 import * as checklistsApi from '../../api/checklists.js';
 import * as partsApi from '../../api/parts.js';
 import * as masterdata from '../../api/masterdata.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 
 function safeJsonStringify(v: unknown) {
   try {
@@ -608,7 +609,7 @@ export function RepairChecklistPanel(props: {
     <div class="meta">
       <div><b>Двигатель:</b> ${escapeHtml(String(props.engineBrand ?? ''))} ${escapeHtml(String(props.engineNumber ?? ''))}</div>
       <div><b>Шаблон:</b> ${escapeHtml(activeTemplate.name)} (v${escapeHtml(String(activeTemplate.version))})</div>
-      <div><b>Дата:</b> ${escapeHtml(new Date().toLocaleString('ru-RU'))}</div>
+      <div><b>Дата:</b> ${escapeHtml(formatMoscowDateTime(Date.now()))}</div>
     </div>
     <table class="doc-table">
       <thead><tr><th style="width:40%">Поле</th><th>Значение</th></tr></thead>
@@ -618,12 +619,12 @@ export function RepairChecklistPanel(props: {
             const a: any = (answers as any)[it.id];
             if (!a) return `<tr><td>${escapeHtml(it.label)}</td><td class="muted">—</td></tr>`;
             if (a.kind === 'text') return `<tr><td>${escapeHtml(it.label)}</td><td>${escapeHtml(String(a.value ?? ''))}</td></tr>`;
-            if (a.kind === 'date') return `<tr><td>${escapeHtml(it.label)}</td><td>${a.value ? escapeHtml(new Date(a.value).toLocaleDateString('ru-RU')) : ''}</td></tr>`;
+            if (a.kind === 'date') return `<tr><td>${escapeHtml(it.label)}</td><td>${a.value ? escapeHtml(formatMoscowDate(a.value)) : ''}</td></tr>`;
             if (a.kind === 'boolean') return `<tr><td>${escapeHtml(it.label)}</td><td>${formatBool(a.value)}</td></tr>`;
             if (a.kind === 'signature')
               return `<tr><td>${escapeHtml(it.label)}</td><td>ФИО: ${escapeHtml(String(a.fio ?? ''))}<br/>Должность: ${escapeHtml(
                 String(a.position ?? ''),
-              )}<br/>Дата: ${a.signedAt ? escapeHtml(new Date(a.signedAt).toLocaleDateString('ru-RU')) : ''}</td></tr>`;
+              )}<br/>Дата: ${a.signedAt ? escapeHtml(formatMoscowDate(a.signedAt)) : ''}</td></tr>`;
             if (a.kind === 'table') return `<tr><td>${escapeHtml(it.label)}</td><td>${renderTable(it, a)}</td></tr>`;
             return `<tr><td>${escapeHtml(it.label)}</td><td class="muted">—</td></tr>`;
           })

@@ -6,6 +6,7 @@ import {
   REPORT_PRESET_DEFINITIONS,
   STATUS_CODES,
   computeObjectProgress,
+  effectiveContractDueAt,
   parseContractSections,
   type ReportCellValue,
   type ReportColumn,
@@ -22,6 +23,7 @@ import {
 } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 
 type Snapshot = {
   entityTypeIdByCode: Map<string, string>;
@@ -86,13 +88,13 @@ function formatTotalValue(key: string, raw: unknown): string {
   const normalizedKey = key.toLowerCase();
   const isPercent = normalizedKey.includes('pct');
   if (isPercent) {
-    return `${raw.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%`;
+    return formatRuPercent(raw, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
   }
   const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
   if (isMoney) {
-    return `${raw.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
+    return formatRuMoney(raw, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  return raw.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+  return formatRuNumber(raw, { maximumFractionDigits: 2 });
 }
 
 function formatTotalsForDisplay(totals: Record<string, unknown>) {
@@ -185,13 +187,11 @@ function readPeriod(filters: ReportPresetFilters | undefined): { startMs?: numbe
 }
 
 function msToDate(ms: number | null | undefined): string {
-  if (!ms || !Number.isFinite(ms)) return '';
-  return new Date(ms).toLocaleDateString('ru-RU');
+  return formatMoscowDate(ms);
 }
 
 function msToDateTime(ms: number | null | undefined): string {
-  if (!ms || !Number.isFinite(ms)) return '';
-  return new Date(ms).toLocaleString('ru-RU');
+  return formatMoscowDateTime(ms);
 }
 
 function stageLabel(stage: string): string {
@@ -616,7 +616,7 @@ async function buildContractsFinanceReport(
     const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
     const sections = parseContractSections(attrs);
     const signedAt = sections.primary.signedAt ?? asNumberOrNull(attrs.date);
-    const dueAt = sections.primary.dueAt ?? asNumberOrNull(attrs.due_date);
+    const dueAt = effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date);
     if (signedAt != null) {
       if (period.startMs != null && signedAt < period.startMs) continue;
       if (signedAt > period.endMs) continue;

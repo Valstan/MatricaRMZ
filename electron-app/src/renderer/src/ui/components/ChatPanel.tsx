@@ -6,6 +6,7 @@ import type { ChatDeepLinkPayload, ChatMessageItem, ChatUnreadCountResult, ChatU
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { theme } from '../theme.js';
+import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
 
 function dot(color: string) {
   return (
@@ -38,18 +39,7 @@ function roleStyles(roleRaw: string) {
 }
 
 function formatMessageDate(ts: number) {
-  const dt = new Date(ts);
-  const parts = new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).formatToParts(dt);
-  const get = (type: 'day' | 'month' | 'year' | 'hour' | 'minute') => parts.find((p) => p.type === type)?.value ?? '';
-  const date = `${get('day')} ${get('month')} ${get('year')}`;
-  const time = `${get('hour')}:${get('minute')}`;
-  return `${date}, ${time}`;
+  return formatMoscowLongDateTime(ts);
 }
 
 export function ChatPanel(props: {

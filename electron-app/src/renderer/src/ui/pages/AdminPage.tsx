@@ -8,6 +8,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { applyClassicMasterdataPreset } from './masterdataClassicPreset.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -222,15 +223,10 @@ export function MasterdataPage(props: {
   const visibleDefs = useMemo(() => defs.filter((d) => d.code !== 'category_id'), [defs]);
 
   const filteredEntities = useMemo(() => {
-    const q = entityQuery.trim().toLowerCase();
     let list = entities;
     if (entityFilter === 'named') list = list.filter((e) => String(e.displayName ?? '').trim());
     if (entityFilter === 'empty') list = list.filter((e) => !String(e.displayName ?? '').trim());
-    if (!q) return list;
-    return list.filter((e) => {
-      const label = (e.displayName ? `${e.displayName} ` : '') + e.id;
-      return label.toLowerCase().includes(q);
-    });
+    return list.filter((row) => matchesQueryInRecord(entityQuery, row));
   }, [entities, entityQuery, entityFilter]);
 
   const linkTargetByCode: Record<string, string> = {
@@ -972,7 +968,7 @@ export function MasterdataPage(props: {
                 <option value="named">Только с названием</option>
                 <option value="empty">Без названия</option>
               </select>
-              <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск записей…" />
+              <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск по всем данным записи…" />
               <Button variant="ghost" disabled={!selectedTypeId} onClick={() => setShowDefsPanel(true)}>
                 Свойства справочника
               </Button>

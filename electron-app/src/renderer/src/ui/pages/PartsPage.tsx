@@ -2,17 +2,20 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
 type Row = {
   id: string;
   name?: string;
   article?: string;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
   updatedAt: number;
   createdAt: number;
 };
@@ -27,9 +30,11 @@ export function PartsPage(props: {
     query: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
+    showPreviews: true,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:parts');
   const query = String(listState.query ?? '');
+  const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const width = useWindowWidth();
@@ -104,6 +109,9 @@ export function PartsPage(props: {
           Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
         </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
+        {showPreviews && (
+          <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#374151', width: 220 }}>Превью</th>
+        )}
       </tr>
     </thead>
   );
@@ -116,7 +124,7 @@ export function PartsPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={showPreviews ? 5 : 4} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет деталей' : 'Не найдено'}
                 </td>
               </tr>
@@ -139,7 +147,7 @@ export function PartsPage(props: {
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.name || '(без названия)'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.article || '—'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
-                  {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
+                  {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   {props.canDelete && (
@@ -168,6 +176,11 @@ export function PartsPage(props: {
                     </Button>
                   )}
                 </td>
+                {showPreviews && (
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <ListRowThumbs files={row.attachmentPreviews ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -201,8 +214,11 @@ export function PartsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/артикулу…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным детали…" />
         </div>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
+        </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 

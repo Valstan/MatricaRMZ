@@ -5,6 +5,7 @@ import { dailyAuditSummary, listAudit } from '../api/audit.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
+import { formatMoscowLongDateTime } from './utils/dateUtils.js';
 
 type ActionType = 'create' | 'update' | 'delete' | 'session' | 'other';
 type AuditRow = {
@@ -35,18 +36,33 @@ type AdminUserDirectoryItem = {
   fullName: string;
 };
 
+const REPORT_TIME_ZONE_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+function reportDateParts(epochMs: number) {
+  const shifted = new Date(epochMs + REPORT_TIME_ZONE_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
+function dateTimeToMoscowMs(year: number, month: number, day: number, hour: number, minute = 0, second = 0) {
+  return Date.UTC(year, month - 1, day, hour, minute, second) - REPORT_TIME_ZONE_OFFSET_MS;
+}
+
 function todayIsoDate() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const d = reportDateParts(Date.now());
+  const y = d.year;
+  const m = String(d.month).padStart(2, '0');
+  const day = String(d.day).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
 function dateStartMs(localDate: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(localDate ?? '').trim());
   if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0).getTime();
+  return dateTimeToMoscowMs(Number(m[1]), Number(m[2]), Number(m[3]), 0);
 }
 
 function dateEndMs(localDate: string): number | null {
@@ -80,10 +96,7 @@ function toInitials(fullName: string, fallback: string) {
 }
 
 function formatAuditDate(ms: number) {
-  const date = new Date(ms);
-  const datePart = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
-  const timePart = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
-  return `${datePart.replace(/\s*г\.?$/u, '')}, ${timePart}`;
+  return formatMoscowLongDateTime(ms);
 }
 
 function formatClientId(rawClientId: string | null) {

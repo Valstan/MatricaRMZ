@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 export type SearchSelectOption = { id: string; label: string };
 
@@ -32,9 +33,7 @@ export function SearchSelect(props: {
   }, [props.options, props.value]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return props.options;
-    return props.options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
+    return props.options.filter((option) => matchesQueryInRecord(query, option));
   }, [props.options, query]);
 
   useEffect(() => {

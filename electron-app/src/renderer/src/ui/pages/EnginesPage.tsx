@@ -4,19 +4,29 @@ import type { EngineListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 const PAGE_SIZE = 25;
+type EngineRow = EngineListItem & {
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
+  contractSignedAt?: number | null;
+};
 
 export type EnginesPageUiState = {
   query: string;
   sortKey: 'engineNumber' | 'engineBrand' | 'customerName' | 'arrivalDate' | 'shippingDate';
   sortDir: 'asc' | 'desc';
   page: number;
+  showPreviews: boolean;
+  contractDateFrom: string;
+  contractDateTo: string;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -25,13 +35,29 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
     sortKey: 'arrivalDate',
     sortDir: 'desc',
     page: 0,
+    showPreviews: true,
+    contractDateFrom: '',
+    contractDateTo: '',
   };
+}
+
+function fromInputDate(value: string): number | null {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const ms = Date.parse(`${text}T00:00:00`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function endOfInputDate(value: string): number | null {
+  const startMs = fromInputDate(value);
+  if (startMs == null) return null;
+  return startMs + 24 * 60 * 60 * 1000 - 1;
 }
 
 function toDateLabel(ms?: number | null) {
   if (!ms) return '';
   const dt = new Date(ms);
-  return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('ru-RU');
+  return Number.isNaN(dt.getTime()) ? '' : formatMoscowDate(dt);
 }
 
 export function EnginesPage(props: {
@@ -46,6 +72,9 @@ export function EnginesPage(props: {
   const query = listState.query;
   const sortKey = listState.sortKey;
   const sortDir = listState.sortDir;
+  const showPreviews = listState.showPreviews !== false;
+  const contractDateFrom = String(listState.contractDateFrom ?? '');
+  const contractDateTo = String(listState.contractDateTo ?? '');
   const width = useWindowWidth();
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -53,15 +82,19 @@ export function EnginesPage(props: {
   const page = listState.page;
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return props.engines;
-    return props.engines.filter((e) => {
-      const n = (e.engineNumber ?? '').toLowerCase();
-      const b = (e.engineBrand ?? '').toLowerCase();
-      const c = (e.customerName ?? '').toLowerCase();
-      return n.includes(q) || b.includes(q) || c.includes(q);
+    const fromMs = fromInputDate(contractDateFrom);
+    const toMs = endOfInputDate(contractDateTo);
+    const hasDateFilter = fromMs != null || toMs != null;
+    return props.engines.filter((engine) => {
+      if (!matchesQueryInRecord(query, engine)) return false;
+      if (!hasDateFilter) return true;
+      const contractSignedAt = typeof (engine as EngineRow).contractSignedAt === 'number' ? (engine as EngineRow).contractSignedAt : null;
+      if (contractSignedAt == null) return false;
+      if (fromMs != null && contractSignedAt < fromMs) return false;
+      if (toMs != null && contractSignedAt > toMs) return false;
+      return true;
     });
-  }, [props.engines, query]);
+  }, [props.engines, query, contractDateFrom, contractDateTo]);
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) {
@@ -145,6 +178,13 @@ export function EnginesPage(props: {
         >
           Дата отгрузки {sortArrow('shippingDate')}
         </th>
+        {showPreviews && (
+          <th
+            style={{ textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2, width: 220 }}
+          >
+            Превью
+          </th>
+        )}
       </tr>
     </thead>
   );
@@ -197,11 +237,21 @@ export function EnginesPage(props: {
                 >
                   {toDateLabel(e.shippingDate) || '-'}
                 </td>
+                {showPreviews && (
+                  <td
+                    style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer', textAlign: 'right' }}
+                    onClick={() => {
+                      void props.onOpen(e.id);
+                    }}
+                  >
+                    <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={5}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={showPreviews ? 6 : 5}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -220,9 +270,35 @@ export function EnginesPage(props: {
           <Input
             value={query}
             onChange={(e) => patchState({ query: e.target.value, page: 0 })}
-            placeholder="Поиск по номеру или марке…"
+            placeholder="Поиск по всем данным двигателя…"
           />
         </div>
+        <div style={{ width: 170 }}>
+          <Input
+            type="date"
+            value={contractDateFrom}
+            onChange={(e) => patchState({ contractDateFrom: e.target.value, page: 0 })}
+            title="Дата заключения контракта: с"
+          />
+        </div>
+        <div style={{ width: 170 }}>
+          <Input
+            type="date"
+            value={contractDateTo}
+            onChange={(e) => patchState({ contractDateTo: e.target.value, page: 0 })}
+            title="Дата заключения контракта: по"
+          />
+        </div>
+        <Button
+          variant="ghost"
+          onClick={() => patchState({ contractDateFrom: '', contractDateTo: '', page: 0 })}
+          disabled={!contractDateFrom && !contractDateTo}
+        >
+          Сбросить даты
+        </Button>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
+        </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 

@@ -2,20 +2,55 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
   id: string;
   displayName?: string;
   inn?: string;
   updatedAt: number;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 type SortKey = 'displayName' | 'inn' | 'updatedAt';
+
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
+}
+
+function collectAttachmentPreviews(attrs: Record<string, unknown>): Array<{ id: string; name: string; mime: string | null }> {
+  const out: Array<{ id: string; name: string; mime: string | null }> = [];
+  const seen = new Set<string>();
+  for (const value of Object.values(attrs)) {
+    for (const preview of toAttachmentPreviews(value)) {
+      if (seen.has(preview.id)) continue;
+      seen.add(preview.id);
+      out.push(preview);
+      if (out.length >= 5) return out;
+    }
+  }
+  return out;
+}
 
 export function CounterpartiesPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -29,9 +64,11 @@ export function CounterpartiesPage(props: {
     query: '',
     sortKey: 'displayName' as SortKey,
     sortDir: 'asc' as const,
+    showPreviews: true,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
   const query = String(listState.query ?? '');
+  const showPreviews = listState.showPreviews !== false;
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
@@ -62,11 +99,13 @@ export function CounterpartiesPage(props: {
       const enriched: Row[] = baseRows.map((r, idx) => {
         const attrs = (details[idx] as any)?.attributes ?? {};
         const inn = typeof attrs.inn === 'string' ? attrs.inn : attrs.inn == null ? '' : String(attrs.inn);
+        const attachmentPreviews = collectAttachmentPreviews(attrs);
         return {
           id: String(r.id),
           displayName: r.displayName ? String(r.displayName) : '',
           inn: inn.trim() || undefined,
           updatedAt: Number(r.updatedAt ?? 0),
+          ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
         };
       });
       setRows(enriched);
@@ -92,12 +131,7 @@ export function CounterpartiesPage(props: {
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      const label = `${r.displayName ?? ''} ${r.inn ?? ''} ${r.id}`;
-      return label.toLowerCase().includes(q);
-    });
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
 
   const sorted = useSortedItems(
@@ -129,6 +163,7 @@ export function CounterpartiesPage(props: {
           Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
         </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
+        {showPreviews && <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#374151', width: 220 }}>Превью</th>}
       </tr>
     </thead>
   );
@@ -141,7 +176,7 @@ export function CounterpartiesPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={showPreviews ? 5 : 4} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
                 </td>
               </tr>
@@ -161,7 +196,7 @@ export function CounterpartiesPage(props: {
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без названия)'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.inn || '—'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
-                  {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
+                  {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   {props.canDelete && (
@@ -190,6 +225,11 @@ export function CounterpartiesPage(props: {
                     </Button>
                   )}
                 </td>
+                {showPreviews && (
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <ListRowThumbs files={row.attachmentPreviews ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -225,8 +265,11 @@ export function CounterpartiesPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/ИНН…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контрагента…" />
         </div>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
+        </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 

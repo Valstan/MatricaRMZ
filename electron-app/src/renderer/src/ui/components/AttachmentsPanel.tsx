@@ -5,11 +5,14 @@ import type { FileRef } from '@matricarmz/shared';
 import { Button } from './Button.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 
-function isFileRef(x: any): x is FileRef {
+type AttachmentFileRef = FileRef & { isObsolete?: boolean };
+type FileFilterMode = 'actual' | 'obsolete' | 'all';
+
+function isFileRef(x: any): x is AttachmentFileRef {
   return x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string';
 }
 
-function normalizeList(v: unknown): FileRef[] {
+function normalizeList(v: unknown): AttachmentFileRef[] {
   if (!Array.isArray(v)) return [];
   return v.filter(isFileRef);
 }
@@ -62,6 +65,10 @@ function extBadgeStyle(ext: string): { label: string; bg: string; fg: string } {
   return { label: (e || 'FILE').slice(0, 6).toUpperCase(), bg: '#f3f4f6', fg: '#374151' };
 }
 
+function isObsoleteFile(file: AttachmentFileRef): boolean {
+  return file.isObsolete === true;
+}
+
 export function AttachmentsPanel(props: {
   title?: string;
   value: unknown; // FileRef[] in JSON
@@ -71,11 +78,17 @@ export function AttachmentsPanel(props: {
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 }) {
   const [busy, setBusy] = useState<string>('');
+  const [filterMode, setFilterMode] = useState<FileFilterMode>('all');
   const uploadFlow = useFileUploadFlow();
   const [thumbs, setThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const thumbsRef = useRef(thumbs);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
+  const filteredList = useMemo(() => {
+    if (filterMode === 'actual') return list.filter((file) => !isObsoleteFile(file));
+    if (filterMode === 'obsolete') return list.filter((file) => isObsoleteFile(file));
+    return list;
+  }, [list, filterMode]);
   const listKey = useMemo(() => list.map((x) => x.id).join('|'), [list]);
 
   useEffect(() => {
@@ -169,6 +182,40 @@ export function AttachmentsPanel(props: {
     }
   }
 
+  async function toggleObsoleteFlag(fileId: string, nextObsolete: boolean) {
+    if (!props.canUpload) return;
+    try {
+      const next = list.map((file) => {
+        if (file.id !== fileId) return file;
+        if (nextObsolete) return { ...file, isObsolete: true } as AttachmentFileRef;
+        const { isObsolete: _isObsolete, ...clean } = file;
+        return clean as AttachmentFileRef;
+      });
+      setBusy(nextObsolete ? 'Сохраняем пометку «Устаревшая версия»...' : 'Снимаем пометку...');
+      const upd = await Promise.resolve(props.onChange(next));
+      if (!upd) {
+        setBusy(nextObsolete ? 'Файл помечен как «Устаревшая версия»' : 'Пометка снята');
+        setTimeout(() => setBusy(''), 1400);
+        return;
+      }
+      if (!upd.ok) {
+        setBusy(`Ошибка: ${upd.error}`);
+        setTimeout(() => setBusy(''), 3500);
+        return;
+      }
+      if (upd.queued) {
+        setBusy('Отправлено на утверждение (см. «Изменения»)');
+        setTimeout(() => setBusy(''), 2200);
+        return;
+      }
+      setBusy(nextObsolete ? 'Файл помечен как «Устаревшая версия»' : 'Пометка снята');
+      setTimeout(() => setBusy(''), 1400);
+    } catch (e) {
+      setBusy(`Ошибка: ${String(e)}`);
+      setTimeout(() => setBusy(''), 3500);
+    }
+  }
+
   if (!props.canView) return null;
 
   return (
@@ -211,6 +258,23 @@ export function AttachmentsPanel(props: {
           Папка скачивания
         </Button>
       </div>
+      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
+          <span>Фильтр:</span>
+          <select
+            value={filterMode}
+            onChange={(e) => setFilterMode(e.target.value as FileFilterMode)}
+            style={{ minWidth: 280, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#0b1220' }}
+          >
+            <option value="actual">Показывать только актуальные файлы</option>
+            <option value="obsolete">Только устаревшие</option>
+            <option value="all">Показать все файлы</option>
+          </select>
+        </label>
+        <div style={{ fontSize: 12, color: '#64748b' }}>
+          Показано: {filteredList.length} из {list.length}
+        </div>
+      </div>
       {uploadFlow.progress.active && (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
@@ -235,12 +299,13 @@ export function AttachmentsPanel(props: {
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #2563eb 120%)', color: '#fff' }}>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Файл</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 190 }}>Статус</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>Размер</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 220 }}>Действия</th>
             </tr>
           </thead>
           <tbody>
-            {list.map((f) => (
+            {filteredList.map((f) => (
               <tr key={f.id}>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -282,6 +347,27 @@ export function AttachmentsPanel(props: {
                     </div>
                   </div>
                 </td>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                  {isObsoleteFile(f) ? (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: '#fee2e2',
+                        color: '#991b1b',
+                        border: '1px solid #fecaca',
+                      }}
+                    >
+                      Устаревшая версия
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#64748b' }}>Актуальная</span>
+                  )}
+                </td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{formatBytes(Number(f.size) || 0)}</td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -294,6 +380,16 @@ export function AttachmentsPanel(props: {
                     >
                       Открыть
                     </Button>
+                    {props.canUpload && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          void toggleObsoleteFlag(f.id, !isObsoleteFile(f));
+                        }}
+                      >
+                        {isObsoleteFile(f) ? 'Снять пометку' : 'Пометить устаревшей'}
+                      </Button>
+                    )}
                     {props.canUpload && (
                       <Button
                         variant="ghost"
@@ -348,10 +444,12 @@ export function AttachmentsPanel(props: {
                 </td>
               </tr>
             ))}
-            {list.length === 0 && (
+            {filteredList.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ padding: 12, color: '#6b7280' }}>
-                  Нет вложений. {props.canUpload ? 'Перетащите файл сюда или нажмите “Добавить файл”.' : ''}
+                <td colSpan={4} style={{ padding: 12, color: '#6b7280' }}>
+                  {list.length === 0
+                    ? `Нет вложений. ${props.canUpload ? 'Перетащите файл сюда или нажмите “Добавить файл”.' : ''}`
+                    : 'По выбранному фильтру файлы не найдены.'}
                 </td>
               </tr>
             )}

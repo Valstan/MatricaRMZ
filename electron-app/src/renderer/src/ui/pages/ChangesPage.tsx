@@ -5,6 +5,7 @@ import type { AuthUserInfo, ChangeRequestRow } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 function tryParseJson(s: string | null | undefined): unknown | null {
   const raw = String(s ?? '');
@@ -112,12 +113,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
   }, [status]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((c) => {
-      const hay = `${c.tableName} ${c.rowId} ${c.rootEntityId ?? ''} ${c.recordOwnerUsername ?? ''} ${c.changeAuthorUsername ?? ''}`.toLowerCase();
-      return hay.includes(q);
-    });
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
   const visible = useMemo(() => {
     return filtered.filter((c) => {
@@ -167,7 +163,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
           <option value="applied">Применены</option>
           <option value="rejected">Отклонены</option>
         </select>
-        <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск…" />
+        <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным изменения…" />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>

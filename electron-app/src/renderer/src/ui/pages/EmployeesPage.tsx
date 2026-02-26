@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
   id: string;
@@ -22,6 +24,7 @@ type Row = {
   deleteRequestedByUsername?: string | null;
   personnelNumber?: string | null;
   updatedAt: number;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 
 type SortKey = 'displayName' | 'position' | 'departmentName' | 'employmentStatus' | 'access' | 'updatedAt';
@@ -42,9 +45,11 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     query: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
+    showPreviews: true,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
+  const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
   const width = useWindowWidth();
@@ -79,21 +84,12 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      const name = (r.displayName ?? '').toLowerCase();
-      const dept = String(r.departmentName ?? '').toLowerCase();
-      const position = String(r.position ?? '').toLowerCase();
-      const personnel = String(r.personnelNumber ?? '').toLowerCase();
-      return (
-        name.includes(q) ||
-        dept.includes(q) ||
-        position.includes(q) ||
-        personnel.includes(q) ||
-        r.id.toLowerCase().includes(q)
-      );
-    });
+    return rows.filter((row) =>
+      matchesQueryInRecord(query, row, [
+        String(row.employmentStatus ?? '').toLowerCase() === 'fired' ? 'уволен' : 'работает',
+        row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
+      ]),
+    );
   }, [rows, query]);
   const sortKey = listState.sortKey as SortKey;
   const sortDir = listState.sortDir as 'asc' | 'desc';
@@ -190,6 +186,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <th style={headerCellStyle}>{renderSortLabel('Статус', 'employmentStatus')}</th>
         <th style={headerCellStyle}>{renderSortLabel('Доступ', 'access')}</th>
         <th style={{ ...headerCellStyle, width: 140 }}>Действия</th>
+        {showPreviews && <th style={{ ...headerCellStyle, width: 220, textAlign: 'right' }}>Превью</th>}
       </tr>
     </thead>
   );
@@ -202,7 +199,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={showPreviews ? 7 : 6} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
                 </td>
               </tr>
@@ -285,6 +282,11 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                       </Button>
                     )}
                   </td>
+                  {showPreviews && (
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                      <ListRowThumbs files={row.attachmentPreviews ?? []} />
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -318,8 +320,11 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по ФИО…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным сотрудника…" />
         </div>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
+        </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 

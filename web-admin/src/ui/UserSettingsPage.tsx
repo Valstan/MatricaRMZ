@@ -4,6 +4,7 @@ import { profileGet, profileUpdate } from '../api/auth.js';
 import { getLatestUpdateInfo, getUpdateStatus } from '../api/updates.js';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
+import { formatMoscowDateTime } from './utils/dateUtils.js';
 
 export type UiPrefs = {
   theme: 'auto' | 'light' | 'dark';
@@ -267,7 +268,7 @@ export function UserSettingsPage(props: {
           </Button>
           {updateStatusInfo?.lastScanAt ? (
             <span className="muted" style={{ fontSize: 12 }}>
-              Проверено: {new Date(updateStatusInfo.lastScanAt).toLocaleString('ru-RU')}
+              Проверено: {formatMoscowDateTime(updateStatusInfo.lastScanAt)}
             </span>
           ) : null}
         </div>

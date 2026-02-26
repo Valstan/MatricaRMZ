@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -11,6 +12,7 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 
 type Row = {
   id: string;
@@ -20,6 +22,7 @@ type Row = {
   departmentName?: string | null;
   retiredAt?: number | null;
   updatedAt: number;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 type SortKey = 'toolNumber' | 'name' | 'serialNumber' | 'departmentName' | 'retired' | 'updatedAt';
 
@@ -45,9 +48,11 @@ export function ToolsPage(props: {
     query: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
+    showPreviews: true,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:tools');
   const query = String(listState.query ?? '');
+  const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [reportOpen, setReportOpen] = useState(false);
@@ -216,6 +221,11 @@ export function ToolsPage(props: {
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)', width: 140 }}>
           Действия
         </th>
+        {showPreviews && (
+          <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: 'var(--muted)', width: 220 }}>
+            Превью
+          </th>
+        )}
       </tr>
     </thead>
   );
@@ -228,7 +238,7 @@ export function ToolsPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
+                <td colSpan={showPreviews ? 7 : 6} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет инструментов' : 'Не найдено'}
                 </td>
               </tr>
@@ -282,6 +292,11 @@ export function ToolsPage(props: {
                     </Button>
                   )}
                 </td>
+                {showPreviews && (
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <ListRowThumbs files={row.attachmentPreviews ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -320,8 +335,11 @@ export function ToolsPage(props: {
           Отчет
         </Button>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру/названию/серийному…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным инструмента…" />
         </div>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
+        </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 
@@ -409,7 +427,7 @@ export function ToolsPage(props: {
                       {row.location === 'store' ? 'На складе' : row.location === 'in_use' ? 'В подразделении' : 'Неизвестно'}
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
-                      {row.lastMovementAt ? new Date(row.lastMovementAt).toLocaleDateString('ru-RU') : '—'}
+                      {row.lastMovementAt ? formatMoscowDate(row.lastMovementAt) : '—'}
                     </td>
                   </tr>
                 ))}

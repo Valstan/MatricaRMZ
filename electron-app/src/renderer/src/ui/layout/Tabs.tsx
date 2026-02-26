@@ -227,6 +227,10 @@ export function Tabs(props: {
   right?: React.ReactNode;
   notesAlertCount?: number;
   displayPrefs?: UiDisplayPrefs;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onBack?: () => void;
+  onForward?: () => void;
 }) {
   const displayPrefs = props.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS;
   const departmentButtonActiveStyle = displayPrefs.departmentButtons.active;
@@ -243,6 +247,8 @@ export function Tabs(props: {
   );
   const departmentButtonsGap = 2;
   const sectionButtonsGap = 2;
+  const canGoBack = props.canGoBack === true && typeof props.onBack === 'function';
+  const canGoForward = props.canGoForward === true && typeof props.onForward === 'function';
   const menuState = deriveMenuState(props.availableTabs, props.layout);
   const hiddenGroupsSet = useMemo<Set<MenuGroupId>>(() => {
     const raw: unknown[] = Array.isArray(props.layout?.hiddenGroups) ? props.layout.hiddenGroups : [];
@@ -777,6 +783,25 @@ export function Tabs(props: {
             );
           })}
         </div>
+      </div>
+
+      <div style={{ marginTop: 2, display: 'flex', justifyContent: 'flex-start', gap: 6 }}>
+        <Button
+          variant="ghost"
+          disabled={!canGoBack}
+          title="Перейти к предыдущему окну"
+          onClick={() => props.onBack?.()}
+        >
+          Назад
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={!canGoForward}
+          title="Вернуться вперед к следующему окну"
+          onClick={() => props.onForward?.()}
+        >
+          Вперёд
+        </Button>
       </div>
 
       {activeGroup != null && !(props.tab === 'history' && activeGroup === 'history') && (

@@ -10,6 +10,7 @@ import type {
 
 import { Button } from './Button.js';
 import { theme } from '../theme.js';
+import { formatMoscowTime } from '../utils/dateUtils.js';
 
 type ChatItem =
   | { id: string; role: 'user'; text: string; ts: number }
@@ -24,7 +25,7 @@ function makeId() {
 }
 
 function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return formatMoscowTime(ts);
 }
 
 function mapErrorToUserMessage(text: string) {

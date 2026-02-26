@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { AttributeDataType, EntityTypeCode, SyncTableName, STATUS_CODES, type StatusCode } from '@matricarmz/shared';
 
@@ -179,6 +179,37 @@ function normalizeSearch(s: string): string {
     .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
     .replaceAll(/\s+/g, ' ')
     .trim();
+}
+
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
+}
+
+function valueToSearchText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) return value.map((item) => valueToSearchText(item)).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => valueToSearchText(item))
+      .join(' ');
+  }
+  return '';
 }
 
 async function getPartEntityTypeId(): Promise<string | null> {
@@ -799,6 +830,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         contractId?: string;
         statusFlags?: Partial<Record<StatusCode, boolean>>;
         brandLinks?: PartEngineBrandLink[];
+        attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
         updatedAt: number;
         createdAt: number;
       }[];
@@ -830,56 +862,16 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       brandLinksByPart[link.partId] = bucket;
     }
 
-    const nameAttr = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'name')))
-      .limit(1);
-    const articleAttr = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'article')))
-      .limit(1);
-
-    const nameAttrId = nameAttr[0]?.id;
-    const articleAttrId = articleAttr[0]?.id;
-
-    const attrRows = nameAttrId || articleAttrId
-      ? await db
-          .select({
-            entityId: attributeValues.entityId,
-            attributeDefId: attributeValues.attributeDefId,
-            valueJson: attributeValues.valueJson,
-          })
-          .from(attributeValues)
-          .where(
-            and(
-              or(
-                ...(nameAttrId ? [eq(attributeValues.attributeDefId, nameAttrId)] : []),
-                ...(articleAttrId ? [eq(attributeValues.attributeDefId, articleAttrId)] : []),
-              ),
-              inArray(attributeValues.entityId, partIds),
-              isNull(attributeValues.deletedAt),
-            ),
-          )
-          .limit(10_000)
-      : [];
-
-    const contractIdAttr = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, 'contract_id')))
-      .limit(1);
-    const contractIdDefId = contractIdAttr[0]?.id;
-    const statusDefRows = await db
+    const attrDefRows = await db
       .select({ id: attributeDefs.id, code: attributeDefs.code })
       .from(attributeDefs)
-      .where(and(eq(attributeDefs.entityTypeId, typeId), inArray(attributeDefs.code, [...STATUS_CODES])))
-      .limit(10);
-    const statusDefById = new Map(statusDefRows.map((r) => [r.id, r.code]));
-    const extraDefIds = [...(contractIdDefId ? [contractIdDefId] : []), ...statusDefRows.map((r) => r.id)];
-    const extraRows =
-      extraDefIds.length > 0
+      .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)))
+      .limit(10_000);
+    const attrDefById = new Map(attrDefRows.map((row) => [row.id, String(row.code)] as const));
+    const attrDefIds = attrDefRows.map((row) => row.id);
+    const statusCodes = new Set<string>(STATUS_CODES);
+    const attrRows =
+      attrDefIds.length > 0
         ? await db
             .select({
               entityId: attributeValues.entityId,
@@ -887,36 +879,43 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
               valueJson: attributeValues.valueJson,
             })
             .from(attributeValues)
-            .where(and(inArray(attributeValues.attributeDefId, extraDefIds), inArray(attributeValues.entityId, partIds), isNull(attributeValues.deletedAt)))
-            .limit(50_000)
+            .where(and(inArray(attributeValues.attributeDefId, attrDefIds), inArray(attributeValues.entityId, partIds), isNull(attributeValues.deletedAt)))
+            .limit(200_000)
         : [];
+
+    const attrsByEntity: Record<string, { name?: string; article?: string; searchParts: string[] }> = {};
     const contractIdByEntity: Record<string, string | null> = {};
     const statusFlagsByEntity: Record<string, Partial<Record<StatusCode, boolean>>> = {};
-    for (const row of extraRows) {
-      if (row.attributeDefId === contractIdDefId) {
-        const v = row.valueJson ? safeJsonParse(row.valueJson) : null;
-        contractIdByEntity[row.entityId] = typeof v === 'string' && v ? v : null;
-      } else {
-        const code = statusDefById.get(row.attributeDefId);
-        if (code) {
-          const ent = statusFlagsByEntity[row.entityId];
-          const obj = ent ?? {};
-          obj[code as StatusCode] = Boolean(row.valueJson ? safeJsonParse(row.valueJson) : null);
-          statusFlagsByEntity[row.entityId] = obj;
-        }
-      }
-    }
-
-    const attrsByEntity: Record<string, { name?: string; article?: string }> = {};
+    const attachmentPreviewsByEntity: Record<string, Array<{ id: string; name: string; mime: string | null }>> = {};
     for (const attr of attrRows) {
-      if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = {};
+      if (!attrsByEntity[attr.entityId]) attrsByEntity[attr.entityId] = { searchParts: [] };
       const val = attr.valueJson ? safeJsonParse(attr.valueJson) : null;
+      const code = attrDefById.get(attr.attributeDefId) ?? '';
       const entityAttrs = attrsByEntity[attr.entityId];
       if (entityAttrs) {
-        if (attr.attributeDefId === nameAttrId && typeof val === 'string') {
+        if (code === 'name' && typeof val === 'string') {
           entityAttrs.name = val;
-        } else if (attr.attributeDefId === articleAttrId && typeof val === 'string') {
+        } else if (code === 'article' && typeof val === 'string') {
           entityAttrs.article = val;
+        }
+        const valueText = valueToSearchText(val);
+        if (valueText) entityAttrs.searchParts.push(valueText);
+        if (code === 'contract_id') {
+          contractIdByEntity[attr.entityId] = typeof val === 'string' && val ? val : null;
+        } else if (statusCodes.has(code)) {
+          const statusEntry = statusFlagsByEntity[attr.entityId] ?? {};
+          statusEntry[code as StatusCode] = Boolean(val);
+          statusFlagsByEntity[attr.entityId] = statusEntry;
+        } else if (code === 'attachments' || code === 'drawings' || code === 'tech_docs') {
+          const bucket = attachmentPreviewsByEntity[attr.entityId] ?? [];
+          const seen = new Set(bucket.map((x) => x.id));
+          for (const preview of toAttachmentPreviews(val)) {
+            if (seen.has(preview.id)) continue;
+            seen.add(preview.id);
+            bucket.push(preview);
+            if (bucket.length >= 5) break;
+          }
+          attachmentPreviewsByEntity[attr.entityId] = bucket;
         }
       }
     }
@@ -924,10 +923,24 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
     let filtered = entityRows;
     if (qNorm) {
       filtered = filtered.filter((e) => {
-        const attrs = attrsByEntity[e.id] || {};
-        const name = normalizeSearch(attrs.name || '');
-        const article = normalizeSearch(attrs.article || '');
-        return name.includes(qNorm) || article.includes(qNorm);
+        const attrs = attrsByEntity[e.id];
+        const statusFlags = statusFlagsByEntity[e.id] ?? {};
+        const enabledStatuses = Object.entries(statusFlags)
+          .filter(([, enabled]) => enabled === true)
+          .map(([code]) => code)
+          .join(' ');
+        const links = brandLinksByPart[e.id] ?? [];
+        const linksText = links.map((link) => `${link.engineBrandId} ${link.assemblyUnitNumber} ${link.quantity}`).join(' ');
+        const hay = normalizeSearch(
+          [
+            e.id,
+            attrs?.searchParts.join(' ') ?? '',
+            contractIdByEntity[e.id] ?? '',
+            enabledStatuses,
+            linksText,
+          ].join(' '),
+        );
+        return hay.includes(qNorm);
       });
     }
     if (engineBrandId) {
@@ -935,9 +948,10 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
     }
 
     const parts = filtered.map((e) => {
-      const attrs = attrsByEntity[e.id] || {};
+      const attrs = attrsByEntity[e.id] ?? { searchParts: [] as string[] };
       const contractId = contractIdByEntity[e.id];
       const statusFlags = statusFlagsByEntity[e.id];
+      const attachmentPreviews = attachmentPreviewsByEntity[e.id] ?? [];
       return {
         id: e.id,
         ...(attrs.name && { name: attrs.name }),
@@ -945,6 +959,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
         ...(contractId != null && { contractId }),
         ...(statusFlags && Object.keys(statusFlags).length > 0 && { statusFlags }),
         ...(brandLinksByPart[e.id]?.length ? { brandLinks: brandLinksByPart[e.id] } : {}),
+        ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
         createdAt: Number(e.createdAt),
         updatedAt: Number(e.updatedAt),
       };

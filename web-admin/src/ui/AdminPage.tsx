@@ -7,6 +7,7 @@ import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
 import * as masterdata from '../api/masterdata.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
+import { matchesQueryInRecord } from './utils/search.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -101,12 +102,7 @@ export function MasterdataPage(props: {
   }, [types]);
 
   const filteredEntities = useMemo(() => {
-    const q = entityQuery.trim().toLowerCase();
-    if (!q) return entities;
-    return entities.filter((e) => {
-      const label = (e.displayName ? `${e.displayName} ` : '') + e.id;
-      return label.toLowerCase().includes(q);
-    });
+    return entities.filter((row) => matchesQueryInRecord(entityQuery, row));
   }, [entities, entityQuery]);
 
   const linkTargetByCode: Record<string, string> = {
@@ -951,7 +947,7 @@ export function MasterdataPage(props: {
                 </div>
 
                 <div style={{ marginTop: 10 }}>
-                  <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск записей…" />
+                  <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск по всем данным записи…" />
 
                   <div style={{ marginTop: 8, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                     <div style={{ maxHeight: 220, overflowY: 'auto' }}>

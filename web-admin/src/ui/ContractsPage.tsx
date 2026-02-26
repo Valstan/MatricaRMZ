@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { ContractDetailsPage } from './ContractDetailsPage.js';
-import { parseContractSections } from '@matricarmz/shared';
+import { effectiveContractDueAt, parseContractSections } from '@matricarmz/shared';
 import {
   listAttributeDefs,
   listEntities,
@@ -13,6 +13,8 @@ import {
   createEntity,
   getEntity,
 } from '../api/masterdata.js';
+import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from './utils/dateUtils.js';
+import { matchesQueryInRecord } from './utils/search.js';
 
 type Row = {
   id: string;
@@ -58,23 +60,6 @@ function getContractAmount(sections: ReturnType<typeof parseContractSections>): 
     total += sumMoneyItems(addon.parts as unknown[]);
   }
   return total;
-}
-
-function getContractDueAt(sections: ReturnType<typeof parseContractSections>): number | null {
-  let dueAt: number | null = sections.primary.dueAt;
-  for (const addon of sections.addons) {
-    if (addon.dueAt != null && (dueAt == null || addon.dueAt > dueAt)) dueAt = addon.dueAt;
-  }
-  return dueAt;
-}
-
-function normalize(s: string) {
-  return String(s || '')
-    .toLowerCase()
-    .replaceAll('ё', 'е')
-    .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim();
 }
 
 const REQUIRED_DEFS = [
@@ -172,7 +157,7 @@ export function ContractsPage(props: {
             const d = await getEntity(String(row.id));
             const attrs = (d as any)?.entity?.attributes ?? {};
             const sections = parseContractSections(attrs);
-            const dueDateMs = getContractDueAt(sections);
+            const dueDateMs = effectiveContractDueAt(sections);
             const daysLeft = dueDateMs != null ? Math.ceil((dueDateMs - Date.now()) / (24 * 60 * 60 * 1000)) : null;
             return {
               id: String(row.id),
@@ -226,9 +211,7 @@ export function ContractsPage(props: {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = normalize(query);
-    if (!q) return rows;
-    return rows.filter((r) => normalize(r.number).includes(q) || normalize(r.internalNumber).includes(q));
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
 
   const sorted = useMemo(() => {
@@ -257,7 +240,7 @@ export function ContractsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру/внутреннему номеру…" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по всем данным контракта…" />
         </div>
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
@@ -305,10 +288,10 @@ export function ContractsPage(props: {
                     <td style={{ padding: 8 }}>{row.number || '(без номера)'}</td>
                     <td style={{ padding: 8, color: textColor }}>{row.internalNumber || '—'}</td>
                     <td style={{ padding: 8, color: textColor }}>{row.counterparty || '—'}</td>
-                    <td style={{ padding: 8, color: textColor }}>{row.dateMs ? new Date(row.dateMs).toLocaleDateString('ru-RU') : '—'}</td>
-                    <td style={{ padding: 8, color: textColor }}>{row.dueDateMs ? new Date(row.dueDateMs).toLocaleDateString('ru-RU') : '—'}</td>
-                    <td style={{ padding: 8, color: textColor }}>{row.amount.toLocaleString('ru-RU')} ₽</td>
-                    <td style={{ padding: 8, color: textColor }}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.dateMs ? formatMoscowDate(row.dateMs) : '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.dueDateMs ? formatMoscowDate(row.dueDateMs) : '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>{formatRuMoney(row.amount)}</td>
+                    <td style={{ padding: 8, color: textColor }}>{row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}</td>
                   </tr>
                 );
               })}

@@ -376,7 +376,6 @@ export function EngineBrandDetailsPage(props: {
               dirtyRef.current = false;
             });
           }}
-          onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
         />

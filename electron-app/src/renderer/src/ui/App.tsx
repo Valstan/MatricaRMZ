@@ -75,6 +75,13 @@ type RecentVisitEntry = {
 };
 
 const RECENT_VISITS_LIMIT = 10;
+const NAVIGATION_HISTORY_LIMIT = 10;
+
+type AppNavigationStep = {
+  id: string;
+  at: number;
+  link: ChatDeepLinkPayload;
+};
 
 function recentVisitsStorageKey(userId: string) {
   return `matrica:recent-visits:${userId}`;
@@ -215,7 +222,15 @@ export function App() {
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
   const [recentVisits, setRecentVisits] = useState<RecentVisitEntry[]>([]);
+  const [navigationHistory, setNavigationHistory] = useState<AppNavigationStep[]>([]);
+  const [navigationIndex, setNavigationIndex] = useState<number>(-1);
   const lastRecordedVisitSigRef = useRef<string>('');
+  const isApplyingHistoryRef = useRef(false);
+  const queuedHistoryReplayRef = useRef<{
+    step: AppNavigationStep;
+    targetIndex: number;
+    rollbackIndex: number;
+  } | null>(null);
   const prevUserId = useRef<string | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
@@ -279,6 +294,7 @@ export function App() {
   const cardCloseFromAppRef = useRef(false);
   const cardCloseInProgressRef = useRef(false);
   const cardCloseTimerRef = useRef<number | null>(null);
+  const navigateDeepLinkRef = useRef<(link: any) => Promise<void>>(async () => {});
 
   const isCardTab = useCallback((nextTab: TabId) => CARD_DETAIL_TABS.includes(nextTab), []);
 
@@ -286,6 +302,31 @@ export function App() {
     if (cardCloseTimerRef.current == null) return;
     clearInterval(cardCloseTimerRef.current);
     cardCloseTimerRef.current = null;
+  }
+
+  function replayNavigationStep(step: AppNavigationStep) {
+    isApplyingHistoryRef.current = true;
+    void navigateDeepLinkRef.current(step.link).finally(() => {
+      window.setTimeout(() => {
+        isApplyingHistoryRef.current = false;
+      }, 0);
+    });
+  }
+
+  function replayQueuedHistoryStep() {
+    const queued = queuedHistoryReplayRef.current;
+    if (!queued) return false;
+    queuedHistoryReplayRef.current = null;
+    replayNavigationStep(queued.step);
+    return true;
+  }
+
+  function clearQueuedHistoryReplay(restoreIndex: boolean) {
+    const queued = queuedHistoryReplayRef.current;
+    if (!queued) return;
+    queuedHistoryReplayRef.current = null;
+    if (!restoreIndex) return;
+    setNavigationIndex((current) => (current === queued.targetIndex ? queued.rollbackIndex : current));
   }
 
   const registerCardCloseActions = useCallback((actions: CardCloseActions | null) => {
@@ -374,6 +415,14 @@ export function App() {
       } catch (e) {
         setCardCloseStatus(`Ошибка сохранения: ${String(e)}`);
         cardCloseInProgressRef.current = false;
+        clearQueuedHistoryReplay(true);
+        return;
+      }
+
+      if (replayQueuedHistoryStep()) {
+        if (fromApp) {
+          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        }
         return;
       }
 
@@ -819,7 +868,11 @@ export function App() {
     setPresence(null);
     setHistoryInitialNoteId(null);
     setRecentVisits([]);
+    setNavigationHistory([]);
+    setNavigationIndex(-1);
     lastRecordedVisitSigRef.current = '';
+    isApplyingHistoryRef.current = false;
+    queuedHistoryReplayRef.current = null;
     setEmployeesRefreshKey((k) => k + 1);
     setAiChatOpen(true);
   }
@@ -1279,6 +1332,19 @@ export function App() {
     setTab('counterparty');
   }
 
+  const openByCode = {
+    customer: openCounterparty,
+    counterparty: openCounterparty,
+    contract: openContract,
+    part: openPart,
+    engine_brand: openEngineBrand,
+    engineBrand: openEngineBrand,
+    service: openService,
+    product: openProduct,
+    employee: openEmployee,
+    tool_property: openToolProperty,
+  };
+
   function openNoteFromHistory(noteId?: string | null) {
     setHistoryInitialNoteId(noteId ? String(noteId) : null);
     setTab('notes');
@@ -1344,6 +1410,7 @@ export function App() {
     }
     setTab(tabId);
   }
+  navigateDeepLinkRef.current = navigateDeepLink;
 
   function shortId(id: string | null) {
     if (!id) return '';
@@ -1538,6 +1605,88 @@ export function App() {
       engineDetails,
     ],
   );
+
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    if (isApplyingHistoryRef.current) return;
+    if (queuedHistoryReplayRef.current) return;
+    const link = currentAppLink as ChatDeepLinkPayload;
+    if (!link || link.kind !== 'app_link') return;
+    if (link.tab === 'auth') return;
+
+    const normalizedLink: ChatDeepLinkPayload = Array.isArray(link.breadcrumbs)
+      ? { ...link, breadcrumbs: [...link.breadcrumbs] }
+      : { ...link };
+    const signature = appLinkSignature(normalizedLink);
+    const truncatedHistory = navigationIndex >= 0 ? navigationHistory.slice(0, navigationIndex + 1) : [];
+    const lastStep = truncatedHistory[truncatedHistory.length - 1];
+    if (lastStep && appLinkSignature(lastStep.link) === signature) {
+      if (truncatedHistory.length !== navigationHistory.length) setNavigationHistory(truncatedHistory);
+      if (navigationIndex !== truncatedHistory.length - 1) setNavigationIndex(truncatedHistory.length - 1);
+      return;
+    }
+
+    const nextHistory = [
+      ...truncatedHistory,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        at: Date.now(),
+        link: normalizedLink,
+      },
+    ].slice(-NAVIGATION_HISTORY_LIMIT);
+
+    setNavigationHistory(nextHistory);
+    setNavigationIndex(nextHistory.length - 1);
+  }, [authStatus.loggedIn, currentAppLink, navigationHistory, navigationIndex]);
+
+  const canGoBack = navigationIndex > 0;
+  const canGoForward = navigationIndex >= 0 && navigationIndex < navigationHistory.length - 1;
+
+  const goBack = useCallback(() => {
+    if (navigationIndex <= 0) return;
+    const targetIndex = navigationIndex - 1;
+    const step = navigationHistory[targetIndex];
+    if (!step) return;
+
+    setNavigationIndex(targetIndex);
+    if (isCardTab(tab)) {
+      queuedHistoryReplayRef.current = {
+        step,
+        targetIndex,
+        rollbackIndex: navigationIndex,
+      };
+      void closeCardSession({ targetTab: CARD_PARENT_TAB[tab] ?? null, appClose: false }).then(() => {
+        if (cardCloseInProgressRef.current) return;
+        replayQueuedHistoryStep();
+      });
+      return;
+    }
+
+    replayNavigationStep(step);
+  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab]);
+
+  const goForward = useCallback(() => {
+    if (navigationIndex < 0 || navigationIndex >= navigationHistory.length - 1) return;
+    const targetIndex = navigationIndex + 1;
+    const step = navigationHistory[targetIndex];
+    if (!step) return;
+
+    setNavigationIndex(targetIndex);
+    if (isCardTab(tab)) {
+      queuedHistoryReplayRef.current = {
+        step,
+        targetIndex,
+        rollbackIndex: navigationIndex,
+      };
+      void closeCardSession({ targetTab: CARD_PARENT_TAB[tab] ?? null, appClose: false }).then(() => {
+        if (cardCloseInProgressRef.current) return;
+        replayQueuedHistoryStep();
+      });
+      return;
+    }
+
+    replayNavigationStep(step);
+  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) return;
@@ -2367,6 +2516,10 @@ export function App() {
               userLabel={userLabel}
               userTab={userTab}
               displayPrefs={uiPrefs.displayPrefs}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onBack={goBack}
+              onForward={goForward}
               {...(presence ? { authStatus: { online: presence.online } } : {})}
               notesAlertCount={notesAlertCount}
             />
@@ -2470,6 +2623,9 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenEngineBrand={openEngineBrand}
+            onOpenCounterparty={openCounterparty}
+            onOpenContract={openContract}
             onClose={() => {
               setSelectedEngineId(null);
               setEngineDetails(null);
@@ -2525,6 +2681,8 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenProduct={openProduct}
+            onOpenService={openService}
             onClose={() => {
               setSelectedRequestId(null);
               setTabState('requests');
@@ -2539,6 +2697,9 @@ export function App() {
             canEdit={caps.canEditWorkOrders}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenPart={openPart}
+            onOpenService={openService}
+            onOpenEmployee={openEmployee}
             onClose={() => {
               setSelectedWorkOrderId(null);
               setTabState('work_orders');
@@ -2614,6 +2775,10 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenCustomer={openCounterparty}
+            onOpenContract={openContract}
+            onOpenEngineBrand={openEngineBrand}
+            onOpenByCode={openByCode}
             onClose={() => {
               setSelectedPartId(null);
               setTabState('parts');
@@ -2630,6 +2795,8 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenToolProperty={openToolProperty}
+            onOpenEmployee={openEmployee}
             onBack={() => {
               setSelectedToolId(null);
               setTabState('tools');
@@ -2665,6 +2832,9 @@ export function App() {
               setSelectedContractId(null);
               setTabState('contracts');
             }}
+            onOpenCounterparty={openCounterparty}
+            onOpenPart={openPart}
+            onOpenEngineBrand={openEngineBrand}
           />
         )}
 
@@ -2696,6 +2866,10 @@ export function App() {
             me={authStatus.user}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenEmployee={openEmployee}
+            onOpenCounterparty={openCounterparty}
+            onOpenContract={openContract}
+            onOpenByCode={openByCode}
             onClose={() => {
               setSelectedEmployeeId(null);
               setTabState('employees');
@@ -2715,6 +2889,7 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenCustomer={openCounterparty}
             onClose={() => {
               setSelectedProductId(null);
               setTabState('products');
@@ -2734,6 +2909,7 @@ export function App() {
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
+            onOpenCustomer={openCounterparty}
             onClose={() => {
               setSelectedServiceId(null);
               setTabState('services');

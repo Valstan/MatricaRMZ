@@ -2,20 +2,54 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
   id: string;
   displayName?: string;
   updatedAt: number;
   partsCount?: number | null;
+  attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 type SortKey = 'displayName' | 'partsCount' | 'updatedAt';
+
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
+}
+
+function collectAttachmentPreviews(attrs: Record<string, unknown>): Array<{ id: string; name: string; mime: string | null }> {
+  const out: Array<{ id: string; name: string; mime: string | null }> = [];
+  const seen = new Set<string>();
+  for (const value of Object.values(attrs)) {
+    for (const preview of toAttachmentPreviews(value)) {
+      if (seen.has(preview.id)) continue;
+      seen.add(preview.id);
+      out.push(preview);
+      if (out.length >= 5) return out;
+    }
+  }
+  return out;
+}
 
 export function EngineBrandsPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -26,9 +60,11 @@ export function EngineBrandsPage(props: {
     query: '',
     sortKey: 'displayName' as SortKey,
     sortDir: 'asc' as const,
+    showPreviews: true,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:engine_brands');
   const query = String(listState.query ?? '');
+  const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [typeId, setTypeId] = useState<string>('');
@@ -54,12 +90,19 @@ export function EngineBrandsPage(props: {
     try {
       if (!silent) setStatus('Загрузка…');
       const list = await window.matrica.admin.entities.listByEntityType(typeId);
-      const nextRows = (list as any[]).map((row) => ({
-        id: String(row.id),
-        displayName: row.displayName ? String(row.displayName) : '',
-        updatedAt: Number(row.updatedAt ?? 0),
-        partsCount: null,
-      }));
+      const baseRows = list as any[];
+      const details = await Promise.all(baseRows.map((row) => window.matrica.admin.entities.get(String(row.id)).catch(() => null)));
+      const nextRows = baseRows.map((row, idx) => {
+        const attrs = (details[idx] as any)?.attributes ?? {};
+        const attachmentPreviews = collectAttachmentPreviews(attrs);
+        return {
+          id: String(row.id),
+          displayName: row.displayName ? String(row.displayName) : '',
+          updatedAt: Number(row.updatedAt ?? 0),
+          partsCount: null,
+          ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
+        };
+      });
       setRows(nextRows);
       if (!silent) setStatus('');
       try {
@@ -99,12 +142,7 @@ export function EngineBrandsPage(props: {
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      const label = (r.displayName ? `${r.displayName} ` : '') + r.id;
-      return label.toLowerCase().includes(q);
-    });
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
 
   const sorted = useSortedItems(
@@ -131,6 +169,7 @@ export function EngineBrandsPage(props: {
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('partsCount')}>
           Количество деталей {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'partsCount')}
         </th>
+        {showPreviews && <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#374151', width: 220 }}>Превью</th>}
       </tr>
     </thead>
   );
@@ -144,7 +183,7 @@ export function EngineBrandsPage(props: {
             {items.length === 0 && (
               <tr>
                 <td
-                  colSpan={2}
+                  colSpan={showPreviews ? 3 : 2}
                   style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}
                 >
                   {rows.length === 0 ? 'Нет марок' : 'Не найдено'}
@@ -167,6 +206,11 @@ export function EngineBrandsPage(props: {
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
                   {row.partsCount == null ? '—' : row.partsCount}
                 </td>
+                {showPreviews && (
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <ListRowThumbs files={row.attachmentPreviews ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -202,8 +246,11 @@ export function EngineBrandsPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным марки…" />
         </div>
+        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
+          {showPreviews ? 'Отключить превью' : 'Включить превью'}
+        </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 

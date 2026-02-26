@@ -16,6 +16,7 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import {
   parseContractSections,
   contractSectionsToLegacy,
+  effectiveContractDueAt,
   aggregateProgress,
   type ProgressLinkedItem,
   type ContractSections,
@@ -25,6 +26,7 @@ import {
   type ContractPartRow,
 } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDateTime, formatRuMoney, formatRuNumber } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -170,17 +172,25 @@ function fileListHtml(list: unknown) {
     ? list.filter((x) => x && typeof x === 'object' && typeof (x as { name?: string }).name === 'string')
     : [];
   if (items.length === 0) return '<div class="muted">Нет файлов</div>';
-  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as { name: string }).name))}</li>`).join('')}</ul>`;
+  return `<ul>${items
+    .map((f) => {
+      const entry = f as { name: string; isObsolete?: boolean };
+      const obsoleteBadge =
+        entry.isObsolete === true
+          ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;">Устаревшая версия</span>'
+          : '';
+      return `<li>${escapeHtml(String(entry.name))}${obsoleteBadge}</li>`;
+    })
+    .join('')}</ul>`;
 }
 
 function rowSum(qty: number, unitPrice: number): number {
   return (qty || 0) * (unitPrice || 0);
 }
 
-function computeSectionTotals(sections: ContractSections): { totalQty: number; totalSum: number; maxDueAt: number | null } {
+function computeSectionTotals(sections: ContractSections): { totalQty: number; totalSum: number; dueAt: number | null } {
   let totalQty = 0;
   let totalSum = 0;
-  let maxDueAt: number | null = null;
 
   const addRows = (eb: ContractEngineBrandRow[], parts: ContractPartRow[]) => {
     for (const r of eb) {
@@ -194,16 +204,10 @@ function computeSectionTotals(sections: ContractSections): { totalQty: number; t
   };
 
   addRows(sections.primary.engineBrands, sections.primary.parts);
-  if (sections.primary.dueAt != null && (maxDueAt == null || sections.primary.dueAt > maxDueAt)) {
-    maxDueAt = sections.primary.dueAt;
-  }
   for (const addon of sections.addons) {
     addRows(addon.engineBrands, addon.parts);
-    if (addon.dueAt != null && (maxDueAt == null || addon.dueAt > maxDueAt)) {
-      maxDueAt = addon.dueAt;
-    }
   }
-  return { totalQty, totalSum, maxDueAt };
+  return { totalQty, totalSum, dueAt: effectiveContractDueAt(sections) };
 }
 
 type ContractExecutionState = 'не исполнен' | 'исполнен частично' | 'исполнен полностью';
@@ -218,6 +222,25 @@ function getExecutionState(progressPct: number | null): { state: ContractExecuti
   return { state: 'исполнен полностью', color: '#15803d', background: '#ecfdf5' };
 }
 
+function normalizeContractNumber(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function collectProgressContractNumbers(sections: ContractSections | null): Set<string> {
+  const out = new Set<string>();
+  if (!sections) return out;
+  const primary = normalizeContractNumber(sections.primary.number);
+  if (primary) out.add(primary);
+  for (const addon of sections.addons) {
+    const addonNumber = normalizeContractNumber(addon.number);
+    if (addonNumber) out.add(addonNumber);
+  }
+  return out;
+}
+
 function SectionBlock(props: {
   title: string;
   section: ContractPrimarySection | ContractAddonSection;
@@ -230,6 +253,9 @@ function SectionBlock(props: {
   canEdit: boolean;
   canEditMasterData: boolean;
   createMasterDataItem: (typeCode: string, label: string) => Promise<string | null>;
+  onOpenCounterparty?: (counterpartyId: string) => void;
+  onOpenPart?: (partId: string) => void;
+  onOpenEngineBrand?: (engineBrandId: string) => void;
 }) {
   const {
     title,
@@ -243,6 +269,9 @@ function SectionBlock(props: {
     canEdit,
     canEditMasterData,
     createMasterDataItem,
+    onOpenCounterparty,
+    onOpenPart,
+    onOpenEngineBrand,
   } = props;
 
   const update = (patch: Partial<ContractPrimarySection | ContractAddonSection>) => {
@@ -310,14 +339,16 @@ function SectionBlock(props: {
 
       <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
         <FormGrid columns="repeat(2, minmax(220px, 1fr))" gap={10}>
-          <FormField label="Номер контракта">
-            <Input
-              value={section.number}
-              disabled={!canEdit}
-              onChange={(e) => update({ number: e.target.value })}
-              style={{ width: '100%' }}
-            />
-          </FormField>
+          {isPrimary ? (
+            <FormField label="Номер контракта">
+              <Input
+                value={section.number}
+                disabled={!canEdit}
+                onChange={(e) => update({ number: e.target.value })}
+                style={{ width: '100%' }}
+              />
+            </FormField>
+          ) : null}
           <FormField label="Дата заключения">
             <Input
               type="date"
@@ -347,19 +378,31 @@ function SectionBlock(props: {
                 />
               </FormField>
               <FormField label="Контрагент" fullWidth>
-                <SearchSelectWithCreate
-                  value={primarySection.customerId ?? null}
-                  options={customerOptions}
-                  disabled={!canEdit}
-                  canCreate={canEditMasterData}
-                  createLabel="Новый контрагент"
-                  onChange={(next) => update({ customerId: next ?? null })}
-                  onCreate={async (label) => {
-                    const id = await createMasterDataItem('customer', label);
-                    if (id) update({ customerId: id });
-                    return id;
-                  }}
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
+                  <SearchSelectWithCreate
+                    value={primarySection.customerId ?? null}
+                    options={customerOptions}
+                    disabled={!canEdit}
+                    canCreate={canEditMasterData}
+                    createLabel="Новый контрагент"
+                    onChange={(next) => update({ customerId: next ?? null })}
+                    onCreate={async (label) => {
+                      const id = await createMasterDataItem('customer', label);
+                      if (id) update({ customerId: id });
+                      return id;
+                    }}
+                  />
+                  {primarySection.customerId && onOpenCounterparty ? (
+                    <Button
+                      variant="outline"
+                      tone="neutral"
+                      size="sm"
+                      onClick={() => onOpenCounterparty(primarySection.customerId ?? '')}
+                    >
+                      Открыть реквизиты контрагента
+                    </Button>
+                  ) : null}
+                </div>
               </FormField>
             </>
           )}
@@ -397,8 +440,8 @@ function SectionBlock(props: {
                   return (
                     <tr key={idx}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                        {canEdit ? (
-                          <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          {canEdit ? (
                             <SearchSelectWithCreate
                               value={row.engineBrandId || null}
                               options={engineBrandOptions}
@@ -412,10 +455,15 @@ function SectionBlock(props: {
                                 return id;
                               }}
                             />
-                          </div>
-                        ) : (
-                          label
-                        )}
+                          ) : (
+                            <span>{label}</span>
+                          )}
+                          {row.engineBrandId && onOpenEngineBrand ? (
+                            <Button variant="outline" tone="neutral" size="sm" onClick={() => onOpenEngineBrand(row.engineBrandId)}>
+                              Открыть
+                            </Button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="num">
                         <NumericField
@@ -436,7 +484,7 @@ function SectionBlock(props: {
                         />
                       </td>
                       <td className="num" style={{ fontWeight: 700 }}>
-                        {rowSum(row.qty, row.unitPrice).toLocaleString('ru-RU')}
+                        {formatRuNumber(rowSum(row.qty, row.unitPrice))}
                       </td>
                       {canEdit && (
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
@@ -491,13 +539,13 @@ function SectionBlock(props: {
                   return (
                     <tr key={idx}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                        {canEdit ? (
-                          <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          {canEdit ? (
                             <SearchSelectWithCreate
                               value={row.partId || null}
                               options={partOptions}
                               disabled={!canEdit}
-                              canCreate={props.canEditMasterData}
+                              canCreate={canEditMasterData}
                               createLabel="Новая деталь"
                               onChange={(id) => updatePart(idx, { partId: id ?? '' })}
                               onCreate={async (label) => {
@@ -506,10 +554,15 @@ function SectionBlock(props: {
                                 return id;
                               }}
                             />
-                          </div>
-                        ) : (
-                          label
-                        )}
+                          ) : (
+                            <span>{label}</span>
+                          )}
+                          {row.partId && onOpenPart ? (
+                            <Button variant="outline" tone="neutral" size="sm" onClick={() => onOpenPart(row.partId)}>
+                              Открыть
+                            </Button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="num">
                         <NumericField
@@ -530,7 +583,7 @@ function SectionBlock(props: {
                         />
                       </td>
                       <td className="num" style={{ fontWeight: 700 }}>
-                        {rowSum(row.qty, row.unitPrice).toLocaleString('ru-RU')}
+                        {formatRuNumber(rowSum(row.qty, row.unitPrice))}
                       </td>
                       {canEdit && (
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
@@ -564,6 +617,9 @@ export function ContractDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onClose: () => void;
+  onOpenCounterparty: (counterpartyId: string) => void;
+  onOpenPart?: (partId: string) => void;
+  onOpenEngineBrand?: (engineBrandId: string) => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
@@ -656,11 +712,27 @@ export function ContractDetailsPage(props: {
 
   async function loadProgress() {
     try {
+      const relatedContractIds = new Set<string>([String(props.contractId)]);
+      const relatedNumbers = collectProgressContractNumbers(sections);
+      const contractTypeId = entityTypes.find((t) => String(t.code) === 'contract')?.id ?? '';
+      if (relatedNumbers.size > 0 && contractTypeId) {
+        const contractRows = await window.matrica.admin.entities.listByEntityType(contractTypeId).catch(() => []);
+        if (Array.isArray(contractRows)) {
+          for (const row of contractRows as Array<{ id?: string; displayName?: string }>) {
+            const id = row?.id ? String(row.id) : '';
+            if (!id) continue;
+            const numberKey = normalizeContractNumber(row?.displayName ?? '');
+            if (numberKey && relatedNumbers.has(numberKey)) relatedContractIds.add(id);
+          }
+        }
+      }
       const engines = await window.matrica.engines.list();
-      const byContract: ProgressLinkedItem[] = Array.isArray(engines) ? engines.filter((e) => e.contractId === props.contractId) : [];
+      const byContract: ProgressLinkedItem[] = Array.isArray(engines)
+        ? engines.filter((e) => relatedContractIds.has(String(e.contractId ?? '')))
+        : [];
       const partsRes = await window.matrica.parts.list({ limit: 5000 });
       const parts: ProgressLinkedItem[] = partsRes?.ok && partsRes.parts ? partsRes.parts : [];
-      const partStatusMap = parts.filter((p) => p.contractId === props.contractId);
+      const partStatusMap = parts.filter((p) => relatedContractIds.has(String(p.contractId ?? '')));
       const aggregate = aggregateProgress([
         ...byContract,
         ...partStatusMap,
@@ -684,7 +756,7 @@ export function ContractDetailsPage(props: {
 
   useEffect(() => {
     if (contract) void loadProgress();
-  }, [contract?.id, contract?.updatedAt, sections]);
+  }, [contract?.id, contract?.updatedAt, sections, entityTypes.length]);
 
   useEffect(() => {
     if (!contract) {
@@ -754,11 +826,16 @@ export function ContractDetailsPage(props: {
     if (!props.canEdit || !sections) return;
     try {
       setStatus('Сохранение…');
-      await window.matrica.admin.entities.setAttr(props.contractId, 'contract_sections', sections);
-      const legacy = contractSectionsToLegacy(sections);
+      const normalizedSections: ContractSections = {
+        ...sections,
+        addons: sections.addons.map((addon) => ({ ...addon, number: sections.primary.number })),
+      };
+      await window.matrica.admin.entities.setAttr(props.contractId, 'contract_sections', normalizedSections);
+      const legacy = contractSectionsToLegacy(normalizedSections);
       await window.matrica.admin.entities.setAttr(props.contractId, 'number', legacy.number);
       await window.matrica.admin.entities.setAttr(props.contractId, 'internal_number', legacy.internal_number);
       await window.matrica.admin.entities.setAttr(props.contractId, 'date', legacy.date);
+      await window.matrica.admin.entities.setAttr(props.contractId, 'due_date', legacy.due_date);
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 1200);
       void loadContract();
@@ -836,7 +913,13 @@ export function ContractDetailsPage(props: {
       ...sections,
       addons: [
         ...sections.addons,
-        { number: '', signedAt: null, dueAt: null, engineBrands: [], parts: [] },
+        {
+          number: sections.primary.number,
+          signedAt: null,
+          dueAt: sections.primary.dueAt ?? null,
+          engineBrands: [],
+          parts: [],
+        },
       ],
     });
   }
@@ -851,8 +934,8 @@ export function ContractDetailsPage(props: {
   }
 
   const headerTitle = sections?.primary.number?.trim() ? `Контракт: ${sections.primary.number.trim()}` : 'Карточка контракта';
-  const { totalQty, totalSum, maxDueAt } = useMemo(() => (sections ? computeSectionTotals(sections) : { totalQty: 0, totalSum: 0, maxDueAt: null }), [sections]);
-  const daysLeft = maxDueAt != null ? Math.ceil((maxDueAt - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+  const { totalQty, totalSum, dueAt } = useMemo(() => (sections ? computeSectionTotals(sections) : { totalQty: 0, totalSum: 0, dueAt: null }), [sections]);
+  const daysLeft = dueAt != null ? Math.ceil((dueAt - Date.now()) / (24 * 60 * 60 * 1000)) : null;
   const progressPct = contractProgress != null ? contractProgress : 0;
   const executionState = getExecutionState(progressPct);
 
@@ -863,7 +946,7 @@ export function ContractDetailsPage(props: {
     const mainRows: Array<[string, string]> = [
       ['Номер', sections.primary.number || '—'],
       ['Дата заключения', toInputDate(sections.primary.signedAt) || '—'],
-      ['Дата исполнения', toInputDate(sections.primary.dueAt) || '—'],
+      ['Дата исполнения', toInputDate(effectiveContractDueAt(sections)) || '—'],
       ['Внутренний номер', sections.primary.internalNumber || '—'],
       ['Контрагент', customerOptions.find((o) => o.id === sections.primary.customerId)?.label ?? '—'],
       ['Наименование (ГОЗ)', accounting.gozName || '—'],
@@ -873,7 +956,7 @@ export function ContractDetailsPage(props: {
       ['Отдельный счет (банк)', accounting.separateAccountBank || '—'],
       ['Комментарий', accounting.comment || '—'],
       ['Кол-во (всего)', String(totalQty)],
-      ['Сумма контракта', totalSum.toLocaleString('ru-RU') + ' ₽'],
+      ['Сумма контракта', formatRuMoney(totalSum)],
     ];
     const fileDefs = defs.filter((d) => d.dataType === 'json' && parseMetaJson(d.metaJson)?.ui === 'files');
     const filesHtml =
@@ -893,8 +976,8 @@ export function ContractDetailsPage(props: {
           title: 'Карточка',
           html: keyValueTable([
             ['ID', contract.id],
-            ['Создано', new Date(contract.createdAt).toLocaleString('ru-RU')],
-            ['Обновлено', new Date(contract.updatedAt).toLocaleString('ru-RU')],
+            ['Создано', formatMoscowDateTime(contract.createdAt)],
+            ['Обновлено', formatMoscowDateTime(contract.updatedAt)],
           ]),
         },
       ],
@@ -932,7 +1015,6 @@ export function ContractDetailsPage(props: {
               dirtyRef.current = false;
             })();
           }}
-          onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
         />
@@ -954,6 +1036,9 @@ export function ContractDetailsPage(props: {
             engineBrandOptions={engineBrandOptions}
             partOptions={partOptions}
             customerOptions={customerOptions}
+            onOpenCounterparty={props.onOpenCounterparty}
+            {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
+            {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
             onChange={(primary) => { dirtyRef.current = true; setSections((s) => (s ? { ...s, primary: primary as ContractPrimarySection } : s)); }}
             canEdit={props.canEdit}
             canEditMasterData={props.canEditMasterData}
@@ -968,6 +1053,8 @@ export function ContractDetailsPage(props: {
               isPrimary={false}
               engineBrandOptions={engineBrandOptions}
               partOptions={partOptions}
+              {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
+              {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
               onChange={(addonSection) => {
                 dirtyRef.current = true;
                 setSections((s) =>
@@ -1068,7 +1155,7 @@ export function ContractDetailsPage(props: {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Сумма контракта</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{totalSum.toLocaleString('ru-RU')} ₽</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{formatRuMoney(totalSum)}</div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Дней до окончания</div>

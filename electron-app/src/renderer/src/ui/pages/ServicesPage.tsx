@@ -8,6 +8,8 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
   id: string;
@@ -77,12 +79,7 @@ export function ServicesPage(props: {
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      const label = (r.displayName ? `${r.displayName} ` : '') + r.id;
-      return label.toLowerCase().includes(q);
-    });
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
 
   const sorted = useSortedItems(
@@ -137,7 +134,7 @@ export function ServicesPage(props: {
               >
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без названия)'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
-                  {row.updatedAt ? new Date(row.updatedAt).toLocaleString('ru-RU') : '—'}
+                  {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   {props.canDelete && (
@@ -201,7 +198,7 @@ export function ServicesPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным услуги…" />
         </div>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>

@@ -2,6 +2,11 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+
+if (!process.env.TZ) {
+  process.env.TZ = 'Europe/Moscow';
+}
+
 // Важно: НЕ импортируем SQLite/IPC сервисы на верхнем уровне.
 // На Windows native-модуль (better-sqlite3) может падать при загрузке,
 // из-за чего приложение не успевает создать окно/лог.
@@ -20,6 +25,7 @@ import { applyRemoteClientSettings, getCachedClientSettings } from './services/c
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
+import { registerInputContextMenu } from './utils/contextMenu.js';
 
 let mainWindow: BrowserWindow | null = null;
 let mainWindowReady = false;
@@ -68,6 +74,7 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
+  registerInputContextMenu(mainWindow);
 
   // Не даём web-странице менять title — фиксируем заголовок окна.
   mainWindow.on('page-title-updated', (e) => {

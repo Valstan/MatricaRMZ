@@ -16,6 +16,7 @@ import {
   softDeleteEntity,
 } from '../api/masterdata.js';
 import { listParts } from '../api/parts.js';
+import { formatRuMoney } from './utils/dateUtils.js';
 
 type AttributeDef = {
   id: string;
@@ -572,7 +573,7 @@ export function ContractDetailsPage(props: {
               </div>
               <div>
                 <div style={{ color: '#6b7280' }}>Сумма контракта</div>
-                <div style={{ fontWeight: 600 }}>{Number(contractAmount || 0).toLocaleString('ru-RU')} ₽</div>
+                <div style={{ fontWeight: 600 }}>{formatRuMoney(Number(contractAmount || 0))}</div>
               </div>
               <div>
                 <div style={{ color: '#6b7280' }}>Степень исполнения</div>

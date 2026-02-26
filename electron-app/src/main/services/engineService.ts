@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { EntityTypeCode, STATUS_CODES, type StatusCode } from '@matricarmz/shared';
+import { EntityTypeCode, STATUS_CODES, parseContractSections, type StatusCode } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
 import { listEntitiesByType } from './entityService.js';
@@ -38,6 +38,83 @@ async function getDisplayNameMap(db: BetterSQLite3Database, typeCode: string): P
   return new Map(items.map((item) => [String(item.id), String(item.displayName ?? item.id)]));
 }
 
+async function getContractSignedAtMap(db: BetterSQLite3Database): Promise<Map<string, number>> {
+  const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Contract);
+  if (!typeId) return new Map();
+
+  const contractRows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+    .limit(20_000);
+  const contractIds = contractRows.map((row) => String(row.id)).filter(Boolean);
+  if (contractIds.length === 0) return new Map();
+
+  const contractDefs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const contractSectionsDefId = contractDefs.find((row) => String(row.code) === 'contract_sections')?.id ?? null;
+  const contractDateDefId = contractDefs.find((row) => String(row.code) === 'date')?.id ?? null;
+  const defIds = [contractSectionsDefId, contractDateDefId].filter(Boolean) as string[];
+  if (defIds.length === 0) return new Map();
+
+  const valueRows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, contractIds),
+        inArray(attributeValues.attributeDefId, defIds),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const valuesByContract = new Map<string, Map<string, string | null>>();
+  for (const row of valueRows) {
+    const entityId = String(row.entityId);
+    let map = valuesByContract.get(entityId);
+    if (!map) {
+      map = new Map<string, string | null>();
+      valuesByContract.set(entityId, map);
+    }
+    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+  }
+
+  const out = new Map<string, number>();
+  for (const contractId of contractIds) {
+    const values = valuesByContract.get(contractId) ?? new Map<string, string | null>();
+    let signedAt: number | null = null;
+
+    if (contractSectionsDefId) {
+      const sectionsRawValue = values.get(contractSectionsDefId);
+      if (sectionsRawValue != null) {
+        const sectionsRaw = safeJsonParse(sectionsRawValue);
+        const sections = parseContractSections({ contract_sections: sectionsRaw });
+        const fromSections = sections.primary.signedAt;
+        if (typeof fromSections === 'number' && Number.isFinite(fromSections)) signedAt = fromSections;
+      }
+    }
+
+    if (signedAt == null && contractDateDefId) {
+      const dateRawValue = values.get(contractDateDefId);
+      const dateRaw = dateRawValue != null ? safeJsonParse(dateRawValue) : null;
+      const parsed = typeof dateRaw === 'number' ? dateRaw : dateRaw != null ? Number(dateRaw) : null;
+      if (typeof parsed === 'number' && Number.isFinite(parsed)) signedAt = parsed;
+    }
+
+    if (signedAt != null) out.set(contractId, signedAt);
+  }
+
+  return out;
+}
+
 export async function listEngines(db: BetterSQLite3Database): Promise<EngineListItem[]> {
   const engineTypeId = await getEngineTypeId(db);
   const engines = await db
@@ -54,10 +131,12 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const arrivalDateDefId = defs['arrival_date'];
   const shippingDateDefId = defs['shipping_date'];
   const scrapDefId = defs['is_scrap'];
+  const attachmentsDefId = defs['attachments'];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
+  const contractSignedAtById = await getContractSignedAtMap(db);
 
   const engineIds = engines.map((e) => e.id);
   const baseDefIds = [
@@ -69,6 +148,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     arrivalDateDefId,
     shippingDateDefId,
     scrapDefId,
+    attachmentsDefId,
   ].filter(Boolean) as string[];
   const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds])];
 
@@ -118,6 +198,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     let arrivalDate: number | null | undefined;
     let shippingDate: number | null | undefined;
     let isScrap: boolean | undefined;
+    let attachmentPreviews: Array<{ id: string; name: string; mime: string | null }> = [];
 
     if (numberDefId) {
       const v = rowValues.get(numberDefId);
@@ -154,6 +235,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       isScrap = raw === true || raw === 'true' || raw === 1;
     }
+    if (attachmentsDefId) {
+      const v = rowValues.get(attachmentsDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
+      attachmentPreviews = toAttachmentPreviews(raw);
+    }
 
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
     if (statusDefIds.length > 0) {
@@ -169,6 +255,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
 
     const customerName = customerId ? customerNameById.get(customerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
+    const contractSignedAt = contractId ? contractSignedAtById.get(contractId) : undefined;
     result.push({
       id: e.id,
       engineNumber: engineNumber ?? '',
@@ -184,7 +271,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,
+      ...(typeof contractSignedAt === 'number' ? { contractSignedAt } : {}),
       ...(Object.keys(statusFlags).length > 0 && { statusFlags }),
+      ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
     });
   }
   return result.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -300,6 +389,23 @@ function safeStringFromJson(s: string): string | undefined {
   if (typeof v === 'string') return v;
   if (v == null) return undefined;
   return String(v);
+}
+
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
 }
 
 

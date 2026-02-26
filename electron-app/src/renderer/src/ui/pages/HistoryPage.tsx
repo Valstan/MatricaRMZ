@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { ChatDeepLinkPayload, ChatMessageItem, NoteItem, NoteShareItem } from '@matricarmz/shared';
 
 import { theme } from '../theme.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -32,7 +33,7 @@ function quickTilesStorageKey(userId: string) {
 
 function formatDateTime(ms: number) {
   try {
-    return new Date(ms).toLocaleString('ru-RU');
+    return formatMoscowDateTime(ms);
   } catch {
     return '';
   }

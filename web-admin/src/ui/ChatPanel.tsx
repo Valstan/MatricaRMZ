@@ -5,6 +5,7 @@ import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import * as chatApi from '../api/chat.js';
 import { upsertNote } from '../api/notes.js';
+import { formatMoscowDateTime } from './utils/dateUtils.js';
 
 type ChatUserItem = {
   id: string;
@@ -641,12 +642,12 @@ export function ChatPanel(props: {
                   </div>
                 )}
                 <div style={{ marginTop: 4, fontSize: 11, color: '#6b7280', textAlign: mine ? 'right' : 'left' }}>
-                  {new Date(m.createdAt).toLocaleString('ru-RU')}
+                  {formatMoscowDateTime(m.createdAt)}
                 </div>
                 {infoOpen && (
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e5e7eb', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div className="muted" style={{ fontSize: 12 }}>
-                      {new Date(m.createdAt).toLocaleString('ru-RU')}
+                      {formatMoscowDateTime(m.createdAt)}
                     </div>
                     {breadcrumbText ? <div className="muted" style={{ fontSize: 12 }}>Путь: {breadcrumbText}</div> : null}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

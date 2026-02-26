@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
   id: string;
@@ -56,9 +57,7 @@ export function ToolPropertiesPage(props: {
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => `${r.name ?? ''} ${r.params ?? ''}`.toLowerCase().includes(q));
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
 
   const sorted = useSortedItems(
@@ -101,7 +100,7 @@ export function ToolPropertiesPage(props: {
           </Button>
         )}
         <div style={{ flex: 1, minWidth: 220 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по названию/параметрам…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным свойства…" />
         </div>
       </div>
 

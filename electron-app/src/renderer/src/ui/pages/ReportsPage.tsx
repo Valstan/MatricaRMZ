@@ -13,6 +13,7 @@ import type {
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
@@ -49,9 +50,9 @@ function fromInputDate(value: string, mode: 'start' | 'end'): number | null {
 
 function formatCell(kind: ReportFilterSpec['type'] | 'date' | 'datetime' | 'number' | 'text', value: ReportCellValue): string {
   if (value == null) return '';
-  if (kind === 'date' && typeof value === 'number') return new Date(value).toLocaleDateString('ru-RU');
-  if (kind === 'datetime' && typeof value === 'number') return new Date(value).toLocaleString('ru-RU');
-  if (kind === 'number' && typeof value === 'number') return value.toLocaleString('ru-RU');
+  if (kind === 'date' && typeof value === 'number') return formatMoscowDate(value);
+  if (kind === 'datetime' && typeof value === 'number') return formatMoscowDateTime(value);
+  if (kind === 'number' && typeof value === 'number') return formatRuNumber(value);
   return String(value);
 }
 
@@ -98,13 +99,13 @@ function formatReportTotalValue(key: string, value: unknown): string {
   const normalizedKey = key.toLowerCase();
   const isPercent = normalizedKey.includes('pct');
   if (isPercent) {
-    return `${value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+    return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   }
   const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
   if (isMoney) {
-    return `${value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
+    return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  return value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+  return formatRuNumber(value, { maximumFractionDigits: 2 });
 }
 
 function formatReportTotals(totals: Record<string, unknown>): string[] {

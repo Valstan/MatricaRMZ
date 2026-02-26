@@ -12,8 +12,9 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
-import { STATUS_CODES, STATUS_LABELS, type StatusCode } from '@matricarmz/shared';
+import { STATUS_CODES, STATUS_LABELS, statusDateCode, type StatusCode } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -48,7 +49,8 @@ type Part = {
   attributes: Attribute[];
 };
 
-function toInputDate(ms: number): string {
+function toInputDate(ms: number | null | undefined): string {
+  if (!ms || !Number.isFinite(ms)) return '';
   const d = new Date(ms);
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -63,6 +65,13 @@ function fromInputDate(v: string): number | null {
   const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
   const ms = dt.getTime();
   return Number.isFinite(ms) ? ms : null;
+}
+
+function normalizeDateInput(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -122,7 +131,16 @@ function fileListHtml(list: unknown) {
     ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
     : [];
   if (items.length === 0) return '<div class="muted">Нет файлов</div>';
-  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
+  return `<ul>${items
+    .map((f) => {
+      const entry = f as { name: string; isObsolete?: boolean };
+      const obsoleteBadge =
+        entry.isObsolete === true
+          ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;">Устаревшая версия</span>'
+          : '';
+      return `<li>${escapeHtml(String(entry.name))}${obsoleteBadge}</li>`;
+    })
+    .join('')}</ul>`;
 }
 
 export function PartDetailsPage(props: {
@@ -131,6 +149,10 @@ export function PartDetailsPage(props: {
   canDelete: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onOpenCustomer?: (customerId: string) => void;
+  onOpenContract?: (contractId: string) => void;
+  onOpenEngineBrand?: (engineBrandId: string) => void;
+  onOpenByCode?: Record<string, ((id: string) => void) | undefined>;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -161,6 +183,11 @@ export function PartDetailsPage(props: {
   const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
     const out: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) out[c] = false;
+    return out;
+  });
+  const [statusDates, setStatusDates] = useState<Partial<Record<StatusCode, number | null>>>(() => {
+    const out: Partial<Record<StatusCode, number | null>> = {};
+    for (const c of STATUS_CODES) out[c] = null;
     return out;
   });
 
@@ -657,7 +684,10 @@ export function PartDetailsPage(props: {
         sortOrder: 65,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
       },
-      ...STATUS_CODES.map((code, i) => ({ code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 70 + i })),
+      ...STATUS_CODES.flatMap((code, i) => [
+        { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 70 + i * 2 },
+        { code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date' as const, sortOrder: 71 + i * 2 },
+      ]),
     ];
     void ensureAttributeDefs(partTypeId, desired, partDefs).then((next) => {
       if (next.length !== partDefs.length) setPartDefs(next);
@@ -699,6 +729,9 @@ export function PartDetailsPage(props: {
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = Boolean(byCode[c]?.value);
     setStatusFlags(flags);
+    const dates: Partial<Record<StatusCode, number | null>> = {};
+    for (const c of STATUS_CODES) dates[c] = normalizeDateInput(byCode[statusDateCode(c)]?.value);
+    setStatusDates(dates);
     dirtyRef.current = false;
   }, [part?.id, part?.updatedAt]);
 
@@ -805,7 +838,10 @@ export function PartDetailsPage(props: {
     await saveAttribute('supplier_id', supplierId || null);
     await saveAttribute('supplier', supplierLabel || supplier);
     await saveAttribute('contract_id', contractId || null);
-    for (const c of STATUS_CODES) await saveAttribute(c, statusFlags[c] ?? false);
+    for (const c of STATUS_CODES) {
+      await saveAttribute(c, statusFlags[c] ?? false);
+      await saveAttribute(statusDateCode(c), statusDates[c] ?? null);
+    }
   }
 
   async function saveAllAndClose() {
@@ -849,6 +885,7 @@ export function PartDetailsPage(props: {
     'supplier_id',
     'contract_id',
     ...STATUS_CODES,
+    ...STATUS_CODES.map((code) => statusDateCode(code)),
   ]);
   // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
   const hiddenFromExtra = new Set(['assembly_unit_number', 'engine_brand_ids', 'engine_brand_qty_map', 'drawings', 'tech_docs', 'attachments']);
@@ -957,6 +994,16 @@ export function PartDetailsPage(props: {
                 return id;
               }}
             />
+            {supplierId && props.onOpenCustomer ? (
+              <Button
+                variant="outline"
+                tone="neutral"
+                size="sm"
+                onClick={() => props.onOpenCustomer?.(supplierId)}
+              >
+                Открыть
+              </Button>
+            ) : null}
             {customerStatus && (
               <span style={{ color: customerStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{customerStatus}</span>
             )}
@@ -969,48 +1016,78 @@ export function PartDetailsPage(props: {
         label: 'Контракт',
         value: contractOptions.find((c) => c.id === contractId)?.label ?? (contractId || ''),
         render: (
-          <SearchSelectWithCreate
-            value={contractId || null}
-            options={contractOptions}
-            placeholder="Выберите контракт"
-            disabled={!props.canEdit}
-            canCreate={props.canEdit}
-            createLabel="Новый контракт"
-            onChange={(next) => {
-              dirtyRef.current = true;
-              setContractId(next ?? '');
-            }}
-            onCreate={async (label) => {
-              const id = await createMasterDataEntity('contract', label);
-              if (!id) return null;
-              dirtyRef.current = true;
-              setContractId(id);
-              return id;
-            }}
-          />
-        ),
-      },
-      ...STATUS_CODES.map((code) => ({
-        code,
-        defaultOrder: 70 + STATUS_CODES.indexOf(code),
-        label: STATUS_LABELS[code],
-        value: statusFlags[code] ? 'да' : 'нет',
-        render: (
-          <label key={code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={!!statusFlags[code]}
+          <div style={{ display: 'grid', gap: 6 }}>
+            <SearchSelectWithCreate
+              value={contractId || null}
+              options={contractOptions}
+              placeholder="Выберите контракт"
               disabled={!props.canEdit}
-              onChange={(e) => {
-                const next = e.target.checked;
+              canCreate={props.canEdit}
+              createLabel="Новый контракт"
+              onChange={(next) => {
                 dirtyRef.current = true;
-                setStatusFlags((prev) => ({ ...prev, [code]: next }));
+                setContractId(next ?? '');
+              }}
+              onCreate={async (label) => {
+                const id = await createMasterDataEntity('contract', label);
+                if (!id) return null;
+                dirtyRef.current = true;
+                setContractId(id);
+                return id;
               }}
             />
-            <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
-          </label>
+            {contractId && props.onOpenContract ? (
+              <Button
+                variant="outline"
+                tone="neutral"
+                size="sm"
+                onClick={() => props.onOpenContract?.(contractId)}
+              >
+                Открыть
+              </Button>
+            ) : null}
+          </div>
         ),
-      })),
+      },
+      ...STATUS_CODES.map((code) => {
+        const dateValue = toInputDate(statusDates[code] ?? null);
+        return {
+          code,
+          defaultOrder: 70 + STATUS_CODES.indexOf(code) * 2,
+          label: STATUS_LABELS[code],
+          value: statusFlags[code] ? 'да' : 'нет',
+          render: (
+            <div key={code} style={{ display: 'grid', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!statusFlags[code]}
+                  disabled={!props.canEdit}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    dirtyRef.current = true;
+                    setStatusFlags((prev) => ({ ...prev, [code]: next }));
+                    setStatusDates((prev) => ({
+                      ...prev,
+                      [code]: next ? prev[code] ?? Date.now() : null,
+                    }));
+                  }}
+                />
+                <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
+              </label>
+              <Input
+                type="date"
+                value={dateValue}
+                disabled={!props.canEdit}
+                onChange={(e) => {
+                  dirtyRef.current = true;
+                  setStatusDates((prev) => ({ ...prev, [code]: fromInputDate(e.target.value) }));
+                }}
+              />
+            </div>
+          ),
+        };
+      }),
     ],
     partDefs,
   );
@@ -1032,13 +1109,20 @@ export function PartDetailsPage(props: {
       return (
         <div key={link.id} style={rowStyle}>
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: canEdit ? '2fr 2.2fr 1fr 150px' : '2fr 2.2fr 1fr', alignItems: 'end' }}>
-            <SearchSelect
-              value={draft.engineBrandId || null}
-              options={engineBrandOptions}
-              disabled={!canEdit}
-              placeholder="Марка двигателя"
-              onChange={(next) => setDraft(link.id, { engineBrandId: next || '' })}
-            />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <SearchSelect
+                value={draft.engineBrandId || null}
+                options={engineBrandOptions}
+                disabled={!canEdit}
+                placeholder="Марка двигателя"
+                onChange={(next) => setDraft(link.id, { engineBrandId: next || '' })}
+              />
+              {draft.engineBrandId && props.onOpenEngineBrand ? (
+                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEngineBrand?.(draft.engineBrandId)}>
+                  Открыть
+                </Button>
+              ) : null}
+            </div>
             <Input
               value={draft.assemblyUnitNumber}
               disabled={!canEdit}
@@ -1105,13 +1189,20 @@ export function PartDetailsPage(props: {
 
         {canEdit && (
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '2fr 2.2fr 1fr 150px', alignItems: 'end' }}>
-            <SearchSelect
-              value={newBrandLink.engineBrandId || null}
-              options={engineBrandOptions}
-              disabled={!canEdit}
-              placeholder="Выберите марку"
-              onChange={(next) => setNewBrandLink((prev) => ({ ...prev, engineBrandId: next || '' }))}
-            />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <SearchSelect
+                value={newBrandLink.engineBrandId || null}
+                options={engineBrandOptions}
+                disabled={!canEdit}
+                placeholder="Выберите марку"
+                onChange={(next) => setNewBrandLink((prev) => ({ ...prev, engineBrandId: next || '' }))}
+              />
+              {newBrandLink.engineBrandId && props.onOpenEngineBrand ? (
+                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEngineBrand?.(newBrandLink.engineBrandId)}>
+                  Открыть
+                </Button>
+              ) : null}
+            </div>
             <Input
               value={newBrandLink.assemblyUnitNumber}
               disabled={!canEdit}
@@ -1190,8 +1281,8 @@ export function PartDetailsPage(props: {
           title: 'Карточка',
           html: keyValueTable([
             ['ID', part.id],
-            ['Создано', new Date(part.createdAt).toLocaleString('ru-RU')],
-            ['Обновлено', new Date(part.updatedAt).toLocaleString('ru-RU')],
+            ['Создано', formatMoscowDateTime(part.createdAt)],
+            ['Обновлено', formatMoscowDateTime(part.updatedAt)],
           ]),
         },
       ],
@@ -1227,10 +1318,6 @@ export function PartDetailsPage(props: {
               : undefined
           }
           onReset={props.canEdit ? () => void load().then(() => { dirtyRef.current = false; }) : undefined}
-          onCloseWithoutSave={() => {
-            dirtyRef.current = false;
-            props.onClose();
-          }}
           onDelete={props.canDelete ? () => void handleDelete() : undefined}
           onClose={props.requestClose ? () => props.requestClose?.() : undefined}
         />
@@ -1308,10 +1395,10 @@ export function PartDetailsPage(props: {
               <span style={{ color: 'var(--text)' }}>ID:</span> {part.id}
             </div>
             <div style={{ marginTop: 6 }}>
-              <span style={{ color: 'var(--text)' }}>Создано:</span> {new Date(part.createdAt).toLocaleString('ru-RU')}
+              <span style={{ color: 'var(--text)' }}>Создано:</span> {formatMoscowDateTime(part.createdAt)}
             </div>
             <div style={{ marginTop: 6 }}>
-              <span style={{ color: 'var(--text)' }}>Обновлено:</span> {new Date(part.updatedAt).toLocaleString('ru-RU')}
+              <span style={{ color: 'var(--text)' }}>Обновлено:</span> {formatMoscowDateTime(part.updatedAt)}
             </div>
           </div>
 
@@ -1494,6 +1581,23 @@ export function PartDetailsPage(props: {
                   attr.dataType === 'link' && typeof value === 'string'
                     ? (linkOptionsByCode[attr.code] ?? []).find((o) => o.id === value) ?? null
                     : null;
+                const targetTypeCode = getLinkTargetTypeCode(attr);
+                const openByTarget =
+                  targetTypeCode && !['department', 'unit'].includes(targetTypeCode) ? props.onOpenByCode?.[targetTypeCode] : undefined;
+                const readDisplay =
+                  value === null || value === undefined
+                    ? <span style={{ color: 'var(--subtle)' }}>—</span>
+                    : attr.dataType === 'link'
+                    ? linkOpt?.label ?? (typeof value === 'string' ? value : '')
+                    : typeof value === 'string'
+                    ? value
+                    : typeof value === 'number'
+                    ? String(value)
+                    : typeof value === 'boolean'
+                    ? value
+                      ? 'Да'
+                      : 'Нет'
+                    : JSON.stringify(value);
 
                 return (
                   <div
@@ -1516,6 +1620,9 @@ export function PartDetailsPage(props: {
                     {!props.canEdit || !isEditing ? (
                       <div
                         style={{
+                          display: 'flex',
+                          gap: 8,
+                          alignItems: 'center',
                           padding: '10px 12px',
                           border: '1px solid var(--border)',
                           borderRadius: 0,
@@ -1529,17 +1636,20 @@ export function PartDetailsPage(props: {
                           if (props.canEdit) setEditingAttr({ ...editingAttr, [attr.code]: attr.value });
                         }}
                       >
-                        {value === null || value === undefined ? (
-                          <span style={{ color: 'var(--subtle)' }}>—</span>
-                        ) : typeof value === 'string' ? (
-                          linkOpt?.label ?? value
-                        ) : typeof value === 'number' ? (
-                          String(value)
-                        ) : typeof value === 'boolean' ? (
-                          value ? 'Да' : 'Нет'
-                        ) : (
-                          JSON.stringify(value)
-                        )}
+                        <span style={{ flex: 1 }}>{readDisplay}</span>
+                        {typeof value === 'string' && value && openByTarget ? (
+                          <Button
+                            variant="outline"
+                            tone="neutral"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openByTarget?.(value);
+                            }}
+                          >
+                            Открыть
+                          </Button>
+                        ) : null}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -1550,13 +1660,20 @@ export function PartDetailsPage(props: {
                             style={{ flex: 1 }}
                           />
                         ) : attr.dataType === 'link' ? (
-                          <SearchSelect
-                            value={typeof value === 'string' ? value : ''}
-                            options={linkOptionsByCode[attr.code] ?? []}
-                            placeholder="Выберите значение"
-                            {...((!props.canEdit || linkLoadingByCode[attr.code]) ? { disabled: true } : {})}
-                            onChange={(next) => setEditingAttr({ ...editingAttr, [attr.code]: next })}
-                          />
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            <SearchSelect
+                              value={typeof value === 'string' ? value : ''}
+                              options={linkOptionsByCode[attr.code] ?? []}
+                              placeholder="Выберите значение"
+                              {...((!props.canEdit || linkLoadingByCode[attr.code]) ? { disabled: true } : {})}
+                              onChange={(next) => setEditingAttr({ ...editingAttr, [attr.code]: next })}
+                            />
+                            {typeof value === 'string' && value && openByTarget ? (
+                              <Button variant="outline" tone="neutral" size="sm" onClick={() => openByTarget?.(value)}>
+                                Открыть
+                              </Button>
+                            ) : null}
+                          </div>
                         ) : attr.dataType === 'number' ? (
                           <Input
                             type="number"

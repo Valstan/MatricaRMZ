@@ -32,6 +32,23 @@ function normalizeSearch(s: string): string {
     .trim();
 }
 
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
+}
+
 function normalizeRole(role: string | null | undefined) {
   return String(role ?? '').trim().toLowerCase();
 }
@@ -143,6 +160,7 @@ export async function listSupplyRequests(
         updatedAt: number;
         isIncomplete?: boolean;
         itemsCount: number;
+        attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
       }[];
     }
   | { ok: false; error: string }
@@ -191,8 +209,7 @@ export async function listSupplyRequests(
               requestNumber,
               title,
               r.note ?? '',
-              JSON.stringify(parsed.items ?? []),
-              JSON.stringify(parsed.auditTrail ?? []),
+              JSON.stringify(parsed),
             ].join(' '),
           )
         : '';
@@ -200,6 +217,7 @@ export async function listSupplyRequests(
 
       const items = Array.isArray(parsed.items) ? parsed.items : [];
       const itemsCount = items.length;
+      const attachmentPreviews = toAttachmentPreviews((parsed as any).attachments);
       const isIncomplete = items.some((it: any) => {
         const ordered = Number(it?.qty) || 0;
         const deliveries = Array.isArray(it?.deliveries) ? it.deliveries : [];
@@ -221,6 +239,7 @@ export async function listSupplyRequests(
         sectionId: parsed.sectionId ? String(parsed.sectionId) : null,
         updatedAt: Number(r.updatedAt),
         isIncomplete,
+        ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
       });
     }
 

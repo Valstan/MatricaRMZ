@@ -10,6 +10,7 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -113,7 +114,7 @@ function printSupplyRequest(
       const remaining = (Number(it.qty) || 0) - delivered;
       const deliveriesHtml = (it.deliveries ?? [])
         .map((d) => {
-          const dt = d.deliveredAt ? new Date(d.deliveredAt).toLocaleDateString('ru-RU') : '-';
+          const dt = d.deliveredAt ? formatMoscowDate(d.deliveredAt) : '-';
           return `<div>${escapeHtml(dt)}: ${escapeHtml(String(d.qty ?? ''))} ${escapeHtml(it.unit ?? '')}${
             d.note ? ` (${escapeHtml(d.note)})` : ''
           }</div>`;
@@ -144,11 +145,11 @@ function printSupplyRequest(
     .join('\n');
 
   const headName = p.signedByHead?.username ?? '';
-  const headAt = p.signedByHead?.signedAt ? new Date(p.signedByHead.signedAt).toLocaleString('ru-RU') : '';
+  const headAt = p.signedByHead?.signedAt ? formatMoscowDateTime(p.signedByHead.signedAt) : '';
   const dirName = p.approvedByDirector?.username ?? '';
-  const dirAt = p.approvedByDirector?.signedAt ? new Date(p.approvedByDirector.signedAt).toLocaleString('ru-RU') : '';
+  const dirAt = p.approvedByDirector?.signedAt ? formatMoscowDateTime(p.approvedByDirector.signedAt) : '';
   const supplyName = p.acceptedBySupply?.username ?? '';
-  const supplyAt = p.acceptedBySupply?.signedAt ? new Date(p.acceptedBySupply.signedAt).toLocaleString('ru-RU') : '';
+  const supplyAt = p.acceptedBySupply?.signedAt ? formatMoscowDateTime(p.acceptedBySupply.signedAt) : '';
 
   const footer = `
   <div style="margin-top:18px;">
@@ -165,7 +166,7 @@ function printSupplyRequest(
     orderedRows && orderedRows.length > 0
       ? keyValueTable(orderedRows)
       : `
-        <div><b>Дата составления:</b> ${escapeHtml(new Date(p.compiledAt).toLocaleDateString('ru-RU'))}</div>
+        <div><b>Дата составления:</b> ${escapeHtml(formatMoscowDate(p.compiledAt))}</div>
         <div><b>Статус:</b> ${escapeHtml(statusLabel(p.status))}</div>
         <div><b>Подразделение:</b> ${escapeHtml(departmentLabel || p.departmentId || '-')}</div>
         <div><b>Описание:</b> ${escapeHtml(p.title || '-')}</div>
@@ -200,7 +201,7 @@ function printSupplyRequest(
 
   openPrintPreview({
     title: `Заявка ${p.requestNumber}`,
-    ...(p.compiledAt ? { subtitle: `Дата: ${new Date(p.compiledAt).toLocaleDateString('ru-RU')}` } : {}),
+    ...(p.compiledAt ? { subtitle: `Дата: ${formatMoscowDate(p.compiledAt)}` } : {}),
     sections: [
       { id: 'main', title: 'Основное', html: mainHtml },
       { id: 'items', title: 'Позиции', html: itemsHtml },
@@ -221,6 +222,8 @@ export function SupplyRequestDetailsPage(props: {
   canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onOpenProduct?: (productId: string) => void;
+  onOpenService?: (serviceId: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -665,10 +668,6 @@ export function SupplyRequestDetailsPage(props: {
               sessionHadChanges.current = false;
             });
           }}
-          onCloseWithoutSave={() => {
-            sessionHadChanges.current = false;
-            props.onClose();
-          }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
         />
@@ -844,6 +843,12 @@ export function SupplyRequestDetailsPage(props: {
               {(payload.items ?? []).map((it, idx) => {
                 const delivered = sumDelivered(it.deliveries);
                 const remaining = Math.max(0, (Number(it.qty) || 0) - delivered);
+                const linkedProduct = productOptions.find((p) => p.id === it.productId);
+                const onOpenItem = linkedProduct?.kind === 'service'
+                  ? props.onOpenService
+                  : linkedProduct?.kind === 'product'
+                    ? props.onOpenProduct
+                    : null;
                 return (
                   <React.Fragment key={idx}>
                     <tr
@@ -969,6 +974,16 @@ export function SupplyRequestDetailsPage(props: {
                               return id;
                             }}
                           />
+                          {it.productId && onOpenItem ? (
+                            <Button
+                              variant="outline"
+                              tone="neutral"
+                              size="sm"
+                              onClick={() => onOpenItem?.(it.productId as string)}
+                            >
+                              Открыть
+                            </Button>
+                          ) : null}
                           {!it.productId && it.name?.trim() && (
                             <span style={{ color: 'var(--danger)', fontSize: 12 }}>Нет совпадения: {it.name}</span>
                           )}

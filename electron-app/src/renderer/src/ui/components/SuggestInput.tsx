@@ -82,7 +82,7 @@ export function SuggestInput(props: {
   }
 
   return (
-    <div ref={dropdown.rootRef} style={{ position: 'relative' }}>
+    <div ref={dropdown.rootRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <input
         ref={inputRef}
         value={props.value}
@@ -145,6 +145,7 @@ export function SuggestInput(props: {
         }}
         style={{
           width: '100%',
+          minWidth: 0,
           padding: '7px 10px',
           border: '1px solid var(--input-border)',
           outline: 'none',

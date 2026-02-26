@@ -37,14 +37,27 @@ export type ContractSections = {
 
 export const STATUS_CODES = [
   'status_rework_sent',
-  'status_storage_received',
   'status_repair_started',
   'status_repaired',
   'status_customer_sent',
+  'status_storage_received',
   'status_rejected',
 ] as const;
 
 export type StatusCode = (typeof STATUS_CODES)[number];
+
+export const STATUS_DATE_CODES: Record<StatusCode, `${StatusCode}_date`> = {
+  status_rework_sent: 'status_rework_sent_date',
+  status_storage_received: 'status_storage_received_date',
+  status_repair_started: 'status_repair_started_date',
+  status_repaired: 'status_repaired_date',
+  status_customer_sent: 'status_customer_sent_date',
+  status_rejected: 'status_rejected_date',
+};
+
+export function statusDateCode(code: StatusCode): string {
+  return STATUS_DATE_CODES[code];
+}
 
 export const STATUS_LABELS: Record<StatusCode, string> = {
   status_rework_sent: 'Отправлен заказчику на перекомплектацию',
@@ -91,25 +104,26 @@ export type ProgressLinkedItem = {
 };
 
 export type ProgressAggregate = {
-  sumStages: number;
-  count: number;
+  shippedCount: number;
+  totalCount: number;
   progress01: number | null;
   progressPct: number | null;
 };
 
 export function aggregateProgress(items: Array<Pick<ProgressLinkedItem, 'statusFlags'>>): ProgressAggregate {
-  let sumStages = 0;
-  let count = 0;
+  let totalCount = 0;
+  let shippedCount = 0;
   for (const item of items) {
-    if (!item.statusFlags) continue;
-    sumStages += computeObjectProgress(item.statusFlags);
-    count += 1;
+    if (item.statusFlags?.status_customer_sent) {
+      shippedCount += 1;
+    }
+    totalCount += 1;
   }
   return {
-    sumStages,
-    count,
-    progress01: count > 0 ? sumStages / (count * 100) : null,
-    progressPct: count > 0 ? sumStages / count : null,
+    shippedCount,
+    totalCount,
+    progress01: totalCount > 0 ? shippedCount / totalCount : null,
+    progressPct: totalCount > 0 ? (shippedCount / totalCount) * 100 : null,
   };
 }
 
@@ -180,11 +194,22 @@ export function parseContractSections(attrs: Record<string, unknown>): ContractS
   return { primary, addons: [] };
 }
 
-export function contractSectionsToLegacy(sections: ContractSections): { number: string; internal_number: string; date: number | null } {
+export function effectiveContractDueAt(sections: ContractSections): number | null {
+  let dueAt: number | null = sections.primary.dueAt ?? null;
+  for (const addon of sections.addons) {
+    if (addon.dueAt != null) dueAt = addon.dueAt;
+  }
+  return dueAt;
+}
+
+export function contractSectionsToLegacy(
+  sections: ContractSections,
+): { number: string; internal_number: string; date: number | null; due_date: number | null } {
   const p = sections.primary;
   return {
     number: p.number,
     internal_number: p.internalNumber,
     date: p.signedAt,
+    due_date: effectiveContractDueAt(sections),
   };
 }

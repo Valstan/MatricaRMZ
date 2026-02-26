@@ -14,6 +14,8 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 
+type PhotoFileRef = FileRef & { isObsolete?: boolean };
+
 export function SimpleMasterdataDetailsPage(props: {
   title: string;
   entityId: string;
@@ -22,6 +24,7 @@ export function SimpleMasterdataDetailsPage(props: {
   canEdit: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onOpenCustomer?: (customerId: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -34,7 +37,7 @@ export function SimpleMasterdataDetailsPage(props: {
   const [article, setArticle] = useState<string>('');
   const [unit, setUnit] = useState<string>('');
   const [price, setPrice] = useState<string>('');
-  const [photos, setPhotos] = useState<FileRef[]>([]);
+  const [photos, setPhotos] = useState<PhotoFileRef[]>([]);
   const [mainPhotoId, setMainPhotoId] = useState<string | null>(null);
   const [photoThumbs, setPhotoThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const thumbsRef = useRef(photoThumbs);
@@ -85,7 +88,7 @@ export function SimpleMasterdataDetailsPage(props: {
     }
   }
 
-  function isFileRef(x: any): x is FileRef {
+  function isFileRef(x: any): x is PhotoFileRef {
     return x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string';
   }
 
@@ -298,11 +301,42 @@ export function SimpleMasterdataDetailsPage(props: {
 
   const ownerType = props.ownerType ?? 'masterdata';
   const activePhoto = useMemo(() => photos.find((p) => p.id === mainPhotoId) ?? photos[0] ?? null, [photos, mainPhotoId]);
+
+  function isObsoleteFile(file: PhotoFileRef): boolean {
+    return file.isObsolete === true;
+  }
+
+  async function togglePhotoObsoleteFlag(fileId: string, nextObsolete: boolean) {
+    if (!props.canEdit || !props.canUploadFiles) return;
+    const nextPhotos = photos.map((file) => {
+      if (file.id !== fileId) return file;
+      if (nextObsolete) return { ...file, isObsolete: true } as PhotoFileRef;
+      const { isObsolete: _isObsolete, ...clean } = file;
+      return clean as PhotoFileRef;
+    });
+    const saved = await saveFiles('photos', nextPhotos, (v) => setPhotos(Array.isArray(v) ? v.filter(isFileRef) : []));
+    if (!saved.ok) {
+      uploadFlow.setStatusWithTimeout(`Неуспешно: ${saved.error}`, 4500);
+      return;
+    }
+    uploadFlow.setStatusWithTimeout(nextObsolete ? 'Фото помечено как «Устаревшая версия»' : 'Пометка снята', 1600);
+  }
+
   const photosBlock = (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <strong>Фото</strong>
         <div style={{ flex: 1 }} />
+        {activePhoto && props.canUploadFiles && props.canEdit && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              void togglePhotoObsoleteFlag(activePhoto.id, !isObsoleteFile(activePhoto));
+            }}
+          >
+            {isObsoleteFile(activePhoto) ? 'Снять пометку' : 'Пометить устаревшей'}
+          </Button>
+        )}
         {props.canUploadFiles && props.canEdit && (
           <Button
             variant="ghost"
@@ -377,6 +411,24 @@ export function SimpleMasterdataDetailsPage(props: {
       ) : null}
       {activePhoto ? (
         <div style={{ display: 'grid', gap: 8 }}>
+          {isObsoleteFile(activePhoto) ? (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                width: 'fit-content',
+                padding: '3px 10px',
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#991b1b',
+                background: '#fee2e2',
+                border: '1px solid #fecaca',
+              }}
+            >
+              Устаревшая версия
+            </div>
+          ) : null}
           <div style={{ overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--surface)' }}>
             {photoThumbs[activePhoto.id]?.dataUrl ? (
               <img
@@ -401,6 +453,7 @@ export function SimpleMasterdataDetailsPage(props: {
                   borderRadius: 0,
                   overflow: 'hidden',
                   padding: 0,
+                  position: 'relative',
                   background: 'var(--surface)',
                   width: 80,
                   height: 80,
@@ -408,12 +461,39 @@ export function SimpleMasterdataDetailsPage(props: {
                 }}
               >
                 {photoThumbs[p.id]?.dataUrl ? (
-                  <img src={photoThumbs[p.id]?.dataUrl ?? ''} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img
+                    src={photoThumbs[p.id]?.dataUrl ?? ''}
+                    alt=""
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      ...(isObsoleteFile(p) ? { filter: 'grayscale(35%) brightness(0.9)' } : {}),
+                    }}
+                  />
                 ) : (
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)' }}>
                     Фото
                   </div>
                 )}
+                {isObsoleteFile(p) ? (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 2,
+                      right: 2,
+                      bottom: 2,
+                      padding: '2px 4px',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      color: '#fff',
+                      background: 'rgba(153, 27, 27, 0.9)',
+                    }}
+                  >
+                    Устаревшая версия
+                  </div>
+                ) : null}
               </button>
             ))}
           </div>
@@ -481,27 +561,34 @@ export function SimpleMasterdataDetailsPage(props: {
         label: 'Магазин',
         value: shop,
         render: (
-          <SearchSelectWithCreate
-            value={storeOptions.find((o) => o.label === shop)?.id ?? null}
-            options={storeOptions}
-            disabled={!props.canEdit}
-            canCreate={props.canEdit}
-            createLabel="Добавить контрагента"
-            onChange={(next) => {
-              dirtyRef.current = true;
-              const label = storeOptions.find((o) => o.id === next)?.label ?? '';
-              setShop(label);
-            }}
-            onCreate={async (label) => {
-              const id = await createLookupEntity(storeTypeId, label);
-              if (!id) return null;
-              const opt = { id, label: label.trim() };
-              setStoreOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
-              dirtyRef.current = true;
-              setShop(label.trim());
-              return id;
-            }}
-          />
+          <div style={{ display: 'grid', gap: 6 }}>
+            <SearchSelectWithCreate
+              value={storeOptions.find((o) => o.label === shop)?.id ?? null}
+              options={storeOptions}
+              disabled={!props.canEdit}
+              canCreate={props.canEdit}
+              createLabel="Добавить контрагента"
+              onChange={(next) => {
+                dirtyRef.current = true;
+                const label = storeOptions.find((o) => o.id === next)?.label ?? '';
+                setShop(label);
+              }}
+              onCreate={async (label) => {
+                const id = await createLookupEntity(storeTypeId, label);
+                if (!id) return null;
+                const opt = { id, label: label.trim() };
+                setStoreOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+                dirtyRef.current = true;
+                setShop(label.trim());
+                return id;
+              }}
+            />
+            {props.onOpenCustomer && storeOptions.find((o) => o.label === shop)?.id ? (
+              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCustomer?.(storeOptions.find((o) => o.label === shop)?.id ?? '')}>
+                Открыть
+              </Button>
+            ) : null}
+          </div>
         ),
       },
       {
@@ -593,7 +680,6 @@ export function SimpleMasterdataDetailsPage(props: {
               dirtyRef.current = false;
             });
           }}
-          onCloseWithoutSave={() => { dirtyRef.current = false; props.onClose(); }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
         />

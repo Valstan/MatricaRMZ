@@ -8,6 +8,7 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 
 type Row = {
   id: string;
@@ -125,7 +126,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
                   {row.workOrderNumber}
                 </td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
-                  {row.orderDate ? new Date(row.orderDate).toLocaleDateString('ru-RU') : '-'}
+                  {row.orderDate ? formatMoscowDate(row.orderDate) : '-'}
                 </td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
                   {row.partName || '-'}
@@ -190,13 +191,13 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по номеру/изделию/сотрудникам/работам…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным наряда…" />
         </div>
         <div style={{ width: 180 }}>
           <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
-          Поиск
+          Применить фильтр
         </Button>
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
         <span style={{ color: '#6b7280', fontSize: 12 }}>Итог по списку: {rub(totalRowsAmount)}</span>

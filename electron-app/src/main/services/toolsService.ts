@@ -6,6 +6,7 @@ import type { ToolCatalogItem, ToolDetails, ToolListItem, ToolMovementItem, Tool
 import { createEntity, getEntityDetails, setEntityAttribute, softDeleteEntity } from './entityService.js';
 import { BrowserWindow } from 'electron';
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 
 const TOOL_TYPE_CODE = 'tool';
 const TOOL_PROPERTY_TYPE_CODE = 'tool_property';
@@ -23,6 +24,32 @@ function safeJsonParse(value: string | null): unknown {
   } catch {
     return value;
   }
+}
+
+function normalizeSearch(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+}
+
+function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
+  if (!Array.isArray(raw)) return [];
+  const previews: Array<{ id: string; name: string; mime: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.isObsolete === true) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!id || !name) continue;
+    const mime = typeof entry.mime === 'string' ? entry.mime : null;
+    previews.push({ id, name, mime });
+    if (previews.length >= 5) break;
+  }
+  return previews;
 }
 
 function escapeHtml(s: string) {
@@ -251,8 +278,12 @@ export async function listTools(
       name: await getAttributeDefIdByCode(db, toolTypeId, 'name'),
       serial: await getAttributeDefIdByCode(db, toolTypeId, 'serial_number'),
       department: await getAttributeDefIdByCode(db, toolTypeId, 'department_id'),
+      description: await getAttributeDefIdByCode(db, toolTypeId, 'description'),
       receivedAt: await getAttributeDefIdByCode(db, toolTypeId, 'received_at'),
       retiredAt: await getAttributeDefIdByCode(db, toolTypeId, 'retired_at'),
+      retireReason: await getAttributeDefIdByCode(db, toolTypeId, 'retire_reason'),
+      properties: await getAttributeDefIdByCode(db, toolTypeId, 'properties'),
+      attachments: await getAttributeDefIdByCode(db, toolTypeId, 'attachments'),
     };
     const defIdList = Object.values(defIds).filter(Boolean) as string[];
 
@@ -278,6 +309,7 @@ export async function listTools(
     const userDept = !viewAll && scope?.userId ? await getUserDepartmentId(db, scope.userId).catch(() => null) : null;
 
     const out: ToolListItem[] = [];
+    const searchHayById = new Map<string, string>();
     for (const row of rows as any[]) {
       const entityId = String(row.id);
       const rec = byEntity[entityId] ?? {};
@@ -285,8 +317,12 @@ export async function listTools(
       const name = defIds.name ? rec[defIds.name] : null;
       const serial = defIds.serial ? rec[defIds.serial] : null;
       const departmentId = defIds.department ? rec[defIds.department] : null;
+      const description = defIds.description ? rec[defIds.description] : null;
       const receivedAt = defIds.receivedAt ? rec[defIds.receivedAt] : null;
       const retiredAt = defIds.retiredAt ? rec[defIds.retiredAt] : null;
+      const retireReason = defIds.retireReason ? rec[defIds.retireReason] : null;
+      const properties = defIds.properties ? rec[defIds.properties] : null;
+      const attachmentPreviews = defIds.attachments ? toAttachmentPreviews(rec[defIds.attachments]) : [];
 
       if (!viewAll) {
         if (!userDept || !departmentId || String(departmentId) !== userDept) continue;
@@ -302,17 +338,22 @@ export async function listTools(
         retiredAt: typeof retiredAt === 'number' ? retiredAt : retiredAt ? Number(retiredAt) : null,
         updatedAt: Number(row.updatedAt ?? 0),
         createdAt: Number(row.createdAt ?? 0),
+        ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
       });
-    }
-
-    if (args?.q) {
-      const q = String(args.q).toLowerCase();
-      const filtered = out.filter((t) => {
-        const hay = `${t.toolNumber ?? ''} ${t.name ?? ''} ${t.serialNumber ?? ''}`.toLowerCase();
-        return hay.includes(q);
-      });
-      out.length = 0;
-      out.push(...filtered);
+      searchHayById.set(
+        entityId,
+        normalizeSearch(
+          [
+            toolNumber ?? '',
+            name ?? '',
+            serial ?? '',
+            description ?? '',
+            retireReason ?? '',
+            JSON.stringify(properties ?? []),
+            departmentId ?? '',
+          ].join(' '),
+        ),
+      );
     }
 
     const departmentNames = await getDepartmentNamesById(
@@ -321,6 +362,24 @@ export async function listTools(
     );
     for (const row of out) {
       row.departmentName = row.departmentId ? departmentNames[row.departmentId] ?? null : null;
+    }
+
+    if (args?.q) {
+      const q = normalizeSearch(args.q);
+      if (q) {
+        const filtered = out.filter((tool) => {
+          const hay = normalizeSearch(
+            [
+              searchHayById.get(tool.id) ?? '',
+              tool.departmentName ?? '',
+              tool.retiredAt ? 'снят с учета' : 'в учете',
+            ].join(' '),
+          );
+          return hay.includes(q);
+        });
+        out.length = 0;
+        out.push(...filtered);
+      }
     }
 
     return { ok: true as const, tools: out };
@@ -1086,8 +1145,8 @@ export async function exportToolCardPdf(
     ['Серийный номер', String(attrs.serial_number ?? '')],
     ['Описание', String(attrs.description ?? '')],
     ['Подразделение', deptName || '—'],
-    ['Дата поступления', attrs.received_at ? new Date(Number(attrs.received_at)).toLocaleDateString('ru-RU') : '—'],
-    ['Дата снятия', attrs.retired_at ? new Date(Number(attrs.retired_at)).toLocaleDateString('ru-RU') : '—'],
+    ['Дата поступления', attrs.received_at ? formatMoscowDate(Number(attrs.received_at)) : '—'],
+    ['Дата снятия', attrs.retired_at ? formatMoscowDate(Number(attrs.retired_at)) : '—'],
     ['Причина снятия', String(attrs.retire_reason ?? '')],
   ];
   const propertiesRows = propItems.map((p: any) => {
@@ -1099,7 +1158,7 @@ export async function exportToolCardPdf(
         const who = m.employeeId ? employeeNames[m.employeeId] ?? m.employeeId : '—';
         const confirmedBy = m.confirmedById ? employeeNames[m.confirmedById] ?? m.confirmedById : '—';
         return [
-          new Date(m.movementAt).toLocaleDateString('ru-RU'),
+          formatMoscowDate(m.movementAt),
           `${m.mode === 'returned' ? 'Вернул' : 'Получил'}; сотрудник: ${who}; подтверждение: ${
             m.confirmed ? `да (${confirmedBy})` : 'нет'
           }; комментарий: ${m.comment ?? ''}`,

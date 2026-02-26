@@ -14,6 +14,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
@@ -141,7 +142,16 @@ function fileListHtml(list: unknown) {
     ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
     : [];
   if (items.length === 0) return '<div class="muted">Нет файлов</div>';
-  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
+  return `<ul>${items
+    .map((f) => {
+      const entry = f as { name: string; isObsolete?: boolean };
+      const obsoleteBadge =
+        entry.isObsolete === true
+          ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;">Устаревшая версия</span>'
+          : '';
+      return `<li>${escapeHtml(String(entry.name))}${obsoleteBadge}</li>`;
+    })
+    .join('')}</ul>`;
 }
 
 function formatValue(v: unknown): string {
@@ -165,6 +175,10 @@ export function EmployeeDetailsPage(props: {
   canUploadFiles: boolean;
   canManageUsers: boolean;
   onAccessChanged?: () => void;
+  onOpenEmployee?: (employeeId: string) => void;
+  onOpenCounterparty?: (counterpartyId: string) => void;
+  onOpenContract?: (contractId: string) => void;
+  onOpenByCode?: Record<string, ((id: string) => void) | undefined>;
   me?: { id: string; role: string; username: string } | null;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
@@ -718,6 +732,8 @@ export function EmployeeDetailsPage(props: {
       const options = linkOptionsByDefId[def.id] ?? [];
       const loading = linkLoadingByDefId[def.id] === true;
       const targetCode = getLinkTargetTypeCode(def);
+      const openByTarget =
+        targetCode && !['department', 'unit'].includes(targetCode) ? props.onOpenByCode?.[targetCode] : undefined;
       const createHandler =
         props.canEdit && targetCode
           ? async (label: string) => {
@@ -730,18 +746,25 @@ export function EmployeeDetailsPage(props: {
             }
           : null;
       return (
-        <SearchSelect
-          value={current}
-          disabled={!props.canEdit}
-          options={options}
-          placeholder={loading ? 'Загрузка…' : '(не выбрано)'}
-          onChange={(next) => {
-            if (!props.canEdit) return;
-            dirtyRef.current = true;
-            setCustomDraftValues((prev) => ({ ...prev, [def.code]: next || null }));
-          }}
-          {...(createHandler ? { onCreate: createHandler, createLabel: `Новая запись (${targetCode})` } : {})}
-        />
+        <div style={{ display: 'grid', gap: 6 }}>
+          <SearchSelect
+            value={current}
+            disabled={!props.canEdit}
+            options={options}
+            placeholder={loading ? 'Загрузка…' : '(не выбрано)'}
+            onChange={(next) => {
+              if (!props.canEdit) return;
+              dirtyRef.current = true;
+              setCustomDraftValues((prev) => ({ ...prev, [def.code]: next || null }));
+            }}
+            {...(createHandler ? { onCreate: createHandler, createLabel: `Новая запись (${targetCode})` } : {})}
+          />
+          {current && openByTarget ? (
+            <Button variant="outline" tone="neutral" size="sm" onClick={() => openByTarget?.(current)}>
+              Открыть
+            </Button>
+          ) : null}
+        </div>
       );
     }
     const text = value == null ? '' : String(value);
@@ -1045,7 +1068,7 @@ export function EmployeeDetailsPage(props: {
         ? '<div class="muted">Нет данных</div>'
         : `<ul>${transfers
             .map((t) => {
-              const dt = t.date ? new Date(t.date).toLocaleDateString('ru-RU') : '';
+              const dt = t.date ? formatMoscowDate(t.date) : '';
               return `<li>${escapeHtml(dt)}: ${escapeHtml(String(t.kind ?? ''))} — ${escapeHtml(String(t.value ?? ''))}</li>`;
             })
             .join('')}</ul>`;
@@ -1111,10 +1134,6 @@ export function EmployeeDetailsPage(props: {
                   })()
               : undefined
           }
-          onCloseWithoutSave={() => {
-            dirtyRef.current = false;
-            props.onClose();
-          }}
           onDelete={props.canEdit ? () => void handleDelete() : undefined}
           onClose={props.requestClose ? () => props.requestClose?.() : undefined}
         />
@@ -1169,7 +1188,7 @@ export function EmployeeDetailsPage(props: {
           {transfers.map((t) => (
             <div key={t.id} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
               <div style={{ color: 'var(--text)' }}>{t.kind === 'department' ? 'Подразделение' : 'Должность'}</div>
-              <div style={{ color: 'var(--subtle)' }}>{t.date ? new Date(t.date).toLocaleDateString('ru-RU') : '—'}</div>
+              <div style={{ color: 'var(--subtle)' }}>{t.date ? formatMoscowDate(t.date) : '—'}</div>
               <div style={{ color: 'var(--text)' }}>{t.value || '—'}</div>
               <Button
                 variant="ghost"

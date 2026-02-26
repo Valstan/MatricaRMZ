@@ -8,7 +8,9 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 
@@ -57,7 +59,16 @@ function fileListHtml(list: unknown) {
     ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
     : [];
   if (items.length === 0) return '<div class="muted">Нет файлов</div>';
-  return `<ul>${items.map((f) => `<li>${escapeHtml(String((f as any).name))}</li>`).join('')}</ul>`;
+  return `<ul>${items
+    .map((f) => {
+      const entry = f as { name: string; isObsolete?: boolean };
+      const obsoleteBadge =
+        entry.isObsolete === true
+          ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;">Устаревшая версия</span>'
+          : '';
+      return `<li>${escapeHtml(String(entry.name))}${obsoleteBadge}</li>`;
+    })
+    .join('')}</ul>`;
 }
 
 export function ToolDetailsPage(props: {
@@ -65,10 +76,15 @@ export function ToolDetailsPage(props: {
   canEdit: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  onOpenToolProperty?: (toolPropertyId: string) => void;
+  onOpenEmployee?: (employeeId: string) => void;
   onBack: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
+  const windowWidth = useWindowWidth();
+  const compactToolCardLayout = windowWidth < 1280;
+  const stackedToolCardLayout = windowWidth < 980;
   const [status, setStatus] = useState<string>('');
   const [toolNumber, setToolNumber] = useState('');
   const [name, setName] = useState('');
@@ -420,7 +436,7 @@ export function ToolDetailsPage(props: {
       const who = m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—';
       const confirmedBy = m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—';
       return [
-        new Date(m.movementAt).toLocaleDateString('ru-RU'),
+        formatMoscowDate(m.movementAt),
         `${m.mode === 'returned' ? 'Вернул' : 'Получил'}; сотрудник: ${who}; подтверждение: ${
           m.confirmed ? `да (${confirmedBy})` : 'нет'
         }; комментарий: ${m.comment ?? ''}`,
@@ -459,6 +475,17 @@ export function ToolDetailsPage(props: {
     setStatus('Готово.');
   }
 
+  const baseRowGridTemplate = stackedToolCardLayout ? '1fr' : 'minmax(140px, 220px) minmax(0, 1fr)';
+  const propertyRowGridTemplate = compactToolCardLayout
+    ? '1fr'
+    : 'minmax(120px, 180px) minmax(220px, 1fr) minmax(220px, 1fr) 80px';
+  const movementPrimaryGridTemplate = compactToolCardLayout
+    ? '1fr'
+    : 'minmax(110px, 140px) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1fr)';
+  const movementSecondaryGridTemplate = compactToolCardLayout
+    ? '1fr'
+    : 'minmax(110px, 140px) minmax(160px, 1fr) minmax(220px, 1fr)';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
@@ -481,7 +508,6 @@ export function ToolDetailsPage(props: {
               dirtyRef.current = false;
             })();
           }}
-          onCloseWithoutSave={() => { dirtyRef.current = false; props.onBack(); }}
           onClose={() => props.requestClose?.()}
         />
       </div>
@@ -499,7 +525,7 @@ export function ToolDetailsPage(props: {
       {status && <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
 
       <SectionCard>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Табельный номер</div>
           <Input
             value={toolNumber}
@@ -507,7 +533,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Наименование</div>
           <SearchSelectWithCreate
             value={toolCatalogId || null}
@@ -536,7 +562,7 @@ export function ToolDetailsPage(props: {
             }}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Серийный номер</div>
           <Input
             value={serialNumber}
@@ -544,7 +570,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Описание</div>
           <Input
             value={description}
@@ -552,7 +578,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Подразделение</div>
           <SearchSelectWithCreate
             value={departmentId}
@@ -574,7 +600,7 @@ export function ToolDetailsPage(props: {
             }}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Дата поступления</div>
           <Input
             type="date"
@@ -583,7 +609,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Дата снятия</div>
           <Input
             type="date"
@@ -592,7 +618,7 @@ export function ToolDetailsPage(props: {
             disabled={!props.canEdit}
           />
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) minmax(0, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Причина снятия</div>
           <Input
             value={retireReason}
@@ -622,32 +648,39 @@ export function ToolDetailsPage(props: {
         {properties.map((row, idx) => {
           const hints = row.propertyId ? propertyValueHints[row.propertyId] ?? [] : [];
           return (
-            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(220px, 1fr) minmax(220px, 1fr) 80px', gap: 8, padding: '4px 6px' }}>
+            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: propertyRowGridTemplate, gap: 8, padding: '4px 6px' }}>
               <div>Свойство</div>
-              <SearchSelectWithCreate
-                value={row.propertyId}
-                options={propertyOptions}
-                disabled={!props.canEdit}
-                canCreate={props.canEdit}
-                createLabel="+Добавить новое свойство"
-                onChange={(next) => {
-                  const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next ?? '', value: p.value ?? '' } : p));
-                  void updateProperties(nextRows);
-                  if (next) void ensureValueHints(next);
-                }}
-                onCreate={async (label) => {
-                  const r = await window.matrica.tools.properties.create();
-                  if (!r.ok) {
-                    setStatus(`Ошибка: ${(r as any).error}`);
-                    return null;
-                  }
-                  const id = (r as any).id as string;
-                  await window.matrica.tools.properties.setAttr({ id, code: 'name', value: label.trim() });
-                  setPropertyOptions((prev) => [...prev, { id, label }]);
-                  return id;
-                }}
-              />
-              <div>
+              <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+                <SearchSelectWithCreate
+                  value={row.propertyId}
+                  options={propertyOptions}
+                  disabled={!props.canEdit}
+                  canCreate={props.canEdit}
+                  createLabel="+Добавить новое свойство"
+                  onChange={(next) => {
+                    const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next ?? '', value: p.value ?? '' } : p));
+                    void updateProperties(nextRows);
+                    if (next) void ensureValueHints(next);
+                  }}
+                  onCreate={async (label) => {
+                    const r = await window.matrica.tools.properties.create();
+                    if (!r.ok) {
+                      setStatus(`Ошибка: ${(r as any).error}`);
+                      return null;
+                    }
+                    const id = (r as any).id as string;
+                    await window.matrica.tools.properties.setAttr({ id, code: 'name', value: label.trim() });
+                    setPropertyOptions((prev) => [...prev, { id, label }]);
+                    return id;
+                  }}
+                />
+                {row.propertyId && props.onOpenToolProperty ? (
+                  <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenToolProperty?.(row.propertyId as string)}>
+                    Открыть
+                  </Button>
+                ) : null}
+              </div>
+              <div style={{ minWidth: 0 }}>
                 <SuggestInput
                   value={row.value ?? ''}
                   onChange={(nextValue) => {
@@ -667,7 +700,7 @@ export function ToolDetailsPage(props: {
                     const nextRows = properties.filter((_p, i) => i !== idx);
                     void updateProperties(nextRows);
                   }}
-                  style={{ color: 'var(--danger)' }}
+                  style={{ color: 'var(--danger)', justifySelf: compactToolCardLayout ? 'start' : undefined }}
                 >
                   Удалить
                 </Button>
@@ -680,38 +713,57 @@ export function ToolDetailsPage(props: {
       </SectionCard>
 
       <SectionCard title="Движение инструмента">
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 140px) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementPrimaryGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Дата</div>
           <Input type="date" value={newMoveDate} onChange={(e) => setNewMoveDate(e.target.value)} disabled={!props.canEdit} />
           <select
             value={newMoveMode}
             onChange={(e) => setNewMoveMode(e.target.value as 'received' | 'returned')}
             disabled={!props.canEdit}
-            style={{ height: 'var(--ui-input-height, 32px)' }}
+            style={{ height: 'var(--ui-input-height, 32px)', width: '100%' }}
           >
             <option value="received">Получил</option>
             <option value="returned">Вернул</option>
           </select>
-          <SearchSelect
-            value={newMoveEmployeeId}
-            options={employeeOptions}
-            placeholder="Сотрудник"
-            disabled={!props.canEdit}
-            onChange={(next) => setNewMoveEmployeeId(next ?? '')}
-          />
+          <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+            <SearchSelect
+              value={newMoveEmployeeId}
+              options={employeeOptions}
+              placeholder="Сотрудник"
+              disabled={!props.canEdit}
+              onChange={(next) => setNewMoveEmployeeId(next ?? '')}
+            />
+            {newMoveEmployeeId && props.onOpenEmployee ? (
+              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(newMoveEmployeeId)}>
+                Открыть
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 140px) minmax(160px, 1fr) minmax(220px, 1fr)', gap: 8, padding: '4px 6px' }}>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementSecondaryGridTemplate, gap: 8, padding: '4px 6px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => setNewMoveConfirmed(e.target.checked)} disabled={!props.canEdit} />
             Подтверждено
           </label>
-          <SearchSelect
-            value={newMoveConfirmedById}
-            options={employeeOptions}
-            placeholder="Заведующий"
-            disabled={!props.canEdit || !newMoveConfirmed}
-            onChange={(next) => setNewMoveConfirmedById(next ?? '')}
-          />
+          <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+            <SearchSelect
+              value={newMoveConfirmedById}
+              options={employeeOptions}
+              placeholder="Заведующий"
+              disabled={!props.canEdit || !newMoveConfirmed}
+              onChange={(next) => setNewMoveConfirmedById(next ?? '')}
+            />
+            {newMoveConfirmedById && props.onOpenEmployee ? (
+              <Button
+                variant="outline"
+                tone="neutral"
+                size="sm"
+                onClick={() => props.onOpenEmployee?.(newMoveConfirmedById)}
+              >
+                Открыть
+              </Button>
+            ) : null}
+          </div>
           <Input
             value={newMoveComment}
             onChange={(e) => setNewMoveComment(e.target.value)}
@@ -778,14 +830,44 @@ export function ToolDetailsPage(props: {
                   }}
                 >
                   <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>
-                    {m.movementAt ? new Date(m.movementAt).toLocaleDateString('ru-RU') : '—'}
+                    {m.movementAt ? formatMoscowDate(m.movementAt) : '—'}
                   </td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{m.mode === 'returned' ? 'Вернул' : 'Получил'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
-                    {m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—'}</span>
+                      {m.employeeId && props.onOpenEmployee ? (
+                        <Button
+                          variant="outline"
+                          tone="neutral"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onOpenEmployee?.(m.employeeId as string);
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
-                    {m.confirmed ? `Да (${m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—'})` : 'Нет'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{m.confirmed ? `Да (${m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—'})` : 'Нет'}</span>
+                      {m.confirmedById && props.onOpenEmployee ? (
+                        <Button
+                          variant="outline"
+                          tone="neutral"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onOpenEmployee?.(m.confirmedById as string);
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

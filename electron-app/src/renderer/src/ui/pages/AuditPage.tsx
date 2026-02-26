@@ -10,6 +10,7 @@ import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
 export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<void> }) {
   const width = useWindowWidth();
@@ -201,7 +202,7 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
           <tbody>
             {items.map((a) => (
               <tr key={a.id}>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{new Date(a.createdAt).toLocaleString('ru-RU')}</td>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{formatMoscowDateTime(a.createdAt)}</td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>{a.actor}</td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}

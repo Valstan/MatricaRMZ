@@ -11,6 +11,8 @@ import {
   upsertAttributeDef,
   upsertEntityType,
 } from '../api/masterdata.js';
+import { formatMoscowDate } from './utils/dateUtils.js';
+import { matchesQueryInRecord } from './utils/search.js';
 
 type Row = {
   id: string;
@@ -40,16 +42,7 @@ const REQUIRED_DEFS = [
 function toDateLabel(ms: number | null) {
   if (!ms) return '';
   const dt = new Date(ms);
-  return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('ru-RU');
-}
-
-function normalize(s: string) {
-  return String(s || '')
-    .toLowerCase()
-    .replaceAll('ё', 'е')
-    .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim();
+  return Number.isNaN(dt.getTime()) ? '' : formatMoscowDate(dt);
 }
 
 export function EnginesPage(props: {
@@ -209,14 +202,7 @@ export function EnginesPage(props: {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = normalize(query);
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
-        normalize(r.engineNumber).includes(q) ||
-        normalize(r.engineBrand).includes(q) ||
-        normalize(r.customerName).includes(q),
-    );
+    return rows.filter((row) => matchesQueryInRecord(query, row));
   }, [rows, query]);
 
   function toggleSort(key: typeof sortKey) {
@@ -309,7 +295,7 @@ export function EnginesPage(props: {
           </button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру или марке…" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по всем данным двигателя…" />
         </div>
         <button
           type="button"
