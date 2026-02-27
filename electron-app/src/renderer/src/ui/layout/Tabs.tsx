@@ -237,8 +237,8 @@ export function Tabs(props: {
   const departmentButtonInactiveStyle = displayPrefs.departmentButtons.inactive;
   const sectionButtonActiveStyle = displayPrefs.sectionButtons.active;
   const sectionButtonInactiveStyle = displayPrefs.sectionButtons.inactive;
-  const departmentCardMinHeight = Math.max(96, Number(departmentButtonActiveStyle.height ?? 0), Number(departmentButtonInactiveStyle.height ?? 0));
-  const sectionCardMinHeight = Math.max(56, Math.floor(departmentCardMinHeight / 2));
+  const departmentCardMinHeight = 0;
+  const sectionCardMinHeight = 0;
   const sectionCardWidth = Math.max(
     120,
     Math.floor(
@@ -337,7 +337,7 @@ export function Tabs(props: {
   const [contextMenu, setContextMenu] = useState<{ target: ContextTarget; x: number; y: number } | null>(null);
   const [moveId, setMoveId] = useState<ContextTarget | null>(null);
   const [moveRect, setMoveRect] = useState<DOMRect | null>(null);
-  const [sectionsLeftPx, setSectionsLeftPx] = useState<number | null>(null);
+  const [sectionsLeftPx, setSectionsLeftPx] = useState<number | null>(0);
 
   function keyOfTarget(target: ContextTarget) {
     return `${target.kind}:${target.id}`;
@@ -517,6 +517,7 @@ export function Tabs(props: {
                 boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
                 fontWeight: 700,
                 minHeight: sectionCardMinHeight,
+                height: 'auto',
                 width: sectionCardWidth,
                 maxWidth: sectionCardWidth,
                 minWidth: sectionCardWidth,
@@ -535,6 +536,7 @@ export function Tabs(props: {
                 color: '#ffffff',
                 boxShadow: '0 6px 18px rgba(15, 23, 42, 0.09)',
                 minHeight: sectionCardMinHeight,
+                height: 'auto',
                 width: sectionCardWidth,
                 maxWidth: sectionCardWidth,
                 minWidth: sectionCardWidth,
@@ -699,9 +701,9 @@ export function Tabs(props: {
                       ? {
                           width: '100%',
                           maxWidth: '100%',
-                            minHeight: departmentCardMinHeight,
-                            minWidth: 0,
-                            height: '100%',
+                          minHeight: departmentCardMinHeight,
+                          height: 'auto',
+                          minWidth: 0,
                             paddingTop: 2,
                             paddingRight: deptVisual.rightPadding,
                             paddingBottom: 2,
@@ -724,8 +726,8 @@ export function Tabs(props: {
                           width: '100%',
                           maxWidth: '100%',
                           minHeight: departmentCardMinHeight,
+                          height: 'auto',
                           minWidth: 0,
-                          height: '100%',
                           paddingTop: 2,
                           paddingRight: deptVisual.rightPadding,
                           paddingBottom: 2,
@@ -793,11 +795,11 @@ export function Tabs(props: {
           background: '#ffffff',
           padding: '6px',
           display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
+          alignItems: 'flex-start',
+          gap: 0,
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, flexShrink: 0 }}>
           <Button
             variant="ghost"
             disabled={!canGoBack}
@@ -824,8 +826,9 @@ export function Tabs(props: {
             style={{
               position: 'relative',
               display: 'block',
+              flex: 1,
               borderRadius: 14,
-              minHeight: 82,
+              minHeight: sectionCardMinHeight,
               marginTop: 0,
               overflow: 'hidden',
             }}
