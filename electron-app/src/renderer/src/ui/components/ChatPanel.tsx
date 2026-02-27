@@ -146,7 +146,7 @@ export function ChatPanel(props: {
     if (props.viewMode) return;
     const id = setInterval(() => {
       void window.matrica.sync.run().catch(() => {});
-    }, 15_000);
+    }, 60_000);
     return () => clearInterval(id);
   }, [props.viewMode]);
 
@@ -160,7 +160,7 @@ export function ChatPanel(props: {
       await refreshMessages();
     };
     void tick();
-    const id = setInterval(() => void tick(), 2500);
+    const id = setInterval(() => void tick(), 10_000);
     return () => {
       alive = false;
       clearInterval(id);

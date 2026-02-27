@@ -785,7 +785,7 @@ export function App() {
       }
     };
     void poll();
-    const id = setInterval(() => void poll(), 2000);
+    const id = setInterval(() => void poll(), 15_000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -822,7 +822,7 @@ export function App() {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 5000);
+    const id = setInterval(() => void tick(), 30_000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -1104,7 +1104,7 @@ export function App() {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 2000);
+    const id = setInterval(() => void tick(), 15_000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -1229,7 +1229,7 @@ export function App() {
       }
     };
     void poll();
-    const id = setInterval(() => void poll(), 2000);
+    const id = setInterval(() => void poll(), 10_000);
     return () => {
       alive = false;
       clearInterval(id);

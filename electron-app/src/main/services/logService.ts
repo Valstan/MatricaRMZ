@@ -5,7 +5,7 @@ import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean,
 import { httpAuthed } from './httpClient.js';
 
 const LOG_BUFFER_MAX = 100;
-const LOG_SEND_INTERVAL_MS = 5000; // 5 секунд
+const LOG_SEND_INTERVAL_MS = 30_000;
 
 type LogEntry = {
   level: 'info' | 'warn' | 'error' | 'debug';

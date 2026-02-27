@@ -226,7 +226,7 @@ export function SettingsPage(props: {
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => void refreshLoggingConfig(), 10_000);
+    const timer = setInterval(() => void refreshLoggingConfig(), 30_000);
     return () => clearInterval(timer);
   }, []);
 

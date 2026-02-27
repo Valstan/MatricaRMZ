@@ -15,7 +15,7 @@ class LiveDataService {
   private intervalId: number | null = null;
   private unsubscribeSync: (() => void) | null = null;
   private started = false;
-  private readonly intervalMs = 5000;
+  private readonly intervalMs = 15_000;
 
   private emit(reason: LiveDataPulseReason, extras?: Partial<LiveDataPulse>) {
     const pulse: LiveDataPulse = { at: Date.now(), reason, ...(extras ?? {}) };

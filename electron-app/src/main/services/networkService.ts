@@ -56,7 +56,7 @@ export async function initNetworkService(opts?: { probeUrl?: string; intervalMs?
   if (monitorStarted) return;
   monitorStarted = true;
 
-  const intervalMs = Math.max(2000, opts?.intervalMs ?? 8000);
+  const intervalMs = Math.max(10_000, opts?.intervalMs ?? 30_000);
   const probeUrl = opts?.probeUrl ?? '';
 
   const tick = async () => {
