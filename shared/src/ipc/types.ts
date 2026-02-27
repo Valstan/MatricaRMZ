@@ -38,6 +38,7 @@ export type EntityListItem = {
   updatedAt: number;
   syncStatus: string;
   displayName?: string;
+  searchText?: string;
 };
 
 export type EntityDetails = {

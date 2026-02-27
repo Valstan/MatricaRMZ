@@ -13,7 +13,7 @@
  * Требует: MATRICA_LEDGER_RELEASE_TOKEN, MATRICA_API_URL (или MATRICA_PUBLIC_BASE_URL)
  */
 import { execSync } from 'node:child_process';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { readFile, stat, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -48,11 +48,16 @@ function ghReleaseAssets(tag) {
 }
 
 function downloadInstaller(tag, assetName, destDir) {
+  const localPath = join(destDir, assetName);
+  if (existsSync(localPath)) {
+    console.log(`Installer already exists, reusing: ${localPath}`);
+    return localPath;
+  }
   console.log(`Downloading ${assetName}...`);
-  execSync(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${assetName}" -D ${destDir}`, {
+  execSync(`gh release download ${tag} --repo Valstan/MatricaRMZ --pattern "${assetName}" -D "${destDir}" --skip-existing`, {
     stdio: 'inherit',
   });
-  return join(destDir, assetName);
+  return localPath;
 }
 
 async function main() {

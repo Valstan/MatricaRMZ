@@ -460,7 +460,13 @@ export function ContractDetailsPage(props: {
             <Input value={number} disabled={!props.canEditMasterData} onChange={(e) => setNumber(e.target.value)} onBlur={() => void saveAttr('number', number)} />
 
             <div style={{ color: '#6b7280' }}>Дата контракта</div>
-            <Input type="date" value={date} disabled={!props.canEditMasterData} onChange={(e) => setDate(e.target.value)} onBlur={() => void saveAttr('date', fromInputDate(date))} />
+            <Input
+              type="date"
+              value={date}
+              disabled={!props.canEditMasterData}
+              onChange={(e) => setDate(e.target.value)}
+              onBlur={() => void saveAttr('date', fromInputDate(date))}
+            />
 
             <div style={{ color: '#6b7280' }}>Внутренний номер</div>
             <Input value={internalNumber} disabled={!props.canEditMasterData} onChange={(e) => setInternalNumber(e.target.value)} onBlur={() => void saveAttr('internal_number', internalNumber)} />
@@ -690,7 +696,7 @@ export function ContractDetailsPage(props: {
 
                 <Input value={newFieldSortOrder} onChange={(e) => setNewFieldSortOrder(e.target.value)} placeholder="sortOrder (например: 300)" />
 
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', fontSize: 14, whiteSpace: 'nowrap' }}>
                   <input type="checkbox" checked={newFieldIsRequired} onChange={(e) => setNewFieldIsRequired(e.target.checked)} />
                   обязательное
                 </label>
@@ -787,7 +793,7 @@ export function ContractDetailsPage(props: {
                             style={{ flex: 1 }}
                           />
                         ) : def.dataType === 'boolean' ? (
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             <input type="checkbox" checked={!!value} onChange={(e) => setEditingAttr({ ...editingAttr, [def.code]: e.target.checked })} />
                             <span>{value ? 'Да' : 'Нет'}</span>
                           </label>
@@ -799,7 +805,6 @@ export function ContractDetailsPage(props: {
                               const d = fromInputDate(e.target.value);
                               setEditingAttr({ ...editingAttr, [def.code]: d });
                             }}
-                            style={{ flex: 1 }}
                           />
                         ) : (
                           <Input

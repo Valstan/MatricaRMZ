@@ -24,7 +24,7 @@ type AttrDefRow = {
   deletedAt: number | null;
 };
 
-type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string };
+type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string; searchText?: string };
 
 const CLASSIC_TYPE_ORDER = [
   'unit',

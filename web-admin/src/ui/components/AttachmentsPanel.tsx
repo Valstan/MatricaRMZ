@@ -169,7 +169,7 @@ export function AttachmentsPanel(props: {
         )}
       </div>
       <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>
           <span>Фильтр:</span>
           <select
             value={filterMode}

@@ -557,7 +557,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                     admin
                   </option>
                 </select>
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', fontSize: 14, whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
                     checked={newUser.accessEnabled}
@@ -645,7 +645,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                   </div>
 
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', fontSize: 14, whiteSpace: 'nowrap' }}>
                       Роль
                       <select
                         value={selectedRole}
@@ -673,7 +673,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                       </select>
                     </label>
 
-                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', fontSize: 14, whiteSpace: 'nowrap' }}>
                       <input
                         type="checkbox"
                         checked={selectedUser?.isActive ?? true}
@@ -857,7 +857,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                                     </div>
                                   </div>
 
-                                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+                                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
                                     <input
                                       type="checkbox"
                                       checked={locked ? false : effective}

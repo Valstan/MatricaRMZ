@@ -178,7 +178,7 @@ export function ClientAdminPage() {
         <div style={{ marginTop: 10, maxHeight: 180, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
           {!filtered.length && <div className="muted">Нет клиентов для выбора.</div>}
           {filtered.map((row) => (
-            <label key={row.clientId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+            <label key={row.clientId} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', whiteSpace: 'nowrap' }}>
               <input
                 type="checkbox"
                 checked={!!fullSyncSelection[row.clientId]}

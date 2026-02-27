@@ -1168,7 +1168,7 @@ export function MasterdataPage(props: {
               </div>
 
               <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
                     checked={typeDeleteDialog.deleteEntities}
@@ -1177,7 +1177,7 @@ export function MasterdataPage(props: {
                   />
                   Удалить записи этого раздела (умно: с отвязкой входящих связей)
                 </label>
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
                     checked={typeDeleteDialog.deleteDefs}
@@ -1315,7 +1315,7 @@ export function MasterdataPage(props: {
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
                     checked={defDeleteDialog.deleteValues}
@@ -1613,7 +1613,7 @@ function NewAttrDefForm(props: {
             )}
           </div>
         )}
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#111827', fontSize: 14 }}>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', fontSize: 14, whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
           обязательное
         </label>
@@ -1711,7 +1711,7 @@ function FieldEditor(props: {
   if (dt === 'boolean') {
     const checked = Boolean(props.value);
     return (
-      <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap' }}>
         <input
           type="checkbox"
           checked={checked}

@@ -5,10 +5,10 @@ let lastWritableSqlite: Database.Database | null = null;
 
 export function openSqlite(dbPath: string) {
   const sqlite = new Database(dbPath);
+  lastWritableSqlite = sqlite;
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
   const db = drizzle(sqlite);
-  lastWritableSqlite = sqlite;
   return { sqlite, db };
 }
 

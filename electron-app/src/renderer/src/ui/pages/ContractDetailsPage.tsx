@@ -17,7 +17,8 @@ import {
   parseContractSections,
   contractSectionsToLegacy,
   effectiveContractDueAt,
-  aggregateProgress,
+  aggregateProgressWithPlan,
+  contractPlannedItemsCount,
   type ProgressLinkedItem,
   type ContractSections,
   type ContractPrimarySection,
@@ -733,10 +734,11 @@ export function ContractDetailsPage(props: {
       const partsRes = await window.matrica.parts.list({ limit: 5000 });
       const parts: ProgressLinkedItem[] = partsRes?.ok && partsRes.parts ? partsRes.parts : [];
       const partStatusMap = parts.filter((p) => relatedContractIds.has(String(p.contractId ?? '')));
-      const aggregate = aggregateProgress([
+      const plannedCount = contractPlannedItemsCount(sections);
+      const aggregate = aggregateProgressWithPlan([
         ...byContract,
         ...partStatusMap,
-      ]);
+      ], plannedCount);
       setContractProgress(aggregate.progressPct);
     } catch {
       setContractProgress(null);

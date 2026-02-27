@@ -14,6 +14,7 @@ import { matchesQueryInRecord } from '../utils/search.js';
 type Row = {
   id: string;
   displayName?: string;
+  searchText?: string;
   updatedAt: number;
   partsCount?: number | null;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
@@ -98,6 +99,7 @@ export function EngineBrandsPage(props: {
         return {
           id: String(row.id),
           displayName: row.displayName ? String(row.displayName) : '',
+          searchText: row.searchText ? String(row.searchText) : undefined,
           updatedAt: Number(row.updatedAt ?? 0),
           partsCount: null,
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),

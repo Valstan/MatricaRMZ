@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
@@ -29,6 +29,22 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
+function valueToSearchText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map((item) => valueToSearchText(item)).filter(Boolean).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => valueToSearchText(item))
+      .filter(Boolean)
+      .join(' ');
+  }
+  return '';
+}
+
 export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId: string): Promise<EntityListItem[]> {
   const rows = await db
     .select()
@@ -37,28 +53,60 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
     .orderBy(asc(entities.updatedAt))
     .limit(2000);
 
-  const { byCode } = await getDefsByType(db, entityTypeId);
+  if (rows.length === 0) return [];
+
+  const { defs, byCode } = await getDefsByType(db, entityTypeId);
   const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
   const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
+  const defIds = defs.map((d) => String(d.id));
+  const entityIds = rows.map((row) => String(row.id));
+
+  const valueRows =
+    defIds.length > 0
+      ? await db
+          .select({
+            entityId: attributeValues.entityId,
+            attributeDefId: attributeValues.attributeDefId,
+            valueJson: attributeValues.valueJson,
+          })
+          .from(attributeValues)
+          .where(
+            and(
+              inArray(attributeValues.entityId, entityIds as any),
+              inArray(attributeValues.attributeDefId, defIds as any),
+              isNull(attributeValues.deletedAt),
+            ),
+          )
+          .limit(200_000)
+      : [];
+
+  const valuesByEntity: Record<string, Record<string, unknown>> = {};
+  for (const row of valueRows as any[]) {
+    const entityId = String(row.entityId);
+    const defId = String(row.attributeDefId);
+    if (!valuesByEntity[entityId]) valuesByEntity[entityId] = {};
+    valuesByEntity[entityId][defId] = row.valueJson ? safeJsonParse(String(row.valueJson)) : null;
+  }
 
   const out: EntityListItem[] = [];
   for (const e of rows as any[]) {
-    let displayName: string | undefined;
-    if (labelDefId) {
-      const v = await db
-        .select()
-        .from(attributeValues)
-        .where(and(eq(attributeValues.entityId, e.id), eq(attributeValues.attributeDefId, labelDefId)))
-        .limit(1);
-      const val = v[0]?.valueJson ? safeJsonParse(String(v[0].valueJson)) : null;
-      if (val != null && val !== '') displayName = String(val);
-    }
+    const entityId = String(e.id);
+    const entityValues = valuesByEntity[entityId] ?? {};
+    const displayValue = labelDefId ? entityValues[labelDefId] : null;
+    const displayName = displayValue != null && displayValue !== '' ? String(displayValue) : undefined;
+    const searchText = Object.values(entityValues)
+      .map((value) => valueToSearchText(value))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
     out.push({
-      id: String(e.id),
+      id: entityId,
       typeId: String(e.typeId),
       updatedAt: Number(e.updatedAt),
       syncStatus: String(e.syncStatus),
       ...(displayName != null ? { displayName } : {}),
+      ...(searchText ? { searchText } : {}),
     });
   }
   // newest first

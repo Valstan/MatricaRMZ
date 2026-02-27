@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { rename, rm } from 'node:fs/promises';
 
 if (!process.env.TZ) {
   process.env.TZ = 'Europe/Moscow';
@@ -217,32 +218,73 @@ app.whenReady().then(() => {
       const userData = app.getPath('userData');
       mkdirSync(userData, { recursive: true });
       const dbPath = join(userData, 'matricarmz.sqlite');
-      const { db, sqlite } = openSqlite(dbPath);
+      let dbRecovered = false;
 
-      try {
-        // В packaged-версии миграции лежат внутри app.asar.
-        // Поэтому используем абсолютный путь от app.getAppPath().
+      const openMigrateSeed = async () => {
+        const opened = openSqlite(dbPath);
         const migrationsFolder = join(app.getAppPath(), 'drizzle');
         logToFile(`sqlite migrationsFolder=${migrationsFolder}`);
-        migrateSqlite(db, sqlite, migrationsFolder);
-        const alignResult = await alignSchemaWithServer(db, apiBaseUrl, { allowUnauthenticated: true }).catch((e) => ({
-          ok: false as const,
-          reason: String(e),
-        }));
+        migrateSqlite(opened.db, opened.sqlite, migrationsFolder);
+        const alignResult = await alignSchemaWithServer(opened.db, apiBaseUrl, { allowUnauthenticated: true }).catch(
+          (e) => ({ ok: false as const, reason: String(e) }),
+        );
         if (!alignResult.ok && alignResult.reason !== 'auth_required') {
           logToFile(`schema align before seed skipped: ${alignResult.reason}`);
         }
-        await seedIfNeeded(db);
-      } catch (e) {
-        logToFile(`sqlite migrate/seed failed: ${String(e)}`);
-        await dialog.showMessageBox({
-          type: 'error',
-          title: 'Ошибка базы данных',
-          message: 'Не удалось инициализировать локальную базу данных SQLite.',
-          detail: `Лог: ${getLogPath()}\n\n${String(e)}`,
-        });
-        app.quit();
-        return;
+        await seedIfNeeded(opened.db);
+        return opened.db;
+      };
+
+      let db!: Awaited<ReturnType<typeof openMigrateSeed>>;
+      try {
+        db = await openMigrateSeed();
+      } catch (initError) {
+        logToFile(`sqlite init failed, attempting self-heal: ${String(initError)}`);
+
+        try {
+          const { getSqliteHandle } = await import('./database/db.js');
+          const broken = getSqliteHandle();
+          if (broken) {
+            try { broken.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
+            try { broken.close(); } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        for (const suffix of ['', '-wal', '-shm']) {
+          await rename(`${dbPath}${suffix}`, `${dbPath}${suffix}.corrupted-${ts}`).catch(() => {});
+        }
+        await rm(join(userData, 'ledger'), { recursive: true, force: true }).catch(() => {});
+        await rm(join(userData, 'ledger-client-key.json'), { force: true }).catch(() => {});
+        logToFile(`corrupted db backed up (.corrupted-${ts})`);
+
+        try {
+          db = await openMigrateSeed();
+          dbRecovered = true;
+          logToFile('DB self-heal succeeded — fresh database created');
+          await dialog.showMessageBox({
+            type: 'warning',
+            title: 'База данных восстановлена',
+            message: 'Локальная база данных была повреждена и автоматически пересоздана.',
+            detail:
+              'Пожалуйста, войдите в систему.\n' +
+              'Данные будут загружены с сервера при синхронизации.\n\n' +
+              'Резервная копия повреждённой базы сохранена в папке приложения.',
+          });
+        } catch (retryError) {
+          logToFile(`DB self-heal failed: ${String(retryError)}`);
+          await dialog.showMessageBox({
+            type: 'error',
+            title: 'Ошибка базы данных',
+            message: 'Не удалось инициализировать базу данных.\nАвтоматическое восстановление не помогло.',
+            detail:
+              `Исходная ошибка: ${String(initError)}\n` +
+              `Повторная ошибка: ${String(retryError)}\n\n` +
+              `Лог: ${getLogPath()}`,
+          });
+          app.quit();
+          return;
+        }
       }
 
       // Стабильный clientId (один раз на рабочее место): нужен для корректного sync_state на сервере и диагностики.

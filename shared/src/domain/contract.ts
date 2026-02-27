@@ -110,21 +110,52 @@ export type ProgressAggregate = {
   progressPct: number | null;
 };
 
-export function aggregateProgress(items: Array<Pick<ProgressLinkedItem, 'statusFlags'>>): ProgressAggregate {
-  let totalCount = 0;
+function normalizePlannedQty(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n;
+}
+
+export function contractPlannedItemsCount(sections: ContractSections | null | undefined): number {
+  if (!sections) return 0;
+
+  let total = 0;
+  const addRows = (rows: Array<{ qty: number }>) => {
+    for (const row of rows) total += normalizePlannedQty(row?.qty);
+  };
+
+  addRows(sections.primary.engineBrands);
+  addRows(sections.primary.parts);
+  for (const addon of sections.addons) {
+    addRows(addon.engineBrands);
+    addRows(addon.parts);
+  }
+
+  return total;
+}
+
+export function aggregateProgressWithPlan(
+  items: Array<Pick<ProgressLinkedItem, 'statusFlags'>>,
+  plannedTotalCount?: number | null,
+): ProgressAggregate {
   let shippedCount = 0;
   for (const item of items) {
-    if (item.statusFlags?.status_customer_sent) {
-      shippedCount += 1;
-    }
-    totalCount += 1;
+    if (item.statusFlags?.status_customer_sent) shippedCount += 1;
   }
+
+  const hasPlannedTotal = Number.isFinite(plannedTotalCount) && Number(plannedTotalCount) > 0;
+  const denominator = hasPlannedTotal ? Number(plannedTotalCount) : items.length;
+
   return {
     shippedCount,
-    totalCount,
-    progress01: totalCount > 0 ? shippedCount / totalCount : null,
-    progressPct: totalCount > 0 ? (shippedCount / totalCount) * 100 : null,
+    totalCount: denominator,
+    progress01: denominator > 0 ? Math.min(1, shippedCount / denominator) : null,
+    progressPct: denominator > 0 ? Math.min(100, (shippedCount / denominator) * 100) : null,
   };
+}
+
+export function aggregateProgress(items: Array<Pick<ProgressLinkedItem, 'statusFlags'>>): ProgressAggregate {
+  return aggregateProgressWithPlan(items, null);
 }
 
 export function aggregateProgressByContract(items: ProgressLinkedItem[]): Record<string, ProgressAggregate> {

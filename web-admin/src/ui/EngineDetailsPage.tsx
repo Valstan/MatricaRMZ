@@ -127,6 +127,7 @@ export function EngineDetailsPage(props: {
   const [engineBrandId, setEngineBrandId] = useState('');
   const [arrivalDate, setArrivalDate] = useState('');
   const [shippingDate, setShippingDate] = useState('');
+  const [isShippingDateChecked, setIsShippingDateChecked] = useState(false);
   const [isScrap, setIsScrap] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [contractId, setContractId] = useState('');
@@ -203,7 +204,9 @@ export function EngineDetailsPage(props: {
       setEngineBrand(String(attrs.engine_brand ?? ''));
       setEngineBrandId(String(attrs.engine_brand_id ?? ''));
       setArrivalDate(toInputDate(attrs.arrival_date as number | null | undefined));
-      setShippingDate(toInputDate(attrs.shipping_date as number | null | undefined));
+      const fallbackShippingDate = toInputDate(attrs.shipping_date as number | null | undefined) || toInputDate(attrs.status_customer_sent_date as number | null | undefined);
+      setShippingDate(fallbackShippingDate);
+      setIsShippingDateChecked(Boolean(fallbackShippingDate));
       setIsScrap(Boolean(attrs.is_scrap));
       setCustomerId(String(attrs.customer_id ?? ''));
       setContractId(String(attrs.contract_id ?? ''));
@@ -391,16 +394,42 @@ export function EngineDetailsPage(props: {
           />
 
           <div style={{ color: '#6b7280' }}>Дата отгрузки</div>
-          <Input
-            type="date"
-            value={shippingDate}
-            disabled={!props.canEditEngines}
-            onChange={(e) => setShippingDate(e.target.value)}
-            onBlur={() => void saveAttr('shipping_date', fromInputDate(shippingDate))}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={isShippingDateChecked}
+                disabled={!props.canEditEngines}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setIsShippingDateChecked(next);
+                  if (next) {
+                    const nextDate = toInputDate(Date.now());
+                    setShippingDate(nextDate);
+                    void saveAttr('shipping_date', fromInputDate(nextDate));
+                  } else {
+                    setShippingDate('');
+                    void saveAttr('shipping_date', null);
+                  }
+                }}
+              />
+              <span>Да</span>
+            </label>
+            <Input
+              type="date"
+              value={shippingDate}
+              disabled={!props.canEditEngines}
+              onChange={(e) => {
+                const next = e.target.value;
+                setShippingDate(next);
+                setIsShippingDateChecked(Boolean(next));
+              }}
+              onBlur={() => void saveAttr('shipping_date', fromInputDate(shippingDate))}
+            />
+          </div>
 
           <div style={{ color: '#6b7280' }}>Неремонтнопригоден / утиль</div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
             <input
               type="checkbox"
               checked={isScrap}

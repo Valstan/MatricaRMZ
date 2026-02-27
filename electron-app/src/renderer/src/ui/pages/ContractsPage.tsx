@@ -10,7 +10,8 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
-  aggregateProgress,
+  aggregateProgressWithPlan,
+  contractPlannedItemsCount,
   effectiveContractDueAt,
   type ContractSections,
   type ProgressLinkedItem,
@@ -24,6 +25,7 @@ type Row = {
   number: string;
   internalNumber: string;
   counterparty: string;
+  searchText?: string;
   dateMs: number | null;
   dueDateMs: number | null;
   contractAmount: number;
@@ -296,7 +298,8 @@ export function ContractsPage(props: {
               const bucket = linkedItemsByContractId.get(relatedId);
               if (bucket?.length) relatedItems.push(...bucket);
             }
-            const progress = aggregateProgress(relatedItems);
+            const plannedCount = contractPlannedItemsCount(sections);
+            const progress = aggregateProgressWithPlan(relatedItems, plannedCount);
             const progressPct = progress?.progressPct ?? null;
             const isFullyExecuted = Boolean(progressPct != null && progressPct >= 100);
 
@@ -305,6 +308,7 @@ export function ContractsPage(props: {
               number: numberRaw == null ? '' : String(numberRaw),
               internalNumber: internalRaw == null ? '' : String(internalRaw),
               counterparty,
+              searchText: row.searchText ? String(row.searchText) : undefined,
               dueDateMs,
               contractAmount,
               dateMs,
@@ -320,6 +324,7 @@ export function ContractsPage(props: {
               number: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
               internalNumber: '',
               counterparty: '—',
+              searchText: row.searchText ? String(row.searchText) : undefined,
               dueDateMs: null,
               contractAmount: 0,
               dateMs: null,

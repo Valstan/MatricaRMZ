@@ -400,15 +400,15 @@ export function DiagnosticsPage() {
         <div style={{ width: 260 }}>
           <Input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Поиск по всем данным клиента…" />
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={showOnlyIssues} onChange={(e) => setShowOnlyIssues(e.target.checked)} />
           только проблемные
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={showOnlyDiffs} onChange={(e) => setShowOnlyDiffs(e.target.checked)} />
           только различия
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={hideDuplicates} onChange={(e) => setHideDuplicates(e.target.checked)} />
           скрывать дубликаты
         </label>

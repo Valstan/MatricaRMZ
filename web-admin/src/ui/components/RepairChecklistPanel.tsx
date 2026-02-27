@@ -727,7 +727,7 @@ export function RepairChecklistPanel(props: {
                   )}
 
                   {it.kind === 'boolean' && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
                       <input
                         type="checkbox"
                         checked={a?.kind === 'boolean' ? !!a.value : false}
@@ -774,18 +774,37 @@ export function RepairChecklistPanel(props: {
                         }}
                         onBlur={() => void save({ ...answers, [it.id]: { kind: 'signature', fio: a?.fio ?? '', position: a?.position ?? '', signedAt: a?.signedAt ?? null } } as RepairChecklistAnswers)}
                       />
-                      <Input
-                        type="date"
-                        value={a?.kind === 'signature' && a.signedAt ? toInputDate(a.signedAt) : ''}
-                        disabled={!props.canEdit}
-                        onChange={(e) => {
-                          const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
-                          const nextVal = fromInputDate(e.target.value);
-                          const next = { ...answers, [it.id]: { kind: 'signature', fio: prev.fio, position: prev.position, signedAt: nextVal } } as RepairChecklistAnswers;
-                          setAnswers(next);
-                          void save(next);
-                        }}
-                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                          <input
+                            type="checkbox"
+                            checked={a?.kind === 'signature' && Boolean(a.signedAt)}
+                            disabled={!props.canEdit}
+                            onChange={(e) => {
+                              const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
+                              const next = {
+                                ...answers,
+                                [it.id]: { kind: 'signature', fio: prev.fio, position: prev.position, signedAt: e.target.checked ? (prev.signedAt ?? Date.now()) : null },
+                              } as RepairChecklistAnswers;
+                              setAnswers(next);
+                              void save(next);
+                            }}
+                          />
+                          <span>Подписано</span>
+                        </label>
+                        <Input
+                          type="date"
+                          value={a?.kind === 'signature' && a.signedAt ? toInputDate(a.signedAt) : ''}
+                          disabled={!props.canEdit}
+                          onChange={(e) => {
+                            const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
+                            const nextVal = fromInputDate(e.target.value);
+                            const next = { ...answers, [it.id]: { kind: 'signature', fio: prev.fio, position: prev.position, signedAt: nextVal } } as RepairChecklistAnswers;
+                            setAnswers(next);
+                            void save(next);
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
 

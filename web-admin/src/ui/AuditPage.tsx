@@ -368,11 +368,11 @@ export function AuditPage() {
         <Button onClick={loadAll} disabled={loading}>
           {loading ? 'Обновление...' : 'Обновить'}
         </Button>
-        <div style={{ width: 160 }}>
+        <div style={{ width: 168 }}>
           <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>с даты</div>
         </div>
-        <div style={{ width: 160 }}>
+        <div style={{ width: 168 }}>
           <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>по дату</div>
         </div>
@@ -400,7 +400,7 @@ export function AuditPage() {
       </div>
 
       <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ width: 160 }}>
+        <div style={{ width: 168 }}>
           <Input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
         </div>
         <div style={{ color: 'var(--muted)', fontSize: 12 }}>Сводка на 21:00</div>

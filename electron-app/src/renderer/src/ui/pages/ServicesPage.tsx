@@ -14,6 +14,7 @@ import { matchesQueryInRecord } from '../utils/search.js';
 type Row = {
   id: string;
   displayName?: string;
+  searchText?: string;
   updatedAt: number;
 };
 type SortKey = 'displayName' | 'updatedAt';

@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { EntityTypeCode, STATUS_CODES, parseContractSections, type StatusCode } from '@matricarmz/shared';
+import {
+  EntityTypeCode,
+  STATUS_CODES,
+  parseContractSections,
+  statusDateCode,
+  type StatusCode,
+} from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
 import { listEntitiesByType } from './entityService.js';
@@ -130,6 +136,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const contractIdDefId = defs['contract_id'];
   const arrivalDateDefId = defs['arrival_date'];
   const shippingDateDefId = defs['shipping_date'];
+  const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const scrapDefId = defs['is_scrap'];
   const attachmentsDefId = defs['attachments'];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
@@ -150,7 +157,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     scrapDefId,
     attachmentsDefId,
   ].filter(Boolean) as string[];
-  const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds])];
+  const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds, ...statusDateDefIds])];
 
   const valueRows =
     engineIds.length > 0 && attrDefIds.length > 0
@@ -186,6 +193,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const id = defs[c];
     if (id) statusDefById[id] = c;
   }
+  const statusDateDefById: Record<string, StatusCode> = {};
+  for (const c of STATUS_CODES) {
+    const dateDefId = defs[statusDateCode(c)];
+    if (dateDefId) statusDateDefById[dateDefId] = c;
+  }
 
   const result: EngineListItem[] = [];
   for (const e of engines) {
@@ -199,6 +211,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     let shippingDate: number | null | undefined;
     let isScrap: boolean | undefined;
     let attachmentPreviews: Array<{ id: string; name: string; mime: string | null }> = [];
+    const statusDateByCode: Partial<Record<StatusCode, number | null>> = {};
 
     if (numberDefId) {
       const v = rowValues.get(numberDefId);
@@ -230,6 +243,15 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       shippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
+    for (const statusDateDefId of statusDateDefIds) {
+      const code = (statusDateDefById as Record<string, StatusCode | undefined>)[statusDateDefId];
+      if (!code) continue;
+      const rawValue = rowValues.get(statusDateDefId);
+      const raw = rawValue != null ? safeJsonParse(rawValue) : null;
+      const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+      if (typeof parsed === 'number' && Number.isFinite(parsed)) statusDateByCode[code] = parsed;
+      else statusDateByCode[code] = null;
+    }
     if (scrapDefId) {
       const v = rowValues.get(scrapDefId);
       const raw = v != null ? safeJsonParse(v) : null;
@@ -251,6 +273,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
           statusFlags[code] = raw === true || raw === 'true' || raw === 1;
         }
       }
+    }
+    if (shippingDate == null && statusDateByCode.status_customer_sent != null) {
+      shippingDate = statusDateByCode.status_customer_sent;
     }
 
     const customerName = customerId ? customerNameById.get(customerId) : undefined;

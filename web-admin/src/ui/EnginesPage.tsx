@@ -154,7 +154,12 @@ export function EnginesPage(props: {
               engineBrand: attrs.engine_brand == null ? '' : String(attrs.engine_brand),
               customerName: customerId ? customerMap.get(customerId) ?? customerId : '',
               arrivalDate: typeof attrs.arrival_date === 'number' ? Number(attrs.arrival_date) : null,
-              shippingDate: typeof attrs.shipping_date === 'number' ? Number(attrs.shipping_date) : null,
+              shippingDate:
+                typeof attrs.shipping_date === 'number'
+                  ? Number(attrs.shipping_date)
+                  : typeof attrs.status_customer_sent_date === 'number'
+                    ? Number(attrs.status_customer_sent_date)
+                    : null,
               isScrap: Boolean(attrs.is_scrap),
               contractId,
               updatedAt: Number(row.updatedAt ?? 0),

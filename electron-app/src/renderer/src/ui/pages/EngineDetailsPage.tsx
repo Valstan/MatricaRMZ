@@ -24,6 +24,10 @@ function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
 }
 
+function getStatusLabel(code: StatusCode) {
+  return code === 'status_customer_sent' ? 'Дата отгрузки' : STATUS_LABELS[code];
+}
+
 function toInputDate(ms: number | null | undefined): string {
   if (!ms || !Number.isFinite(ms)) return '';
   const d = new Date(ms);
@@ -583,10 +587,10 @@ export function EngineDetailsPage(props: {
       return {
         code,
         defaultOrder: 30 + STATUS_CODES.indexOf(code) * 2,
-        label: STATUS_LABELS[code],
+        label: getStatusLabel(code),
         value: statusFlags[code] ? 'да' : 'нет',
         render: (
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="checkbox"
@@ -608,6 +612,7 @@ export function EngineDetailsPage(props: {
               type="date"
               value={dateValue}
               disabled={!props.canEditEngines}
+              style={{ width: 168, minWidth: 168 }}
               onChange={(e) => {
                 sessionHadChanges.current = true;
                 setStatusDates((prev) => ({ ...prev, [code]: fromInputDate(e.target.value) }));

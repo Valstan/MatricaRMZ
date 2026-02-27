@@ -829,24 +829,16 @@ export function App() {
     };
   }, []);
 
-  async function runSyncNow(opts?: { showStatusMessage?: boolean }) {
+  async function runSyncNow() {
     try {
       if (backupMode?.mode === 'backup') {
-        if (opts?.showStatusMessage) setPostLoginSyncMsg('Режим просмотра резервной копии: синхронизация отключена.');
         return;
       }
-      if (opts?.showStatusMessage) setPostLoginSyncMsg('Синхронизация…');
       const r = await window.matrica.sync.run();
       if (r.ok) {
         await refreshEngines();
-        if (opts?.showStatusMessage) setPostLoginSyncMsg(`Синхронизация выполнена: push=${r.pushed}, pull=${r.pulled}.`);
-      } else {
-        if (opts?.showStatusMessage) setPostLoginSyncMsg(`Не удалось синхронизироваться: ${r.error ?? 'unknown'}.`);
       }
-    } catch (e) {
-      if (opts?.showStatusMessage) setPostLoginSyncMsg(`Не удалось синхронизироваться: ${String(e)}.`);
-    } finally {
-      if (opts?.showStatusMessage) setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+    } catch {
     }
   }
 
@@ -885,10 +877,10 @@ export function App() {
     if (prevId === currentId) return;
     prevUserId.current = currentId;
     resetUserScopedState();
-    if (!currentId) return;
+      if (!currentId) return;
     if (backupMode?.mode === 'backup') return;
     void (async () => {
-      await runSyncNow({ showStatusMessage: false });
+      await runSyncNow();
     })();
   }, [authReady, authStatus.loggedIn, authStatus.user?.id, backupMode?.mode]);
 
@@ -2209,11 +2201,7 @@ export function App() {
     );
   }
 
-  const headerInlineStatusText = incrementalSyncUi
-    ? `Синхронизация${incrementalSyncUi.progress != null ? ` ${Math.round(Math.max(0, Math.min(100, incrementalSyncUi.progress * 100)))}%` : ''}${incrementalSyncUi.activity ? ` • ${incrementalSyncUi.activity}` : ''}${incrementalSyncUi.error ? ` • ${incrementalSyncUi.error}` : ''}`
-    : postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg)
-      ? postLoginSyncMsg
-      : '';
+  const headerInlineStatusText = postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? postLoginSyncMsg : '';
 
   const headerStatus = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0, overflow: 'hidden', justifyContent: 'center' }}>
@@ -2400,7 +2388,7 @@ export function App() {
           {authStatus.loggedIn && caps.canUseSync && !viewMode && (
             <Button
               variant="ghost"
-              onClick={() => void runSyncNow({ showStatusMessage: true })}
+                onClick={() => void runSyncNow()}
               disabled={syncStatus?.state === 'syncing'}
               title="Запустить синхронизацию вручную"
               aria-label="Синхронизировать сейчас"

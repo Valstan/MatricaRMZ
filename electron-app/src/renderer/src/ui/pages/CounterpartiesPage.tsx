@@ -15,6 +15,7 @@ import { matchesQueryInRecord } from '../utils/search.js';
 type Row = {
   id: string;
   displayName?: string;
+  searchText?: string;
   inn?: string;
   updatedAt: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
@@ -103,6 +104,7 @@ export function CounterpartiesPage(props: {
         return {
           id: String(r.id),
           displayName: r.displayName ? String(r.displayName) : '',
+          searchText: r.searchText ? String(r.searchText) : undefined,
           inn: inn.trim() || undefined,
           updatedAt: Number(r.updatedAt ?? 0),
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),

@@ -329,7 +329,7 @@ export function NotesPage(props: {
                 <Button variant="ghost" onClick={() => addUrlBlock(note.id)}>
                   Добавить ссылку (URL)
                 </Button>
-                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <span className="muted">Добавить изображение</span>
                   <input
                     type="file"
@@ -458,7 +458,7 @@ export function NotesPage(props: {
         <Button variant="primary" onClick={() => void createNote()} disabled={!props.canEdit}>
           Создать новую заметку
         </Button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
           <span className="muted" style={{ fontSize: 12 }}>
             Показывать скрытые
