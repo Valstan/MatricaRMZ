@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { EngineDetailsPage } from './EngineDetailsPage.js';
 import {
@@ -12,13 +13,16 @@ import {
   upsertEntityType,
 } from '../api/masterdata.js';
 import { formatMoscowDate } from './utils/dateUtils.js';
+import { getLinkOpenLabel, openLinkedEntity } from './utils/linkNavigation.js';
 import { matchesQueryInRecord } from './utils/search.js';
 
 type Row = {
   id: string;
   engineNumber: string;
   engineBrand: string;
+  engineBrandId: string;
   customerName: string;
+  customerId: string;
   arrivalDate: number | null;
   shippingDate: number | null;
   isScrap: boolean;
@@ -152,7 +156,9 @@ export function EnginesPage(props: {
               id: String(row.id),
               engineNumber: attrs.engine_number == null ? '' : String(attrs.engine_number),
               engineBrand: attrs.engine_brand == null ? '' : String(attrs.engine_brand),
+              engineBrandId: attrs.engine_brand_id == null ? '' : String(attrs.engine_brand_id),
               customerName: customerId ? customerMap.get(customerId) ?? customerId : '',
+              customerId,
               arrivalDate: typeof attrs.arrival_date === 'number' ? Number(attrs.arrival_date) : null,
               shippingDate:
                 typeof attrs.shipping_date === 'number'
@@ -160,7 +166,7 @@ export function EnginesPage(props: {
                   : typeof attrs.status_customer_sent_date === 'number'
                     ? Number(attrs.status_customer_sent_date)
                     : null,
-              isScrap: Boolean(attrs.is_scrap),
+              isScrap: Boolean(row.isScrap),
               contractId,
               updatedAt: Number(row.updatedAt ?? 0),
               syncStatus: String(row.syncStatus ?? ''),
@@ -170,7 +176,9 @@ export function EnginesPage(props: {
               id: String(row.id),
               engineNumber: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
               engineBrand: '',
+              engineBrandId: '',
               customerName: '',
+              customerId: '',
               arrivalDate: null,
               shippingDate: null,
               isScrap: false,
@@ -365,8 +373,38 @@ export function EnginesPage(props: {
                 style={{ cursor: 'pointer', background: row.isScrap ? 'rgba(239, 68, 68, 0.18)' : undefined }}
               >
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineNumber || '-'}</td>
-                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineBrand || '-'}</td>
-                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.customerName || '-'}</td>
+                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1 }}>{row.engineBrand || '-'}</span>
+                    <Button
+                      variant="ghost"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openLinkedEntity('engine_brand', row.engineBrandId);
+                      }}
+                      disabled={!row.engineBrandId}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      {getLinkOpenLabel('engine_brand')}
+                    </Button>
+                  </div>
+                </td>
+                <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1 }}>{row.customerName || '-'}</span>
+                    <Button
+                      variant="ghost"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openLinkedEntity('customer', row.customerId);
+                      }}
+                      disabled={!row.customerId}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      {getLinkOpenLabel('customer')}
+                    </Button>
+                  </div>
+                </td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{toDateLabel(row.arrivalDate) || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{toDateLabel(row.shippingDate) || '-'}</td>
               </tr>

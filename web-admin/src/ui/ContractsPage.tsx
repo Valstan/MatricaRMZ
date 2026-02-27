@@ -14,6 +14,7 @@ import {
   getEntity,
 } from '../api/masterdata.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from './utils/dateUtils.js';
+import { getLinkOpenLabel, openLinkedEntity } from './utils/linkNavigation.js';
 import { matchesQueryInRecord } from './utils/search.js';
 
 type Row = {
@@ -21,6 +22,7 @@ type Row = {
   number: string;
   internalNumber: string;
   counterparty: string;
+  counterpartyId: string;
   dateMs: number | null;
   dueDateMs: number | null;
   daysLeft: number | null;
@@ -40,12 +42,16 @@ function getContractUrgencyStyle(daysLeft: number | null) {
   return {};
 }
 
-function sumMoneyItems(rows: unknown[]) {
-  return rows.reduce((acc, row) => {
+type ContractMoneyRow = {
+  qty?: unknown;
+  unitPrice?: unknown;
+};
+
+function sumMoneyItems(rows: ContractMoneyRow[]) {
+  return rows.reduce<number>((acc, row) => {
     if (!row || typeof row !== 'object') return acc;
-    const rowObj = row as Record<string, unknown>;
-    const qty = Number(rowObj.qty);
-    const unitPrice = Number(rowObj.unitPrice);
+    const qty = Number(row.qty);
+    const unitPrice = Number(row.unitPrice);
     if (!Number.isFinite(qty) || !Number.isFinite(unitPrice)) return acc;
     return acc + qty * unitPrice;
   }, 0);
@@ -53,11 +59,11 @@ function sumMoneyItems(rows: unknown[]) {
 
 function getContractAmount(sections: ReturnType<typeof parseContractSections>): number {
   let total = 0;
-  total += sumMoneyItems(sections.primary.engineBrands as unknown[]);
-  total += sumMoneyItems(sections.primary.parts as unknown[]);
+  total += sumMoneyItems(sections.primary.engineBrands);
+  total += sumMoneyItems(sections.primary.parts);
   for (const addon of sections.addons) {
-    total += sumMoneyItems(addon.engineBrands as unknown[]);
-    total += sumMoneyItems(addon.parts as unknown[]);
+    total += sumMoneyItems(addon.engineBrands);
+    total += sumMoneyItems(addon.parts);
   }
   return total;
 }
@@ -136,7 +142,7 @@ export function ContractsPage(props: {
       }
       const list = listRes.rows ?? [];
       const typesRes = await listEntityTypes();
-      const allTypes = typesRes?.rows ?? [];
+      const allTypes = (typesRes?.rows ?? []) as Array<{ id: string; code?: string }>;
       const customerType = allTypes.find((t) => String(t.code) === 'customer') ?? null;
       const customerRowsRes = customerType?.id
         ? await listEntities(String(customerType.id)).catch(() => ({ ok: false, rows: [] as Array<{ id: string; displayName?: string }> }))
@@ -159,11 +165,13 @@ export function ContractsPage(props: {
             const sections = parseContractSections(attrs);
             const dueDateMs = effectiveContractDueAt(sections);
             const daysLeft = dueDateMs != null ? Math.ceil((dueDateMs - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+            const counterpartyId = sections.primary.customerId ? String(sections.primary.customerId) : '';
             return {
               id: String(row.id),
               number: sections.primary.number == null ? '' : String(sections.primary.number),
               internalNumber: sections.primary.internalNumber == null ? '' : String(sections.primary.internalNumber),
               counterparty: sections.primary.customerId ? customerById.get(sections.primary.customerId) ?? '—' : '—',
+              counterpartyId,
               dateMs: typeof sections.primary.signedAt === 'number' ? sections.primary.signedAt : null,
               dueDateMs,
               daysLeft,
@@ -175,6 +183,7 @@ export function ContractsPage(props: {
               id: String(row.id),
               number: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
               internalNumber: '',
+              counterpartyId: '',
               counterparty: '—',
               dateMs: null,
               dueDateMs: null,
@@ -287,7 +296,22 @@ export function ContractsPage(props: {
                   >
                     <td style={{ padding: 8 }}>{row.number || '(без номера)'}</td>
                     <td style={{ padding: 8, color: textColor }}>{row.internalNumber || '—'}</td>
-                    <td style={{ padding: 8, color: textColor }}>{row.counterparty || '—'}</td>
+                    <td style={{ padding: 8, color: textColor }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ flex: 1 }}>{row.counterparty || '—'}</span>
+                        <Button
+                          variant="ghost"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openLinkedEntity('customer', row.counterpartyId);
+                          }}
+                          disabled={!row.counterpartyId}
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          {getLinkOpenLabel('customer')}
+                        </Button>
+                      </div>
+                    </td>
                     <td style={{ padding: 8, color: textColor }}>{row.dateMs ? formatMoscowDate(row.dateMs) : '—'}</td>
                     <td style={{ padding: 8, color: textColor }}>{row.dueDateMs ? formatMoscowDate(row.dueDateMs) : '—'}</td>
                     <td style={{ padding: 8, color: textColor }}>{formatRuMoney(row.amount)}</td>

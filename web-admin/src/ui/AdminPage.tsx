@@ -8,6 +8,7 @@ import { SearchSelect } from './components/SearchSelect.js';
 import * as masterdata from '../api/masterdata.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { matchesQueryInRecord } from './utils/search.js';
+import { getLinkOpenLabel, openLinkedEntity } from './utils/linkNavigation.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -23,7 +24,6 @@ type AttrDefRow = {
   deletedAt: number | null;
 };
 type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string };
-
 export function MasterdataPage(props: {
   canViewMasterData: boolean;
   canEditMasterData: boolean;
@@ -1792,31 +1792,43 @@ function FieldEditor(props: {
   if (dt === 'link') {
     const current = typeof props.value === 'string' ? props.value : null;
     return (
-      <SearchSelect
-        value={current}
-        disabled={!props.canEdit}
-        options={props.linkOptions}
-        placeholder="(не выбрано)"
-        onChange={(next) => {
-          if (!props.canEdit) return;
-          props.onChange(next);
-          void props.onSave(next);
-        }}
-        onCreate={
-          props.canEdit && linkTargetTypeCode
-            ? async (label) => {
-                const id = await createLinkedEntity(label);
-                if (!id) return null;
-                props.onChange(id);
-                void props.onSave(id);
-                return id;
-              }
-            : undefined
-        }
-        createLabel={
-          linkTargetTypeCode ? (linkTargetTypeCode === 'category' ? 'Новая категория' : `Новая запись (${linkTargetTypeCode})`) : undefined
-        }
-      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <SearchSelect
+            value={current}
+            disabled={!props.canEdit}
+            options={props.linkOptions}
+            placeholder="(не выбрано)"
+            onChange={(next) => {
+              if (!props.canEdit) return;
+              props.onChange(next);
+              void props.onSave(next);
+            }}
+            onCreate={
+              props.canEdit && linkTargetTypeCode
+                ? async (label) => {
+                    const id = await createLinkedEntity(label);
+                    if (!id) return null;
+                    props.onChange(id);
+                    void props.onSave(id);
+                    return id;
+                  }
+                : undefined
+            }
+            createLabel={
+              linkTargetTypeCode ? (linkTargetTypeCode === 'category' ? 'Новая категория' : `Новая запись (${linkTargetTypeCode})`) : undefined
+            }
+          />
+        </div>
+        <Button
+          variant="ghost"
+          onClick={() => openLinkedEntity(linkTargetTypeCode, current || '')}
+          disabled={!linkTargetTypeCode || !current}
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          {linkTargetTypeCode ? getLinkOpenLabel(linkTargetTypeCode) : 'Открыть'}
+        </Button>
+      </div>
     );
   }
 

@@ -9,7 +9,7 @@ import {
   entityTypeRowSchema,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, rowOwners } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, operations, rowOwners } from '../database/schema.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
 type Actor = { id: string; username: string; role?: string };
@@ -196,6 +196,80 @@ function safeJsonParse(s: string): unknown {
   } catch {
     return s;
   }
+}
+
+function toBooleanValue(value: unknown): boolean {
+  if (value === true || value === 1 || value === 'true' || value === '1') return true;
+  return false;
+}
+
+function toBooleanJson(valueJson: string | null | undefined): boolean {
+  if (valueJson == null) return false;
+  return toBooleanValue(safeJsonParse(String(valueJson)));
+}
+
+function toInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && Number.isInteger(parsed)) return parsed;
+  }
+  return null;
+}
+
+function isDefectItemsFullyScrapped(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const answers = (payload as { answers?: unknown }).answers;
+  if (!answers || typeof answers !== 'object') return false;
+  const defectItems = (answers as { defect_items?: unknown }).defect_items;
+  if (!defectItems || typeof defectItems !== 'object') return false;
+  const defectItemsObj = defectItems as { kind?: unknown; rows?: unknown[] };
+  if (defectItemsObj.kind !== 'table') return false;
+  if (!Array.isArray(defectItemsObj.rows)) return false;
+
+  let hasRows = false;
+  for (const rawRow of defectItemsObj.rows) {
+    if (!rawRow || typeof rawRow !== 'object') continue;
+    const row = rawRow as Record<string, unknown>;
+    const quantity = toInteger(row.quantity);
+    if (quantity == null || quantity <= 0) continue;
+    hasRows = true;
+
+    const repairableQty = toInteger(row.repairable_qty);
+    if (repairableQty == null) {
+      const scrapQty = toInteger(row.scrap_qty);
+      if (scrapQty == null || scrapQty < quantity) return false;
+      continue;
+    }
+    if (repairableQty !== 0) return false;
+  }
+
+  return hasRows;
+}
+
+async function getDefectChecklistScrapMap(engineIds: string[]): Promise<Map<string, boolean>> {
+  const out = new Map<string, boolean>();
+  if (engineIds.length === 0) return out;
+  const rows = await db
+    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+    .from(operations)
+    .where(
+      and(
+        inArray(operations.engineEntityId, engineIds as any),
+        eq(operations.operationType, 'defect'),
+        isNull(operations.deletedAt),
+      ),
+    )
+    .orderBy(desc(operations.updatedAt));
+  const seen = new Set<string>();
+  for (const row of rows as any[]) {
+    const engineId = String(row?.engineEntityId ?? '').trim();
+    if (!engineId || seen.has(engineId)) continue;
+    seen.add(engineId);
+    const payload = row.metaJson ? safeJsonParse(String(row.metaJson)) : null;
+    out.set(engineId, isDefectItemsFullyScrapped(payload));
+  }
+  return out;
 }
 
 function toValueJson(value: unknown): string | null {
@@ -703,6 +777,58 @@ export async function listEntitiesByType(entityTypeId: string) {
     .limit(2000);
 
   const { byCode } = await getDefsByType(entityTypeId);
+  const typeRows = await db.select({ code: entityTypes.code }).from(entityTypes).where(eq(entityTypes.id, entityTypeId as any)).limit(1);
+  const isEngineType = String(typeRows[0]?.code ?? '').toLowerCase() === 'engine';
+  const scrapDefId = isEngineType ? byCode['is_scrap'] : null;
+  const statusRejectedDefId = isEngineType ? byCode['status_rejected'] : null;
+  const entityIds = rows.map((r) => String(r.id));
+  const valuesByEntity = new Map<string, Map<string, string | null>>();
+  const isScrapByEntity = new Map<string, boolean>();
+  const isStatusRejectedByEntity = new Map<string, boolean>();
+  const isDefectScrapByEntity = new Map<string, boolean>();
+
+  if (isEngineType && entityIds.length > 0) {
+    const defIds = [scrapDefId, statusRejectedDefId].filter(Boolean) as string[];
+    if (defIds.length > 0) {
+      const attrRows = await db
+        .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+        .from(attributeValues)
+        .where(
+          and(
+            inArray(attributeValues.entityId, entityIds as any),
+            inArray(attributeValues.attributeDefId, defIds as any),
+            isNull(attributeValues.deletedAt),
+          ),
+        )
+        .limit(20000);
+      for (const row of attrRows as any[]) {
+        const entityId = String(row.entityId);
+        let map = valuesByEntity.get(entityId);
+        if (!map) {
+          map = new Map<string, string | null>();
+          valuesByEntity.set(entityId, map);
+        }
+        map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+      }
+    }
+
+    const scrapRows = await getDefectChecklistScrapMap(entityIds);
+    for (const [engineId, isDefectScrap] of scrapRows) {
+      isDefectScrapByEntity.set(engineId, isDefectScrap);
+    }
+
+    for (const row of rows) {
+      const entityId = String(row.id);
+      const attrs = valuesByEntity.get(entityId) ?? new Map<string, string | null>();
+      const isScrapAttr = toBooleanJson(scrapDefId ? attrs.get(scrapDefId) : null);
+      const isStatusRejected = toBooleanJson(statusRejectedDefId ? attrs.get(statusRejectedDefId) : null);
+      const isDefectScrap = isDefectScrapByEntity.get(entityId) === true;
+      isScrapByEntity.set(entityId, isScrapAttr || isStatusRejected || isDefectScrap);
+      isStatusRejectedByEntity.set(entityId, isStatusRejected);
+      isDefectScrapByEntity.set(entityId, isDefectScrap);
+    }
+  }
+
   const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
   const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
 
@@ -726,6 +852,13 @@ export async function listEntitiesByType(entityTypeId: string) {
     updatedAt: Number(e.updatedAt),
     syncStatus: String(e.syncStatus),
     displayName: labelMap.get(String(e.id)),
+    ...(isEngineType
+      ? {
+          isScrap: Boolean(isScrapByEntity.get(String(e.id))),
+          isStatusRejected: Boolean(isStatusRejectedByEntity.get(String(e.id))),
+          isDefectScrap: Boolean(isDefectScrapByEntity.get(String(e.id))),
+        }
+      : {}),
   }));
 }
 
@@ -758,6 +891,8 @@ export async function getEntityDetails(entityId: string) {
   if (!e[0]) throw new Error('Сущность не найдена');
 
   const { byCode } = await getDefsByType(String(e[0].typeId));
+  const typeRows = await db.select({ code: entityTypes.code }).from(entityTypes).where(eq(entityTypes.id, String(e[0].typeId) as any)).limit(1);
+  const isEngineType = String(typeRows[0]?.code ?? '').toLowerCase() === 'engine';
   const attrs: Record<string, unknown> = {};
   for (const [code, defId] of Object.entries(byCode)) {
     const v = await db
@@ -766,6 +901,16 @@ export async function getEntityDetails(entityId: string) {
       .where(and(eq(attributeValues.entityId, entityId as any), eq(attributeValues.attributeDefId, defId as any)))
       .limit(1);
     if (v[0]?.valueJson) attrs[code] = safeJsonParse(String(v[0].valueJson));
+  }
+  let isScrap = false;
+  let isStatusRejected = false;
+  let isDefectScrap = false;
+  if (isEngineType) {
+    isScrap = toBooleanValue(attrs.is_scrap);
+    isStatusRejected = toBooleanValue(attrs.status_rejected);
+    const scrapRows = await getDefectChecklistScrapMap([String(e[0].id)]);
+    isDefectScrap = scrapRows.get(String(e[0].id)) === true;
+    isScrap = isScrap || isStatusRejected || isDefectScrap;
   }
 
   return {
@@ -776,6 +921,7 @@ export async function getEntityDetails(entityId: string) {
     deletedAt: e[0].deletedAt == null ? null : Number(e[0].deletedAt),
     syncStatus: String(e[0].syncStatus),
     attributes: attrs,
+    ...(isEngineType ? { isScrap, isStatusRejected, isDefectScrap } : {}),
   };
 }
 

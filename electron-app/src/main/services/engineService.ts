@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -10,7 +10,7 @@ import {
   type StatusCode,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
+import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations } from '../database/schema.js';
 import { listEntitiesByType } from './entityService.js';
 import type { EngineDetails, EngineListItem } from '@matricarmz/shared';
 
@@ -121,6 +121,86 @@ async function getContractSignedAtMap(db: BetterSQLite3Database): Promise<Map<st
   return out;
 }
 
+function safeNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function toNonNegativeInteger(value: unknown): number | null {
+  const n = safeNumber(value);
+  if (n == null) return null;
+  const next = Math.floor(n);
+  return next >= 0 ? next : null;
+}
+
+function isDefectItemsFullyScrapped(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const answers = (payload as Record<string, unknown>).answers;
+  if (!answers || typeof answers !== 'object') return false;
+
+  const defectItems = (answers as Record<string, unknown>).defect_items;
+  if (!defectItems || typeof defectItems !== 'object') return false;
+  const defectItemsObj = defectItems as { kind?: unknown; rows?: unknown[] };
+  if (defectItemsObj.kind !== 'table') return false;
+  if (!Array.isArray(defectItemsObj.rows)) return false;
+
+  const rows = defectItemsObj.rows;
+  let hasRows = false;
+  for (const rawRow of rows) {
+    if (!rawRow || typeof rawRow !== 'object') continue;
+
+    const row = rawRow as Record<string, unknown>;
+    const quantity = toNonNegativeInteger(row.quantity);
+    if (quantity == null || quantity <= 0) continue;
+    hasRows = true;
+
+    const repairableQty = toNonNegativeInteger(row.repairable_qty);
+    const scrapQty = toNonNegativeInteger(row.scrap_qty);
+
+    if (repairableQty != null) {
+      if (repairableQty !== 0) return false;
+      continue;
+    }
+
+    if (scrapQty == null || scrapQty < quantity) return false;
+  }
+
+  return hasRows;
+}
+
+async function getDefectChecklistScrapMap(db: BetterSQLite3Database, engineIds: string[]): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  if (engineIds.length === 0) return result;
+
+  const rows = await db
+    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+    .from(operations)
+    .where(
+      and(
+        inArray(operations.engineEntityId, engineIds),
+        eq(operations.operationType, 'defect'),
+        isNull(operations.deletedAt),
+      ),
+    )
+    .orderBy(desc(operations.updatedAt));
+
+  const seen = new Set<string>();
+  for (const row of rows as any[]) {
+    const engineId = String(row?.engineEntityId ?? '').trim();
+    if (!engineId || seen.has(engineId)) continue;
+    seen.add(engineId);
+
+    const payload = row.metaJson ? safeJsonParse(String(row.metaJson)) : null;
+    result.set(engineId, isDefectItemsFullyScrapped(payload));
+  }
+
+  return result;
+}
+
 export async function listEngines(db: BetterSQLite3Database): Promise<EngineListItem[]> {
   const engineTypeId = await getEngineTypeId(db);
   const engines = await db
@@ -144,8 +224,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
   const contractSignedAtById = await getContractSignedAtMap(db);
-
   const engineIds = engines.map((e) => e.id);
+  const defectScrapByEngineId = await getDefectChecklistScrapMap(db, engineIds);
   const baseDefIds = [
     numberDefId,
     brandDefId,
@@ -277,6 +357,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     if (shippingDate == null && statusDateByCode.status_customer_sent != null) {
       shippingDate = statusDateByCode.status_customer_sent;
     }
+    const statusRejected = statusFlags.status_rejected === true;
+    const allDefectPartsScrapped = defectScrapByEngineId.get(e.id) === true;
 
     const customerName = customerId ? customerNameById.get(customerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
@@ -292,7 +374,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(contractName ? { contractName } : {}),
       arrivalDate: arrivalDate ?? null,
       shippingDate: shippingDate ?? null,
-      isScrap: isScrap === true,
+      isScrap: isScrap === true || statusRejected || allDefectPartsScrapped,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,

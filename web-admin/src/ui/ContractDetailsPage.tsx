@@ -17,6 +17,7 @@ import {
 } from '../api/masterdata.js';
 import { listParts } from '../api/parts.js';
 import { formatRuMoney } from './utils/dateUtils.js';
+import { getLinkOpenLabel, openLinkedEntity } from './utils/linkNavigation.js';
 
 type AttributeDef = {
   id: string;
@@ -471,19 +472,26 @@ export function ContractDetailsPage(props: {
             <div style={{ color: '#6b7280' }}>Внутренний номер</div>
             <Input value={internalNumber} disabled={!props.canEditMasterData} onChange={(e) => setInternalNumber(e.target.value)} onBlur={() => void saveAttr('internal_number', internalNumber)} />
 
-            <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-            <SearchSelect
-              value={engineBrandId || null}
-              options={engineBrandOptions}
-              disabled={!props.canEditMasterData}
-              onChange={(next) => {
-                const v = next ?? '';
-                setEngineBrandId(v);
-                void saveAttr('engine_brand_id', next ?? null);
-              }}
-              onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('engine_brand', label) : undefined}
-              createLabel="Новая марка двигателя"
-            />
+          <div style={{ color: '#6b7280' }}>Марка двигателя</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <SearchSelect
+                value={engineBrandId || null}
+                options={engineBrandOptions}
+                disabled={!props.canEditMasterData}
+                onChange={(next) => {
+                  const v = next ?? '';
+                  setEngineBrandId(v);
+                  void saveAttr('engine_brand_id', next ?? null);
+                }}
+                onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('engine_brand', label) : undefined}
+                createLabel="Новая марка двигателя"
+              />
+            </div>
+            <Button variant="ghost" onClick={() => openLinkedEntity('engine_brand', engineBrandId)} disabled={!engineBrandId} style={{ whiteSpace: 'nowrap' }}>
+              {getLinkOpenLabel('engine_brand')}
+            </Button>
+          </div>
 
             <div style={{ color: '#6b7280' }}>Сумма, ₽</div>
             <Input
@@ -737,6 +745,8 @@ export function ContractDetailsPage(props: {
                   def.dataType === 'link' && typeof value === 'string'
                     ? (linkOptionsByCode[def.code] ?? []).find((o) => o.id === value) ?? null
                     : null;
+                const linkTargetCode = def.dataType === 'link' ? getLinkTargetTypeCode(def) : null;
+                const linkValue = def.dataType === 'link' && typeof value === 'string' ? value : '';
 
                 return (
                   <div key={def.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -746,8 +756,9 @@ export function ContractDetailsPage(props: {
                       {def.isRequired && <span style={{ color: '#b91c1c' }}> *</span>}
                     </label>
                     {!props.canEditMasterData || !isEditing ? (
-                      <div
-                        style={{
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <div
+                          style={{
                           padding: '10px 12px',
                           border: '1px solid #e5e7eb',
                           borderRadius: 8,
@@ -756,35 +767,61 @@ export function ContractDetailsPage(props: {
                           color: '#111827',
                           cursor: props.canEditMasterData ? 'pointer' : 'default',
                           whiteSpace: 'pre-wrap',
-                        }}
-                        onClick={() => {
-                          if (props.canEditMasterData) setEditingAttr({ ...editingAttr, [def.code]: value });
-                        }}
-                      >
-                        {value === null || value === undefined ? (
-                          <span style={{ color: '#9ca3af' }}>—</span>
-                        ) : typeof value === 'string' ? (
-                          linkOpt?.label ?? value
-                        ) : typeof value === 'number' ? (
-                          String(value)
-                        ) : typeof value === 'boolean' ? (
-                          value ? 'Да' : 'Нет'
-                        ) : (
-                          JSON.stringify(value)
+                            flex: 1,
+                          }}
+                          onClick={() => {
+                            if (props.canEditMasterData) setEditingAttr({ ...editingAttr, [def.code]: value });
+                          }}
+                        >
+                          {value === null || value === undefined ? (
+                            <span style={{ color: '#9ca3af' }}>—</span>
+                          ) : typeof value === 'string' ? (
+                            linkOpt?.label ?? value
+                          ) : typeof value === 'number' ? (
+                            String(value)
+                          ) : typeof value === 'boolean' ? (
+                            value ? 'Да' : 'Нет'
+                          ) : (
+                            JSON.stringify(value)
+                          )}
+                        </div>
+                        {linkTargetCode && (
+                          <Button
+                            variant="ghost"
+                            onClick={() => openLinkedEntity(linkTargetCode, linkValue)}
+                            disabled={!linkValue}
+                            style={{ whiteSpace: 'nowrap' }}
+                          >
+                            {getLinkOpenLabel(linkTargetCode)}
+                          </Button>
                         )}
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {def.dataType === 'text' ? (
                           <Input value={String(value ?? '')} onChange={(e) => setEditingAttr({ ...editingAttr, [def.code]: e.target.value })} style={{ flex: 1 }} />
                         ) : def.dataType === 'link' ? (
-                          <SearchSelect
-                            value={typeof value === 'string' && value ? value : null}
-                            options={linkOptionsByCode[def.code] ?? []}
-                            placeholder="Выберите значение"
-                            disabled={!props.canEditMasterData || linkLoadingByCode[def.code]}
-                            onChange={(next) => setEditingAttr({ ...editingAttr, [def.code]: next })}
-                          />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <div style={{ flex: 1 }}>
+                              <SearchSelect
+                                value={typeof value === 'string' && value ? value : null}
+                                options={linkOptionsByCode[def.code] ?? []}
+                                placeholder="Выберите значение"
+                                disabled={!props.canEditMasterData || linkLoadingByCode[def.code]}
+                                onChange={(next) => setEditingAttr({ ...editingAttr, [def.code]: next })}
+                              />
+                            </div>
+                            {linkTargetCode && (
+                              <Button
+                                variant="ghost"
+                                onClick={() => openLinkedEntity(linkTargetCode, linkValue)}
+                                disabled={!linkValue}
+                                style={{ whiteSpace: 'nowrap' }}
+                              >
+                                {getLinkOpenLabel(linkTargetCode)}
+                              </Button>
+                            )}
+                          </div>
                         ) : def.dataType === 'number' ? (
                           <Input
                             type="number"

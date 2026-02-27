@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
@@ -17,6 +17,7 @@ import {
   softDeleteEntity,
 } from '../api/masterdata.js';
 import { formatMoscowDate } from './utils/dateUtils.js';
+import { getLinkOpenLabel, openLinkedEntity } from './utils/linkNavigation.js';
 
 type LinkOpt = { id: string; label: string };
 
@@ -38,6 +39,10 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function toBooleanValue(value: unknown): boolean {
+  return value === true || value === 1 || value === 'true' || value === '1';
+}
+
 function formatDateLabel(v: string): string {
   const ms = fromInputDate(v);
   if (!ms) return '';
@@ -50,7 +55,7 @@ const REQUIRED_DEFS = [
   { code: 'engine_brand_id', name: 'Марка двигателя (ссылка)', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }) },
   { code: 'arrival_date', name: 'Дата прихода', dataType: 'date' },
   { code: 'shipping_date', name: 'Дата отгрузки', dataType: 'date' },
-  { code: 'is_scrap', name: 'Утиль (неремонтнопригоден)', dataType: 'boolean' },
+  { code: 'is_scrap', name: 'Забракован', dataType: 'boolean' },
   { code: 'customer_id', name: 'Заказчик', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }) },
   { code: 'contract_id', name: 'Контракт', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }) },
   { code: 'attachments', name: 'Вложения', dataType: 'json' },
@@ -129,6 +134,8 @@ export function EngineDetailsPage(props: {
   const [shippingDate, setShippingDate] = useState('');
   const [isShippingDateChecked, setIsShippingDateChecked] = useState(false);
   const [isScrap, setIsScrap] = useState(false);
+  const [isStatusRejected, setIsStatusRejected] = useState(false);
+  const [isDefectScrap, setIsDefectScrap] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [contractId, setContractId] = useState('');
   const [attachments, setAttachments] = useState<unknown>(null);
@@ -200,6 +207,7 @@ export function EngineDetailsPage(props: {
       const r = await getEntity(props.engineId);
       if (!r?.ok) throw new Error(r?.error ?? 'engine load failed');
       const attrs = r.entity?.attributes ?? {};
+      const backendEntityScrap = (r.entity as { isScrap?: boolean; isStatusRejected?: boolean; isDefectScrap?: boolean }) ?? {};
       setEngineNumber(String(attrs.engine_number ?? ''));
       setEngineBrand(String(attrs.engine_brand ?? ''));
       setEngineBrandId(String(attrs.engine_brand_id ?? ''));
@@ -207,7 +215,11 @@ export function EngineDetailsPage(props: {
       const fallbackShippingDate = toInputDate(attrs.shipping_date as number | null | undefined) || toInputDate(attrs.status_customer_sent_date as number | null | undefined);
       setShippingDate(fallbackShippingDate);
       setIsShippingDateChecked(Boolean(fallbackShippingDate));
-      setIsScrap(Boolean(attrs.is_scrap));
+      const nextIsStatusRejected = backendEntityScrap.isStatusRejected ?? toBooleanValue(attrs.status_rejected);
+      const nextIsDefectScrap = backendEntityScrap.isDefectScrap;
+      setIsStatusRejected(Boolean(nextIsStatusRejected));
+      setIsDefectScrap(Boolean(nextIsDefectScrap));
+      setIsScrap(Boolean(backendEntityScrap.isScrap ?? toBooleanValue(attrs.is_scrap)));
       setCustomerId(String(attrs.customer_id ?? ''));
       setContractId(String(attrs.contract_id ?? ''));
       setAttachments(attrs.attachments ?? null);
@@ -316,7 +328,7 @@ export function EngineDetailsPage(props: {
                     ['Марка двигателя', String(engineBrand ?? '')],
                     ['Дата прихода', formatDateLabel(arrivalDate)],
                     ['Дата отгрузки', formatDateLabel(shippingDate)],
-                    ['Утиль', isScrap ? 'Да' : 'Нет'],
+                    ['Забракован', isScrap || isStatusRejected || isDefectScrap ? 'Да' : 'Нет'],
                     ['Заказчик', (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId ?? ''],
                     ['Контракт', (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId ?? ''],
                   ]),
@@ -353,35 +365,45 @@ export function EngineDetailsPage(props: {
           <Input value={engineNumber} disabled={!props.canEditEngines} onChange={(e) => setEngineNumber(e.target.value)} onBlur={() => void saveAttr('engine_number', engineNumber)} />
 
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <SearchSelect
-              value={engineBrandId || null}
-              options={engineBrandOptions}
-              disabled={!props.canEditEngines}
-              createLabel="Новая марка двигателя"
-              onChange={(next) => {
-                const nextId = next ?? '';
-                const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
-                setEngineBrandId(nextId);
-                setEngineBrand(label);
-                void saveAttr('engine_brand_id', next || null);
-                void saveAttr('engine_brand', label || null);
-              }}
-              onCreate={
-                props.canEditMasterData
-                  ? async (label) => {
-                      const id = await createMasterDataItem('engine_brand', label);
-                      if (!id) return null;
-                      setEngineBrandId(id);
-                      setEngineBrand(label);
-                      void saveAttr('engine_brand_id', id);
-                      void saveAttr('engine_brand', label);
-                      return id;
-                    }
-                  : undefined
-              }
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <SearchSelect
+                value={engineBrandId || null}
+                options={engineBrandOptions}
+                disabled={!props.canEditEngines}
+                createLabel="Новая марка двигателя"
+                onChange={(next) => {
+                  const nextId = next ?? '';
+                  const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
+                  setEngineBrandId(nextId);
+                  setEngineBrand(label);
+                  void saveAttr('engine_brand_id', next || null);
+                  void saveAttr('engine_brand', label || null);
+                }}
+                onCreate={
+                  props.canEditMasterData
+                    ? async (label) => {
+                        const id = await createMasterDataItem('engine_brand', label);
+                        if (!id) return null;
+                        setEngineBrandId(id);
+                        setEngineBrand(label);
+                        void saveAttr('engine_brand_id', id);
+                        void saveAttr('engine_brand', label);
+                        return id;
+                      }
+                    : undefined
+                }
+              />
+            </div>
             {(linkLists.engine_brand ?? []).length === 0 && <span style={{ color: '#6b7280', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>}
+            <Button
+              variant="ghost"
+              onClick={() => openLinkedEntity('engine_brand', engineBrandId)}
+              disabled={!engineBrandId}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {getLinkOpenLabel('engine_brand')}
+            </Button>
           </div>
 
           <div style={{ color: '#6b7280' }}>Дата прихода</div>
@@ -428,48 +450,72 @@ export function EngineDetailsPage(props: {
             />
           </div>
 
-          <div style={{ color: '#6b7280' }}>Неремонтнопригоден / утиль</div>
+          <div style={{ color: '#6b7280' }}>Забракован</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
             <input
               type="checkbox"
-              checked={isScrap}
-              disabled={!props.canEditEngines}
+              checked={isScrap || isStatusRejected || isDefectScrap}
+              disabled={!props.canEditEngines || isStatusRejected || isDefectScrap}
               onChange={(e) => {
                 const next = e.target.checked;
                 setIsScrap(next);
                 void saveAttr('is_scrap', next);
               }}
             />
-            <span>{isScrap ? 'Да' : 'Нет'}</span>
+            <span>{isScrap || isStatusRejected || isDefectScrap ? 'Да' : 'Нет'}</span>
           </label>
 
           <div style={{ color: '#6b7280' }}>Заказчик</div>
-          <SearchSelect
-            value={customerId || null}
-            options={linkLists.customer_id ?? []}
-            disabled={!props.canEditEngines}
-            createLabel="Новый заказчик"
-            onChange={(next) => {
-              const v = next ?? '';
-              setCustomerId(v);
-              void saveAttr('customer_id', next ?? null);
-            }}
-            onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('customer', label) : undefined}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <SearchSelect
+                value={customerId || null}
+                options={linkLists.customer_id ?? []}
+                disabled={!props.canEditEngines}
+                createLabel="Новый заказчик"
+                onChange={(next) => {
+                  const v = next ?? '';
+                  setCustomerId(v);
+                  void saveAttr('customer_id', next ?? null);
+                }}
+                onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('customer', label) : undefined}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => openLinkedEntity('customer', customerId)}
+              disabled={!customerId}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {getLinkOpenLabel('customer')}
+            </Button>
+          </div>
 
           <div style={{ color: '#6b7280' }}>Контракт</div>
-          <SearchSelect
-            value={contractId || null}
-            options={linkLists.contract_id ?? []}
-            disabled={!props.canEditEngines}
-            createLabel="Номер контракта"
-            onChange={(next) => {
-              const v = next ?? '';
-              setContractId(v);
-              void saveAttr('contract_id', next ?? null);
-            }}
-            onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('contract', label) : undefined}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <SearchSelect
+                value={contractId || null}
+                options={linkLists.contract_id ?? []}
+                disabled={!props.canEditEngines}
+                createLabel="Номер контракта"
+                onChange={(next) => {
+                  const v = next ?? '';
+                  setContractId(v);
+                  void saveAttr('contract_id', next ?? null);
+                }}
+                onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('contract', label) : undefined}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => openLinkedEntity('contract', contractId)}
+              disabled={!contractId}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {getLinkOpenLabel('contract')}
+            </Button>
+          </div>
         </div>
       </div>
 
