@@ -51,7 +51,7 @@ function parseReportTimes(raw: string | undefined | null) {
 }
 
 function getTimeParts(timeZone: string): TimeParts {
-  const fmt = new Intl.DateTimeFormat('en-CA', {
+  const fmt = new Intl.DateTimeFormat('ru-RU', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
@@ -258,7 +258,7 @@ function buildReportText(range: ReportRange, stats: ReportStats, timeZone: strin
     const p50 = percentile(stats.latencySamples, 0.5);
     const p95 = percentile(stats.latencySamples, 0.95);
     lines.push(
-      `Скорость: avg=${avg.toFixed(0)}мс, p50=${p50 ?? 'n/a'}мс, p95=${p95 ?? 'n/a'}мс, медленных(>10с)=${stats.slowReplies}`,
+      `Скорость: avg=${avg.toFixed(0)}мс, p50=${p50 ?? 'н/д'}мс, p95=${p95 ?? 'н/д'}мс, медленных(>10с)=${stats.slowReplies}`,
     );
   }
   if (stats.emptyMessages > 0) lines.push(`Короткие/пустые запросы: ${stats.emptyMessages}`);

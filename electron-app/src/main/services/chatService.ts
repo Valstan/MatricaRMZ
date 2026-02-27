@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { randomUUID, createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import { basename } from 'node:path';
-import { net, dialog, app } from 'electron';
+import { net, dialog, app, BrowserWindow } from 'electron';
 
 import type {
   ChatDeepLinkPayload,
@@ -448,11 +448,13 @@ export async function chatExport(db: BetterSQLite3Database, apiBaseUrl: string, 
     if (!j?.ok || typeof j.text !== 'string') return { ok: false, error: 'bad response' };
 
     const suggested = `chat_export_${new Date(args.startMs).toISOString().slice(0, 10)}_${new Date(args.endMs).toISOString().slice(0, 10)}.txt`;
-    const save = await dialog.showSaveDialog({
+    const saveParent = BrowserWindow.getFocusedWindow();
+    const saveOpts = {
       title: 'Экспорт чатов',
       defaultPath: app.getPath('downloads') + '/' + suggested,
       filters: [{ name: 'Text', extensions: ['txt'] }],
-    });
+    };
+    const save = saveParent ? await dialog.showSaveDialog(saveParent, saveOpts) : await dialog.showSaveDialog(saveOpts);
     if (save.canceled || !save.filePath) return { ok: false, error: 'cancelled' };
     await fsp.writeFile(save.filePath, String(j.text), 'utf8');
     return { ok: true, path: save.filePath };

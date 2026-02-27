@@ -78,7 +78,7 @@ function normalizeAttrValue(row: LedgerRow, ts: number) {
 
 async function main() {
   const superadminId = await getSuperadminUserId().catch(() => null);
-  if (!superadminId) throw new Error('superadmin user not found');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
 
   const canonicalRows = await db
     .select({ id: entityTypesTable.id, code: entityTypesTable.code })
@@ -88,7 +88,7 @@ async function main() {
   const canonicalIds = new Map<string, string>(canonicalRows.map((r) => [String(r.code), String(r.id)]));
   const engineTypeId = canonicalIds.get('engine') ?? '';
   const contractTypeId = canonicalIds.get('contract') ?? '';
-  if (!engineTypeId || !contractTypeId) throw new Error('canonical type ids not found');
+  if (!engineTypeId || !contractTypeId) throw new Error('Не найдены канонические идентификаторы типов engine и contract');
 
   const state = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
   const entities: Record<string, LedgerRow> = state?.tables?.entities ?? {};
@@ -138,7 +138,7 @@ async function main() {
   }
 
   if (txs.length === 0) {
-    console.log('[touch] nothing to update');
+    console.log('[touch] нет изменений для синхронизации');
     return;
   }
 
@@ -157,6 +157,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('[touch] failed', e);
+  console.error('[touch] ошибка', e);
   process.exit(1);
 });

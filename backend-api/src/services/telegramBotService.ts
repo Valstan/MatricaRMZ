@@ -33,7 +33,7 @@ function normalizeUserLogin(raw: string): string {
 
 async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; timeoutSec?: number }) {
   const token = getToken();
-  if (!token) return { ok: false as const, error: 'missing token' };
+  if (!token) return { ok: false as const, error: 'токен не указан' };
   const offset = Number(args?.offset ?? 0);
   const limit = Math.max(1, Math.min(100, Number(args?.limit ?? 20)));
   const timeoutSec = Math.max(0, Math.min(30, Number(args?.timeoutSec ?? 0)));
@@ -46,11 +46,11 @@ async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; ti
     const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?${qs.toString()}`);
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'no body'}` };
+      return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'нет тела ответа'}` };
     }
     const json = (await r.json().catch(() => null)) as any;
     if (!json?.ok || !Array.isArray(json?.result)) {
-      return { ok: false as const, error: 'telegram response not ok' };
+      return { ok: false as const, error: 'ответ Telegram некорректен' };
     }
     return { ok: true as const, updates: json.result as any[] };
   } catch (e) {
@@ -81,10 +81,10 @@ async function resolveChatIdByLogin(login: string): Promise<string | null> {
 
 export async function sendTelegramMessage(args: { toLogin: string; text: string; replyMarkup?: unknown }) {
   const token = getToken();
-  if (!token) return { ok: false as const, error: 'missing token' };
+  if (!token) return { ok: false as const, error: 'токен не указан' };
   const normalizedLogin = normalizeLogin(args.toLogin);
   const chatId = normalizedLogin;
-  if (!chatId) return { ok: false as const, error: 'missing login' };
+  if (!chatId) return { ok: false as const, error: 'логин пользователя не указан' };
 
   const body: Record<string, unknown> = {
     chat_id: chatId,
@@ -100,7 +100,7 @@ export async function sendTelegramMessage(args: { toLogin: string; text: string;
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      const rawErr = `telegram HTTP ${r.status}: ${t || 'no body'}`;
+      const rawErr = `telegram HTTP ${r.status}: ${t || 'нет тела ответа'}`;
       // Telegram does not allow direct send to arbitrary user @username.
       // If bot already saw user updates (/start), resolve chat_id and retry.
       if (rawErr.includes('chat not found') && normalizedLogin) {
@@ -121,7 +121,7 @@ export async function sendTelegramMessage(args: { toLogin: string; text: string;
       return { ok: false as const, error: rawErr };
     }
     const json = (await r.json().catch(() => null)) as any;
-    if (!json?.ok) return { ok: false as const, error: 'telegram response not ok' };
+    if (!json?.ok) return { ok: false as const, error: 'ответ Telegram некорректен' };
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -130,9 +130,9 @@ export async function sendTelegramMessage(args: { toLogin: string; text: string;
 
 export async function sendTelegramMessageToChat(args: { chatId: string | number; text: string; replyMarkup?: unknown }) {
   const token = getToken();
-  if (!token) return { ok: false as const, error: 'missing token' };
+  if (!token) return { ok: false as const, error: 'токен не указан' };
   const chatId = String(args.chatId ?? '').trim();
-  if (!chatId) return { ok: false as const, error: 'missing chat_id' };
+  if (!chatId) return { ok: false as const, error: 'идентификатор чата не указан' };
   const body: Record<string, unknown> = {
     chat_id: chatId,
     text: truncateText(String(args.text ?? '')),
@@ -146,10 +146,10 @@ export async function sendTelegramMessageToChat(args: { chatId: string | number;
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'no body'}` };
+      return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'нет тела ответа'}` };
     }
     const json = (await r.json().catch(() => null)) as any;
-    if (!json?.ok) return { ok: false as const, error: 'telegram response not ok' };
+    if (!json?.ok) return { ok: false as const, error: 'ответ Telegram некорректен' };
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -158,9 +158,9 @@ export async function sendTelegramMessageToChat(args: { chatId: string | number;
 
 export async function answerTelegramCallbackQuery(args: { callbackQueryId: string; text?: string }) {
   const token = getToken();
-  if (!token) return { ok: false as const, error: 'missing token' };
+  if (!token) return { ok: false as const, error: 'токен не указан' };
   const callbackQueryId = String(args.callbackQueryId ?? '').trim();
-  if (!callbackQueryId) return { ok: false as const, error: 'missing callback_query_id' };
+  if (!callbackQueryId) return { ok: false as const, error: 'идентификатор callback-запроса не указан' };
   const body: Record<string, unknown> = {
     callback_query_id: callbackQueryId,
   };
@@ -173,10 +173,10 @@ export async function answerTelegramCallbackQuery(args: { callbackQueryId: strin
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'no body'}` };
+      return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'нет тела ответа'}` };
     }
     const json = (await r.json().catch(() => null)) as any;
-    if (!json?.ok) return { ok: false as const, error: 'telegram response not ok' };
+    if (!json?.ok) return { ok: false as const, error: 'ответ Telegram некорректен' };
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };

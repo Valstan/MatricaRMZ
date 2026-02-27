@@ -13,7 +13,7 @@ async function main() {
       .values({ code, description: code, createdAt: ts })
       .onConflictDoNothing();
   }
-  console.log(`[perm:seed] ok count=${codes.length}`);
+  console.log(`[разрешения] сохранено=${codes.length}`);
 }
 
 main()

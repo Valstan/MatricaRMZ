@@ -14,7 +14,7 @@ presenceRouter.use(requireAuth);
 presenceRouter.get('/me', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const now = Date.now();
 
     await db

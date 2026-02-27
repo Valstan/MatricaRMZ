@@ -57,7 +57,7 @@ function findTypeIdForEntity(entityId: string, values: Record<string, LedgerRow>
 
 async function main() {
   const superadminId = await getSuperadminUserId().catch(() => null);
-  if (!superadminId) throw new Error('superadmin user not found');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
 
   const state = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
   const entities: Record<string, LedgerRow> = state?.tables?.entities ?? {};
@@ -66,7 +66,7 @@ async function main() {
 
   const missing = Object.values(entities).filter((e) => !e?.type_id);
   if (missing.length === 0) {
-    console.log('[fix-ledger] no entities with missing type_id');
+    console.log('[fix-ledger] нет сущностей без type_id');
     return;
   }
 
@@ -93,7 +93,7 @@ async function main() {
   }
 
   if (txs.length === 0) {
-    console.log('[fix-ledger] no candidates with resolvable type_id');
+    console.log('[fix-ledger] нет подходящих кандидатов по type_id для восстановления');
     return;
   }
 
@@ -122,6 +122,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('[fix-ledger] failed', e);
+  console.error('[fix-ledger] ошибка', e);
   process.exit(1);
 });

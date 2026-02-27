@@ -11,7 +11,7 @@ adminAuditRouter.use(requireAuth);
 adminAuditRouter.use(requirePermission(PermissionCode.AdminUsersManage));
 adminAuditRouter.use((req, res, next) => {
   const role = String((req as AuthenticatedRequest).user?.role ?? '').toLowerCase();
-  if (role !== 'superadmin') return res.status(403).json({ ok: false, error: 'superadmin only' });
+  if (role !== 'superadmin') return res.status(403).json({ ok: false, error: 'только для супер-админа' });
   return next();
 });
 

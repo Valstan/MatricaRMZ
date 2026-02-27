@@ -106,7 +106,7 @@ function cleanupLanHttpPeerBook(version: string) {
 
 export function registerUpdatePeers(infoHash: string, peers: Array<{ ip: string; port?: number }>) {
   const cleanedHash = String(infoHash ?? '').trim();
-  if (!cleanedHash) return { ok: false as const, error: 'infoHash missing' };
+  if (!cleanedHash) return { ok: false as const, error: 'infoHash отсутствует' };
   const now = Date.now();
   let book = peerBook.get(cleanedHash);
   if (!book) {
@@ -129,7 +129,7 @@ export function registerUpdatePeers(infoHash: string, peers: Array<{ ip: string;
 
 export function listUpdatePeers(infoHash: string, opts?: { limit?: number; exclude?: Array<{ ip: string; port?: number }> }) {
   const cleanedHash = String(infoHash ?? '').trim();
-  if (!cleanedHash) return { ok: false as const, error: 'infoHash missing', peers: [] };
+  if (!cleanedHash) return { ok: false as const, error: 'infoHash отсутствует', peers: [] };
   cleanupPeerBook(cleanedHash);
   const book = peerBook.get(cleanedHash);
   if (!book) return { ok: true as const, peers: [] };
@@ -152,7 +152,7 @@ export function listUpdatePeers(infoHash: string, opts?: { limit?: number; exclu
 
 export function registerLanHttpPeers(version: string, peers: Array<{ ip: string; port?: number }>) {
   const cleanedVersion = String(version ?? '').trim();
-  if (!cleanedVersion) return { ok: false as const, error: 'version missing' };
+  if (!cleanedVersion) return { ok: false as const, error: 'version отсутствует' };
   const now = Date.now();
   let book = lanHttpPeerBook.get(cleanedVersion);
   if (!book) {
@@ -175,7 +175,7 @@ export function registerLanHttpPeers(version: string, peers: Array<{ ip: string;
 
 export function listLanHttpPeers(version: string, opts?: { limit?: number; exclude?: Array<{ ip: string; port?: number }> }) {
   const cleanedVersion = String(version ?? '').trim();
-  if (!cleanedVersion) return { ok: false as const, error: 'version missing', peers: [] };
+  if (!cleanedVersion) return { ok: false as const, error: 'version отсутствует', peers: [] };
   cleanupLanHttpPeerBook(cleanedVersion);
   const book = lanHttpPeerBook.get(cleanedVersion);
   if (!book) return { ok: true as const, peers: [] };

@@ -18,7 +18,7 @@ checklistsRouter.get('/templates', requirePermission(PermissionCode.OperationsVi
 checklistsRouter.get('/engine', requirePermission(PermissionCode.OperationsView), async (req, res) => {
   const engineId = String(req.query?.engineId ?? '');
   const stage = String(req.query?.stage ?? '');
-  if (!engineId || !stage) return res.status(400).json({ ok: false, error: 'engineId and stage required' });
+  if (!engineId || !stage) return res.status(400).json({ ok: false, error: 'engineId и stage обязательны' });
   const t = await listRepairChecklistTemplates(stage);
   if (!t.ok) return res.json(t);
   const r = await getRepairChecklistForEngine(engineId, stage);
@@ -42,7 +42,7 @@ checklistsRouter.post('/engine', requirePermission(PermissionCode.OperationsEdit
   const t = await listRepairChecklistTemplates(data.stage);
   if (!t.ok) return res.json(t);
   const tmpl = t.templates.find((x) => x.id === data.templateId) ?? null;
-  if (!tmpl) return res.status(400).json({ ok: false, error: 'template not found' });
+  if (!tmpl) return res.status(400).json({ ok: false, error: 'шаблон не найден' });
 
   const actor = (req as unknown as AuthenticatedRequest).user;
   const payload = {

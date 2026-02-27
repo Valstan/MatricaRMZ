@@ -18,7 +18,7 @@ updatesRouter.get('/latest', (req, res) => {
     const status = getUpdateTorrentStatus();
     return res.json({
       ok: false,
-      error: status.lastError ?? (status.enabled ? 'no update torrent' : 'updates disabled'),
+      error: status.lastError ?? (status.enabled ? 'нет торрент-файла обновления' : 'обновления отключены'),
       status,
     });
   }
@@ -47,7 +47,7 @@ updatesRouter.get('/latest-meta', async (_req, res) => {
       const status = getUpdateTorrentStatus();
       return res.json({
         ok: false,
-        error: status.lastError ?? (status.enabled ? 'no update file' : 'updates disabled'),
+        error: status.lastError ?? (status.enabled ? 'файл обновления не найден' : 'обновления отключены'),
         status,
       });
     }
@@ -60,7 +60,7 @@ updatesRouter.get('/latest-meta', async (_req, res) => {
 updatesRouter.get('/latest.torrent', (req, res) => {
   const st = getLatestTorrentState();
   if (!st) {
-    return res.status(404).json({ ok: false, error: 'no torrent file' });
+    return res.status(404).json({ ok: false, error: 'торрент-файл обновления не найден' });
   }
   res.setHeader('Content-Type', 'application/x-bittorrent');
   res.setHeader('Content-Disposition', `attachment; filename="MatricaRMZ-${st.version}.torrent"`);
@@ -70,11 +70,11 @@ updatesRouter.get('/latest.torrent', (req, res) => {
 updatesRouter.get('/file/:name', (req, res) => {
   const st = getLatestTorrentState();
   if (!st?.filePath) {
-    return res.status(404).json({ ok: false, error: 'no update file' });
+    return res.status(404).json({ ok: false, error: 'файл обновления не найден' });
   }
   const name = String(req.params.name ?? '').trim();
   if (!name || name !== st.fileName) {
-    return res.status(404).json({ ok: false, error: 'file not found' });
+    return res.status(404).json({ ok: false, error: 'файл не найден' });
   }
   return res.download(st.filePath, st.fileName);
 });
@@ -83,7 +83,7 @@ updatesRouter.post('/peers', (req, res) => {
   const st = getLatestTorrentState();
   const infoHash = String(req.body?.infoHash ?? st?.infoHash ?? '').trim();
   if (!infoHash || (st?.infoHash && infoHash !== st.infoHash)) {
-    return res.status(400).json({ ok: false, error: 'invalid infoHash' });
+    return res.status(400).json({ ok: false, error: 'неверный infoHash' });
   }
   const peersRaw = Array.isArray(req.body?.peers) ? req.body.peers : [];
   const peers = peersRaw
@@ -102,7 +102,7 @@ updatesRouter.get('/peers', (req, res) => {
   const st = getLatestTorrentState();
   const infoHash = String(req.query?.infoHash ?? st?.infoHash ?? '').trim();
   if (!infoHash || (st?.infoHash && infoHash !== st.infoHash)) {
-    return res.status(400).json({ ok: false, error: 'invalid infoHash' });
+    return res.status(400).json({ ok: false, error: 'неверный infoHash' });
   }
   const exclude: Array<{ ip: string; port?: number }> = [];
   const selfIp = String(req.query?.ip ?? '').trim();
@@ -120,7 +120,7 @@ updatesRouter.post('/lan/peers', (req, res) => {
   const st = getLatestTorrentState();
   const version = String(req.body?.version ?? st?.version ?? '').trim();
   if (!version || (st?.version && version !== st.version)) {
-    return res.status(400).json({ ok: false, error: 'invalid version' });
+    return res.status(400).json({ ok: false, error: 'неверная версия' });
   }
   const peersRaw = Array.isArray(req.body?.peers) ? req.body.peers : [];
   const peers = peersRaw
@@ -139,7 +139,7 @@ updatesRouter.get('/lan/peers', (req, res) => {
   const st = getLatestTorrentState();
   const version = String(req.query?.version ?? st?.version ?? '').trim();
   if (!version || (st?.version && version !== st.version)) {
-    return res.status(400).json({ ok: false, error: 'invalid version' });
+    return res.status(400).json({ ok: false, error: 'неверная версия' });
   }
   const exclude: Array<{ ip: string; port?: number }> = [];
   const selfIp = String(req.query?.ip ?? '').trim();

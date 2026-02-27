@@ -58,10 +58,10 @@ async function run() {
     { name: SyncTableName.NoteShares, table: noteShares },
   ];
   const list = tableArg ? tables.filter((t) => t.name === tableArg) : tables;
-  if (tableArg && list.length === 0) throw new Error(`unknown table ${tableArg}`);
+  if (tableArg && list.length === 0) throw new Error(`неизвестная таблица ${tableArg}`);
   for (const t of list) {
     const count = await emitSnapshot(t.name, t.table);
-    console.log(`snapshot ${t.name}: rows=${count}`);
+    console.log(`снимок ${t.name}: строк=${count}`);
   }
 }
 

@@ -221,7 +221,7 @@ async function emitSnapshotAllRows<T>(
 
 export async function emitEntityTypeSyncSnapshot(entityTypeId: string) {
   const type = await db.select({ id: entityTypes.id }).from(entityTypes).where(eq(entityTypes.id, entityTypeId)).limit(1);
-  if (!type[0]?.id) return { ok: false as const, error: 'entity type not found' };
+  if (!type[0]?.id) return { ok: false as const, error: 'тип сущности не найден' };
 
   const entityTypeRows = await emitEntityTypeRow(entityTypeId);
   const attrDefsRows = await emitAttributeDefs(entityTypeId);

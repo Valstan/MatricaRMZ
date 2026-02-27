@@ -348,14 +348,14 @@ function readCsvText(path: string): string {
 }
 
 function parseSourceCsv(path: string): ParsedCsvData {
-  if (!existsSync(path)) throw new Error(`CSV not found: ${path}`);
+  if (!existsSync(path)) throw new Error(`CSV файл не найден: ${path}`);
   const text = readCsvText(path);
   const lines = text.split(/\r?\n/);
   const headerLineIndex = lines.findIndex((line) => {
     const h = normalizeHeaderToken(line);
     return h.includes('марка дв') && h.includes('номер двигателя');
   });
-  if (headerLineIndex < 0) throw new Error('CSV header row not found');
+  if (headerLineIndex < 0) throw new Error('Заголовок CSV не найден');
 
   const headerLine = lines[headerLineIndex] ?? '';
   const delimiter = detectDelimiter(headerLine);
@@ -366,7 +366,7 @@ function parseSourceCsv(path: string): ParsedCsvData {
   const brandCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('марка дв'));
   const engineNoCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('номер двигателя'));
   const supplierCol = headerCells.findIndex((h) => normalizeHeaderToken(h).includes('поставщик'));
-  if (brandCol < 0 || engineNoCol < 0) throw new Error('Required columns not found: "Марка дв"/"Номер двигателя"');
+  if (brandCol < 0 || engineNoCol < 0) throw new Error('Необходимые колонки не найдены: "Марка дв"/"Номер двигателя"');
 
   const partCols: number[] = [];
   for (let i = engineNoCol + 1; i < headerCells.length; i += 1) {
@@ -374,7 +374,7 @@ function parseSourceCsv(path: string): ParsedCsvData {
     if (isServiceHeader(h)) continue;
     partCols.push(i);
   }
-  if (partCols.length === 0) throw new Error('No part columns detected');
+  if (partCols.length === 0) throw new Error('Колонки деталей не обнаружены');
 
   const brands = new Map<string, DesiredBrand>();
   const parts = new Map<string, DesiredPart>();
@@ -461,13 +461,13 @@ function parseSourceCsv(path: string): ParsedCsvData {
 
 async function ensureActor(): Promise<AuthUser> {
   const superadminId = await getSuperadminUserId();
-  if (!superadminId) throw new Error('Superadmin user not found');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
   return { id: superadminId, username: 'superadmin', role: 'superadmin' };
 }
 
 async function ensureBrandInfra(actor: AuthUser) {
   const type = await upsertEntityType(actor, { code: EntityTypeCode.EngineBrand, name: 'Марка двигателя' });
-  if (!type.ok || !type.id) throw new Error('Failed to upsert engine_brand type');
+  if (!type.ok || !type.id) throw new Error('Не удалось сохранить тип engine_brand');
   await upsertAttributeDef(actor, {
     entityTypeId: type.id,
     code: 'name',
@@ -480,7 +480,7 @@ async function ensureBrandInfra(actor: AuthUser) {
 
 async function ensureEngineInfra(actor: AuthUser) {
   const type = await upsertEntityType(actor, { code: EntityTypeCode.Engine, name: 'Двигатель' });
-  if (!type.ok || !type.id) throw new Error('Failed to upsert engine type');
+  if (!type.ok || !type.id) throw new Error('Не удалось сохранить тип engine');
   await upsertAttributeDef(actor, { entityTypeId: type.id, code: 'engine_number', name: 'Номер двигателя', dataType: AttributeDataType.Text, sortOrder: 10 });
   await upsertAttributeDef(actor, { entityTypeId: type.id, code: 'engine_brand', name: 'Марка двигателя', dataType: AttributeDataType.Text, sortOrder: 20 });
   await upsertAttributeDef(actor, {
@@ -507,7 +507,7 @@ async function ensureEngineInfra(actor: AuthUser) {
 
 async function ensureCounterpartyInfra(actor: AuthUser): Promise<string> {
   const type = await upsertEntityType(actor, { code: EntityTypeCode.Customer, name: 'Контрагенты' });
-  if (!type.ok || !type.id) throw new Error('Failed to upsert customer type');
+  if (!type.ok || !type.id) throw new Error('Не удалось сохранить тип customer');
   await upsertAttributeDef(actor, {
     entityTypeId: type.id,
     code: 'name',
@@ -631,7 +631,7 @@ async function loadBrandNamesById(brandTypeId: string, brandIds: string[]): Prom
 async function loadPartTypeId(): Promise<string> {
   await listParts({ limit: 1 });
   const rows = await db.select({ id: entityTypes.id }).from(entityTypes).where(and(eq(entityTypes.code, EntityTypeCode.Part), isNull(entityTypes.deletedAt))).limit(1);
-  if (!rows[0]?.id) throw new Error('Part entity type not found');
+  if (!rows[0]?.id) throw new Error('Тип сущности детали не найден');
   return String(rows[0].id);
 }
 
@@ -744,9 +744,9 @@ async function main() {
   logStage('start', { source: SOURCE_FILE });
   const actor = await ensureActor();
   const parsed = parseSourceCsv(SOURCE_FILE);
-  if (parsed.brands.size === 0) throw new Error('No brands parsed from source');
-  if (parsed.parts.size === 0) throw new Error('No parts parsed from source');
-  if (parsed.engines.size === 0) throw new Error('No engines parsed from source');
+  if (parsed.brands.size === 0) throw new Error('Не удалось разобрать бренды из источника');
+  if (parsed.parts.size === 0) throw new Error('Не удалось разобрать детали из источника');
+  if (parsed.engines.size === 0) throw new Error('Не удалось разобрать двигатели из источника');
   logStage('parsed', {
     brands: parsed.brands.size,
     parts: parsed.parts.size,
@@ -795,13 +795,13 @@ async function main() {
       continue;
     }
     const created = await createEntity(actor, customerTypeId);
-    if (!created.ok || !created.id) throw new Error(`Failed to create counterparties: ${supplierName}`);
+      if (!created.ok || !created.id) throw new Error(`Не удалось создать контрагентов: ${supplierName}`);
     const setRes = await setEntityAttribute(actor, created.id, 'name', supplierName);
     if (!setRes.ok) {
       await softDeleteEntity(actor, created.id);
       const duplicatedId = extractDuplicateIdFromError(setRes.error ?? '');
       if (!duplicatedId) {
-        throw new Error(`Failed to set counterparty name for ${supplierName}: ${setRes.error}`);
+        throw new Error(`Не удалось установить имя контрагента ${supplierName}: ${setRes.error}`);
       }
       existingCustomerByNormalizedName.set(normalizedSupplier, duplicatedId);
       reusedDuplicateCounterparties += 1;
@@ -832,7 +832,7 @@ async function main() {
     let wasCreated = false;
     if (!brandId) {
       const created = await createEntity(actor, brandTypeId);
-      if (!created.ok || !created.id) throw new Error(`Failed to create brand: ${brand.name}`);
+      if (!created.ok || !created.id) throw new Error(`Не удалось создать марку: ${brand.name}`);
       brandId = created.id;
       createdBrands += 1;
       wasCreated = true;
@@ -840,7 +840,7 @@ async function main() {
     const existingName = existingBrandNamesById.get(brandId) ?? '';
     if (wasCreated || existingName !== brand.name) {
       const setRes = await setEntityAttribute(actor, brandId, 'name', brand.name);
-      if (!setRes.ok) throw new Error(`Failed to set brand name: ${brand.name} (${setRes.error})`);
+      if (!setRes.ok) throw new Error(`Не удалось установить имя марки ${brand.name} (${setRes.error})`);
       existingBrandNamesById.set(brandId, brand.name);
     }
     brandIdByKey.set(brand.key, brandId);
@@ -866,13 +866,13 @@ async function main() {
           actor,
           attributes: { name: desiredPart.name },
         });
-        if (!created.ok) throw new Error(`Failed to create part: ${desiredPart.name} (${created.error})`);
+        if (!created.ok) throw new Error(`Не удалось создать деталь: ${desiredPart.name} (${created.error})`);
         rec = { id: created.part.id };
         existingPartByKey.set(desiredPart.key, rec);
         createdParts += 1;
       }
       const currentLinks = await listPartBrandLinks({ partId: rec.id });
-      if (!currentLinks.ok) throw new Error(`Failed to list brand links for part ${rec.id}: ${currentLinks.error}`);
+      if (!currentLinks.ok) throw new Error(`Не удалось получить ссылки на бренды для детали ${rec.id}: ${currentLinks.error}`);
       const currentByBrandId = new Map<string, { linkId: string; assemblyUnitNumber: string; quantity: number }>();
       for (const link of currentLinks.brandLinks) {
         const brandId = String((link as any).engineBrandId || '').trim();
@@ -902,12 +902,12 @@ async function main() {
           assemblyUnitNumber: desiredAssembly,
           quantity: qty,
         });
-        if (!res.ok) throw new Error(`Failed to upsert part brand link for part ${rec.id} brand ${brandId}: ${res.error}`);
+        if (!res.ok) throw new Error(`Не удалось сохранить ссылку между деталью ${rec.id} и брендом ${brandId}: ${res.error}`);
       }
       for (const [brandId, link] of currentByBrandId.entries()) {
         if (desiredBrandIdsForPart.has(brandId)) continue;
         const del = await deletePartBrandLink({ actor, partId: rec.id, linkId: link.linkId });
-        if (!del.ok) throw new Error(`Failed to delete obsolete part brand link for part ${rec.id} brand ${brandId}: ${del.error}`);
+        if (!del.ok) throw new Error(`Не удалось удалить устаревшую связь детали ${rec.id} с брендом ${brandId}: ${del.error}`);
         cleanedParts += 1;
       }
       updatedParts += 1;
@@ -961,7 +961,7 @@ async function main() {
     let engineId = engineIdByNumber.get(number) ?? null;
     if (!engineId) {
       const created = await createEntity(actor, engineTypeId);
-      if (!created.ok || !created.id) throw new Error(`Failed to create engine: ${number}`);
+      if (!created.ok || !created.id) throw new Error(`Не удалось создать двигатель: ${number}`);
       engineId = created.id;
       createdEngines += 1;
       existingEngineAttrsById.set(engineId, new Map<string, unknown>());
@@ -1008,7 +1008,7 @@ async function main() {
             allowSyncConflicts: true,
           });
           recoveredFromConflict = true;
-          if (!res.ok) throw new Error(`Failed to set ${code} for engine ${number}: ${res.error}`);
+          if (!res.ok) throw new Error(`Не удалось установить ${code} для двигателя ${number}: ${res.error}`);
           if (recoveredFromConflict) engineAttributeConflictsRecovered += 1;
         } else {
           logStage('engine-attribute-sync-error', {
@@ -1022,8 +1022,8 @@ async function main() {
           throw err;
         }
       }
-      if (!res) throw new Error(`No response from setEntityAttribute for ${code} on engine ${number}`);
-      if (!res.ok) throw new Error(`Failed to set ${code} for engine ${number}: ${res.error}`);
+      if (!res) throw new Error(`Нет ответа от setEntityAttribute для ${code} двигателя ${number}`);
+      if (!res.ok) throw new Error(`Не удалось установить ${code} для двигателя ${number}: ${res.error}`);
       existingEngineAttrs.set(code, value);
       engineAttributeWrites += 1;
     }
@@ -1051,7 +1051,7 @@ async function main() {
   for (const [number, engineId] of engineIdByNumber.entries()) {
     if (desiredEngineNumbers.has(number)) continue;
     const del = await softDeleteEntity(actor, engineId);
-    if (!del.ok) throw new Error(`Failed to soft delete engine ${number}: ${del.error}`);
+    if (!del.ok) throw new Error(`Не удалось мягко удалить двигатель ${number}: ${del.error}`);
     deletedEngines += 1;
   }
   logStage('engines-cleanup-done', { deletedEngines });
@@ -1107,8 +1107,8 @@ async function main() {
 
   const defectTemplates = await listRepairChecklistTemplates('defect');
   const completenessTemplates = await listRepairChecklistTemplates('completeness');
-  if (!defectTemplates.ok || !defectTemplates.templates[0]) throw new Error('Defect checklist template not found');
-  if (!completenessTemplates.ok || !completenessTemplates.templates[0]) throw new Error('Completeness checklist template not found');
+  if (!defectTemplates.ok || !defectTemplates.templates[0]) throw new Error('Шаблон чеклиста дефектовки не найден');
+  if (!completenessTemplates.ok || !completenessTemplates.templates[0]) throw new Error('Шаблон чеклиста комплектации не найден');
   const defectTemplate = defectTemplates.templates[0];
   const completenessTemplate = completenessTemplates.templates[0];
 
@@ -1156,7 +1156,7 @@ async function main() {
       }));
       const existingDefectChecklist = await getRepairChecklistForEngine(engineId, 'defect');
       if (!existingDefectChecklist.ok) {
-        throw new Error(`Failed to read defect checklist for engine ${engineNumber}: ${existingDefectChecklist.error}`);
+        throw new Error(`Не удалось прочитать чеклист дефектовки для двигателя ${engineNumber}: ${existingDefectChecklist.error}`);
       }
       const existingDefectPayload = existingDefectChecklist.payload;
       const hasDefectPayload = areChecklistMetaEqual(existingDefectPayload, engine.brandName, engineNumber) && areDefectRowsEqual(existingDefectPayload, defectRows);
@@ -1201,11 +1201,11 @@ async function main() {
             allowSyncConflicts: true,
           });
           if (!retryDefectSave.ok) {
-            throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${retryDefectSave.error}`);
+            throw new Error(`Не удалось сохранить чеклист дефектовки для двигателя ${engineNumber}: ${retryDefectSave.error}`);
           }
           checklistSyncConflictsRecovered += 1;
         } else if (!defectSave.ok) {
-          throw new Error(`Failed to save defect checklist for engine ${engineNumber}: ${defectSave.error}`);
+          throw new Error(`Не удалось сохранить чеклист дефектовки для двигателя ${engineNumber}: ${defectSave.error}`);
         }
         syncedDefectChecklists += 1;
       }
@@ -1219,7 +1219,7 @@ async function main() {
       }));
       const existingCompletenessChecklist = await getRepairChecklistForEngine(engineId, 'completeness');
       if (!existingCompletenessChecklist.ok) {
-        throw new Error(`Failed to read completeness checklist for engine ${engineNumber}: ${existingCompletenessChecklist.error}`);
+        throw new Error(`Не удалось прочитать чеклист комплектации для двигателя ${engineNumber}: ${existingCompletenessChecklist.error}`);
       }
       const existingCompletenessPayload = existingCompletenessChecklist.payload;
       const hasCompletenessPayload =
@@ -1264,12 +1264,12 @@ async function main() {
             actor: { id: actor.id, username: actor.username },
             allowSyncConflicts: true,
           });
-          if (!retryCompletenessSave.ok) {
-            throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${retryCompletenessSave.error}`);
+        if (!retryCompletenessSave.ok) {
+            throw new Error(`Не удалось сохранить чеклист комплектации для двигателя ${engineNumber}: ${retryCompletenessSave.error}`);
           }
           checklistSyncConflictsRecovered += 1;
         } else if (!completenessSave.ok) {
-          throw new Error(`Failed to save completeness checklist for engine ${engineNumber}: ${completenessSave.error}`);
+          throw new Error(`Не удалось сохранить чеклист комплектации для двигателя ${engineNumber}: ${completenessSave.error}`);
         }
         syncedCompletenessChecklists += 1;
       }
@@ -1340,7 +1340,7 @@ async function main() {
 }
 
 void main().catch((error) => {
-  console.error('[importEnginesFromCompletenessCsv] failed', error);
+  console.error('[importEnginesFromCompletenessCsv] ошибка', error);
   process.exit(1);
 });
 

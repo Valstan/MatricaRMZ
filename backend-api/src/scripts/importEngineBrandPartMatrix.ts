@@ -153,14 +153,14 @@ function parsePartDescriptor(rawHeader: string): { name: string; brandAssemblyPa
 
 async function actor(): Promise<AuthUser> {
   const id = await getSuperadminUserId();
-  if (!id) throw new Error('Не найден superadmin');
+  if (!id) throw new Error('Пользователь superadmin не найден');
   return { id, username: 'superadmin', role: 'superadmin' };
 }
 async function ensureBrandInfra(a: AuthUser) {
   const t = await upsertEntityType(a, { code: EntityTypeCode.EngineBrand, name: 'Марка двигателя' });
-  if (!t.ok || !t.id) throw new Error('Не удалось подготовить тип engine_brand');
+  if (!t.ok || !t.id) throw new Error('Не удалось подготовить тип марки двигателя');
   const d = await upsertAttributeDef(a, { entityTypeId: t.id, code: 'name', name: 'Название', dataType: AttributeDataType.Text, sortOrder: 10 });
-  if (!d.ok || !d.id) throw new Error('Не удалось подготовить атрибут engine_brand.name');
+  if (!d.ok || !d.id) throw new Error('Не удалось подготовить атрибут name для типа марки двигателя');
   return { brandTypeId: t.id, brandNameDefId: d.id };
 }
 async function loadBrandIdsByKey(brandTypeId: string, brandNameDefId: string) {
@@ -177,7 +177,7 @@ async function loadBrandIdsByKey(brandTypeId: string, brandNameDefId: string) {
 }
 async function loadPartIdsByName() {
   const warmup = await listParts({ limit: 1 });
-  if (!warmup.ok) throw new Error(`Не удалось инициализировать тип part: ${warmup.error}`);
+  if (!warmup.ok) throw new Error(`Не удалось инициализировать тип детали: ${warmup.error}`);
   const partType = await db.select({ id: entityTypes.id }).from(entityTypes).where(and(eq(entityTypes.code, EntityTypeCode.Part), isNull(entityTypes.deletedAt))).limit(1);
   const partTypeId = partType[0]?.id ? String(partType[0].id) : '';
   if (!partTypeId) return new Map<string, string>();
@@ -245,7 +245,7 @@ async function main() {
     const created = await createEntity(a, brandTypeId);
     if (!created.ok || !created.id) throw new Error(`Не удалось создать марку ${name}`);
     const set = await setEntityAttribute(a, created.id, 'name', name);
-    if (!set.ok) throw new Error(`Не удалось сохранить марку ${name}: ${set.error ?? 'unknown'}`);
+    if (!set.ok) throw new Error(`Не удалось сохранить марку ${name}: ${set.error ?? 'неизвестная ошибка'}`);
     brandIdByKey.set(k, created.id);
     createdBrands += 1;
   }
@@ -287,12 +287,12 @@ async function main() {
     }
   }
 
-  console.log('[import] done');
+  console.log('[import] выполнено');
   console.log(JSON.stringify({ parsed: { brands: brandNameByKey.size, parts: partsByKey.size }, dbChanges: { createdBrands, createdParts, upsertedLinks }, elapsedMs: Date.now() - startedAt }, null, 2));
 }
 
 void main().catch((e) => {
-  console.error('[import] failed', e);
+  console.error('[import] ошибка', e);
   process.exit(1);
 });
 

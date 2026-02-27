@@ -137,7 +137,7 @@ function chunkBySize<T>(items: T[], size: number): T[][] {
 
 async function ensureSuperadminActor(): Promise<AuthUser> {
   const id = await getSuperadminUserId();
-  if (!id) throw new Error('Не найден superadmin user');
+  if (!id) throw new Error('Пользователь superadmin не найден');
   return { id, username: 'superadmin', role: 'superadmin' };
 }
 
@@ -334,7 +334,7 @@ async function main() {
 
   const partTypeRows = await db.select({ id: entityTypes.id }).from(entityTypes).where(and(eq(entityTypes.code, EntityTypeCode.Part), isNull(entityTypes.deletedAt))).limit(1);
   const partTypeId = partTypeRows[0]?.id ? String(partTypeRows[0].id) : null;
-  if (!partTypeId) throw new Error('Part entity type not found');
+  if (!partTypeId) throw new Error('Тип сущности детали не найден');
 
   const defIds = await loadPartAttributeDefIds(partTypeId);
   if (!defIds.brandIdsDefId || !defIds.qtyMapDefId || !defIds.assemblyUnitNumberDefId) {
@@ -440,13 +440,13 @@ async function main() {
   );
 
   if (!dryRun && summary.failedLinks > 0 && !ignoreFailures) {
-    throw new Error(`Миграция завершена с ошибками: ${summary.failedLinks} не удалось создать/обновить связи`);
+    throw new Error(`Миграция завершена с ошибками: ${summary.failedLinks} ссылок не удалось создать/обновить`);
   }
 }
 
 main()
   .catch((e) => {
-    console.error('[migratePartBrandJunction] failed', e);
+    console.error('[migratePartBrandJunction] ошибка', e);
     process.exitCode = 1;
   })
   .finally(async () => {

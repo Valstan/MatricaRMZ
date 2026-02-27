@@ -15,6 +15,7 @@ import {
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { matchesQueryInRecord } from './utils/search.js';
+import { formatMoscowDateTime } from './utils/dateUtils.js';
 
 type Report = { server: ConsistencySnapshot; clients: ConsistencyClientReport[] };
 type ClientView = ConsistencyClientReport & { deviceKey: string; deviceName: string; aliases?: ConsistencyClientReport[] };
@@ -22,7 +23,7 @@ type ClientView = ConsistencyClientReport & { deviceKey: string; deviceName: str
 function formatTs(ts: number | null | undefined) {
   if (!ts) return '—';
   try {
-    return new Date(ts).toLocaleString();
+    return formatMoscowDateTime(ts);
   } catch {
     return String(ts);
   }
@@ -47,7 +48,7 @@ function renderSectionRow(
   section: { count: number; maxUpdatedAt: number | null; checksum: string | null; pendingCount?: number; errorCount?: number } | null,
 ) {
   if (!section) return `${label}: —`;
-  const updated = section.maxUpdatedAt ? new Date(section.maxUpdatedAt).toLocaleString() : '—';
+  const updated = section.maxUpdatedAt ? formatMoscowDateTime(section.maxUpdatedAt) : '—';
   const extras = [];
   if (section.pendingCount != null) extras.push(`ожидает=${section.pendingCount}`);
   if (section.errorCount != null) extras.push(`ошибок=${section.errorCount}`);
@@ -632,7 +633,7 @@ export function DiagnosticsPage() {
                                 </span>
                                 <span>{item.label}</span>
                                 <span className="muted" style={{ fontSize: 11 }}>
-                                  {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}
+                                  {item.updatedAt ? formatMoscowDateTime(item.updatedAt) : '—'}
                                 </span>
                                 <span className="muted" style={{ fontSize: 11 }}>{item.id.slice(0, 8)}</span>
                                 <Button

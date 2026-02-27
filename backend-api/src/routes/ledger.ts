@@ -85,7 +85,7 @@ async function getServerSchemaSnapshot(): Promise<SchemaSnapshotPayload> {
 
 ledgerRouter.get('/schema/snapshot', async (req, res) => {
   const actor = (req as AuthenticatedRequest).user;
-  if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   try {
     const snapshot = await getServerSchemaSnapshot();
     return res.json({ ok: true, ...snapshot });
@@ -96,7 +96,7 @@ ledgerRouter.get('/schema/snapshot', async (req, res) => {
 
 ledgerRouter.post('/tx/submit', async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
-  if (!user) return res.status(401).json({ ok: false, error: 'auth required' });
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const parsed = z
     .object({
       txs: z.array(txSchema).min(1).max(5000),
@@ -183,19 +183,19 @@ ledgerRouter.get('/state/query', (req, res) => {
     })
     .superRefine((data, ctx) => {
       if ((data.like && !data.like_field) || (!data.like && data.like_field)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'like and like_field must be provided together' });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'like и like_field должны быть указаны вместе' });
       }
       if ((data.regex && !data.regex_field) || (!data.regex && data.regex_field)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'regex and regex_field must be provided together' });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'regex и regex_field должны быть указаны вместе' });
       }
       if (data.regex_flags && !/^[gimsuy]*$/.test(data.regex_flags)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'regex_flags must match /^[gimsuy]*$/' });
       }
       if ((data.cursor_value != null || data.cursor_id) && !data.sort_by) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'cursor pagination requires sort_by' });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'cursor-пагинация требует sort_by' });
       }
       if (data.date_from != null && data.date_to != null && data.date_from > data.date_to) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'date_from must be <= date_to' });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'date_from должен быть <= date_to' });
       }
     })
     .safeParse(req.query);
@@ -206,15 +206,15 @@ ledgerRouter.get('/state/query', (req, res) => {
       filter = JSON.parse(parsed.data.filter) as Record<string, string>;
       const entries = Object.entries(filter);
       if (entries.length === 0) {
-        return res.status(400).json({ ok: false, error: 'filter must not be empty' });
+        return res.status(400).json({ ok: false, error: 'фильтр не должен быть пустым' });
       }
       for (const [k, v] of entries) {
         if (!k || typeof v !== 'string' || !v.trim()) {
-          return res.status(400).json({ ok: false, error: 'filter values must be non-empty strings' });
+          return res.status(400).json({ ok: false, error: 'значения фильтра должны быть непустыми строками' });
         }
       }
     } catch {
-      return res.status(400).json({ ok: false, error: 'invalid filter json' });
+      return res.status(400).json({ ok: false, error: 'некорректный json-фильтр' });
     }
   }
   let orFilter: Array<Record<string, string>> | undefined;
@@ -222,27 +222,27 @@ ledgerRouter.get('/state/query', (req, res) => {
     try {
       orFilter = JSON.parse(parsed.data.or_filter) as Array<Record<string, string>>;
       if (!Array.isArray(orFilter) || orFilter.length === 0) {
-        return res.status(400).json({ ok: false, error: 'or_filter must be a non-empty array' });
+        return res.status(400).json({ ok: false, error: 'or_filter должен быть непустым массивом' });
       }
       if (orFilter.length > 50) {
-        return res.status(400).json({ ok: false, error: 'or_filter too large' });
+        return res.status(400).json({ ok: false, error: 'or_filter слишком большой' });
       }
       for (const clause of orFilter) {
         if (!clause || typeof clause !== 'object') {
-          return res.status(400).json({ ok: false, error: 'or_filter must contain objects' });
+          return res.status(400).json({ ok: false, error: 'or_filter должен содержать объекты' });
         }
         const entries = Object.entries(clause);
         if (entries.length === 0) {
-          return res.status(400).json({ ok: false, error: 'or_filter clauses must not be empty' });
+          return res.status(400).json({ ok: false, error: 'условия or_filter не должны быть пустыми' });
         }
         for (const [k, v] of entries) {
           if (!k || typeof v !== 'string' || !v.trim()) {
-            return res.status(400).json({ ok: false, error: 'or_filter values must be non-empty strings' });
+            return res.status(400).json({ ok: false, error: 'значения or_filter должны быть непустыми строками' });
           }
         }
       }
     } catch {
-      return res.status(400).json({ ok: false, error: 'invalid or_filter json' });
+      return res.status(400).json({ ok: false, error: 'некорректный json или фильтр or_filter' });
     }
   }
   const opts = {
@@ -286,7 +286,7 @@ const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Reco
 
 ledgerRouter.get('/state/snapshot', async (req, res) => {
   const actor = (req as AuthenticatedRequest).user;
-  if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const parsed = z
     .object({
       table: z.nativeEnum(LedgerTableName),
@@ -381,7 +381,7 @@ ledgerRouter.get('/state/changes', async (req, res) => {
   if (syncV2Enforced && protocolVersion < 2) {
     return res.status(426).json({
       ok: false,
-      error: 'sync protocol upgrade required',
+      error: 'требуется обновление протокола синхронизации',
       required_sync_protocol_version: 2,
     });
   }
@@ -389,7 +389,7 @@ ledgerRouter.get('/state/changes', async (req, res) => {
     await ensureLedgerBootstrap().catch(() => null);
   }
   const actor = (req as AuthenticatedRequest).user;
-  if (!actor) return res.status(401).json({ ok: false, error: 'auth required' });
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const pull = await pullChangesSince(
     parsed.data.since,
     { id: String(actor.id), role: String(actor.role) },
@@ -460,9 +460,9 @@ ledgerRouter.get('/checkpoint/latest', (_req, res) => {
 
 ledgerRouter.post('/checkpoint/build', (req, res) => {
   const user = (req as AuthenticatedRequest).user;
-  if (!user) return res.status(401).json({ ok: false, error: 'auth required' });
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const role = String(user.role ?? '').toLowerCase();
-  if (role !== 'admin' && role !== 'superadmin') return res.status(403).json({ ok: false, error: 'admin only' });
+  if (role !== 'admin' && role !== 'superadmin') return res.status(403).json({ ok: false, error: 'только для админов' });
   void createSignedCheckpoint()
     .then((checkpoint) => res.json({ ok: true, checkpoint }))
     .catch((e) => res.status(500).json({ ok: false, error: String(e) }));
@@ -470,10 +470,10 @@ ledgerRouter.post('/checkpoint/build', (req, res) => {
 
 ledgerRouter.post('/releases/publish', (req, res) => {
   const user = (req as AuthenticatedRequest).user;
-  if (!user) return res.status(401).json({ ok: false, error: 'auth required' });
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const role = String(user.role ?? '').toLowerCase();
   const isAdmin = role === 'admin' || role === 'superadmin';
-  if (!isAdmin) return res.status(403).json({ ok: false, error: 'admin only' });
+  if (!isAdmin) return res.status(403).json({ ok: false, error: 'только для админов' });
 
   const parsed = z
     .object({

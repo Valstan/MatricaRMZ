@@ -14,6 +14,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(`enableClientLogging failed: ${String(e)}`);
+  console.error(`включение логирования клиента: ошибка ${String(e)}`);
   process.exit(1);
 });

@@ -91,9 +91,9 @@ export async function runChatAssist(args: {
     'Верни ответ строго в JSON: {"kind":"suggestion|question|info","text":"...","actions":["..."]}. ' +
     'Не выдумывай несуществующие функции. Если не уверен — задавай уточняющий вопрос.';
   const userPrompt =
-    `Контекст: ${buildContextSummary(args.context, args.lastEvent) || 'n/a'}\n` +
-    `Последние события пользователя: ${eventsSummary || 'n/a'}\n` +
-    `Память (релевантные факты):\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'n/a'}\n` +
+    `Контекст: ${buildContextSummary(args.context, args.lastEvent) || 'н/д'}\n` +
+    `Последние события пользователя: ${eventsSummary || 'н/д'}\n` +
+    `Память (релевантные факты):\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'н/д'}\n` +
     `Сообщение пользователя: ${args.message}\n` +
     'Дай конкретный ответ для интерфейса MatricaRMZ.';
 
@@ -138,6 +138,6 @@ export async function runChatAssist(args: {
     if (timeout) {
       return { ok: true as const, reply: { kind: 'info' as const, text: AI_AGENT_BUSY_MESSAGE }, model: modelChat, timeout: true };
     }
-    return { ok: false as const, error: String(error ?? 'ollama error'), model: modelChat, timeout: false };
+    return { ok: false as const, error: String(error ?? 'ошибка обращения к Ollama'), model: modelChat, timeout: false };
   }
 }

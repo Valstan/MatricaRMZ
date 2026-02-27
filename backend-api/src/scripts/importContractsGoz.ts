@@ -149,7 +149,7 @@ function parseContractsFile(filePath: string): { rows: ParsedContractRow[]; stat
   if (!existsSync(filePath)) {
     return {
       rows: [],
-      stats: { file: filePath, processed: false, rowsTotal: 0, rowsAccepted: 0, rowsSkipped: 0, note: 'missing' },
+      stats: { file: filePath, processed: false, rowsTotal: 0, rowsAccepted: 0, rowsSkipped: 0, note: 'файл не найден' },
     };
   }
 
@@ -162,7 +162,7 @@ function parseContractsFile(filePath: string): { rows: ParsedContractRow[]; stat
   if (headerLineIdx < 0) {
     return {
       rows: [],
-      stats: { file: filePath, processed: false, rowsTotal: 0, rowsAccepted: 0, rowsSkipped: 0, note: 'header not found' },
+      stats: { file: filePath, processed: false, rowsTotal: 0, rowsAccepted: 0, rowsSkipped: 0, note: 'заголовок не найден' },
     };
   }
 
@@ -188,7 +188,7 @@ function parseContractsFile(filePath: string): { rows: ParsedContractRow[]; stat
         rowsTotal: 0,
         rowsAccepted: 0,
         rowsSkipped: 0,
-        note: 'required columns not found',
+        note: 'необходимые колонки не найдены',
       },
     };
   }
@@ -299,7 +299,7 @@ function tryExtractDuplicateId(errorText: string): string | null {
 
 async function ensureActor(): Promise<AuthUser> {
   const superadminId = await getSuperadminUserId();
-  if (!superadminId) throw new Error('Не найден superadmin для импорта контрактов');
+  if (!superadminId) throw new Error('Пользователь superadmin для импорта контрактов не найден');
   return { id: superadminId, username: 'superadmin', role: 'superadmin' };
 }
 
@@ -308,7 +308,7 @@ async function ensureContractInfra(actor: AuthUser): Promise<{ contractTypeId: s
     code: EntityTypeCode.Contract,
     name: 'Контракт',
   });
-  if (!type.ok || !type.id) throw new Error('Не удалось подготовить entity_type contract');
+  if (!type.ok || !type.id) throw new Error('Не удалось подготовить тип сущности контракта');
 
   const linkToCustomer = JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Customer });
   const desiredDefs: Array<{
@@ -344,7 +344,7 @@ async function ensureContractInfra(actor: AuthUser): Promise<{ contractTypeId: s
       metaJson: def.metaJson ?? null,
     });
     if (!upserted.ok || !upserted.id) {
-      throw new Error(`Не удалось подготовить атрибут contract.${def.code}`);
+      throw new Error(`Не удалось подготовить атрибут ${def.code} для типа контракта`);
     }
   }
 
@@ -458,8 +458,8 @@ async function setIfChanged(actor: AuthUser, contract: ExistingContract, code: s
   const prev = contract.attrs[code];
   if (jsonComparable(prev) === jsonComparable(value)) return;
   const setResult = await setEntityAttribute(actor, contract.id, code, value);
-  if (!setResult.ok) {
-    throw new Error(`Не удалось установить ${code} для контракта ${contract.id}: ${setResult.error ?? 'unknown'}`);
+    if (!setResult.ok) {
+      throw new Error(`Не удалось установить ${code} для контракта ${contract.id}: ${setResult.error ?? 'неизвестная ошибка'}`);
   }
   contract.attrs[code] = value;
 }
@@ -516,7 +516,7 @@ async function main() {
         const created = await createEntity(actor, contractTypeId);
         if (!created.ok || !created.id) {
           skippedRows += 1;
-          unresolved.push(`${row.contractNumber} (create failed)`);
+          unresolved.push(`${row.contractNumber} (не удалось создать)`);
           continue;
         }
         contract = { id: created.id, createdAt: Date.now(), attrs: {} };
@@ -568,7 +568,7 @@ async function main() {
   }
 
   const elapsedMs = Date.now() - startedAt;
-  console.log('[import-contracts-goz] done');
+  console.log('[import-contracts-goz] выполнено');
   console.log(
     JSON.stringify(
       {
@@ -592,6 +592,6 @@ async function main() {
 }
 
 void main().catch((error) => {
-  console.error('[import-contracts-goz] failed', error);
+  console.error('[import-contracts-goz] ошибка', error);
   process.exit(1);
 });

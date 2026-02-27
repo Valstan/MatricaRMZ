@@ -1,6 +1,8 @@
 /// <reference path="./types/matrica.d.ts" />
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { registerLocale, setDefaultLocale } from 'react-datepicker';
+import ru from 'date-fns/locale/ru';
 
 import 'react-datepicker/dist/react-datepicker.css';
 import './ui/global.css';
@@ -29,6 +31,9 @@ window.addEventListener('unhandledrejection', (e) => {
 safeLog('info', 'renderer boot start');
 
 const root = document.getElementById('root');
+registerLocale('ru', ru);
+setDefaultLocale('ru');
+
 if (!root) {
   safeLog('error', 'renderer boot failed: #root not found');
 } else if (!(window as any).matrica) {

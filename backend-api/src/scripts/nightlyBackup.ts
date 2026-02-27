@@ -22,7 +22,7 @@ function localDateName(d: Date): string {
 
 function requireEnv(name: string): string {
   const v = (process.env[name] ?? '').trim();
-  if (!v) throw new Error(`${name} is not configured`);
+  if (!v) throw new Error(`Переменная ${name} не настроена`);
   return v;
 }
 
@@ -67,7 +67,7 @@ async function runPgDump(outPath: string) {
     p.on('error', (e) => reject(e));
     p.on('close', (code) => {
       if (code === 0) return resolve();
-      reject(new Error(`pg_dump failed (code=${code}): ${stderr.trim() || 'no stderr'}`));
+      reject(new Error(`pg_dump завершился с ошибкой (код=${code}): ${stderr.trim() || 'нет stderr'}`));
     });
   });
 }
@@ -340,7 +340,7 @@ async function main() {
   const tmpDump = join(tmpBase, `${todayName}.dump`);
   const tmpSqlite = join(tmpBase, `${todayName}.sqlite`);
 
-  console.log(`[nightlyBackup] start date=${todayName} folder=${backupFolder}`);
+  console.log(`[nightlyBackup] старт date=${todayName} folder=${backupFolder}`);
 
   try {
     await ensureFolderDeep(backupFolder);
@@ -348,23 +348,23 @@ async function main() {
     console.log(`[nightlyBackup] pg_dump -> ${tmpDump}`);
     await runPgDump(tmpDump);
 
-    console.log(`[nightlyBackup] sqlite snapshot -> ${tmpSqlite}`);
+    console.log(`[nightlyBackup] sqlite-снапшот -> ${tmpSqlite}`);
     await buildSqliteSnapshot(tmpSqlite);
 
-    console.log(`[nightlyBackup] upload dump`);
+    console.log(`[nightlyBackup] отправка дампа`);
     await uploadFileStream({ diskPath: `${backupFolder}/${todayName}.dump`, localFilePath: tmpDump, mime: 'application/octet-stream' });
 
-    console.log(`[nightlyBackup] upload sqlite`);
+    console.log(`[nightlyBackup] отправка sqlite`);
     await uploadFileStream({
       diskPath: `${backupFolder}/${todayName}.sqlite`,
       localFilePath: tmpSqlite,
       mime: 'application/x-sqlite3',
     });
 
-    console.log(`[nightlyBackup] retention keepDays=10`);
+    console.log(`[nightlyBackup] хранение дней=10`);
     await applyRetention({ folderPath: backupFolder, keepDays: 10, todayName });
 
-    console.log(`[nightlyBackup] done in ${nowMs() - startedAt}ms`);
+    console.log(`[nightlyBackup] выполнено за ${nowMs() - startedAt}ms`);
   } finally {
     await unlink(tmpDump).catch(() => {});
     await unlink(tmpSqlite).catch(() => {});
@@ -373,7 +373,7 @@ async function main() {
 }
 
 void main().catch((e) => {
-  console.error(`[nightlyBackup] failed: ${String(e)}`);
+  console.error(`[nightlyBackup] ошибка: ${String(e)}`);
   process.exitCode = 1;
 });
 

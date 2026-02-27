@@ -437,7 +437,7 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
     resizable: true,
     minimizable: false,
     maximizable: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     webPreferences: {
       contextIsolation: true,
       sandbox: false,

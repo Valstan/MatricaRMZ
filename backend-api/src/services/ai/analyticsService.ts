@@ -98,13 +98,13 @@ function normalizeSql(sql: string) {
 
 function validateSql(sql: string, policy: AccessPolicy) {
   const normalized = normalizeSql(sql);
-  if (!/^select\s/i.test(normalized)) return { ok: false as const, error: 'only SELECT is allowed' };
-  if (normalized.includes(';')) return { ok: false as const, error: 'multiple statements not allowed' };
-  if (FORBIDDEN_SQL.test(normalized)) return { ok: false as const, error: 'forbidden SQL keyword' };
-  if (normalized.includes('--') || normalized.includes('/*')) return { ok: false as const, error: 'comments not allowed' };
+  if (!/^select\s/i.test(normalized)) return { ok: false as const, error: 'Разрешены только SELECT-запросы.' };
+  if (normalized.includes(';')) return { ok: false as const, error: 'Нельзя выполнять несколько SQL-операторов за один раз.' };
+  if (FORBIDDEN_SQL.test(normalized)) return { ok: false as const, error: 'Обнаружено запрещённое ключевое слово SQL.' };
+  if (normalized.includes('--') || normalized.includes('/*')) return { ok: false as const, error: 'Комментирование SQL-запроса недоступно.' };
   const tables = extractTables(normalized);
   for (const t of tables) {
-    if (!policy.allowedTables.has(t)) return { ok: false as const, error: `table not allowed: ${t}` };
+    if (!policy.allowedTables.has(t)) return { ok: false as const, error: `Таблица недоступна: ${t}` };
   }
   let finalSql = normalized;
   if (!/\blimit\b/i.test(finalSql)) finalSql = `${finalSql} LIMIT ${MAX_ROWS}`;
@@ -132,20 +132,22 @@ function formatRowsForUser(rows: any[]) {
 async function runHeuristicQuery(message: string, policy: AccessPolicy) {
   const text = String(message ?? '').toLowerCase();
   if (text.includes('сколько') && text.includes('двигател')) {
-    if (!policy.allowedTables.has('entities') || !policy.allowedTables.has('entity_types')) return { ok: false as const, error: 'no access for engine count' };
+    if (!policy.allowedTables.has('entities') || !policy.allowedTables.has('entity_types'))
+      return { ok: false as const, error: 'Нет доступа к данным по двигателям.' };
     const sql =
       'select count(*)::int as count from entities e join entity_types t on t.id = e.type_id where t.code = \'engine\' and e.deleted_at is null';
     const result = await runSqlQuery(sql, []);
     return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs, explain: 'Подсчитано количество активных двигателей.' };
   }
   if (text.includes('сколько') && text.includes('сотрудник')) {
-    if (!policy.allowedTables.has('entities') || !policy.allowedTables.has('entity_types')) return { ok: false as const, error: 'no access for employee count' };
+    if (!policy.allowedTables.has('entities') || !policy.allowedTables.has('entity_types'))
+      return { ok: false as const, error: 'Нет доступа к данным по сотрудникам.' };
     const sql =
       'select count(*)::int as count from entities e join entity_types t on t.id = e.type_id where t.code = \'employee\' and e.deleted_at is null';
     const result = await runSqlQuery(sql, []);
     return { ok: true as const, sql, rows: result.rows, tookMs: result.tookMs, explain: 'Подсчитано количество активных сотрудников.' };
   }
-  return { ok: false as const, error: 'no heuristic match' };
+  return { ok: false as const, error: 'Точная эвристика не нашлась, попробуйте сформулировать запрос точнее.' };
 }
 
 async function detectAnalyticsIntent(model: string, message: string) {
@@ -163,7 +165,7 @@ async function proposeSql(model: string, message: string, policy: AccessPolicy, 
     'Правила: только SELECT, без комментариев, только таблицы из списка.';
   const userPrompt =
     `Доступные таблицы: ${allowed}\n` +
-    `Контекст памяти:\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'n/a'}\n` +
+    `Контекст памяти:\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'н/д'}\n` +
     `Запрос пользователя: ${message}\n` +
     `Сформируй SQL с LIMIT не более ${MAX_ROWS}.`;
   const json = await callOllamaJson(model, systemPrompt, userPrompt, {
@@ -171,7 +173,7 @@ async function proposeSql(model: string, message: string, policy: AccessPolicy, 
     temperature: 0,
     numPredict: 260,
   });
-  if (!json || typeof json.sql !== 'string') return { ok: false as const, error: 'LLM did not return SQL' };
+  if (!json || typeof json.sql !== 'string') return { ok: false as const, error: 'LLM не вернула SQL-запрос.' };
   return { ok: true as const, sql: String(json.sql), params: Array.isArray(json.params) ? json.params : [], note: String(json.note ?? '') };
 }
 
@@ -239,7 +241,7 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
         timings: { totalMs: nowMs() - startedAt, ragMs, sqlPlanMs: nowMs() - planStart },
       });
       if (timeout) return { ok: true as const, replyText: AI_AGENT_BUSY_MESSAGE, model, timeout: true };
-      return { ok: false as const, error: String(e ?? 'ollama error'), model, timeout: false };
+      return { ok: false as const, error: String(e ?? 'ошибка обращения к Ollama'), model, timeout: false };
     }
     sqlPlanMs = nowMs() - planStart;
     if (!proposed.ok) {

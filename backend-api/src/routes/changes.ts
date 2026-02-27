@@ -329,18 +329,18 @@ function parseAfter(tableName: string, afterJson: string): { ok: true; row: any;
 changesRouter.post('/:id/apply', async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const actor = (req as unknown as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     const row = await db.select().from(changeRequests).where(eq(changeRequests.id, id as any)).limit(1);
     const cr = row[0] as any;
-    if (!cr) return res.status(404).json({ ok: false, error: 'not found' });
+    if (!cr) return res.status(404).json({ ok: false, error: 'не найден' });
     if (String(cr.status) !== 'pending') return res.status(400).json({ ok: false, error: `already ${String(cr.status)}` });
 
     const allowed = isAdminRole(actor.role) || (cr.recordOwnerUserId && String(cr.recordOwnerUserId) === actor.id);
-    if (!allowed) return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (!allowed) return res.status(403).json({ ok: false, error: 'доступ запрещен' });
 
     // Special-case: server-only file_assets (no sync change_log)
     if (String(cr.tableName) === 'file_assets') {
@@ -440,18 +440,18 @@ changesRouter.post('/:id/apply', async (req, res) => {
 changesRouter.post('/:id/reject', async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const actor = (req as unknown as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     const row = await db.select().from(changeRequests).where(eq(changeRequests.id, id as any)).limit(1);
     const cr = row[0] as any;
-    if (!cr) return res.status(404).json({ ok: false, error: 'not found' });
+    if (!cr) return res.status(404).json({ ok: false, error: 'не найден' });
     if (String(cr.status) !== 'pending') return res.status(400).json({ ok: false, error: `already ${String(cr.status)}` });
 
     const allowed = isAdminRole(actor.role) || (cr.recordOwnerUserId && String(cr.recordOwnerUserId) === actor.id);
-    if (!allowed) return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (!allowed) return res.status(403).json({ ok: false, error: 'доступ запрещен' });
 
     const ts = nowMs();
     await db

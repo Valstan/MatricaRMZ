@@ -17,7 +17,7 @@ async function main() {
 
   const base = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim();
   if (!base) {
-    throw new Error('YANDEX_DISK_BASE_PATH is not configured');
+    throw new Error('YANDEX_DISK_BASE_PATH не настроен');
   }
   const chatFolder = normalizeDiskPath(`${base.replace(/\/+$/, '')}/chat-files`);
 
@@ -71,7 +71,7 @@ async function main() {
     }
   }
 
-  console.log(`[chat-files:cleanup] ok deleted=${total} cutoff=${cutoff} folder=${chatFolder}`);
+  console.log(`[chat-files:cleanup] удалено=${total} cutoff=${cutoff} folder=${chatFolder}`);
 }
 
 main()

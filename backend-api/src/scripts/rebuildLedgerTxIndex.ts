@@ -56,7 +56,7 @@ async function main() {
     ),
   );
   if (!ok) {
-    throw new Error(`ledger_tx_index is not aligned with ledger: indexMax=${afterMax}, ledgerLastSeq=${ledgerAfter}`);
+    throw new Error(`ledger_tx_index не синхронизирован с ledger: максимальный индекс=${afterMax}, последний sequence=${ledgerAfter}`);
   }
 }
 

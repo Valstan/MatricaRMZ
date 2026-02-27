@@ -839,6 +839,7 @@ export function App() {
         await refreshEngines();
       }
     } catch {
+      // ignore sync request errors during periodic background run
     }
   }
 

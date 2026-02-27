@@ -16,6 +16,11 @@ function ensureLogsDir(): void {
   const dir = logsDir();
   mkdirSync(dir, { recursive: true });
 }
+const CLIENT_LOG_TZ = 'Europe/Moscow';
+
+function currentClientLogDate() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: CLIENT_LOG_TZ }).format(new Date());
+}
 
 function pruneOldClientLogs(maxDays = 10): void {
   try {
@@ -56,10 +61,12 @@ logsRouter.post('/client', async (req, res) => {
     }
 
     ensureLogsDir();
-    const logFile = join(logsDir(), `client-${new Date().toISOString().split('T')[0]}.log`);
+    const logFile = join(logsDir(), `client-${currentClientLogDate()}.log`);
 
     for (const logEntry of parsed.data.logs) {
-      const timestamp = logEntry.timestamp ? new Date(logEntry.timestamp).toISOString() : new Date().toISOString();
+      const timestamp = logEntry.timestamp
+        ? new Date(logEntry.timestamp).toLocaleString('ru-RU', { timeZone: CLIENT_LOG_TZ })
+        : new Date().toLocaleString('ru-RU', { timeZone: CLIENT_LOG_TZ });
       const logLine = `[${timestamp}] [${logEntry.level.toUpperCase()}] [${actor.username}] ${logEntry.message}${logEntry.metadata ? ' ' + JSON.stringify(logEntry.metadata) : ''}\n`;
       appendFileSync(logFile, logLine, 'utf-8');
     }

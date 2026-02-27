@@ -40,7 +40,7 @@ async function main() {
     if (rows.length < batchSize) break;
   }
 
-  console.log(`[chat:cleanup] ok deleted=${total} cutoff=${cutoff}`);
+  console.log(`[chat:cleanup] удалено=${total} cutoff=${cutoff}`);
 }
 
 main()

@@ -628,9 +628,9 @@ export async function createPartAttributeDef(args: {
     const isRequired = args.isRequired === true;
     const metaJson = args.metaJson == null ? null : String(args.metaJson);
 
-    if (!code) return { ok: false, error: 'code is empty' };
-    if (!name) return { ok: false, error: 'name is empty' };
-    if (!dataType) return { ok: false, error: 'dataType is empty' };
+    if (!code) return { ok: false, error: 'код не указан' };
+    if (!name) return { ok: false, error: 'название не указано' };
+    if (!dataType) return { ok: false, error: 'тип данных не указан' };
 
     const existing = await db
       .select({ id: attributeDefs.id })
@@ -1004,12 +1004,12 @@ export async function getPart(args: { partId: string }): Promise<
       .limit(1);
 
     if (!entityRows.length) {
-      return { ok: false, error: 'part not found' };
+      return { ok: false, error: 'деталь не найдена' };
     }
 
     const entity = entityRows[0];
     if (!entity) {
-      return { ok: false, error: 'part not found' };
+      return { ok: false, error: 'деталь не найдена' };
     }
 
     // Получаем все атрибуты типа Part
@@ -1073,7 +1073,7 @@ export async function listPartBrandLinks(args: {
 }): Promise<{ ok: true; brandLinks: PartEngineBrandLink[] } | { ok: false; error: string }> {
   try {
     const partId = String(args.partId || '').trim();
-    if (!partId) return { ok: false, error: 'missing partId' };
+    if (!partId) return { ok: false, error: 'partId не указан' };
     const engineBrandId = args.engineBrandId ? String(args.engineBrandId).trim() : '';
 
     const partTypeId = await ensurePartEntityType();
@@ -1082,7 +1082,7 @@ export async function listPartBrandLinks(args: {
       .from(entities)
       .where(and(eq(entities.id, partId), eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
       .limit(1);
-    if (!partExists.length) return { ok: false, error: 'part not found' };
+    if (!partExists.length) return { ok: false, error: 'деталь не найдена' };
 
     const links = await (engineBrandId ? listPartBrandLinksInternal({ partId, engineBrandId }) : listPartBrandLinksInternal({ partId }));
     return { ok: true, brandLinks: links };
@@ -1105,10 +1105,10 @@ export async function upsertPartBrandLink(args: {
     const engineBrandId = String(args.engineBrandId || '').trim();
     const assemblyUnitNumber = String(args.assemblyUnitNumber || '').trim();
     const qty = Number(args.quantity);
-    if (!partId) return { ok: false, error: 'missing partId' };
-    if (!engineBrandId) return { ok: false, error: 'missing engineBrandId' };
-    if (!assemblyUnitNumber) return { ok: false, error: 'missing assemblyUnitNumber' };
-    if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: 'quantity must be a non-negative number' };
+    if (!partId) return { ok: false, error: 'partId не указан' };
+    if (!engineBrandId) return { ok: false, error: 'engineBrandId не указан' };
+    if (!assemblyUnitNumber) return { ok: false, error: 'assemblyUnitNumber не указан' };
+    if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: 'количество должно быть неотрицательным числом' };
 
     const partTypeId = await ensurePartEntityType();
     const partExists = await db
@@ -1116,7 +1116,7 @@ export async function upsertPartBrandLink(args: {
       .from(entities)
       .where(and(eq(entities.id, partId), eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
       .limit(1);
-    if (!partExists.length) return { ok: false, error: 'part not found' };
+    if (!partExists.length) return { ok: false, error: 'деталь не найдена' };
 
     const partBrandTypeId = await ensurePartEngineBrandEntityType();
     const engineBrandTypeRows = await db
@@ -1125,14 +1125,14 @@ export async function upsertPartBrandLink(args: {
       .where(eq(entityTypes.code, EntityTypeCode.EngineBrand))
       .limit(1);
     const engineBrandTypeId = engineBrandTypeRows[0]?.id ? String(engineBrandTypeRows[0].id) : null;
-    if (!engineBrandTypeId) return { ok: false, error: 'engine brand entity type not found' };
+    if (!engineBrandTypeId) return { ok: false, error: 'тип сущности бренда двигателя не найден' };
 
     const engineBrandEntity = await db
       .select({ id: entities.id })
       .from(entities)
       .where(and(eq(entities.id, engineBrandId), eq(entities.typeId, engineBrandTypeId), isNull(entities.deletedAt)))
       .limit(1);
-    if (!engineBrandEntity.length) return { ok: false, error: 'engine brand not found' };
+    if (!engineBrandEntity.length) return { ok: false, error: 'бренд двигателя не найден' };
 
     const linkAttrDefs = await db
       .select({ id: attributeDefs.id, code: attributeDefs.code })
@@ -1143,7 +1143,7 @@ export async function upsertPartBrandLink(args: {
     const engineBrandIdAttrId = attrDefByCode.get('engine_brand_id');
     const asmAttrId = attrDefByCode.get('assembly_unit_number');
     const qtyAttrId = attrDefByCode.get('quantity');
-    if (!partIdAttrId || !engineBrandIdAttrId || !asmAttrId || !qtyAttrId) return { ok: false, error: 'part-engine-brand attributes are not ready' };
+    if (!partIdAttrId || !engineBrandIdAttrId || !asmAttrId || !qtyAttrId) return { ok: false, error: 'атрибуты связи part-engine-brand не подготовлены' };
 
     const ts = nowMs();
     let targetLinkId = linkId || '';
@@ -1154,11 +1154,11 @@ export async function upsertPartBrandLink(args: {
         .from(entities)
         .where(and(eq(entities.id, targetLinkId), eq(entities.typeId, partBrandTypeId), isNull(entities.deletedAt)))
         .limit(1);
-      if (!existingLink.length) return { ok: false, error: 'link not found' };
+      if (!existingLink.length) return { ok: false, error: 'связь не найдена' };
 
       const linkByPart = await listPartBrandLinksInternal({ partId });
       if (!linkByPart.some((link) => link.id === targetLinkId)) {
-        return { ok: false, error: 'link does not belong to this part' };
+        return { ok: false, error: 'ссылка не относится к этой детали' };
       }
     } else {
       const existingByPair = await listPartBrandLinksInternal({ partId, engineBrandId });
@@ -1335,8 +1335,8 @@ export async function deletePartBrandLink(args: { actor: AuthUser; partId: strin
   try {
     const partId = String(args.partId || '').trim();
     const linkId = String(args.linkId || '').trim();
-    if (!partId) return { ok: false, error: 'missing partId' };
-    if (!linkId) return { ok: false, error: 'missing linkId' };
+    if (!partId) return { ok: false, error: 'partId не указан' };
+    if (!linkId) return { ok: false, error: 'linkId не указан' };
 
     const partTypeId = await ensurePartEntityType();
     const partExists = await db
@@ -1344,7 +1344,7 @@ export async function deletePartBrandLink(args: { actor: AuthUser; partId: strin
       .from(entities)
       .where(and(eq(entities.id, partId), eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
       .limit(1);
-    if (!partExists.length) return { ok: false, error: 'part not found' };
+    if (!partExists.length) return { ok: false, error: 'деталь не найдена' };
 
     const partBrandTypeId = await ensurePartEngineBrandEntityType();
     const linkExists = await db
@@ -1352,10 +1352,10 @@ export async function deletePartBrandLink(args: { actor: AuthUser; partId: strin
       .from(entities)
       .where(and(eq(entities.id, linkId), eq(entities.typeId, partBrandTypeId), isNull(entities.deletedAt)))
       .limit(1);
-    if (!linkExists.length) return { ok: false, error: 'link not found' };
+    if (!linkExists.length) return { ok: false, error: 'связь не найдена' };
 
     const links = await listPartBrandLinksInternal({ partId });
-    if (!links.some((link) => link.id === linkId)) return { ok: false, error: 'link does not belong to this part' };
+    if (!links.some((link) => link.id === linkId)) return { ok: false, error: 'ссылка не относится к этой детали' };
 
     const ts = nowMs();
     const curRows = await db.select({ id: entities.id, createdAt: entities.createdAt }).from(entities).where(eq(entities.id, linkId)).limit(1);
@@ -1592,7 +1592,7 @@ export async function updatePartAttribute(args: {
       .from(entities)
       .where(and(eq(entities.id, partId), eq(entities.typeId, typeId), isNull(entities.deletedAt)))
       .limit(1);
-    if (!entityRows.length) return { ok: false, error: 'part not found' };
+    if (!entityRows.length) return { ok: false, error: 'деталь не найдена' };
 
     // Находим определение атрибута
     const attrDefRows = await db
@@ -1602,10 +1602,10 @@ export async function updatePartAttribute(args: {
         and(eq(attributeDefs.entityTypeId, typeId), eq(attributeDefs.code, attrCode), isNull(attributeDefs.deletedAt)),
       )
       .limit(1);
-    if (!attrDefRows.length) return { ok: false, error: 'attribute not found' };
+    if (!attrDefRows.length) return { ok: false, error: 'атрибут не найден' };
 
     const attrDef = attrDefRows[0];
-    if (!attrDef) return { ok: false, error: 'attribute not found' };
+    if (!attrDef) return { ok: false, error: 'атрибут не найден' };
     const ts = nowMs();
 
     const attrDefs = await db

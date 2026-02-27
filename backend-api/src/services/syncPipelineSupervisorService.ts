@@ -39,7 +39,7 @@ function normalizeLogin(value: string | null | undefined) {
 }
 
 function getTimeParts(timeZone: string) {
-  const fmt = new Intl.DateTimeFormat('en-CA', {
+  const fmt = new Intl.DateTimeFormat('ru-RU', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
@@ -68,21 +68,21 @@ function formatTimeKey(parts: { hour: number; minute: number }) {
 }
 
 function levelEmoji(level: string) {
-  if (level === 'critical') return 'CRITICAL';
-  if (level === 'warn') return 'WARN';
-  return 'OK';
+  if (level === 'critical') return 'КРИТ';
+  if (level === 'warn') return 'ВНИМАНИЕ';
+  return 'НОРМАЛЬНО';
 }
 
 function formatPipelineMessage(health: Awaited<ReturnType<typeof getSyncPipelineHealth>>, source: 'nightly' | 'manual') {
   const lines: string[] = [];
-  lines.push(`[Sync pipeline] ${levelEmoji(health.status)} (${source === 'nightly' ? 'nightly' : 'manual'})`);
+  lines.push(`[Синхронизация] ${levelEmoji(health.status)} (${source === 'nightly' ? 'плановый запуск' : 'ручной запуск'})`);
   lines.push(
-    `seq: ledger=${health.seq.ledgerLastSeq}, index=${health.seq.indexMaxSeq}, projection=${health.seq.projectionMaxSeq}, lag=${health.seq.ledgerToIndexLag}/${health.seq.indexToProjectionLag}`,
+    `последовательность: журнал=${health.seq.ledgerLastSeq}, индекс=${health.seq.indexMaxSeq}, проекция=${health.seq.projectionMaxSeq}, отставание=${health.seq.ledgerToIndexLag}/${health.seq.indexToProjectionLag}`,
   );
   lines.push(
-    `drift: entity_types=${health.tables.entity_types.diffRatio.toFixed(4)}, entities=${health.tables.entities.diffRatio.toFixed(4)}, attribute_defs=${health.tables.attribute_defs.diffRatio.toFixed(4)}, attribute_values=${health.tables.attribute_values.diffRatio.toFixed(4)}, operations=${health.tables.operations.diffRatio.toFixed(4)}`,
+    `дрейф: entity_types=${health.tables.entity_types.diffRatio.toFixed(4)}, entities=${health.tables.entities.diffRatio.toFixed(4)}, attribute_defs=${health.tables.attribute_defs.diffRatio.toFixed(4)}, attribute_values=${health.tables.attribute_values.diffRatio.toFixed(4)}, operations=${health.tables.operations.diffRatio.toFixed(4)}`,
   );
-  if (health.reasons?.length) lines.push(`reasons: ${health.reasons.join('; ')}`);
+  if (health.reasons?.length) lines.push(`причины: ${health.reasons.join('; ')}`);
   return lines.join('\n');
 }
 
@@ -100,12 +100,12 @@ async function getSuperadminTelegram() {
 
 async function sendToSuperadmin(text: string, withKeyboard = false) {
   const admin = await getSuperadminTelegram();
-  if (!admin) return { ok: false as const, error: 'superadmin telegram login not configured' };
+  if (!admin) return { ok: false as const, error: 'Логин superadmin Telegram не настроен' };
   const replyMarkup = withKeyboard
     ? {
         inline_keyboard: [
           [
-            { text: 'Проверить sync сейчас', callback_data: 'sync:check_now' },
+            { text: 'Проверить синхронизацию', callback_data: 'sync:check_now' },
             { text: 'Помощь', callback_data: 'sync:help' },
           ],
         ],
@@ -174,7 +174,7 @@ export function startSyncPipelineSupervisorService() {
     if (cmd === '/sync_help') {
       await sendTelegramMessageToChat({
         chatId,
-        text: 'Доступные команды:\n/sync_status — текущий статус sync pipeline\n/sync_help — помощь',
+        text: 'Доступные команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь',
       });
       return;
     }
@@ -186,7 +186,7 @@ export function startSyncPipelineSupervisorService() {
         replyMarkup: {
           inline_keyboard: [
             [
-              { text: 'Проверить sync сейчас', callback_data: 'sync:check_now' },
+              { text: 'Проверить синхронизацию', callback_data: 'sync:check_now' },
               { text: 'Помощь', callback_data: 'sync:help' },
             ],
           ],
@@ -241,7 +241,7 @@ export function startSyncPipelineSupervisorService() {
         if (data === 'sync:help') {
           await sendTelegramMessageToChat({
             chatId,
-            text: 'Команды:\n/sync_status — текущий статус sync pipeline\n/sync_help — помощь',
+            text: 'Команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь',
           });
           await answerTelegramCallbackQuery({ callbackQueryId: String(cb.id), text: 'Ок' });
         }

@@ -39,7 +39,7 @@ function isErpStrictMode() {
 
 function blockLegacyEavWrites(res: Response) {
   if (!isErpStrictMode()) return false;
-  res.status(409).json({ ok: false, error: 'ERP strict mode enabled: legacy EAV writes are disabled' });
+  res.status(409).json({ ok: false, error: 'Режим ERP strict: legacy EAV-записи отключены' });
   return true;
 }
 
@@ -47,12 +47,12 @@ async function requireAdmin(req: Request, res: Response) {
   const actor = (req as unknown as AuthenticatedRequest).user;
   const roleOk = isAdminRole(actor?.role ?? '');
   if (!roleOk) {
-    res.status(403).json({ ok: false, error: 'admin only' });
+    res.status(403).json({ ok: false, error: 'только для админов' });
     return null;
   }
   const canView = await hasPermission(actor.id, PermissionCode.MasterDataView).catch(() => false);
   if (!canView) {
-    res.status(403).json({ ok: false, error: 'forbidden' });
+    res.status(403).json({ ok: false, error: 'доступ запрещен' });
     return null;
   }
   return actor;
@@ -82,7 +82,7 @@ adminMasterdataRouter.post('/entity-types/:id/sync-snapshot', async (req, res) =
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await emitEntityTypeSyncSnapshot(id);
   return res.json(r);
 });
@@ -98,7 +98,7 @@ adminMasterdataRouter.get('/entity-types/:id/delete-info', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await getEntityTypeDeleteInfo(id);
   return res.json(r);
 });
@@ -111,7 +111,7 @@ adminMasterdataRouter.post('/entity-types/:id/delete', async (req, res) => {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await deleteEntityType({ id: actor.id, username: actor.username }, id, {
     deleteEntities: !!parsed.data.deleteEntities,
     deleteDefs: !!parsed.data.deleteDefs,
@@ -123,7 +123,7 @@ adminMasterdataRouter.get('/attribute-defs', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const entityTypeId = String(req.query.entityTypeId || '');
-  if (!entityTypeId) return res.status(400).json({ ok: false, error: 'entityTypeId required' });
+  if (!entityTypeId) return res.status(400).json({ ok: false, error: 'entityTypeId обязателен' });
   const rows = await listAttributeDefsByEntityType(entityTypeId);
   return res.json({ ok: true, rows });
 });
@@ -163,7 +163,7 @@ adminMasterdataRouter.get('/attribute-defs/:id/delete-info', async (req, res) =>
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await getAttributeDefDeleteInfo(id);
   return res.json(r);
 });
@@ -176,7 +176,7 @@ adminMasterdataRouter.post('/attribute-defs/:id/delete', async (req, res) => {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await deleteAttributeDef({ id: actor.id, username: actor.username }, id, { deleteValues: !!parsed.data.deleteValues });
   return res.json(r);
 });
@@ -185,7 +185,7 @@ adminMasterdataRouter.get('/entities', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const entityTypeId = String(req.query.entityTypeId || '');
-  if (!entityTypeId) return res.status(400).json({ ok: false, error: 'entityTypeId required' });
+  if (!entityTypeId) return res.status(400).json({ ok: false, error: 'entityTypeId обязателен' });
   const rows = await listEntitiesByType(entityTypeId);
   return res.json({ ok: true, rows });
 });
@@ -205,7 +205,7 @@ adminMasterdataRouter.get('/entities/:id', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await getEntityDetails(id);
   return res.json({ ok: true, entity: r });
 });
@@ -218,7 +218,7 @@ adminMasterdataRouter.post('/entities/:id/set-attr', async (req, res) => {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await setEntityAttribute({ id: actor.id, username: actor.username }, id, parsed.data.code, parsed.data.value);
   return res.json(r);
 });
@@ -227,7 +227,7 @@ adminMasterdataRouter.get('/entities/:id/delete-info', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await getIncomingLinksForEntity(id);
   return res.json(r);
 });
@@ -237,7 +237,7 @@ adminMasterdataRouter.post('/entities/:id/soft-delete', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await softDeleteEntity({ id: actor.id, username: actor.username }, id);
   return res.json(r);
 });
@@ -247,7 +247,7 @@ adminMasterdataRouter.post('/entities/:id/detach-links-delete', async (req, res)
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const id = String(req.params.id || '');
-  if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+  if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username }, id);
   return res.json(r);
 });

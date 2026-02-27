@@ -51,7 +51,7 @@ async function main() {
 
   const employeeTypeId = await getEmployeeTypeId();
   if (!employeeTypeId) {
-    console.error('Employee entity type not found');
+    console.error('Не найден тип сущности сотрудник');
     process.exit(1);
   }
 
@@ -81,9 +81,9 @@ async function main() {
       accessEnabled: Boolean(u.isActive),
     });
     if (!existing) {
-      console.log(`Created employee for login=${login} (id=${employeeId})`);
+      console.log(`Создан сотрудник login=${login} (id=${employeeId})`);
     } else {
-      console.log(`Updated employee for login=${login} (id=${employeeId})`);
+      console.log(`Обновлен сотрудник login=${login} (id=${employeeId})`);
     }
   }
 
@@ -97,7 +97,7 @@ async function main() {
       systemRole: 'admin',
       accessEnabled: true,
     });
-    console.log(`Created superadmin login=valstan (id=${employeeId})`);
+    console.log(`Создан superadmin login=valstan (id=${employeeId})`);
   } else {
     const patch: { passwordHash?: string; systemRole?: string; accessEnabled?: boolean } = {
       systemRole: 'admin',
@@ -107,7 +107,7 @@ async function main() {
       patch.passwordHash = await hashPassword(valstanPassword);
     }
     await setEmployeeAuth(valstan.id, patch);
-    console.log(`Ensured superadmin login=valstan (id=${valstan.id})`);
+    console.log(`Супер-админ valstan подтвержден (id=${valstan.id})`);
   }
 
 }

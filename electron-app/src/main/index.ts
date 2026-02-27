@@ -124,9 +124,15 @@ function createWindow(): void {
     maybeShowMainWindow();
   });
 
+  mainWindow.on('focus', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.focus();
+    }
+  });
+
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
     logToFile(`did-fail-load: code=${code} desc=${desc} url=${url}`);
-    void dialog.showMessageBox({
+    void dialog.showMessageBox(mainWindow!, {
       type: 'error',
       title: 'Ошибка запуска',
       message: 'Не удалось загрузить интерфейс приложения.',
@@ -245,10 +251,20 @@ app.whenReady().then(() => {
           const { getSqliteHandle } = await import('./database/db.js');
           const broken = getSqliteHandle();
           if (broken) {
-            try { broken.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
-            try { broken.close(); } catch { /* ignore */ }
+            try {
+              broken.pragma('wal_checkpoint(TRUNCATE)');
+            } catch {
+              logToFile('failed to checkpoint WAL during db recovery');
+            }
+            try {
+              broken.close();
+            } catch {
+              logToFile('failed to close broken db handle during recovery');
+            }
           }
-        } catch { /* ignore */ }
+        } catch {
+          logToFile('failed to load or close existing sqlite handle during recovery');
+        }
 
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         for (const suffix of ['', '-wal', '-shm']) {
@@ -288,6 +304,9 @@ app.whenReady().then(() => {
       }
 
       // Стабильный clientId (один раз на рабочее место): нужен для корректного sync_state на сервере и диагностики.
+      if (dbRecovered) {
+        logToFile('database recovered on startup; startup sync may repopulate data');
+      }
       let stableClientId = (await settingsGetString(db, SettingsKey.ClientId).catch(() => null)) ?? '';
       stableClientId = String(stableClientId).trim();
       if (!stableClientId) {

@@ -45,7 +45,7 @@ async function main() {
 
   if (!usernameRaw || !password) {
     console.error(
-      'Usage: pnpm --filter @matricarmz/backend-api user:create -- --username <login> --password <pass> [--role admin|user] [--fullName "Name"] [--position "Job title"] [--section "Section name"]',
+      'Использование: pnpm --filter @matricarmz/backend-api user:create -- --username <login> --password <pass> [--role admin|user] [--fullName "Имя"] [--position "Должность"] [--section "Подразделение"]',
     );
     process.exit(2);
   }
@@ -69,7 +69,7 @@ async function main() {
         process.exit(1);
       }
     }
-    console.log(`Updated employee login: ${login} (id=${existing.id}, role=${role})`);
+    console.log(`Сотрудник обновлен: ${login} (id=${existing.id}, role=${role})`);
     return;
   }
 
@@ -92,7 +92,7 @@ async function main() {
     }
   }
 
-  console.log(`Created employee login: ${login} (id=${id}, role=${role})`);
+  console.log(`Сотрудник создан: ${login} (id=${id}, role=${role})`);
 }
 
 main()

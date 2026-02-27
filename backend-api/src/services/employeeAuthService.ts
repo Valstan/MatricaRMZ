@@ -269,7 +269,7 @@ export async function getEmployeeTypeId() {
 
 export async function createEmployeeEntity(employeeId: string, ts?: number) {
   const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+  if (!employeeTypeId) return { ok: false as const, error: 'тип сотрудника не найден' };
   const createdAt = typeof ts === 'number' ? ts : nowMs();
   await db
     .insert(entities)
@@ -292,7 +292,7 @@ export async function createEmployeeEntity(employeeId: string, ts?: number) {
 
 export async function emitEmployeeSyncSnapshot(employeeId: string) {
   const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+  if (!employeeTypeId) return { ok: false as const, error: 'тип сотрудника не найден' };
 
   const entityRow = await db.select().from(entities).where(eq(entities.id, employeeId as any)).limit(1);
   if (entityRow[0]) {
@@ -320,7 +320,7 @@ export async function emitEmployeeSyncSnapshot(employeeId: string) {
 
 export async function emitEmployeesSyncSnapshotAll(opts?: { batchSize?: number }) {
   const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+  if (!employeeTypeId) return { ok: false as const, error: 'тип сотрудника не найден' };
 
   const rows = await db
     .select({ id: entities.id })
@@ -350,7 +350,7 @@ export async function emitEmployeesSyncSnapshotAll(opts?: { batchSize?: number }
 
 export async function ensureEmployeeAuthDefs() {
   const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+  if (!employeeTypeId) return { ok: false as const, error: 'тип сотрудника не найден' };
 
   const defs = await db
     .select({ id: attributeDefs.id, code: attributeDefs.code })
@@ -417,7 +417,7 @@ export async function ensureEmployeeAuthDefs() {
 
 async function ensureEmployeeProfileDefs() {
   const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return { ok: false as const, error: 'employee type not found' };
+  if (!employeeTypeId) return { ok: false as const, error: 'тип сотрудника не найден' };
 
   const defs = await db
     .select({ id: attributeDefs.id, code: attributeDefs.code })
@@ -580,7 +580,7 @@ export async function setEmployeeLoggingSettings(
   args: { loggingEnabled?: boolean | null; loggingMode?: 'dev' | 'prod' | null },
 ) {
   const defs = await getEmployeeLoggingDefIds();
-  if (!defs) return { ok: false as const, error: 'logging defs not found' };
+  if (!defs) return { ok: false as const, error: 'настройки логирования не найдены' };
   if (args.loggingEnabled !== undefined) {
     await upsertAttrValue(employeeId, defs.loggingEnabledDefId, args.loggingEnabled === true);
   }
@@ -610,7 +610,7 @@ export async function getEmployeeUiSettings(employeeId: string): Promise<string 
 
 export async function setEmployeeUiSettings(employeeId: string, rawSettings: unknown) {
   const defId = await getEmployeeUiSettingsDefId();
-  if (!defId) return { ok: false as const, error: 'ui settings def not found' };
+  if (!defId) return { ok: false as const, error: 'определение UI settings не найдено' };
   const safeSettings = sanitizeUiControlSettings(rawSettings);
   const safeJson = JSON.stringify(safeSettings);
   await upsertAttrValue(employeeId, defId, safeSettings);
@@ -625,7 +625,7 @@ async function getEmployeeAttrDefId(code: string) {
 
 export async function listEmployeesAuth() {
   const defs = await getEmployeeAuthDefIds();
-  if (!defs) return { ok: false as const, error: 'employee type not found' };
+  if (!defs) return { ok: false as const, error: 'тип сотрудника не найден' };
   const fullNameDefId = await getEmployeeFullNameDefId();
   const chatDisplayDefId = await getEmployeeChatDisplayNameDefId();
   const messengerDefs = await getEmployeeMessengerDefIds();
@@ -829,7 +829,7 @@ export async function setEmployeeAuth(
   args: { login?: string | null; passwordHash?: string | null; systemRole?: string | null; accessEnabled?: boolean | null },
 ) {
   const defs = await getEmployeeAuthDefIds();
-  if (!defs) return { ok: false as const, error: 'employee type not found' };
+  if (!defs) return { ok: false as const, error: 'тип сотрудника не найден' };
 
   if (args.login !== undefined) await upsertAttrValue(employeeId, defs.loginDefId, args.login ? normalizeLogin(args.login) : null);
   if (args.passwordHash !== undefined) await upsertAttrValue(employeeId, defs.passwordDefId, args.passwordHash ?? null);
@@ -844,7 +844,7 @@ export async function setEmployeeDeleteRequest(
   args: { requestedAt?: number | null; requestedById?: string | null; requestedByUsername?: string | null },
 ) {
   const defs = await getEmployeeAuthDefIds();
-  if (!defs) return { ok: false as const, error: 'employee type not found' };
+  if (!defs) return { ok: false as const, error: 'тип сотрудника не найден' };
   if (args.requestedAt !== undefined && defs.deleteRequestedAtDefId) {
     const ts = args.requestedAt == null ? null : Number(args.requestedAt);
     await upsertAttrValue(employeeId, defs.deleteRequestedAtDefId, Number.isFinite(ts as number) ? ts : null);
@@ -860,14 +860,14 @@ export async function setEmployeeDeleteRequest(
 
 export async function setEmployeeFullName(employeeId: string, fullName: string | null) {
   const defId = await getEmployeeFullNameDefId();
-  if (!defId) return { ok: false as const, error: 'full_name def not found' };
+  if (!defId) return { ok: false as const, error: 'определение full_name не найдено' };
   await upsertAttrValue(employeeId, defId, fullName ? String(fullName).trim() : null);
   return { ok: true as const };
 }
 
 export async function setEmployeeChatDisplayName(employeeId: string, chatDisplayName: string | null) {
   const defId = await getEmployeeChatDisplayNameDefId();
-  if (!defId) return { ok: false as const, error: 'chat_display_name def not found' };
+  if (!defId) return { ok: false as const, error: 'определение chat_display_name не найдено' };
   await upsertAttrValue(employeeId, defId, chatDisplayName ? String(chatDisplayName).trim() : null);
   return { ok: true as const };
 }
@@ -947,22 +947,22 @@ export async function setEmployeeProfile(
   }
   if (args.telegramLogin !== undefined) {
     const defs = await getEmployeeMessengerDefIds();
-    if (!defs) return { ok: false as const, error: 'telegram_login def not found' };
+    if (!defs) return { ok: false as const, error: 'определение telegram_login не найдено' };
     await upsertAttrValue(employeeId, defs.telegramLoginDefId, args.telegramLogin ? String(args.telegramLogin).trim() : null);
   }
   if (args.maxLogin !== undefined) {
     const defs = await getEmployeeMessengerDefIds();
-    if (!defs) return { ok: false as const, error: 'max_login def not found' };
+    if (!defs) return { ok: false as const, error: 'определение max_login не найдено' };
     await upsertAttrValue(employeeId, defs.maxLoginDefId, args.maxLogin ? String(args.maxLogin).trim() : null);
   }
   if (args.position !== undefined) {
     const roleDefId = await getEmployeeAttrDefId('role');
-    if (!roleDefId) return { ok: false as const, error: 'role def not found' };
+    if (!roleDefId) return { ok: false as const, error: 'определение роли не найдено' };
     await upsertAttrValue(employeeId, roleDefId, args.position ? String(args.position).trim() : null);
   }
   if (args.sectionName !== undefined) {
     const sectionDefId = await getEmployeeAttrDefId('section_id');
-    if (!sectionDefId) return { ok: false as const, error: 'section_id def not found' };
+    if (!sectionDefId) return { ok: false as const, error: 'определение section_id не найдено' };
     const sectionId = args.sectionName ? await ensureSectionEntity(args.sectionName) : null;
     await upsertAttrValue(employeeId, sectionDefId, sectionId);
   }

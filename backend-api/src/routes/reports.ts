@@ -85,6 +85,11 @@ const HIDDEN_COLUMN_IDS = new Set([
   'entityid',
   'attributedefid',
 ]);
+const REPORT_TZ = 'Europe/Moscow';
+
+function formatReportDate() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: REPORT_TZ }).format(new Date());
+}
 
 function isHiddenColumn(id: string) {
   const key = String(id || '').toLowerCase();
@@ -753,7 +758,8 @@ reportsRouter.post('/builder/export', async (req, res) => {
     if (parsed.data.format === 'html') {
       const html = renderHtml(tables);
       const contentBase64 = Buffer.from(html, 'utf8').toString('base64');
-      const fileName = `report_${new Date().toISOString().slice(0, 10)}.html`;
+      const fileDate = formatReportDate();
+      const fileName = `report_${fileDate}.html`;
       return res.json({ ok: true, warning, fileName, mime: 'text/html', contentBase64 });
     }
 
@@ -774,7 +780,8 @@ reportsRouter.post('/builder/export', async (req, res) => {
     }
     const buf = await workbook.xlsx.writeBuffer();
     const contentBase64 = Buffer.from(buf).toString('base64');
-    const fileName = `report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const fileDate = formatReportDate();
+    const fileName = `report_${fileDate}.xlsx`;
     return res.json({
       ok: true,
       warning,

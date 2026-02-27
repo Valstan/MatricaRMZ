@@ -30,9 +30,9 @@ employeesRouter.get('/access', requirePermission(PermissionCode.EmployeesView), 
 employeesRouter.post('/:id/delete', requirePermission(PermissionCode.EmployeesCreate), async (req, res) => {
   try {
     const actor = (req as unknown as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
     const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username }, id);
     return res.json(r);
   } catch (e) {

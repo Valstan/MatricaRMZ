@@ -307,11 +307,11 @@ async function run() {
   ];
   const list = target ? tables.filter((t) => t.name === target) : tables;
   if (target && list.length === 0) {
-    throw new Error(`unknown table ${target}`);
+    throw new Error(`неизвестная таблица ${target}`);
   }
   for (const t of list) {
     const count = await backfillTable(t.name, t.table, t.payload);
-    console.log(`backfill ${t.name}: inserted=${count}`);
+    console.log(`заполнение ${t.name}: добавлено=${count}`);
   }
 }
 

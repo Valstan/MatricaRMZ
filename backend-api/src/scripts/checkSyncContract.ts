@@ -11,12 +11,12 @@ function checkSyncContract() {
 
   const missingLedger = syncTables.filter((t) => !ledgerTables.has(t));
   if (missingLedger.length > 0) {
-    throw new Error(`SyncTableName missing in LedgerTableName: ${missingLedger.join(', ')}`);
+    throw new Error(`SyncTableName не найдено в LedgerTableName: ${missingLedger.join(', ')}`);
   }
 
   const missingSchemas = syncTables.filter((t) => !syncRowSchemaByTable[t]);
   if (missingSchemas.length > 0) {
-    throw new Error(`syncRowSchemaByTable missing entries: ${missingSchemas.join(', ')}`);
+    throw new Error(`В syncRowSchemaByTable отсутствуют записи: ${missingSchemas.join(', ')}`);
   }
 
   assertSyncMapCoverage();
@@ -24,7 +24,7 @@ function checkSyncContract() {
 
 try {
   checkSyncContract();
-  console.log('sync contract ok');
+  console.log('проверка синхронизации контрактов выполнена');
 } catch (e) {
   console.error(String(e));
   process.exit(1);

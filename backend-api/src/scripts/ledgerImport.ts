@@ -163,6 +163,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('ledger import failed', e);
+  console.error('ошибка импорта ledger', e);
   process.exit(1);
 });

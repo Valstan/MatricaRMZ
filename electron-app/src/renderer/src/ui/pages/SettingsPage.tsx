@@ -703,7 +703,9 @@ export function SettingsPage(props: {
               <div className="muted">
                 Основной ключ: {e2eStatus.primaryPresent ? 'есть' : 'нет'} • Предыдущих: {e2eStatus.previousCount}
               </div>
-              <div className="muted">Обновлён: {e2eStatus.updatedAt ? new Date(e2eStatus.updatedAt).toLocaleString() : '—'}</div>
+              <div className="muted">
+                Обновлён: {e2eStatus.updatedAt ? new Date(e2eStatus.updatedAt).toLocaleString('ru-RU') : '—'}
+              </div>
             </div>
           ) : (
             <div className="muted" style={{ marginBottom: 12 }}>

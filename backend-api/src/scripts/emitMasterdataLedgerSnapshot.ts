@@ -2,7 +2,7 @@ import { emitAllMasterdataSyncSnapshot } from '../services/masterdataSyncService
 
 (async () => {
   await emitAllMasterdataSyncSnapshot();
-  console.log('masterdata ledger snapshot emitted');
+  console.log('сформирован снимок мастерданных для синхронизации');
 })().catch((e) => {
   console.error(String(e));
   process.exit(1);

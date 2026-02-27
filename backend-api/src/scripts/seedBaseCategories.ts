@@ -16,7 +16,7 @@ async function ensureEntityType(code: string, name: string) {
     .limit(1);
   if (existing[0]) return String(existing[0].id);
   const r = await upsertEntityType(ACTOR, { code, name });
-  if (!r.ok || !r.id) throw new Error(`failed to create entity type: ${code}`);
+  if (!r.ok || !r.id) throw new Error(`Не удалось создать тип сущности: ${code}`);
   return r.id;
 }
 
@@ -35,7 +35,7 @@ async function ensureAttrDef(entityTypeId: string, code: string, name: string, d
     sortOrder,
     metaJson: metaJson ?? null,
   });
-  if (!r.ok || !r.id) throw new Error(`failed to create attribute def: ${entityTypeId} ${code}`);
+  if (!r.ok || !r.id) throw new Error(`Не удалось создать определение атрибута: ${entityTypeId} ${code}`);
   return r.id;
 }
 
@@ -61,7 +61,7 @@ async function ensureCategory(categoryTypeId: string, nameDefId: string, name: s
   const existing = await findCategoryByName(categoryTypeId, nameDefId, name);
   if (existing) return existing;
   const created = await createEntity(ACTOR, categoryTypeId);
-  if (!created.ok || !created.id) throw new Error(`failed to create category: ${name}`);
+  if (!created.ok || !created.id) throw new Error(`Не удалось создать категорию: ${name}`);
   await setEntityAttribute(ACTOR, created.id, 'name', name);
   if (parentId) await setEntityAttribute(ACTOR, created.id, 'parent_id', parentId);
   return created.id;

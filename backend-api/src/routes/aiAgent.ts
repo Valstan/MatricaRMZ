@@ -106,7 +106,7 @@ aiAgentRouter.post('/assist', async (req, res) => {
     const parsed = assistSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     const ctx = parsed.data.context;
     const lastEvent = parsed.data.lastEvent ?? null;
@@ -204,7 +204,7 @@ aiAgentRouter.post('/log', async (req, res) => {
     const parsed = logSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     await logSnapshot('ai_agent_event', { actorId: actor.id, context: parsed.data.context, event: parsed.data.event }, actor.id);
     await ingestRagEventFact({ actorId: actor.id, context: parsed.data.context, event: parsed.data.event }).catch(() => {});

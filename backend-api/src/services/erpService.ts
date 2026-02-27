@@ -174,7 +174,7 @@ export async function upsertErpDictionary(moduleName: string, args: { id?: strin
         });
       return { ok: true as const, id };
     }
-    return { ok: false as const, error: 'Unsupported module for dictionary' };
+    return { ok: false as const, error: 'Неподдерживаемый модуль для словарей' };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
@@ -232,13 +232,13 @@ export async function upsertErpCard(
     const ts = nowMs();
 
     if (moduleName === 'parts') {
-      if (!args.templateId) return { ok: false as const, error: 'templateId is required for parts card' };
+      if (!args.templateId) return { ok: false as const, error: 'templateId обязателен для карточки детали' };
       const exists = await db
         .select({ id: erpPartTemplates.id })
         .from(erpPartTemplates)
         .where(and(eq(erpPartTemplates.id, args.templateId), isNull(erpPartTemplates.deletedAt)))
         .limit(1);
-      if (!exists[0]) return { ok: false as const, error: 'Part template not found' };
+      if (!exists[0]) return { ok: false as const, error: 'шаблон детали не найден' };
 
       await db
         .insert(erpPartCards)
@@ -269,13 +269,13 @@ export async function upsertErpCard(
     }
 
     if (moduleName === 'tools') {
-      if (!args.templateId) return { ok: false as const, error: 'templateId is required for tools card' };
+      if (!args.templateId) return { ok: false as const, error: 'templateId обязателен для карточки инструмента' };
       const exists = await db
         .select({ id: erpToolTemplates.id })
         .from(erpToolTemplates)
         .where(and(eq(erpToolTemplates.id, args.templateId), isNull(erpToolTemplates.deletedAt)))
         .limit(1);
-      if (!exists[0]) return { ok: false as const, error: 'Tool template not found' };
+      if (!exists[0]) return { ok: false as const, error: 'шаблон инструмента не найден' };
 
       await db
         .insert(erpToolCards)
@@ -307,7 +307,7 @@ export async function upsertErpCard(
 
     if (moduleName === 'employees') {
       const fullName = String(args.fullName ?? '').trim();
-      if (!fullName) return { ok: false as const, error: 'fullName is required for employee card' };
+      if (!fullName) return { ok: false as const, error: 'fullName обязателен для карточки сотрудника' };
       await db
         .insert(erpEmployeeCards)
         .values({
@@ -335,7 +335,7 @@ export async function upsertErpCard(
       return { ok: true as const, id };
     }
 
-    return { ok: false as const, error: 'Unsupported module for cards' };
+    return { ok: false as const, error: 'Неподдерживаемый модуль для карточек' };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
@@ -416,7 +416,7 @@ export async function postErpDocument(args: { documentId: string; actor: { id: s
       .from(erpDocumentHeaders)
       .where(and(eq(erpDocumentHeaders.id, args.documentId), isNull(erpDocumentHeaders.deletedAt)))
       .limit(1);
-    if (!header[0]) return { ok: false as const, error: 'Document not found' };
+    if (!header[0]) return { ok: false as const, error: 'Документ не найден' };
     if (String(header[0].status) === 'posted') return { ok: true as const, id: args.documentId, posted: true };
 
     const lines = await db

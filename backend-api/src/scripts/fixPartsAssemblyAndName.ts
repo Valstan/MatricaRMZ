@@ -157,7 +157,7 @@ function splitNameWithEmbeddedAssembly(rawName: string): NameAssemblyParseResult
 
 async function ensureSuperadminActor(): Promise<AuthUser> {
   const id = await getSuperadminUserId();
-  if (!id) throw new Error('Не найден superadmin user');
+  if (!id) throw new Error('Пользователь superadmin не найден');
   return { id, username: 'superadmin', role: 'superadmin' } as AuthUser;
 }
 
@@ -316,7 +316,7 @@ async function main() {
           actor,
         });
         if (!updateResult.ok) {
-          report.failures.push({ partId, field: 'name', error: String(updateResult.error || 'unknown') });
+          report.failures.push({ partId, field: 'name', error: String(updateResult.error || 'неизвестная ошибка') });
           changes.changedName = false;
           report.nameUpdated -= 1;
         }
@@ -341,7 +341,7 @@ async function main() {
           report.failures.push({
             partId,
             field: 'assembly_unit_number',
-            error: String(updateResult.error || 'unknown'),
+            error: String(updateResult.error || 'неизвестная ошибка'),
           });
           changes.changedAssembly = false;
           report.assemblyUpdated -= 1;

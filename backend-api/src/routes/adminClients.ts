@@ -48,7 +48,7 @@ adminClientsRouter.patch('/clients/:clientId', async (req, res) => {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const clientId = String(req.params.clientId || '').trim();
-  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId обязателен' });
 
   try {
     const updates: {
@@ -102,7 +102,7 @@ adminClientsRouter.post('/clients/:clientId/sync-request', async (req, res) => {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const clientId = String(req.params.clientId || '').trim();
-  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId обязателен' });
 
   try {
     if (parsed.data.type === 'force_full_pull' || parsed.data.type === 'force_full_pull_v2' || parsed.data.type === 'deep_repair') {

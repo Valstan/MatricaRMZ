@@ -67,7 +67,7 @@ authRouter.post('/login', async (req, res) => {
     const isBootstrapSuperadmin = isSuperadminLogin(username) && (!u || !u.passwordHash);
     if (isBootstrapSuperadmin) {
       const employeeTypeId = await getEmployeeTypeId();
-      if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'employee type not found' });
+      if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'тип сотрудника не найден' });
       await ensureEmployeeAuthDefs();
       const ts = Date.now();
       const employeeId = u?.id ?? randomUUID();
@@ -80,13 +80,13 @@ authRouter.post('/login', async (req, res) => {
       u = await getEmployeeAuthById(employeeId);
     }
 
-    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(401).json({ ok: false, error: 'invalid credentials' });
+    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(401).json({ ok: false, error: 'неверные учетные данные' });
 
     const ok = await verifyPassword(password, u.passwordHash);
-    if (!ok) return res.status(401).json({ ok: false, error: 'invalid credentials' });
+    if (!ok) return res.status(401).json({ ok: false, error: 'неверные учетные данные' });
 
     const role = normalizeRole(u.login, u.systemRole);
-    if (role === 'employee') return res.status(403).json({ ok: false, error: 'employee has no access' });
+    if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
     const authUser: AuthUser = { id: u.id, username: u.login, role };
     const accessToken = await signAccessToken(authUser);
     const permissions = await getEffectivePermissionsForUser(u.id);
@@ -119,8 +119,8 @@ authRouter.post('/register', async (req, res) => {
     const fullName = parsed.data.fullName.trim();
     const position = parsed.data.position.trim();
 
-    if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'login already exists' });
-    if (isSuperadminLogin(login)) return res.status(403).json({ ok: false, error: 'superadmin login is reserved' });
+    if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'логин уже существует' });
+    if (isSuperadminLogin(login)) return res.status(403).json({ ok: false, error: 'логин супер-админа зарезервирован' });
 
     const ts = Date.now();
     const employeeId = randomUUID();
@@ -231,7 +231,7 @@ authRouter.post('/release-token', requireAuth, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
     const role = String(user?.role ?? '').toLowerCase();
     const isAdmin = role === 'admin' || role === 'superadmin';
-    if (!isAdmin) return res.status(403).json({ ok: false, error: 'admin only' });
+    if (!isAdmin) return res.status(403).json({ ok: false, error: 'только для админов' });
 
     const parsed = z
       .object({
@@ -253,10 +253,10 @@ authRouter.post('/release-token', requireAuth, async (req, res) => {
 authRouter.get('/users/:id/permissions-view', requireAuth, async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const userRow = await getEmployeeAuthById(id);
-    if (!userRow) return res.status(404).json({ ok: false, error: 'employee not found' });
+    if (!userRow) return res.status(404).json({ ok: false, error: 'сотрудник не найден' });
     const role = normalizeRole(userRow.login, userRow.systemRole);
     const username = userRow.fullName || userRow.login || id;
 
@@ -290,9 +290,9 @@ authRouter.get('/users/:id/permissions-view', requireAuth, async (req, res) => {
 authRouter.get('/profile', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const profile = await getEmployeeProfileById(actor.id);
-    if (!profile) return res.status(404).json({ ok: false, error: 'profile not found' });
+    if (!profile) return res.status(404).json({ ok: false, error: 'профиль не найден' });
     return res.json({ ok: true, profile });
   } catch (e) {
     logError('auth profile get failed', { error: String(e) });
@@ -303,7 +303,7 @@ authRouter.get('/profile', requireAuth, async (req, res) => {
 authRouter.get('/settings', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const settings = await getEmployeeLoggingSettings(actor.id);
     return res.json({ ok: true, settings });
   } catch (e) {
@@ -315,7 +315,7 @@ authRouter.get('/settings', requireAuth, async (req, res) => {
 authRouter.patch('/settings', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const schema = z.object({
       loggingEnabled: z.boolean().optional().nullable(),
       loggingMode: z.enum(['dev', 'prod']).optional().nullable(),
@@ -339,7 +339,7 @@ authRouter.patch('/settings', requireAuth, async (req, res) => {
 authRouter.get('/ui-settings', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     const globalRaw = await getGlobalUiDefaults();
     const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
@@ -363,7 +363,7 @@ authRouter.get('/ui-settings', requireAuth, async (req, res) => {
 authRouter.patch('/ui-settings', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const schema = z.object({
       uiSettings: z.unknown(),
     });
@@ -393,8 +393,8 @@ authRouter.patch('/ui-settings', requireAuth, async (req, res) => {
 authRouter.get('/ui-settings/global', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
-    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'доступ запрещен' });
 
     const globalRaw = await getGlobalUiDefaults();
     const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
@@ -408,8 +408,8 @@ authRouter.get('/ui-settings/global', requireAuth, async (req, res) => {
 authRouter.patch('/ui-settings/global', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
-    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'доступ запрещен' });
     const schema = z.object({
       uiSettings: z.unknown(),
       bumpVersion: z.boolean().optional(),
@@ -432,7 +432,7 @@ authRouter.patch('/ui-settings/global', requireAuth, async (req, res) => {
 authRouter.patch('/profile', requireAuth, async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const schema = z.object({
       fullName: z.string().max(200).optional().nullable(),
       position: z.string().max(200).optional().nullable(),
@@ -483,13 +483,13 @@ authRouter.post('/refresh', async (req, res) => {
       .where(and(eq(refreshTokens.tokenHash, tokenHash), gt(refreshTokens.expiresAt, now)))
       .limit(1);
     const rt = rows[0];
-    if (!rt) return res.status(401).json({ ok: false, error: 'invalid refresh token' });
+    if (!rt) return res.status(401).json({ ok: false, error: 'недействительный токен обновления' });
 
     const u = await getEmployeeAuthById(String(rt.userId));
-    if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'user disabled' });
+    if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'пользователь отключен' });
 
     const role = normalizeRole(u.login, u.systemRole);
-    if (role === 'employee') return res.status(403).json({ ok: false, error: 'employee has no access' });
+    if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
     const authUser: AuthUser = { id: u.id, username: u.login, role };
     const accessToken = await signAccessToken(authUser);
     const permissions = await getEffectivePermissionsForUser(u.id);
@@ -537,13 +537,13 @@ authRouter.post('/change-password', requireAuth, async (req, res) => {
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     const u = await getEmployeeAuthById(actor.id);
-    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(403).json({ ok: false, error: 'user disabled' });
+    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(403).json({ ok: false, error: 'пользователь отключен' });
 
     const ok = await verifyPassword(parsed.data.currentPassword, u.passwordHash);
-    if (!ok) return res.status(400).json({ ok: false, error: 'invalid current password' });
+    if (!ok) return res.status(400).json({ ok: false, error: 'некорректный текущий пароль' });
 
     const passwordHash = await hashPassword(parsed.data.newPassword);
     const r = await setEmployeeAuth(actor.id, { passwordHash });

@@ -13,6 +13,7 @@ import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 export const chatRouter = Router();
 chatRouter.use(requireAuth);
+const EXPORT_TZ = 'Europe/Moscow';
 
 function nowMs() {
   return Date.now();
@@ -122,7 +123,7 @@ function requireAdminActor(req: AuthenticatedRequest, res: any): { ok: true; act
   const actor = req.user;
   if (!actor?.id) return { ok: false };
   if (!isAdminRole(actor.role)) {
-    res.status(403).json({ ok: false, error: 'admin only' });
+    res.status(403).json({ ok: false, error: 'только для админов' });
     return { ok: false };
   }
   return { ok: true, actor };
@@ -192,10 +193,10 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (req, 
 chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const actorRole = String(actor.role ?? '').toLowerCase();
     const actorIsAdmin = isAdminRole(actorRole);
-    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'admin only' });
+    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'только для админов' });
 
     const querySchema = z.object({
       mode: z.enum(['global', 'private']).default('global'),
@@ -214,7 +215,7 @@ chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (re
     if (!actorIsAdmin) {
       const superadminId = await getSuperadminUserId();
       if (!superadminId || !withUserId || withUserId !== superadminId) {
-        return res.status(403).json({ ok: false, error: 'pending can chat only with superadmin' });
+        return res.status(403).json({ ok: false, error: 'пока можно переписываться только с супер-админом' });
       }
       rows = await db
         .select()
@@ -238,7 +239,7 @@ chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (re
         .orderBy(desc(chatMessages.createdAt))
         .limit(limit);
     } else {
-      if (!withUserId) return res.status(400).json({ ok: false, error: 'withUserId required for private' });
+      if (!withUserId) return res.status(400).json({ ok: false, error: 'для приватного чата требуется идентификатор собеседника' });
       rows = await db
         .select()
         .from(chatMessages)
@@ -333,10 +334,10 @@ chatRouter.get(
 chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const actorRole = String(actor.role ?? '').toLowerCase();
     const actorIsAdmin = isAdminRole(actorRole);
-    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'admin only' });
+    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'только для админов' });
 
     const schema = z.object({
       recipientUserId: z.string().uuid().nullable().optional(),
@@ -351,7 +352,7 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
     if (!actorIsAdmin) {
       const superadminId = await getSuperadminUserId();
       if (!superadminId || recipientUserId !== superadminId) {
-        return res.status(403).json({ ok: false, error: 'pending can chat only with superadmin' });
+        return res.status(403).json({ ok: false, error: 'пока можно переписываться только с супер-админом' });
       }
     }
     await db.insert(chatMessages).values({
@@ -512,7 +513,7 @@ chatRouter.post('/send-file', requirePermission(PermissionCode.ChatUse), async (
       .where(and(eq(fileAssets.id, parsed.data.fileId as any), isNull(fileAssets.deletedAt)))
       .limit(1);
     const file = fileRows[0] as any;
-    if (!file) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!file) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     const fileRef = {
       id: String(file.id),
@@ -647,10 +648,10 @@ chatRouter.post('/mark-read', requirePermission(PermissionCode.ChatUse), async (
 chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
     const actorRole = String(actor.role ?? '').toLowerCase();
     const actorIsAdmin = isAdminRole(actorRole);
-    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'admin only' });
+    if (!actorIsAdmin && actorRole !== 'pending') return res.status(403).json({ ok: false, error: 'только для админов' });
 
     const msgs = await db
       .select({
@@ -706,10 +707,10 @@ chatRouter.get(
   async (req, res) => {
     try {
       const actor = (req as AuthenticatedRequest).user;
-      if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+      if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
       if (!isAdminRole(actor.role)) {
         // defense-in-depth: permission check already above
-        return res.status(403).json({ ok: false, error: 'admin only' });
+        return res.status(403).json({ ok: false, error: 'только для админов' });
       }
 
       const querySchema = z.object({
@@ -756,20 +757,20 @@ chatRouter.get(
       const lines: string[] = [];
       for (const r of rows as any[]) {
         const createdAt = Number(r.createdAt);
-        const ts = new Date(createdAt).toISOString();
-        const senderUsername = String(r.senderUsername || usernameById.get(String(r.senderUserId)) || 'unknown');
+        const ts = new Date(createdAt).toLocaleString('ru-RU', { timeZone: EXPORT_TZ });
+        const senderUsername = String(r.senderUsername || usernameById.get(String(r.senderUserId)) || '—');
         const recipientId = r.recipientUserId == null ? null : String(r.recipientUserId);
         const recipientUsername = recipientId ? usernameById.get(recipientId) || recipientId : null;
-        const scope = recipientId ? `private:${recipientUsername ?? recipientId}` : 'global';
+        const scope = recipientId ? `личный:${recipientUsername ?? recipientId}` : 'общий';
 
         let body = '';
         const mt = String(r.messageType || '');
         if (mt === 'text') {
           body = String(r.bodyText ?? '');
         } else if (mt === 'file') {
-          body = `FILE ${String(r.payloadJson ?? '')}`;
+          body = `ФАЙЛ ${String(r.payloadJson ?? '')}`;
         } else if (mt === 'deep_link') {
-          body = `LINK ${String(r.payloadJson ?? '')}`;
+          body = `ССЫЛКА ${String(r.payloadJson ?? '')}`;
         } else {
           body = String(r.bodyText ?? r.payloadJson ?? '');
         }

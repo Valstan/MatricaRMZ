@@ -91,7 +91,7 @@ function normalizeLedgerTypeDelete(row: LedgerRow, ts: number) {
 
 async function main() {
   const superadminId = await getSuperadminUserId().catch(() => null);
-  if (!superadminId) throw new Error('superadmin user not found');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
 
   const ledgerState = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
   const ledgerTypes: Record<string, LedgerRow> = ledgerState?.tables?.entity_types ?? {};
@@ -203,7 +203,7 @@ async function main() {
   }
 
   if (txs.length === 0) {
-    console.log('[backfill] nothing to append');
+    console.log('[backfill] нет данных для добавления');
     return;
   }
 
@@ -227,6 +227,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('[backfill] failed', e);
+  console.error('[backfill] ошибка', e);
   process.exit(1);
 });

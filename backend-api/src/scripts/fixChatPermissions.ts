@@ -14,7 +14,7 @@ function nowMs() {
 async function main() {
   const list = await listEmployeesAuth();
   if (!list.ok) {
-    console.error(list.error || 'failed to load employees');
+    console.error(list.error || 'не удалось загрузить сотрудников');
     process.exit(1);
   }
 
@@ -38,7 +38,7 @@ async function main() {
     }
   }
 
-  console.log(`chat permissions updated: ${updated}`);
+  console.log(`права чата обновлены: ${updated}`);
 }
 
 main()

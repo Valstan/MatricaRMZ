@@ -124,7 +124,7 @@ const TABLE_NAME_MAP: Record<string, SyncTableName> = {
 async function insertChangeLog(tableName: string, rowId: string, payload: unknown, op: 'upsert' | 'delete' = 'upsert') {
   const mapped = TABLE_NAME_MAP[tableName];
   if (!mapped) {
-    throw new Error(`sync table is not mapped: ${tableName}`);
+    throw new Error(`таблица синхронизации не отображена в карте: ${tableName}`);
   }
   await recordSyncChanges(
     { id: 'system', username: 'system', role: 'system' },
@@ -248,7 +248,7 @@ async function mergeCounterparties(): Promise<{ ok: true; merged: number; conver
     const types = await db.select().from(entityTypes).where(isNull(entityTypes.deletedAt)).limit(5000);
     const customerType = types.find((t) => String(t.code) === 'customer') ?? null;
     const storeType = types.find((t) => String(t.code) === 'store') ?? null;
-    if (!customerType?.id) return { ok: false, error: 'customer entity_type not found' };
+    if (!customerType?.id) return { ok: false, error: 'не найден тип сущности контрагента' };
 
     const customerTypeId = String(customerType.id);
     const storeTypeId = storeType?.id ? String(storeType.id) : null;

@@ -256,7 +256,7 @@ async function main() {
   const dryRun = process.argv.includes('--dry-run');
 
   const superadminId = await getSuperadminUserId();
-  if (!superadminId) throw new Error('Не найден superadmin user');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
   const actor = { id: superadminId, username: 'superadmin' };
 
   const templatesResult = await listRepairChecklistTemplates();
@@ -310,7 +310,7 @@ async function main() {
     const err = String(first.error ?? '');
     const isJsonParseCrash = err.includes('Unexpected non-whitespace character after JSON');
     if (!isJsonParseCrash || !args.operationId) {
-      return { ok: false, error: err || 'save failed' };
+      return { ok: false, error: err || 'не удалось сохранить' };
     }
 
     // Fallback for corrupted legacy operation payloads: create a fresh checklist operation.
@@ -323,7 +323,7 @@ async function main() {
       allowSyncConflicts: true,
     });
     if (second.ok) return { ok: true };
-    return { ok: false, error: String(second.error ?? err ?? 'save failed') };
+    return { ok: false, error: String(second.error ?? err ?? 'не удалось сохранить') };
   }
 
   for (const engine of engines) {
@@ -413,7 +413,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error('[restoreEngineChecklistParts] failed', error);
+    console.error('[restoreEngineChecklistParts] ошибка', error);
     process.exitCode = 1;
   })
   .finally(async () => {

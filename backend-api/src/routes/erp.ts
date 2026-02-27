@@ -129,7 +129,7 @@ erpRouter.post('/documents', requirePermission(PermissionCode.ErpDocumentsEdit),
 
 erpRouter.post('/documents/:id/post', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
   const documentId = String(req.params.id || '').trim();
-  if (!documentId) return res.status(400).json({ ok: false, error: 'documentId is required' });
+  if (!documentId) return res.status(400).json({ ok: false, error: 'documentId обязателен' });
   const user = (req as any).user;
   const result = await postErpDocument({
     documentId,

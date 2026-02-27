@@ -485,12 +485,67 @@ table.list-table.list-table--catalog {
 
 .matrica-datepicker-popper {
   z-index: 12000 !important;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
 }
 
 .matrica-datepicker-calendar {
-  transform: scale(var(--ui-datepicker-scale));
+  --matrica-datepicker-size-scale: 0.6667;
+  --matrica-datepicker-size-font-scale: 1;
+  transform: scale(calc(var(--ui-datepicker-scale) * var(--matrica-datepicker-size-scale)));
   transform-origin: top left;
-  font-size: var(--ui-datepicker-font-size);
+  font-size: calc(var(--ui-datepicker-font-size) * var(--matrica-datepicker-size-font-scale));
+  width: max-content;
+}
+
+.matrica-datepicker-calendar--small {
+  --matrica-datepicker-size-scale: 0.52;
+  --matrica-datepicker-size-font-scale: 0.88;
+}
+
+.matrica-datepicker-calendar--medium {
+  --matrica-datepicker-size-scale: 0.6667;
+  --matrica-datepicker-size-font-scale: 1;
+}
+
+.matrica-datepicker-calendar--large {
+  --matrica-datepicker-size-scale: 0.8;
+  --matrica-datepicker-size-font-scale: 1.12;
+}
+
+.matrica-datepicker-calendar-container {
+  background: var(--surface);
+}
+
+.matrica-datepicker-size-switcher {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.matrica-datepicker-size-switch-button {
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
+  line-height: 1.2;
+}
+
+.matrica-datepicker-size-switch-button:hover {
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.matrica-datepicker-size-switch-button.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 .matrica-datepicker-calendar .react-datepicker__month-container {

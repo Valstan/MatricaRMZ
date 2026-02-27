@@ -46,7 +46,7 @@ diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.S
 
   try {
     const actor = (req as unknown as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(403).json({ ok: false, error: 'auth required' });
+    if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
     const snapshot = await storeClientSnapshot(parsed.data.clientId, {
       syncRunId: parsed.data.syncRunId ?? null,
       serverSeq: parsed.data.serverSeq ?? null,
@@ -108,7 +108,7 @@ diagnosticsRouter.get('/entity-diff', requirePermission(PermissionCode.ClientsMa
 
 diagnosticsRouter.get('/clients/:clientId/last-error', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
   const clientId = String(req.params.clientId || '').trim();
-  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId обязателен' });
   try {
     const { findLastClientSyncError } = await import('../services/diagnosticsLogsService.js');
     const result = findLastClientSyncError(clientId);
@@ -139,7 +139,7 @@ diagnosticsRouter.get('/sync-pipeline-health', requirePermission(PermissionCode.
 diagnosticsRouter.post('/ledger/replay', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
   try {
     const actor = (req as unknown as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(403).json({ ok: false, error: 'auth required' });
+    if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
     const result = await replayLedgerToDb({ id: actor.id, username: actor.username, role: actor.role });
     return res.json({ ok: true, applied: result.applied });
   } catch (e) {

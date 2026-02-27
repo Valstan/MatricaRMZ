@@ -306,7 +306,7 @@ export async function saveRepairChecklistForEngine(args: {
         .set({ metaJson, updatedAt: ts, syncStatus: 'synced' })
         .where(and(eq(operations.id, opId as any), isNull(operations.deletedAt)));
       const row = await db.select().from(operations).where(eq(operations.id, opId as any)).limit(1);
-      if (!row[0]) return { ok: false as const, error: 'operation not found' };
+      if (!row[0]) return { ok: false as const, error: 'операция не найдена' };
       const payload = operationPayload({
         id: String(row[0].id),
         engineEntityId: String(row[0].engineEntityId),

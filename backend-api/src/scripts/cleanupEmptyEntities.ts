@@ -81,7 +81,7 @@ function normalizeAttrRow(row: LedgerRow, deletedAt: number) {
 
 async function main() {
   const superadminId = await getSuperadminUserId().catch(() => null);
-  if (!superadminId) throw new Error('superadmin user not found');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
 
   const state = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
   const entities: Record<string, LedgerRow> = state?.tables?.entities ?? {};
@@ -142,7 +142,7 @@ async function main() {
   }
 
   if (toDeleteEntityIds.size === 0) {
-    console.log('[cleanup] nothing to delete');
+    console.log('[cleanup] нет записей для удаления');
     return;
   }
 
@@ -194,6 +194,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('[cleanup] failed', e);
+  console.error('[cleanup] ошибка', e);
   process.exit(1);
 });

@@ -138,7 +138,7 @@ notesRouter.get('/list', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const owned = await db
       .select()
@@ -176,7 +176,7 @@ notesRouter.post('/upsert', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const schema = z.object({
       id: z.string().uuid().optional(),
@@ -199,7 +199,7 @@ notesRouter.post('/upsert', async (req, res) => {
     const existing = await db.select().from(notes).where(eq(notes.id, id as any)).limit(1);
     if (existing[0]) {
       const owner = String((existing[0] as any).ownerUserId ?? '');
-      if (owner !== actorId) return res.status(403).json({ ok: false, error: 'not owner' });
+      if (owner !== actorId) return res.status(403).json({ ok: false, error: 'вы не являетесь владельцем' });
     }
 
     await db
@@ -257,7 +257,7 @@ notesRouter.post('/delete', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const schema = z.object({ noteId: z.string().uuid() });
     const parsed = schema.safeParse(req.body);
@@ -267,7 +267,7 @@ notesRouter.post('/delete', async (req, res) => {
     const ts = nowMs();
     const row = await db.select().from(notes).where(eq(notes.id, noteId as any)).limit(1);
     if (!row[0]) return res.json({ ok: true });
-    if (String((row[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'not owner' });
+    if (String((row[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'вы не являетесь владельцем' });
 
     await db.update(notes).set({ deletedAt: ts, updatedAt: ts }).where(eq(notes.id, noteId as any));
     await recordSyncChanges(
@@ -312,7 +312,7 @@ notesRouter.post('/share', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const schema = z.object({ noteId: z.string().uuid(), recipientUserId: z.string().uuid() });
     const parsed = schema.safeParse(req.body);
@@ -320,8 +320,8 @@ notesRouter.post('/share', async (req, res) => {
 
     const ts = nowMs();
     const noteRow = await db.select().from(notes).where(eq(notes.id, parsed.data.noteId as any)).limit(1);
-    if (!noteRow[0]) return res.status(404).json({ ok: false, error: 'note not found' });
-    if (String((noteRow[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'not owner' });
+    if (!noteRow[0]) return res.status(404).json({ ok: false, error: 'заметка не найдена' });
+    if (String((noteRow[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'вы не являетесь владельцем' });
 
     const existing = await db
       .select()
@@ -379,7 +379,7 @@ notesRouter.post('/unshare', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const schema = z.object({ noteId: z.string().uuid(), recipientUserId: z.string().uuid() });
     const parsed = schema.safeParse(req.body);
@@ -388,7 +388,7 @@ notesRouter.post('/unshare', async (req, res) => {
     const ts = nowMs();
     const noteRow = await db.select().from(notes).where(eq(notes.id, parsed.data.noteId as any)).limit(1);
     if (!noteRow[0]) return res.json({ ok: true });
-    if (String((noteRow[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'not owner' });
+    if (String((noteRow[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'вы не являетесь владельцем' });
 
     const shareRow = await db
       .select()
@@ -425,7 +425,7 @@ notesRouter.post('/hide', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const schema = z.object({ noteId: z.string().uuid(), hidden: z.boolean() });
     const parsed = schema.safeParse(req.body);
@@ -437,7 +437,7 @@ notesRouter.post('/hide', async (req, res) => {
       .from(noteShares)
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, actorId as any)))
       .limit(1);
-    if (!shareRow[0]) return res.status(404).json({ ok: false, error: 'share not found' });
+    if (!shareRow[0]) return res.status(404).json({ ok: false, error: 'доступ к заметке не найден' });
 
     await db
       .update(noteShares)
@@ -474,7 +474,7 @@ notesRouter.post('/reorder', async (req, res) => {
   try {
     const actor = (req as AuthenticatedRequest).user;
     const actorId = String(actor?.id ?? '');
-    if (!actorId) return res.status(401).json({ ok: false, error: 'auth required' });
+    if (!actorId) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
 
     const schema = z.object({ noteId: z.string().uuid(), sortOrder: z.number().int(), scope: z.enum(['owner', 'shared']) });
     const parsed = schema.safeParse(req.body);
@@ -483,8 +483,8 @@ notesRouter.post('/reorder', async (req, res) => {
     const ts = nowMs();
     if (parsed.data.scope === 'owner') {
       const noteRow = await db.select().from(notes).where(eq(notes.id, parsed.data.noteId as any)).limit(1);
-      if (!noteRow[0]) return res.status(404).json({ ok: false, error: 'note not found' });
-      if (String((noteRow[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'not owner' });
+      if (!noteRow[0]) return res.status(404).json({ ok: false, error: 'заметка не найдена' });
+      if (String((noteRow[0] as any).ownerUserId ?? '') !== actorId) return res.status(403).json({ ok: false, error: 'вы не являетесь владельцем' });
       await db.update(notes).set({ sortOrder: parsed.data.sortOrder, updatedAt: ts }).where(eq(notes.id, parsed.data.noteId as any));
       const updated = await db.select().from(notes).where(eq(notes.id, parsed.data.noteId as any)).limit(1);
       if (updated[0]) {
@@ -509,7 +509,7 @@ notesRouter.post('/reorder', async (req, res) => {
       .from(noteShares)
       .where(and(eq(noteShares.noteId, parsed.data.noteId as any), eq(noteShares.recipientUserId, actorId as any)))
       .limit(1);
-    if (!shareRow[0]) return res.status(404).json({ ok: false, error: 'share not found' });
+    if (!shareRow[0]) return res.status(404).json({ ok: false, error: 'доступ к заметке не найден' });
 
     await db
       .update(noteShares)

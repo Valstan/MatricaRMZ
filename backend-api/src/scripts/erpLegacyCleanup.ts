@@ -29,7 +29,7 @@ async function main() {
   };
 
   if (!apply) {
-    console.log(JSON.stringify({ ...report, note: 'Dry run. Add --apply to soft-delete legacy EAV rows.' }, null, 2));
+    console.log(JSON.stringify({ ...report, note: 'Тестовый запуск. Добавьте --apply для мягкого удаления устаревших EAV-строк.' }, null, 2));
     await pool.end();
     return;
   }

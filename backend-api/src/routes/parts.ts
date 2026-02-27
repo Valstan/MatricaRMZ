@@ -51,11 +51,11 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
 partsRouter.get('/:id', requirePermission(PermissionCode.PartsView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const result = await getPart({ partId: id });
     if (!result.ok) {
-      return res.status(result.error === 'part not found' ? 404 : 500).json(result);
+      return res.status(result.error === 'деталь не найдена' ? 404 : 500).json(result);
     }
     return res.json(result);
   } catch (e) {
@@ -65,7 +65,7 @@ partsRouter.get('/:id', requirePermission(PermissionCode.PartsView), async (req,
 
 partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req, res) => {
   if (isErpStrictMode()) {
-    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: create parts via /erp API' });
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: создание деталей доступно только через /erp API' });
   }
   try {
     logDebug('parts create', { method: req.method });
@@ -96,7 +96,7 @@ partsRouter.post('/', requirePermission(PermissionCode.PartsCreate), async (req,
 // Создать новое поле (attribute_def) для карточки детали (для расширения карты без миграций).
 partsRouter.post('/attribute-defs', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
   if (isErpStrictMode()) {
-    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: attribute defs are read-only in legacy parts module' });
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: определения атрибутов доступны только для чтения в legacy модуле деталей' });
   }
   try {
     const actor = (req as AuthenticatedRequest).user;
@@ -140,13 +140,13 @@ partsRouter.post('/attribute-defs', requirePermission(PermissionCode.PartsEdit),
 
 partsRouter.put('/:id/attributes/:code', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
   if (isErpStrictMode()) {
-    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: edit parts via /erp API' });
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: редактирование деталей доступно только через /erp API' });
   }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const id = String(req.params.id || '');
     const code = String(req.params.code || '');
-    if (!id || !code) return res.status(400).json({ ok: false, error: 'missing id or code' });
+    if (!id || !code) return res.status(400).json({ ok: false, error: 'не указаны id или code' });
 
     const schema = z.object({
       value: z.unknown(),
@@ -163,7 +163,7 @@ partsRouter.put('/:id/attributes/:code', requirePermission(PermissionCode.PartsE
       actor,
     });
     if (!result.ok) {
-      return res.status(result.error === 'part not found' || result.error === 'attribute not found' ? 404 : 500).json(result);
+      return res.status(result.error === 'деталь не найдена' || result.error === 'атрибут не найден' ? 404 : 500).json(result);
     }
     return res.json(result);
   } catch (e) {
@@ -173,12 +173,12 @@ partsRouter.put('/:id/attributes/:code', requirePermission(PermissionCode.PartsE
 
 partsRouter.delete('/:id', requirePermission(PermissionCode.PartsDelete), async (req, res) => {
   if (isErpStrictMode()) {
-    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: delete parts via /erp API' });
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: удаление деталей доступно только через /erp API' });
   }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const result = await deletePart({ partId: id, actor });
     if (!result.ok) {
@@ -193,7 +193,7 @@ partsRouter.delete('/:id', requirePermission(PermissionCode.PartsDelete), async 
 partsRouter.get('/:id/brand-links', requirePermission(PermissionCode.PartsView), async (req, res) => {
   try {
     const partId = String(req.params.id || '');
-    if (!partId) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!partId) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const querySchema = z.object({
       engineBrandId: z.string().optional(),
@@ -206,8 +206,8 @@ partsRouter.get('/:id/brand-links', requirePermission(PermissionCode.PartsView),
       ...(parsed.data.engineBrandId !== undefined && { engineBrandId: parsed.data.engineBrandId }),
     });
     if (!result.ok) {
-      if (result.error === 'missing partId') return res.status(400).json(result);
-      if (result.error === 'part not found') return res.status(404).json(result);
+      if (result.error === 'partId не указан') return res.status(400).json(result);
+      if (result.error === 'деталь не найдена') return res.status(404).json(result);
       return res.status(500).json(result);
     }
     return res.json(result);
@@ -218,12 +218,12 @@ partsRouter.get('/:id/brand-links', requirePermission(PermissionCode.PartsView),
 
 partsRouter.put('/:id/brand-links', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
   if (isErpStrictMode()) {
-    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: edit brand links via /erp API' });
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: редактирование связей брендов доступно только через /erp API' });
   }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const partId = String(req.params.id || '');
-    if (!partId) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!partId) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const schema = z.object({
       linkId: z.string().optional(),
@@ -245,10 +245,10 @@ partsRouter.put('/:id/brand-links', requirePermission(PermissionCode.PartsEdit),
     if (!result.ok) {
       if (result.error.startsWith('missing ') || result.error.startsWith('quantity')) return res.status(400).json(result);
       if (
-        result.error === 'part not found' ||
-        result.error === 'engine brand not found' ||
-        result.error === 'link not found' ||
-        result.error === 'link does not belong to this part'
+        result.error === 'деталь не найдена' ||
+        result.error === 'бренд двигателя не найден' ||
+        result.error === 'связь не найдена' ||
+        result.error === 'ссылка не относится к этой детали'
       )
         return res.status(404).json(result);
       return res.status(500).json(result);
@@ -261,22 +261,22 @@ partsRouter.put('/:id/brand-links', requirePermission(PermissionCode.PartsEdit),
 
 partsRouter.delete('/:id/brand-links/:linkId', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
   if (isErpStrictMode()) {
-    return res.status(409).json({ ok: false, error: 'ERP strict mode enabled: edit brand links via /erp API' });
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: редактирование связей брендов доступно только через /erp API' });
   }
   try {
     const actor = (req as AuthenticatedRequest).user;
     const partId = String(req.params.id || '');
     const linkId = String(req.params.linkId || '');
-    if (!partId) return res.status(400).json({ ok: false, error: 'missing id' });
-    if (!linkId) return res.status(400).json({ ok: false, error: 'missing linkId' });
+    if (!partId) return res.status(400).json({ ok: false, error: 'id не указан' });
+    if (!linkId) return res.status(400).json({ ok: false, error: 'linkId не указан' });
 
     const result = await deletePartBrandLink({ actor, partId, linkId });
     if (!result.ok) {
-      if (result.error === 'missing partId' || result.error === 'missing linkId') return res.status(400).json(result);
+      if (result.error === 'partId не указан' || result.error === 'linkId не указан') return res.status(400).json(result);
       if (
-        result.error === 'part not found' ||
-        result.error === 'link not found' ||
-        result.error === 'link does not belong to this part'
+        result.error === 'деталь не найдена' ||
+        result.error === 'связь не найдена' ||
+        result.error === 'ссылка не относится к этой детали'
       )
         return res.status(404).json(result);
       return res.status(500).json(result);
@@ -291,11 +291,11 @@ partsRouter.delete('/:id/brand-links/:linkId', requirePermission(PermissionCode.
 partsRouter.get('/:id/files', requirePermission(PermissionCode.PartsView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const partResult = await getPart({ partId: id });
     if (!partResult.ok) {
-      return res.status(partResult.error === 'part not found' ? 404 : 500).json(partResult);
+      return res.status(partResult.error === 'деталь не найдена' ? 404 : 500).json(partResult);
     }
 
     // Фильтруем атрибуты типа 'link', которые содержат FileRef

@@ -707,7 +707,7 @@ async function loadAttrDefsByType(entityTypeId: string): Promise<Map<string, str
 
 async function ensureSuperadminActor(): Promise<AuthUser> {
   const id = await getSuperadminUserId();
-  if (!id) throw new Error('Не найден superadmin user');
+  if (!id) throw new Error('Пользователь superadmin не найден');
   return { id, username: 'superadmin', role: 'superadmin' } as AuthUser;
 }
 
@@ -1555,6 +1555,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('[clarification] failed', error);
+  console.error('[уточнение] ошибка', error);
   process.exit(1);
 });

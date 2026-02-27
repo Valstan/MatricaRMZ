@@ -99,7 +99,7 @@ function normalizeAttrValue(row: LedgerRow, ts: number) {
 
 async function main() {
   const superadminId = await getSuperadminUserId().catch(() => null);
-  if (!superadminId) throw new Error('superadmin user not found');
+  if (!superadminId) throw new Error('Пользователь superadmin не найден');
 
   const canonicalRows = await db
     .select({ id: entityTypesTable.id, code: entityTypesTable.code })
@@ -110,7 +110,7 @@ async function main() {
   const canonicalEngineId = canonicalByCode.get('engine') ?? '';
   const canonicalContractId = canonicalByCode.get('contract') ?? '';
   if (!canonicalEngineId || !canonicalContractId) {
-    throw new Error('canonical engine/contract type ids not found in DB');
+    throw new Error('Идентификаторы канонических типов engine и contract не найдены в БД');
   }
 
   const state = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
@@ -249,7 +249,7 @@ async function main() {
   }
 
   if (txs.length === 0) {
-    console.log('[canonicalize] nothing to update');
+    console.log('[canonicalize] нет изменений для обновления');
     return;
   }
 
@@ -271,6 +271,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('[canonicalize] failed', e);
+  console.error('[canonicalize] ошибка', e);
   process.exit(1);
 });

@@ -1,6 +1,58 @@
 import React, { useMemo, useState } from 'react';
 import DatePicker from 'react-datepicker';
 
+type DatePickerCalendarSize = 'small' | 'medium' | 'large';
+
+const DATE_PICKER_SIZE_KEY = 'matrica-datepicker-size';
+const DATE_PICKER_SIZE_OPTIONS: { value: DatePickerCalendarSize; label: string }[] = [
+  { value: 'small', label: 'Малый' },
+  { value: 'medium', label: 'Средний' },
+  { value: 'large', label: 'Большой' },
+];
+const DEFAULT_DATE_PICKER_SIZE: DatePickerCalendarSize = 'medium';
+
+function isDatePickerSize(value: string | null): value is DatePickerCalendarSize {
+  return value === 'small' || value === 'medium' || value === 'large';
+}
+
+function loadStoredDatePickerSize(): DatePickerCalendarSize {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+    return DEFAULT_DATE_PICKER_SIZE;
+  }
+
+  const stored = localStorage.getItem(DATE_PICKER_SIZE_KEY);
+  return isDatePickerSize(stored) ? stored : DEFAULT_DATE_PICKER_SIZE;
+}
+
+const viewportClampOffset = 12;
+const clampToWindowModifier = {
+  name: 'clampToWindow',
+  fn: (state: {
+    x: number;
+    y: number;
+    elements: { floating: HTMLElement | null };
+    rects: { floating: { width: number; height: number } };
+  }) => {
+    if (typeof window === 'undefined') return {};
+
+    const floatingRect = state.elements?.floating?.getBoundingClientRect?.();
+    const floatingWidth = floatingRect?.width ?? state.rects.floating.width;
+    const floatingHeight = floatingRect?.height ?? state.rects.floating.height;
+    const maxX = window.innerWidth - floatingWidth - viewportClampOffset;
+    const maxY = window.innerHeight - floatingHeight - viewportClampOffset;
+    const minX = viewportClampOffset;
+    const minY = viewportClampOffset;
+
+    const clampedX = Math.min(Math.max(state.x, minX), maxX >= minX ? maxX : minX);
+    const clampedY = Math.min(Math.max(state.y, minY), maxY >= minY ? maxY : minY);
+
+    return {
+      x: clampedX,
+      y: clampedY,
+    };
+  },
+};
+
 function pad2(n: number) {
   return String(n).padStart(2, '0');
 }
@@ -37,11 +89,54 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
 ) {
   const [focused, setFocused] = useState(false);
   const [open, setOpen] = useState(false);
+  const [size, setSize] = useState<DatePickerCalendarSize>(loadStoredDatePickerSize);
   const type = String(props.type ?? 'date');
   const withTime = type === 'datetime-local';
   const selected = useMemo(() => parseValue(String(props.value ?? ''), withTime), [props.value, withTime]);
   const minDate = useMemo(() => parseValue(String(props.min ?? ''), withTime), [props.min, withTime]);
   const maxDate = useMemo(() => parseValue(String(props.max ?? ''), withTime), [props.max, withTime]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    localStorage.setItem(DATE_PICKER_SIZE_KEY, size);
+  }, [size]);
+
+  const CalendarContainer = (calendarProps: {
+    children?: React.ReactNode;
+    className?: string;
+    showTimeSelectOnly?: boolean;
+    showTime?: boolean;
+    inline?: boolean;
+  }) => {
+    const { children, className, showTimeSelectOnly, showTime, inline, ...rest } = calendarProps;
+    const ariaLabel = showTimeSelectOnly ? 'Выберите время' : `Выберите дату${showTime ? ' и время' : ''}`;
+
+    return (
+      <div
+        className={`matrica-datepicker-calendar-container ${className ?? ''}`}
+        role={inline ? undefined : 'dialog'}
+        aria-label={ariaLabel}
+        aria-modal={inline ? undefined : true}
+        translate="no"
+        {...rest}
+      >
+        <div className="matrica-datepicker-size-switcher" role="group" aria-label="Размер календаря">
+          {DATE_PICKER_SIZE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`matrica-datepicker-size-switch-button ${size === option.value ? 'is-active' : ''}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setSize(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {children}
+      </div>
+    );
+  };
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -89,8 +184,24 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
       timeIntervals={15}
       dateFormat={withTime ? 'dd.MM.yyyy HH:mm' : 'dd.MM.yyyy'}
       className="matrica-datepicker-input"
-      calendarClassName="matrica-datepicker-calendar"
+      calendarClassName={`matrica-datepicker-calendar matrica-datepicker-calendar--${size}`}
+      calendarContainer={CalendarContainer}
+      locale="ru"
+      timeCaption="Время"
+      previousMonthButtonLabel="‹"
+      nextMonthButtonLabel="›"
+      previousYearButtonLabel="«"
+      nextYearButtonLabel="»"
+      previousMonthAriaLabel="Предыдущий месяц"
+      nextMonthAriaLabel="Следующий месяц"
+      previousYearAriaLabel="Предыдущий год"
+      nextYearAriaLabel="Следующий год"
+      clearButtonTitle="Очистить"
+      ariaLabelClose="Закрыть"
       popperClassName="matrica-datepicker-popper"
+      popperProps={{ strategy: 'fixed' }}
+      popperPlacement="bottom-start"
+      popperModifiers={[clampToWindowModifier]}
       onFocus={(e) => {
         setFocused(true);
         setOpen(true);

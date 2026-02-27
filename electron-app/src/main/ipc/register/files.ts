@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog, app, BrowserWindow } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
@@ -18,10 +18,9 @@ export function registerFilesIpc(ctx: IpcContext) {
       const gate = await requirePermOrResult(ctx, 'files.upload');
       if (!gate.ok) return gate;
 
-      const r = await dialog.showOpenDialog({
-        title: 'Выберите файлы для загрузки',
-        properties: ['openFile', 'multiSelections'],
-      });
+      const parent = BrowserWindow.getFocusedWindow();
+      const opts = { title: 'Выберите файлы для загрузки', properties: ['openFile', 'multiSelections'] as const };
+      const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
       const paths = (r.filePaths ?? []).map((p) => String(p)).filter(Boolean);
       if (paths.length === 0) return { ok: false, error: 'cancelled' };
       return { ok: true, paths };
@@ -39,10 +38,9 @@ export function registerFilesIpc(ctx: IpcContext) {
       const gate = await requirePermOrResult(ctx, 'files.view');
       if (!gate.ok) return gate;
 
-      const r = await dialog.showOpenDialog({
-        title: 'Выберите папку для скачивания файлов',
-        properties: ['openDirectory', 'createDirectory'],
-      });
+      const dirParent = BrowserWindow.getFocusedWindow();
+      const dirOpts = { title: 'Выберите папку для скачивания файлов', properties: ['openDirectory', 'createDirectory'] as const };
+      const r = dirParent ? await dialog.showOpenDialog(dirParent, dirOpts) : await dialog.showOpenDialog(dirOpts);
       const p = r.filePaths?.[0] ? String(r.filePaths[0]) : '';
       if (!p) return { ok: false, error: 'cancelled' };
       return await filesDownloadDirSet(ctx.sysDb, p);

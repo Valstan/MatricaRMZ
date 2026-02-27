@@ -72,11 +72,11 @@ function yandexDiskPathForFile(args: { baseYandexPath: string; fileId: string; f
 filesRouter.get('/:id/meta', requirePermission(PermissionCode.FilesView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
-    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     return res.json({
       ok: true,
@@ -97,11 +97,11 @@ filesRouter.get('/:id/meta', requirePermission(PermissionCode.FilesView), async 
 filesRouter.get('/:id/preview', requirePermission(PermissionCode.FilesView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
-    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     const rel = row.previewLocalRelPath ? String(row.previewLocalRelPath) : '';
     if (!rel) return res.json({ ok: true, preview: null });
@@ -126,7 +126,7 @@ filesRouter.get('/:id/preview', requirePermission(PermissionCode.FilesView), asy
 filesRouter.post('/:id/preview', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const schema = z.object({
       mime: z.string().min(1).max(200),
@@ -141,12 +141,12 @@ filesRouter.post('/:id/preview', requirePermission(PermissionCode.FilesUpload), 
     }
 
     const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
-    if (!bytes.length) return res.status(400).json({ ok: false, error: 'empty preview' });
+    if (!bytes.length) return res.status(400).json({ ok: false, error: 'пустой предварительный просмотр' });
     if (bytes.length > MAX_PREVIEW_BYTES) return res.status(400).json({ ok: false, error: `preview too large (>${MAX_PREVIEW_BYTES} bytes)` });
 
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
-    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     const rel = previewRelPathForFile({ fileId: id, mime });
     const abs = join(uploadsDir(), rel);
@@ -230,7 +230,7 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
 
     const baseYandexPath = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim(); // e.g. /MatricaRMZ/releases
     if (!baseYandexPath) {
-      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH is not configured' });
+      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH не настроен' });
     }
 
     const actor = (req as AuthenticatedRequest).user;
@@ -272,15 +272,15 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
 filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
-    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     if (row.storageKind === 'yandex') {
       const diskPath = String(row.yandexDiskPath || '');
-      if (!diskPath) return res.status(500).json({ ok: false, error: 'yandex_disk_path missing' });
+      if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
       const href = await getDownloadHref(diskPath);
       return res.json({ ok: true, url: href });
     }
@@ -314,8 +314,8 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
     const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
-    if (!bytes.length) return res.status(400).json({ ok: false, error: 'empty file' });
-    if (bytes.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `file too large (>${MAX_UPLOAD_BYTES} bytes)` });
+    if (!bytes.length) return res.status(400).json({ ok: false, error: 'файл пуст' });
+    if (bytes.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `размер файла слишком большой (> ${MAX_UPLOAD_BYTES} байт)` });
 
     const sha256 = createHash('sha256').update(bytes).digest('hex');
 
@@ -374,7 +374,7 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
 
     // Yandex.Disk
     if (!baseYandexPath) {
-      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH is not configured (required for large files)' });
+      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH не настроен (обязательно для больших файлов)' });
     }
     const diskPath = yandexDiskPathForFile({
       baseYandexPath,
@@ -406,15 +406,15 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
 filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
-    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     if (row.storageKind === 'local') {
       const rel = String(row.localRelPath || '');
-      if (!rel) return res.status(500).json({ ok: false, error: 'local_rel_path missing' });
+      if (!rel) return res.status(500).json({ ok: false, error: 'локальный относительный путь не указан' });
       const abs = join(uploadsDir(), rel);
       // set headers
       res.setHeader('Content-Type', row.mime || 'application/octet-stream');
@@ -424,17 +424,17 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
 
     if (row.storageKind === 'yandex') {
       const diskPath = String(row.yandexDiskPath || '');
-      if (!diskPath) return res.status(500).json({ ok: false, error: 'yandex_disk_path missing' });
+      if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
       const href = await getDownloadHref(diskPath);
       const r = await fetch(href);
-      if (!r.ok) return res.status(502).json({ ok: false, error: `yandex download HTTP ${r.status}` });
+      if (!r.ok) return res.status(502).json({ ok: false, error: `ошибка загрузки из Yandex: HTTP ${r.status}` });
       res.setHeader('Content-Type', row.mime || r.headers.get('content-type') || 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
       const buf = Buffer.from(await r.arrayBuffer());
       return res.end(buf);
     }
 
-    return res.status(500).json({ ok: false, error: `unknown storageKind: ${String(row.storageKind)}` });
+    return res.status(500).json({ ok: false, error: `неизвестный тип хранения: ${String(row.storageKind)}` });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -443,14 +443,14 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
 filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async (req, res) => {
   try {
     const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'missing id' });
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
 
     const actor = (req as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(401).json({ ok: false, error: 'missing user' });
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
 
     const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
     const row = rows[0] as any;
-    if (!row) return res.status(404).json({ ok: false, error: 'file not found' });
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
     const actorRole = String(actor.role || '').toLowerCase();
     const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';

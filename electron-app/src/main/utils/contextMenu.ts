@@ -18,7 +18,14 @@ export function registerInputContextMenu(mainWindow: BrowserWindow) {
       },
     ]);
 
-    menu.popup({ window: mainWindow });
+    menu.popup({
+      window: mainWindow,
+      callback: () => {
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.focus();
+        }
+      },
+    });
   });
 }
 
