@@ -237,8 +237,12 @@ export function Tabs(props: {
   const departmentButtonInactiveStyle = displayPrefs.departmentButtons.inactive;
   const sectionButtonActiveStyle = displayPrefs.sectionButtons.active;
   const sectionButtonInactiveStyle = displayPrefs.sectionButtons.inactive;
-  const departmentCardMinHeight = 0;
-  const sectionCardMinHeight = 0;
+  const departmentCardMinHeight = Math.max(
+    44,
+    Number(departmentButtonActiveStyle.height ?? 0),
+    Number(departmentButtonInactiveStyle.height ?? 0),
+  );
+  const sectionCardMinHeight = Math.max(34, Math.floor(departmentCardMinHeight / 1.9));
   const sectionCardWidth = Math.max(
     120,
     Math.floor(
@@ -828,7 +832,7 @@ export function Tabs(props: {
               display: 'block',
               flex: 1,
               borderRadius: 14,
-              minHeight: sectionCardMinHeight,
+              minHeight: Math.max(38, sectionCardMinHeight),
               marginTop: 0,
               overflow: 'hidden',
             }}
