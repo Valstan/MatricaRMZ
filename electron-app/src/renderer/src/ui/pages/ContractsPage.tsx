@@ -511,6 +511,9 @@ export function ContractsPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контракта…" />
         </div>
+        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+          По дате заключения:
+        </span>
         <div style={{ width: 170 }}>
           <Input
             type="date"

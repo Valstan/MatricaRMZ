@@ -16,7 +16,6 @@ import { matchesQueryInRecord } from '../utils/search.js';
 const PAGE_SIZE = 25;
 type EngineRow = EngineListItem & {
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
-  contractSignedAt?: number | null;
 };
 
 export type EnginesPageUiState = {
@@ -88,10 +87,10 @@ export function EnginesPage(props: {
     return props.engines.filter((engine) => {
       if (!matchesQueryInRecord(query, engine)) return false;
       if (!hasDateFilter) return true;
-      const contractSignedAt = typeof (engine as EngineRow).contractSignedAt === 'number' ? (engine as EngineRow).contractSignedAt : null;
-      if (contractSignedAt == null) return false;
-      if (fromMs != null && contractSignedAt < fromMs) return false;
-      if (toMs != null && contractSignedAt > toMs) return false;
+      const arrivalDate = typeof engine.arrivalDate === 'number' && Number.isFinite(engine.arrivalDate) ? engine.arrivalDate : null;
+      if (arrivalDate == null) return false;
+      if (fromMs != null && arrivalDate < fromMs) return false;
+      if (toMs != null && arrivalDate > toMs) return false;
       return true;
     });
   }, [props.engines, query, contractDateFrom, contractDateTo]);
@@ -273,12 +272,15 @@ export function EnginesPage(props: {
             placeholder="Поиск по всем данным двигателя…"
           />
         </div>
+        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+          По дате привоза:
+        </span>
         <div style={{ width: 170 }}>
           <Input
             type="date"
             value={contractDateFrom}
             onChange={(e) => patchState({ contractDateFrom: e.target.value, page: 0 })}
-            title="Дата заключения контракта: с"
+            title="Дата прихода двигателя: с"
           />
         </div>
         <div style={{ width: 170 }}>
@@ -286,7 +288,7 @@ export function EnginesPage(props: {
             type="date"
             value={contractDateTo}
             onChange={(e) => patchState({ contractDateTo: e.target.value, page: 0 })}
-            title="Дата заключения контракта: по"
+            title="Дата прихода двигателя: по"
           />
         </div>
         <Button

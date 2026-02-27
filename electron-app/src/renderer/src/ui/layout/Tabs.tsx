@@ -785,75 +785,88 @@ export function Tabs(props: {
         </div>
       </div>
 
-      <div style={{ marginTop: 2, display: 'flex', justifyContent: 'flex-start', gap: 6 }}>
-        <Button
-          variant="ghost"
-          disabled={!canGoBack}
-          title="Перейти к предыдущему окну"
-          onClick={() => props.onBack?.()}
-        >
-          Назад
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={!canGoForward}
-          title="Вернуться вперед к следующему окну"
-          onClick={() => props.onForward?.()}
-        >
-          Вперёд
-        </Button>
-      </div>
-
-      {activeGroup != null && !(props.tab === 'history' && activeGroup === 'history') && (
-        <div
-          ref={sectionsViewportRef}
-          style={{
-            position: 'relative',
-            display: 'block',
-            marginTop: 2,
-            borderRadius: 14,
-            border: '1px solid rgba(59, 130, 246, 0.22)',
-            background: '#ffffff',
-            padding: '2px',
-            minHeight: 82,
-          }}
-        >
-          {activeGroup == null ? (
-            <div>
-              <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
-            </div>
-          ) : (
-            <div
-              ref={sectionsTrackRef}
-              style={{
-                position: 'absolute',
-                top: 2,
-                left: sectionsLeftPx != null ? `${sectionsLeftPx}px` : activeGroupAnchorLeft,
-                transform: sectionsLeftPx != null ? 'none' : 'translateX(-50%)',
-                display: 'inline-flex',
-                gap: sectionButtonsGap,
-                flexWrap: 'nowrap',
-                alignItems: 'stretch',
-                justifyContent: 'flex-start',
-                minHeight: sectionCardMinHeight,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {groupMenuItems.map((id) => (
-                <div
-                  key={id}
-                  ref={(el) => {
-                    itemRefs.current[keyOfTarget({ kind: 'tab', id })] = el;
-                  }}
-                  style={{ display: 'inline-flex' }}
-                >
-                  {menuItemButton(id)}
-                </div>
-              ))}
-            </div>
-          )}
+      <div
+        style={{
+          marginTop: 2,
+          borderRadius: 14,
+          border: '1px solid rgba(59, 130, 246, 0.22)',
+          background: '#ffffff',
+          padding: '6px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8 }}>
+          <Button
+            variant="ghost"
+            disabled={!canGoBack}
+            title="Перейти к предыдущему окну"
+            onClick={() => props.onBack?.()}
+            style={{ minHeight: 56, padding: '14px 18px', fontSize: 16 }}
+          >
+            Назад
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={!canGoForward}
+            title="Вернуться вперед к следующему окну"
+            onClick={() => props.onForward?.()}
+            style={{ minHeight: 56, padding: '14px 18px', fontSize: 16 }}
+          >
+            Вперёд
+          </Button>
         </div>
-      )}
+
+        {activeGroup != null && !(props.tab === 'history' && activeGroup === 'history') && (
+          <div
+            ref={sectionsViewportRef}
+            style={{
+              position: 'relative',
+              display: 'block',
+              borderRadius: 14,
+              minHeight: 82,
+              marginTop: 0,
+              overflow: 'hidden',
+            }}
+          >
+            {activeGroup == null ? (
+              <div>
+                <span style={{ color: theme.colors.muted }}>Выберите отдел, чтобы показать разделы.</span>
+              </div>
+            ) : (
+              <div
+                ref={sectionsTrackRef}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: sectionsLeftPx != null ? `${sectionsLeftPx}px` : activeGroupAnchorLeft,
+                  transform: sectionsLeftPx != null ? 'none' : 'translateX(-50%)',
+                  display: 'inline-flex',
+                  gap: sectionButtonsGap,
+                  flexWrap: 'nowrap',
+                  alignItems: 'stretch',
+                  justifyContent: 'flex-start',
+                  minHeight: sectionCardMinHeight,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {groupMenuItems.map((id) => (
+                  <div
+                    key={id}
+                    ref={(el) => {
+                      itemRefs.current[keyOfTarget({ kind: 'tab', id })] = el;
+                    }}
+                    style={{ display: 'inline-flex' }}
+                  >
+                    {menuItemButton(id)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {contextMenu && (
         <div
