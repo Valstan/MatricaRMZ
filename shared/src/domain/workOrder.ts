@@ -3,6 +3,8 @@ export type WorkOrderCrewMember = {
   employeeName: string;
   ktu: number;
   payoutRub?: number;
+  payoutFrozen?: boolean;
+  manualPayoutRub?: number;
 };
 
 export type WorkOrderWorkLine = {
@@ -22,18 +24,24 @@ export type WorkOrderAuditTrailItem = {
   note?: string | null;
 };
 
+export type WorkOrderWorkGroup = {
+  groupId: string;
+  partId: string | null;
+  partName: string;
+  lines: WorkOrderWorkLine[];
+};
+
 export type WorkOrderPayload = {
   kind: 'work_order';
-  version: 1;
+  version: 2;
 
   operationId: string;
   workOrderNumber: number;
   orderDate: number;
 
-  partId: string | null;
-  partName: string;
-
   crew: WorkOrderCrewMember[];
+  workGroups: WorkOrderWorkGroup[];
+  freeWorks: WorkOrderWorkLine[];
   works: WorkOrderWorkLine[];
 
   totalAmountRub: number;
@@ -46,5 +54,8 @@ export type WorkOrderPayload = {
   }>;
 
   auditTrail?: WorkOrderAuditTrailItem[];
+  // Legacy v1 fields can still be present in old payloads before normalization.
+  partId?: string | null;
+  partName?: string;
 };
 

@@ -38,6 +38,90 @@ function monthKeyFromMs(ts: number): string {
   return `${y}-${m}`;
 }
 
+function safeNum(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toCents(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100);
+}
+
+function fromCents(value: number): number {
+  return Math.round(value) / 100;
+}
+
+function normalizeLine(line: any, lineNo: number) {
+  const qty = Math.max(0, safeNum(line?.qty, 0));
+  const priceRub = Math.max(0, safeNum(line?.priceRub, 0));
+  return {
+    lineNo,
+    serviceId: line?.serviceId ? String(line.serviceId) : null,
+    serviceName: String(line?.serviceName ?? ''),
+    unit: String(line?.unit ?? ''),
+    qty,
+    priceRub,
+    amountRub: fromCents(toCents(qty * priceRub)),
+  };
+}
+
+function distributeByKtu(
+  totalAmountRub: number,
+  crew: Array<{ ktu: number; payoutFrozen: boolean; manualPayoutRub: number }>,
+): number[] {
+  const totalCents = toCents(Math.max(0, safeNum(totalAmountRub, 0)));
+  const frozenCentsByIndex = crew.map((member) => (member.payoutFrozen ? toCents(Math.max(0, safeNum(member.manualPayoutRub, 0))) : 0));
+  const frozenTotalCents = frozenCentsByIndex.reduce((acc, value) => acc + value, 0);
+  const remainingCents = Math.max(0, totalCents - frozenTotalCents);
+
+  const unfrozen = crew
+    .map((member, index) => ({ index, ktu: Math.max(0.01, safeNum(member.ktu, 1)), frozen: member.payoutFrozen }))
+    .filter((entry) => !entry.frozen);
+  const totalKtu = unfrozen.reduce((acc, entry) => acc + entry.ktu, 0);
+
+  const payoutsCents = [...frozenCentsByIndex];
+  if (unfrozen.length === 0 || totalKtu <= 0 || remainingCents <= 0) {
+    for (const entry of unfrozen) payoutsCents[entry.index] = 0;
+    return payoutsCents.map(fromCents);
+  }
+
+  const weighted = unfrozen.map((entry) => {
+    const raw = (remainingCents * entry.ktu) / totalKtu;
+    const floor = Math.floor(raw);
+    return { index: entry.index, floor, remainder: raw - floor };
+  });
+  let distributed = weighted.reduce((acc, row) => acc + row.floor, 0);
+  let remainder = remainingCents - distributed;
+  weighted.sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+    return a.index - b.index;
+  });
+  for (let i = 0; i < weighted.length && remainder > 0; i += 1) {
+    weighted[i].floor += 1;
+    remainder -= 1;
+    distributed += 1;
+  }
+  for (const row of weighted) payoutsCents[row.index] = row.floor;
+  return payoutsCents.map(fromCents);
+}
+
+function getWorkOrderPartNames(payload: WorkOrderPayload): string[] {
+  const names = (Array.isArray(payload.workGroups) ? payload.workGroups : [])
+    .map((group) => String(group.partName ?? '').trim())
+    .filter((name) => name.length > 0);
+  if (names.length > 0) return Array.from(new Set(names));
+
+  const legacyName = String((payload as any).partName ?? '').trim();
+  return legacyName ? [legacyName] : [];
+}
+
+function getPrimaryPartId(payload: WorkOrderPayload): string | null {
+  const group = (Array.isArray(payload.workGroups) ? payload.workGroups : []).find((entry) => entry?.partId);
+  if (group?.partId) return String(group.partId);
+  const legacyPartId = (payload as any).partId;
+  return legacyPartId ? String(legacyPartId) : null;
+}
+
 async function nextWorkOrderNumber(db: BetterSQLite3Database): Promise<number> {
   const rows = await db
     .select({ metaJson: operations.metaJson })
@@ -61,46 +145,93 @@ async function nextWorkOrderNumber(db: BetterSQLite3Database): Promise<number> {
 }
 
 function recalcPayload(payload: WorkOrderPayload): WorkOrderPayload {
-  const works = (payload.works ?? []).map((line, idx) => {
-    const qty = Number(line.qty ?? 0);
-    const priceRub = Number(line.priceRub ?? 0);
+  const rawPayload = payload as any;
+  const normalizedGroupsSource: Array<{ groupId: string; partId: string | null; partName: string; lines: any[] }> = [];
+  const normalizedFreeSource: any[] = [];
+
+  const hasV2Groups = Array.isArray(rawPayload.workGroups) || Array.isArray(rawPayload.freeWorks);
+  if (hasV2Groups) {
+    const groups = Array.isArray(rawPayload.workGroups) ? rawPayload.workGroups : [];
+    for (let idx = 0; idx < groups.length; idx += 1) {
+      const group = groups[idx] ?? {};
+      normalizedGroupsSource.push({
+        groupId: String(group.groupId ?? `group-${idx + 1}`),
+        partId: group.partId ? String(group.partId) : null,
+        partName: String(group.partName ?? ''),
+        lines: Array.isArray(group.lines) ? group.lines : [],
+      });
+    }
+    if (Array.isArray(rawPayload.freeWorks)) {
+      normalizedFreeSource.push(...rawPayload.freeWorks);
+    }
+  } else {
+    const legacyWorks = Array.isArray(rawPayload.works) ? rawPayload.works : [];
+    const legacyPartId = rawPayload.partId ? String(rawPayload.partId) : null;
+    const legacyPartName = String(rawPayload.partName ?? '');
+    if (legacyPartId || legacyPartName.trim().length > 0) {
+      normalizedGroupsSource.push({
+        groupId: 'legacy-main-group',
+        partId: legacyPartId,
+        partName: legacyPartName,
+        lines: legacyWorks,
+      });
+    } else {
+      normalizedFreeSource.push(...legacyWorks);
+    }
+  }
+
+  const workGroups = normalizedGroupsSource.map((group, groupIdx) => ({
+    groupId: group.groupId || `group-${groupIdx + 1}`,
+    partId: group.partId ? String(group.partId) : null,
+    partName: String(group.partName ?? ''),
+    lines: (Array.isArray(group.lines) ? group.lines : []).map((line, lineIdx) => normalizeLine(line, lineIdx + 1)),
+  }));
+  const freeWorks = normalizedFreeSource.map((line, idx) => normalizeLine(line, idx + 1));
+
+  const works = [...workGroups.flatMap((group) => group.lines), ...freeWorks].map((line, idx) => ({
+    ...line,
+    lineNo: idx + 1,
+  }));
+  const totalAmountRub = fromCents(works.reduce((acc, line) => acc + toCents(safeNum(line.amountRub, 0)), 0));
+
+  const crew = (Array.isArray(rawPayload.crew) ? rawPayload.crew : []).map((member: any) => {
+    const ktu = Math.max(0.01, safeNum(member?.ktu, 1));
+    const payoutFrozen = Boolean(member?.payoutFrozen);
+    const manualPayoutRub = Math.max(0, safeNum(member?.manualPayoutRub ?? member?.payoutRub, 0));
     return {
-      ...line,
-      lineNo: idx + 1,
-      qty: Number.isFinite(qty) ? qty : 0,
-      priceRub: Number.isFinite(priceRub) ? priceRub : 0,
-      amountRub: Math.round((Math.max(0, qty) * Math.max(0, priceRub)) * 100) / 100,
+      employeeId: String(member?.employeeId ?? ''),
+      employeeName: String(member?.employeeName ?? ''),
+      ktu,
+      payoutFrozen,
+      manualPayoutRub,
     };
   });
 
-  const totalAmountRub = Math.round(works.reduce((acc, x) => acc + Number(x.amountRub ?? 0), 0) * 100) / 100;
-  const crew = (payload.crew ?? []).map((member) => {
-    const ktu = Number(member.ktu ?? 1);
-    return { ...member, ktu: Number.isFinite(ktu) && ktu > 0 ? ktu : 1 };
-  });
-  const basePerWorkerRub = crew.length > 0 ? Math.round((totalAmountRub / crew.length) * 100) / 100 : 0;
-  const payouts = crew.map((member) => {
-    const amountRub = Math.round(basePerWorkerRub * Number(member.ktu ?? 1) * 100) / 100;
-    return {
-      employeeId: String(member.employeeId ?? ''),
-      employeeName: String(member.employeeName ?? ''),
-      ktu: Number(member.ktu ?? 1),
-      amountRub,
-    };
-  });
-
-  const crewWithPayout = crew.map((member) => {
-    const payout = payouts.find((p) => p.employeeId === String(member.employeeId));
-    return { ...member, payoutRub: payout?.amountRub ?? 0 };
-  });
+  const payoutValues = distributeByKtu(totalAmountRub, crew);
+  const payouts = crew.map((member, idx) => ({
+    employeeId: member.employeeId,
+    employeeName: member.employeeName,
+    ktu: member.ktu,
+    amountRub: payoutValues[idx] ?? 0,
+  }));
+  const crewWithPayout = crew.map((member, idx) => ({
+    ...member,
+    payoutRub: payoutValues[idx] ?? 0,
+    manualPayoutRub: member.payoutFrozen ? member.manualPayoutRub : undefined,
+  }));
 
   return {
     ...payload,
+    version: 2,
+    workGroups,
+    freeWorks,
     works,
     crew: crewWithPayout,
     totalAmountRub,
-    basePerWorkerRub,
+    basePerWorkerRub: crew.length > 0 ? fromCents(toCents(totalAmountRub / crew.length)) : 0,
     payouts,
+    partId: undefined,
+    partName: undefined,
   };
 }
 
@@ -175,13 +306,14 @@ export async function listWorkOrders(
     for (const row of rows) {
       const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
       if (!payload) continue;
+      const partName = getWorkOrderPartNames(payload).join(', ');
       const mKey = monthKeyFromMs(Number(payload.orderDate ?? row.createdAt));
       if (month && mKey !== month) continue;
       if (qNorm) {
         const hay = normalizeSearch(
           [
             payload.workOrderNumber,
-            payload.partName,
+            partName,
             row.note ?? '',
             JSON.stringify(payload),
           ].join(' '),
@@ -192,7 +324,7 @@ export async function listWorkOrders(
         id: String(row.id),
         workOrderNumber: Number(payload.workOrderNumber ?? 0),
         orderDate: Number(payload.orderDate ?? row.createdAt),
-        partName: String(payload.partName ?? ''),
+        partName,
         crewCount: Array.isArray(payload.crew) ? payload.crew.length : 0,
         totalAmountRub: Number(payload.totalAmountRub ?? 0),
         updatedAt: Number(row.updatedAt),
@@ -241,13 +373,13 @@ export async function createWorkOrder(
     const workOrderNumber = await nextWorkOrderNumber(db);
     const payload = recalcPayload({
       kind: 'work_order',
-      version: 1,
+      version: 2,
       operationId: id,
       workOrderNumber,
       orderDate: ts,
-      partId: null,
-      partName: '',
       crew: [],
+      workGroups: [],
+      freeWorks: [],
       works: [],
       totalAmountRub: 0,
       basePerWorkerRub: 0,
@@ -294,7 +426,7 @@ export async function updateWorkOrder(
     await db
       .update(operations)
       .set({
-        engineEntityId: payload.partId ? String(payload.partId) : WORK_ORDERS_CONTAINER_ID,
+        engineEntityId: getPrimaryPartId(payload) ?? WORK_ORDERS_CONTAINER_ID,
         status: 'draft',
         note: `Наряд №${payload.workOrderNumber}`,
         performedAt: payload.orderDate,

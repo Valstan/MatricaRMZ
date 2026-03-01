@@ -104,6 +104,9 @@ function appLinkSignature(link: ChatDeepLinkPayload) {
   });
 }
 
+const CHAT_NEW_MESSAGE_SOUND_FILE = './oh-oh-icq-sound.ogg';
+const CHAT_PENDING_SOUND_FILE = './melodious-notification-sound.ogg';
+
 function parseRecentVisits(raw: string | null): RecentVisitEntry[] {
   if (!raw) return [];
   try {
@@ -259,6 +262,10 @@ export function App() {
     adminMode: false,
   });
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
+  const chatNewMessageAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatUnreadTotalRef = useRef<number>(0);
+  const chatPendingSoundTimerRef = useRef<number | null>(null);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
   const [updateStatus, setUpdateStatus] = useState<any>(null);
@@ -1091,6 +1098,68 @@ export function App() {
     if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) setChatOpen(true);
   }, [authStatus.loggedIn, authStatus.user?.role, canChat, chatOpen]);
 
+  function resolveChatSoundUrl(fileName: string) {
+    try {
+      return new URL(fileName, window.location.href).toString();
+    } catch {
+      return fileName;
+    }
+  }
+
+  function ensureChatAudioElements() {
+    if (!chatNewMessageAudioRef.current) {
+      chatNewMessageAudioRef.current = new Audio(resolveChatSoundUrl(CHAT_NEW_MESSAGE_SOUND_FILE));
+      chatNewMessageAudioRef.current.preload = 'auto';
+    }
+    if (!chatPendingAudioRef.current) {
+      chatPendingAudioRef.current = new Audio(resolveChatSoundUrl(CHAT_PENDING_SOUND_FILE));
+      chatPendingAudioRef.current.preload = 'auto';
+    }
+  }
+
+  function stopChatPendingSoundTimer() {
+    if (chatPendingSoundTimerRef.current == null) return;
+    clearInterval(chatPendingSoundTimerRef.current);
+    chatPendingSoundTimerRef.current = null;
+  }
+
+  function playChatAudioElement(audio: HTMLAudioElement | null) {
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      const result = audio.play();
+      if (result && typeof result.catch === 'function') {
+        void result.catch(() => {
+          // Ignore playback errors (eg., autoplay policy).
+        });
+      }
+    } catch {
+      // Ignore playback errors to avoid blocking UI.
+    }
+  }
+
+  function playChatNewMessageSound() {
+    ensureChatAudioElements();
+    playChatAudioElement(chatNewMessageAudioRef.current);
+  }
+
+  function playChatPendingSound() {
+    ensureChatAudioElements();
+    playChatAudioElement(chatPendingAudioRef.current);
+  }
+
+  useEffect(() => {
+    ensureChatAudioElements();
+    return () => {
+      stopChatPendingSoundTimer();
+      chatNewMessageAudioRef.current?.pause();
+      chatPendingAudioRef.current?.pause();
+      chatNewMessageAudioRef.current = null;
+      chatPendingAudioRef.current = null;
+    };
+  }, []);
+
   // Poll unread count (for the "Открыть чат" counter).
   useEffect(() => {
     if (!authStatus.loggedIn || !canChat || viewMode) return;
@@ -1111,6 +1180,34 @@ export function App() {
       clearInterval(id);
     };
   }, [authStatus.loggedIn, canChat, viewMode]);
+
+  useEffect(() => {
+    if (!authStatus.loggedIn || !canChat || viewMode) {
+      stopChatPendingSoundTimer();
+      chatUnreadTotalRef.current = chatUnreadTotal;
+      return;
+    }
+
+    const previousUnread = chatUnreadTotalRef.current;
+
+    if (chatUnreadTotal > 0) {
+      if (chatUnreadTotal > previousUnread) {
+        playChatNewMessageSound();
+      }
+
+      if (chatPendingSoundTimerRef.current == null) {
+        chatPendingSoundTimerRef.current = window.setInterval(() => {
+          if (!authStatus.loggedIn || !canChat || viewMode) return;
+          if (chatUnreadTotalRef.current <= 0) return;
+          playChatPendingSound();
+        }, 60_000);
+      }
+    } else {
+      stopChatPendingSoundTimer();
+    }
+
+    chatUnreadTotalRef.current = chatUnreadTotal;
+  }, [authStatus.loggedIn, canChat, viewMode, chatUnreadTotal]);
 
   // Poll burning notes count for tab indicator.
   useEffect(() => {

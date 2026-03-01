@@ -101,7 +101,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
           Дата {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'date')}
         </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('part')}>
-          Изделие {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'part')}
+          Изделия {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'part')}
         </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('crew')}>
           Бригада {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'crew')}

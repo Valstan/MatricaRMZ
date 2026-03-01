@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { WorkOrderPayload, WorkOrderWorkLine } from '@matricarmz/shared';
+import type { WorkOrderPayload, WorkOrderWorkGroup, WorkOrderWorkLine } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -9,7 +9,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 
 type LinkOpt = { id: string; label: string };
-type ServiceInfo = { id: string; name: string; unit: string; priceRub: number };
+type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[] };
 type EmployeeInfo = { id: string; displayName: string };
 type PartInfo = { id: string; label: string };
 
@@ -38,32 +38,167 @@ function safeNum(v: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function recalcLocally(payload: WorkOrderPayload): WorkOrderPayload {
-  const works = (payload.works ?? []).map((line, idx) => {
-    const qty = Math.max(0, safeNum(line.qty, 0));
-    const priceRub = Math.max(0, safeNum(line.priceRub, 0));
-    const amountRub = Math.round(qty * priceRub * 100) / 100;
-    return { ...line, lineNo: idx + 1, qty, priceRub, amountRub };
+function toCents(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100);
+}
+
+function fromCents(value: number): number {
+  return Math.round(value) / 100;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+  return [];
+}
+
+function normalizeLine(line: any, lineNo: number): WorkOrderWorkLine {
+  const qty = Math.max(0, safeNum(line?.qty, 0));
+  const priceRub = Math.max(0, safeNum(line?.priceRub, 0));
+  return {
+    lineNo,
+    serviceId: line?.serviceId ? String(line.serviceId) : null,
+    serviceName: String(line?.serviceName ?? ''),
+    unit: String(line?.unit ?? ''),
+    qty,
+    priceRub,
+    amountRub: fromCents(toCents(qty * priceRub)),
+  };
+}
+
+function distributeByKtu(
+  totalAmountRub: number,
+  crew: Array<{ ktu: number; payoutFrozen: boolean; manualPayoutRub: number }>,
+): number[] {
+  const totalCents = toCents(Math.max(0, safeNum(totalAmountRub, 0)));
+  const frozenCentsByIndex = crew.map((member) => (member.payoutFrozen ? toCents(Math.max(0, safeNum(member.manualPayoutRub, 0))) : 0));
+  const frozenTotalCents = frozenCentsByIndex.reduce((acc, value) => acc + value, 0);
+  const remainingCents = Math.max(0, totalCents - frozenTotalCents);
+
+  const unfrozen = crew
+    .map((member, index) => ({ index, ktu: Math.max(0.01, safeNum(member.ktu, 1)), frozen: member.payoutFrozen }))
+    .filter((entry) => !entry.frozen);
+  const totalKtu = unfrozen.reduce((acc, entry) => acc + entry.ktu, 0);
+
+  const payoutsCents = [...frozenCentsByIndex];
+  if (unfrozen.length === 0 || totalKtu <= 0 || remainingCents <= 0) {
+    for (const entry of unfrozen) payoutsCents[entry.index] = 0;
+    return payoutsCents.map(fromCents);
+  }
+
+  const weighted = unfrozen.map((entry) => {
+    const raw = (remainingCents * entry.ktu) / totalKtu;
+    const floor = Math.floor(raw);
+    return { index: entry.index, floor, remainder: raw - floor };
   });
-  const totalAmountRub = Math.round(works.reduce((acc, x) => acc + safeNum(x.amountRub, 0), 0) * 100) / 100;
-  const crew = (payload.crew ?? []).map((c) => ({ ...c, ktu: Math.max(0.01, safeNum(c.ktu, 1)) }));
-  const basePerWorkerRub = crew.length > 0 ? Math.round((totalAmountRub / crew.length) * 100) / 100 : 0;
-  const payouts = crew.map((c) => ({
-    employeeId: c.employeeId,
-    employeeName: c.employeeName,
-    ktu: c.ktu,
-    amountRub: Math.round(basePerWorkerRub * c.ktu * 100) / 100,
+
+  let remainder = remainingCents - weighted.reduce((acc, row) => acc + row.floor, 0);
+  weighted.sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+    return a.index - b.index;
+  });
+  for (let i = 0; i < weighted.length && remainder > 0; i += 1) {
+    weighted[i].floor += 1;
+    remainder -= 1;
+  }
+
+  for (const row of weighted) payoutsCents[row.index] = row.floor;
+  return payoutsCents.map(fromCents);
+}
+
+function makeId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function recalcLocally(payload: WorkOrderPayload): WorkOrderPayload {
+  const rawPayload = payload as any;
+  const groupsSource: Array<{ groupId: string; partId: string | null; partName: string; lines: any[] }> = [];
+  const freeSource: any[] = [];
+  const hasV2Shape = Array.isArray(rawPayload.workGroups) || Array.isArray(rawPayload.freeWorks);
+
+  if (hasV2Shape) {
+    const groups = Array.isArray(rawPayload.workGroups) ? rawPayload.workGroups : [];
+    for (let idx = 0; idx < groups.length; idx += 1) {
+      const group = groups[idx] ?? {};
+      groupsSource.push({
+        groupId: String(group.groupId ?? `group-${idx + 1}`),
+        partId: group.partId ? String(group.partId) : null,
+        partName: String(group.partName ?? ''),
+        lines: Array.isArray(group.lines) ? group.lines : [],
+      });
+    }
+    if (Array.isArray(rawPayload.freeWorks)) freeSource.push(...rawPayload.freeWorks);
+  } else {
+    const legacyWorks = Array.isArray(rawPayload.works) ? rawPayload.works : [];
+    const legacyPartId = rawPayload.partId ? String(rawPayload.partId) : null;
+    const legacyPartName = String(rawPayload.partName ?? '');
+    if (legacyPartId || legacyPartName.trim().length > 0) {
+      groupsSource.push({ groupId: 'legacy-main-group', partId: legacyPartId, partName: legacyPartName, lines: legacyWorks });
+    } else {
+      freeSource.push(...legacyWorks);
+    }
+  }
+
+  const workGroups: WorkOrderWorkGroup[] = groupsSource.map((group, idx) => ({
+    groupId: group.groupId || `group-${idx + 1}`,
+    partId: group.partId ? String(group.partId) : null,
+    partName: String(group.partName ?? ''),
+    lines: (Array.isArray(group.lines) ? group.lines : []).map((line, lineIdx) => normalizeLine(line, lineIdx + 1)),
   }));
+  const freeWorks: WorkOrderWorkLine[] = freeSource.map((line, idx) => normalizeLine(line, idx + 1));
+
+  const works = [...workGroups.flatMap((group) => group.lines), ...freeWorks].map((line, idx) => ({
+    ...line,
+    lineNo: idx + 1,
+  }));
+  const totalAmountRub = fromCents(works.reduce((acc, line) => acc + toCents(safeNum(line.amountRub, 0)), 0));
+  const crew = (Array.isArray(rawPayload.crew) ? rawPayload.crew : []).map((member: any) => {
+    const ktu = Math.max(0.01, safeNum(member?.ktu, 1));
+    const payoutFrozen = Boolean(member?.payoutFrozen);
+    const manualPayoutRub = Math.max(0, safeNum(member?.manualPayoutRub ?? member?.payoutRub, 0));
+    return {
+      employeeId: String(member?.employeeId ?? ''),
+      employeeName: String(member?.employeeName ?? ''),
+      ktu,
+      payoutFrozen,
+      manualPayoutRub,
+    };
+  });
+  const payoutValues = distributeByKtu(totalAmountRub, crew);
+  const payouts = crew.map((member, idx) => ({
+    employeeId: member.employeeId,
+    employeeName: member.employeeName,
+    ktu: member.ktu,
+    amountRub: payoutValues[idx] ?? 0,
+  }));
+
   return {
     ...payload,
+    version: 2,
+    workGroups,
+    freeWorks,
     works,
-    crew: crew.map((c) => {
-      const p = payouts.find((x) => x.employeeId === c.employeeId);
-      return { ...c, payoutRub: p?.amountRub ?? 0 };
-    }),
+    crew: crew.map((member, idx) => ({
+      ...member,
+      payoutRub: payoutValues[idx] ?? 0,
+      manualPayoutRub: member.payoutFrozen ? member.manualPayoutRub : undefined,
+    })),
     totalAmountRub,
-    basePerWorkerRub,
+    basePerWorkerRub: crew.length > 0 ? fromCents(toCents(totalAmountRub / crew.length)) : 0,
     payouts,
+    partId: undefined,
+    partName: undefined,
   };
 }
 
@@ -115,7 +250,11 @@ export function WorkOrderDetailsPage(props: {
     return () => { props.registerCardCloseActions?.(null); };
   }, [payload, props.registerCardCloseActions, props.id]);
 
-  const serviceOptions: LinkOpt[] = useMemo(() => services.map((s) => ({ id: s.id, label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})` })), [services]);
+  const serviceById = useMemo(() => new Map(services.map((service) => [service.id, service])), [services]);
+  const allServiceOptions: LinkOpt[] = useMemo(
+    () => services.map((s) => ({ id: s.id, label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})` })),
+    [services],
+  );
   const employeeOptions: LinkOpt[] = useMemo(() => employees.map((e) => ({ id: e.id, label: e.displayName })), [employees]);
   const partOptions: LinkOpt[] = useMemo(() => parts.map((p) => ({ id: p.id, label: p.label })), [parts]);
 
@@ -149,6 +288,7 @@ export function WorkOrderDetailsPage(props: {
             name: String(attrs.name || row.displayName || row.id),
             unit: String(attrs.unit || 'шт'),
             priceRub: Math.max(0, safeNum(attrs.price, 0)),
+            partIds: normalizeStringArray(attrs.part_ids),
           } as ServiceInfo;
         }),
       );
@@ -196,29 +336,71 @@ export function WorkOrderDetailsPage(props: {
     setPayload(normalized);
   }
 
-  async function applyServiceSnapshot(idx: number, serviceId: string | null) {
-    if (!payload) return;
-    const line = payload.works[idx];
-    if (!line) return;
+  function servicesForPart(partId: string | null): ServiceInfo[] {
+    if (!partId) return [];
+    return services.filter((service) => service.partIds.length === 0 || service.partIds.includes(partId));
+  }
+
+  function serviceOptionsForPart(partId: string | null): LinkOpt[] {
+    return servicesForPart(partId).map((service) => ({
+      id: service.id,
+      label: `${service.name} (${service.unit || 'ед.'}, ${money(service.priceRub)})`,
+    }));
+  }
+
+  function applyServiceSnapshotToLines(lines: WorkOrderWorkLine[], idx: number, serviceId: string | null): WorkOrderWorkLine[] {
     if (!serviceId) {
-      const works = payload.works.map((x, i) => (i === idx ? { ...x, serviceId: null, serviceName: '', unit: '', priceRub: 0 } : x));
-      patch({ ...payload, works });
-      return;
+      return lines.map((line, lineIdx) =>
+        lineIdx === idx ? { ...line, serviceId: null, serviceName: '', unit: '', priceRub: 0, amountRub: 0 } : line,
+      );
     }
-    const svc = services.find((s) => s.id === serviceId);
-    if (!svc) return;
-    const works = payload.works.map((x, i) =>
-      i === idx
+    const service = serviceById.get(serviceId);
+    if (!service) return lines;
+    return lines.map((line, lineIdx) =>
+      lineIdx === idx
         ? {
-            ...x,
-            serviceId,
-            serviceName: svc.name,
-            unit: svc.unit,
-            priceRub: svc.priceRub,
+            ...line,
+            serviceId: service.id,
+            serviceName: service.name,
+            unit: service.unit,
+            priceRub: service.priceRub,
           }
-        : x,
+        : line,
     );
-    patch({ ...payload, works });
+  }
+
+  function buildLineFromService(service: ServiceInfo, lineNo: number): WorkOrderWorkLine {
+    return {
+      lineNo,
+      serviceId: service.id,
+      serviceName: service.name,
+      unit: service.unit,
+      qty: 1,
+      priceRub: service.priceRub,
+      amountRub: fromCents(toCents(service.priceRub)),
+    };
+  }
+
+  function updateGroup(groupIdx: number, updater: (group: WorkOrderWorkGroup) => WorkOrderWorkGroup) {
+    if (!payload) return;
+    const workGroups = payload.workGroups.map((group, idx) => (idx === groupIdx ? updater(group) : group));
+    patch({ ...payload, workGroups });
+  }
+
+  function addWorkGroup() {
+    if (!payload) return;
+    patch({
+      ...payload,
+      workGroups: [...payload.workGroups, { groupId: makeId('work-group'), partId: null, partName: '', lines: [] }],
+    });
+  }
+
+  function addFreeWorkLine() {
+    if (!payload) return;
+    patch({
+      ...payload,
+      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0 }],
+    });
   }
 
   if (loading) return <div style={{ color: 'var(--muted)' }}>Загрузка…</div>;
@@ -262,7 +444,7 @@ export function WorkOrderDetailsPage(props: {
         {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)' }}>{status}</div> : null}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 220px 1fr', gap: 8, alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 8, alignItems: 'center' }}>
         <div style={{ color: 'var(--muted)' }}>Дата наряда</div>
         <Input
           type="date"
@@ -270,41 +452,195 @@ export function WorkOrderDetailsPage(props: {
           disabled={!props.canEdit}
           onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
         />
-        <div style={{ color: 'var(--muted)' }}>Изделие</div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <SearchSelect
-            value={payload.partId}
-            options={partOptions}
-            disabled={!props.canEdit}
-            onChange={(next) => {
-              const p = parts.find((x) => x.id === next);
-              patch({ ...payload, partId: p?.id ?? null, partName: p?.label ?? '' });
-            }}
-            placeholder="Выберите деталь"
-          />
-          {payload.partId && props.onOpenPart ? (
-            <Button
-              variant="outline"
-              tone="neutral"
-              size="sm"
-              onClick={() => {
-                const partId = payload.partId;
-                if (!partId) return;
-                props.onOpenPart?.(partId);
-              }}
-            >
-              Открыть
-            </Button>
-          ) : null}
+      </div>
+
+      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы по изделиям</div>
+        <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+          {payload.workGroups.map((group, groupIdx) => {
+            const groupServiceOptions = serviceOptionsForPart(group.partId);
+            return (
+              <div key={group.groupId} style={{ border: '1px solid var(--border)', padding: 10, display: 'grid', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto auto', gap: 8, alignItems: 'center' }}>
+                  <div style={{ color: 'var(--muted)' }}>Изделие</div>
+                  <SearchSelect
+                    value={group.partId}
+                    options={partOptions}
+                    disabled={!props.canEdit}
+                    onChange={(next) => {
+                      const part = parts.find((x) => x.id === next);
+                      updateGroup(groupIdx, (current) => {
+                        if (!part) return { ...current, partId: null, partName: '', lines: [] };
+                        const linkedServices = servicesForPart(part.id);
+                        return {
+                          ...current,
+                          partId: part.id,
+                          partName: part.label,
+                          lines: linkedServices.map((service, idx) => buildLineFromService(service, idx + 1)),
+                        };
+                      });
+                    }}
+                    placeholder="Выберите деталь"
+                  />
+                  {group.partId && props.onOpenPart ? (
+                    <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenPart?.(group.partId as string)}>
+                      Открыть
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+                  {props.canEdit ? (
+                    <Button
+                      variant="ghost"
+                      style={{ color: 'var(--danger)' }}
+                      onClick={() =>
+                        patch({
+                          ...payload,
+                          workGroups: payload.workGroups.filter((_, idx) => idx !== groupIdx),
+                        })
+                      }
+                    >
+                      Удалить блок
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+                </div>
+                <table className="list-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: 8 }}>Вид работ</th>
+                      <th style={{ textAlign: 'left', padding: 8, width: 110 }}>Кол-во</th>
+                      <th style={{ textAlign: 'left', padding: 8, width: 130 }}>Ед.</th>
+                      <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Цена</th>
+                      <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Сумма</th>
+                      {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.lines.map((line, lineIdx) => (
+                      <tr key={`${group.groupId}-line-${lineIdx}`}>
+                        <td style={{ padding: 8 }}>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            <SearchSelect
+                              value={line.serviceId}
+                              options={groupServiceOptions}
+                              disabled={!props.canEdit}
+                              onChange={(next) =>
+                                updateGroup(groupIdx, (current) => ({
+                                  ...current,
+                                  lines: applyServiceSnapshotToLines(current.lines, lineIdx, next),
+                                }))
+                              }
+                              placeholder="Выберите вид работ"
+                            />
+                            {line.serviceId && props.onOpenService ? (
+                              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
+                                Открыть
+                              </Button>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td style={{ padding: 8 }}>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={String(line.qty ?? 0)}
+                            disabled={!props.canEdit}
+                            onChange={(e) =>
+                              updateGroup(groupIdx, (current) => ({
+                                ...current,
+                                lines: current.lines.map((currentLine, idx) =>
+                                  idx === lineIdx ? ({ ...currentLine, qty: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
+                                ),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td style={{ padding: 8 }}>
+                          <Input value={line.unit || ''} disabled />
+                        </td>
+                        <td style={{ padding: 8 }}>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={String(line.priceRub ?? 0)}
+                            disabled={!props.canEdit}
+                            onChange={(e) =>
+                              updateGroup(groupIdx, (current) => ({
+                                ...current,
+                                lines: current.lines.map((currentLine, idx) =>
+                                  idx === lineIdx ? ({ ...currentLine, priceRub: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
+                                ),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{money(line.amountRub ?? 0)}</td>
+                        {props.canEdit && (
+                          <td style={{ padding: 8 }}>
+                            <Button
+                              variant="ghost"
+                              style={{ color: 'var(--danger)' }}
+                              onClick={() =>
+                                updateGroup(groupIdx, (current) => ({
+                                  ...current,
+                                  lines: current.lines.filter((_, idx) => idx !== lineIdx),
+                                }))
+                              }
+                            >
+                              Удалить
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    {group.lines.length === 0 && (
+                      <tr>
+                        <td colSpan={props.canEdit ? 6 : 5} style={{ padding: 10, color: 'var(--muted)' }}>
+                          Работы для изделия не добавлены
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                {props.canEdit && (
+                  <div>
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        updateGroup(groupIdx, (current) => ({
+                          ...current,
+                          lines: [...current.lines, { lineNo: current.lines.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0 }],
+                        }))
+                      }
+                    >
+                      + Добавить строку работ
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {payload.workGroups.length === 0 ? <div style={{ color: 'var(--muted)' }}>Блоки работ по изделиям не добавлены</div> : null}
+          {props.canEdit && (
+            <div>
+              <Button variant="ghost" onClick={addWorkGroup}>
+                Добавить работы по изделию +
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
       <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-        <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы в наряде</div>
+        <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы без привязки к изделию</div>
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', padding: 8 }}>Услуга</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Вид работ</th>
               <th style={{ textAlign: 'left', padding: 8, width: 110 }}>Кол-во</th>
               <th style={{ textAlign: 'left', padding: 8, width: 130 }}>Ед.</th>
               <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Цена</th>
@@ -313,16 +649,21 @@ export function WorkOrderDetailsPage(props: {
             </tr>
           </thead>
           <tbody>
-            {payload.works.map((line, idx) => (
-              <tr key={`work-line-${idx}`}>
+            {payload.freeWorks.map((line, idx) => (
+              <tr key={`free-work-line-${idx}`}>
                 <td style={{ padding: 8 }}>
                   <div style={{ display: 'grid', gap: 6 }}>
                     <SearchSelect
                       value={line.serviceId}
-                      options={serviceOptions}
+                      options={allServiceOptions}
                       disabled={!props.canEdit}
-                      onChange={(next) => void applyServiceSnapshot(idx, next)}
-                      placeholder="Выберите услугу"
+                      onChange={(next) =>
+                        patch({
+                          ...payload,
+                          freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, next),
+                        })
+                      }
+                      placeholder="Выберите вид работ"
                     />
                     {line.serviceId && props.onOpenService ? (
                       <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
@@ -339,8 +680,8 @@ export function WorkOrderDetailsPage(props: {
                     value={String(line.qty ?? 0)}
                     disabled={!props.canEdit}
                     onChange={(e) => {
-                      const works = payload.works.map((x, i) => (i === idx ? ({ ...x, qty: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : x));
-                      patch({ ...payload, works });
+                      const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, qty: safeNum(e.target.value, 0) } : item));
+                      patch({ ...payload, freeWorks });
                     }}
                   />
                 </td>
@@ -355,43 +696,34 @@ export function WorkOrderDetailsPage(props: {
                     value={String(line.priceRub ?? 0)}
                     disabled={!props.canEdit}
                     onChange={(e) => {
-                      const works = payload.works.map((x, i) => (i === idx ? ({ ...x, priceRub: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : x));
-                      patch({ ...payload, works });
+                      const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, priceRub: safeNum(e.target.value, 0) } : item));
+                      patch({ ...payload, freeWorks });
                     }}
                   />
                 </td>
                 <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{money(line.amountRub ?? 0)}</td>
                 {props.canEdit && (
                   <td style={{ padding: 8 }}>
-                    <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, works: payload.works.filter((_, i) => i !== idx) })}>
+                    <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) })}>
                       Удалить
                     </Button>
                   </td>
                 )}
               </tr>
             ))}
-            {payload.works.length === 0 && (
+            {payload.freeWorks.length === 0 && (
               <tr>
-                <td colSpan={props.canEdit ? 6 : 5} style={{ padding: 10, color: 'var(--muted)' }}>Работы не добавлены</td>
+                <td colSpan={props.canEdit ? 6 : 5} style={{ padding: 10, color: 'var(--muted)' }}>
+                  Работы без изделия не добавлены
+                </td>
               </tr>
             )}
           </tbody>
         </table>
         {props.canEdit && (
           <div style={{ padding: 8 }}>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                patch({
-                  ...payload,
-                  works: [
-                    ...payload.works,
-                    { lineNo: payload.works.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0 },
-                  ],
-                })
-              }
-            >
-              + Добавить работу
+            <Button variant="ghost" onClick={addFreeWorkLine}>
+              Добавить работы +
             </Button>
           </div>
         )}
@@ -405,6 +737,7 @@ export function WorkOrderDetailsPage(props: {
               <th style={{ textAlign: 'left', padding: 8 }}>Сотрудник</th>
               <th style={{ textAlign: 'left', padding: 8, width: 130 }}>КТУ</th>
               <th style={{ textAlign: 'left', padding: 8, width: 180 }}>Выплата</th>
+              <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Заморозить</th>
               {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
             </tr>
           </thead>
@@ -444,7 +777,52 @@ export function WorkOrderDetailsPage(props: {
                     }}
                   />
                 </td>
-                <td style={{ padding: 8 }}>{money(member.payoutRub ?? 0)}</td>
+                <td style={{ padding: 8 }}>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={String(member.payoutFrozen ? member.manualPayoutRub ?? member.payoutRub ?? 0 : member.payoutRub ?? 0)}
+                      disabled={!props.canEdit || !member.payoutFrozen}
+                      onChange={(e) => {
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx
+                            ? {
+                                ...c,
+                                manualPayoutRub: Math.max(0, safeNum(e.target.value, 0)),
+                              }
+                            : c,
+                        );
+                        patch({ ...payload, crew });
+                      }}
+                    />
+                    {!member.payoutFrozen ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>Авто: {money(member.payoutRub ?? 0)}</div> : null}
+                  </div>
+                </td>
+                <td style={{ padding: 8 }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: props.canEdit ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      disabled={!props.canEdit}
+                      checked={Boolean(member.payoutFrozen)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx
+                            ? {
+                                ...c,
+                                payoutFrozen: checked,
+                                manualPayoutRub: checked ? Math.max(0, safeNum(c.manualPayoutRub ?? c.payoutRub, 0)) : undefined,
+                              }
+                            : c,
+                        );
+                        patch({ ...payload, crew });
+                      }}
+                    />
+                    <span>{member.payoutFrozen ? 'Да' : 'Нет'}</span>
+                  </label>
+                </td>
                 {props.canEdit && (
                   <td style={{ padding: 8 }}>
                     <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
@@ -456,14 +834,16 @@ export function WorkOrderDetailsPage(props: {
             ))}
             {payload.crew.length === 0 && (
               <tr>
-                <td colSpan={props.canEdit ? 4 : 3} style={{ padding: 10, color: 'var(--muted)' }}>Состав бригады пуст</td>
+                <td colSpan={props.canEdit ? 5 : 4} style={{ padding: 10, color: 'var(--muted)' }}>
+                  Состав бригады пуст
+                </td>
               </tr>
             )}
           </tbody>
         </table>
         {props.canEdit && (
           <div style={{ padding: 8 }}>
-            <Button variant="ghost" onClick={() => patch({ ...payload, crew: [...payload.crew, { employeeId: '', employeeName: '', ktu: 1 }] })}>
+            <Button variant="ghost" onClick={() => patch({ ...payload, crew: [...payload.crew, { employeeId: '', employeeName: '', ktu: 1, payoutFrozen: false }] })}>
               + Добавить сотрудника
             </Button>
           </div>

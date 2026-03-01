@@ -8,6 +8,7 @@ import type { CardCloseActions } from '../cardCloseTypes.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -46,10 +47,31 @@ export function SimpleMasterdataDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [unitOptions, setUnitOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [storeOptions, setStoreOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [partOptions, setPartOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [partIds, setPartIds] = useState<string[]>([]);
   const [unitTypeId, setUnitTypeId] = useState<string>('');
   const [storeTypeId, setStoreTypeId] = useState<string>('');
   const uploadFlow = useFileUploadFlow();
   const dirtyRef = useRef(false);
+
+  function normalizeStringArray(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
+        }
+      } catch {
+        // ignore parse errors and fallback to empty
+      }
+    }
+    return [];
+  }
 
   async function load() {
     try {
@@ -63,6 +85,7 @@ export function SimpleMasterdataDetailsPage(props: {
       setArticle(String(attrs.article ?? ''));
       setUnit(String(attrs.unit ?? ''));
       setPrice(attrs.price != null ? String(attrs.price) : '');
+      setPartIds(normalizeStringArray(attrs.part_ids));
       const nextPhotos = Array.isArray(attrs.photos) ? attrs.photos.filter(isFileRef) : [];
       setPhotos(nextPhotos);
       setMainPhotoId(nextPhotos[0]?.id ?? null);
@@ -148,6 +171,18 @@ export function SimpleMasterdataDetailsPage(props: {
           opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
           setStoreOptions(opts);
         }
+        const partRes = await window.matrica.parts.list({ limit: 2000 }).catch(() => ({ ok: false as const, parts: [] as any[] }));
+        if (!alive) return;
+        if (partRes.ok) {
+          const opts = partRes.parts.map((p: any) => ({
+            id: String(p.id),
+            label: String(p.name || p.article || p.id),
+          }));
+          opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+          setPartOptions(opts);
+        } else {
+          setPartOptions([]);
+        }
       } catch {
         // ignore
       }
@@ -178,6 +213,9 @@ export function SimpleMasterdataDetailsPage(props: {
       { code: 'attachments', name: 'Вложения', dataType: 'json', sortOrder: 300 },
       { code: 'photos', name: 'Фото', dataType: 'json', sortOrder: 310 },
     ];
+    if (props.typeCode === 'service') {
+      desired.push({ code: 'part_ids', name: 'Привязка к деталям', dataType: 'json', sortOrder: 70 });
+    }
     void ensureAttributeDefs(entityTypeId, desired, defs).then((next) => {
       if (next.length !== defs.length) setDefs(next);
       setCoreDefsReady(true);
@@ -240,6 +278,9 @@ export function SimpleMasterdataDetailsPage(props: {
       await saveField('article', article.trim() || null);
       await saveField('unit', unit.trim() || null);
       await saveField('price', price ? Number(price) : null);
+      if (props.typeCode === 'service') {
+        await saveField('part_ids', partIds);
+      }
     }
     dirtyRef.current = false;
   }
@@ -650,6 +691,28 @@ export function SimpleMasterdataDetailsPage(props: {
           />
         ),
       },
+      ...(props.typeCode === 'service'
+        ? [
+            {
+              code: 'part_ids',
+              defaultOrder: 70,
+              label: 'Привязка к деталям',
+              value: partIds.length,
+              render: (
+                <MultiSearchSelect
+                  values={partIds}
+                  options={partOptions}
+                  disabled={!props.canEdit}
+                  placeholder="Выберите детали"
+                  onChange={(next) => {
+                    dirtyRef.current = true;
+                    setPartIds(next);
+                  }}
+                />
+              ),
+            },
+          ]
+        : []),
       { code: 'photos', defaultOrder: 300, label: 'Фото', value: photos.length, render: photosBlock },
       { code: 'attachments', defaultOrder: 310, label: 'Файлы', value: Array.isArray(attachments) ? attachments.length : 0, render: attachmentsBlock },
     ],

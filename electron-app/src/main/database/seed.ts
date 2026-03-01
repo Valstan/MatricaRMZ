@@ -306,6 +306,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
     30,
     JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
   );
+  await ensureAttrDef(serviceTypeId, 'part_ids', 'Привязка к деталям', AttributeDataType.Json, 35);
   await ensureAttrDef(serviceTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Employee
