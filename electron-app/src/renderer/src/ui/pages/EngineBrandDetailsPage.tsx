@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -8,10 +8,15 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import {
+  createEngineBrandSummarySyncState,
+  computeSummaryFromBrandRows,
+  persistBrandSummary,
+  type EngineBrandSummarySyncState,
+} from '../utils/engineBrandSummary.js';
 
 type PartOption = { id: string; label: string };
 type BrandPartRow = { id: string; label: string; linkId?: string; assemblyUnitNumber: string; quantity: number };
-
 export function EngineBrandDetailsPage(props: {
   brandId: string;
   canEdit: boolean;
@@ -38,6 +43,26 @@ export function EngineBrandDetailsPage(props: {
   const [showAddPart, setShowAddPart] = useState(false);
   const [addPartId, setAddPartId] = useState<string | null>(null);
   const dirtyRef = useRef(false);
+  const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
+  const summaryDeps = useMemo(
+    () => ({
+      entityTypesList: async () => (await window.matrica.admin.entityTypes.list()) as unknown[],
+      upsertAttributeDef: async (args: {
+        entityTypeId: string;
+        code: string;
+        name: string;
+        dataType: 'number';
+        sortOrder: number;
+      }) => window.matrica.admin.attributeDefs.upsert(args),
+      setEntityAttr: async (entityId: string, code: string, value: number) =>
+        window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+        window.matrica.parts.list(args)
+          .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
+          .catch((error) => ({ ok: false as const, error: String(error) })),
+    }),
+    [],
+  );
 
   async function loadBrand() {
     try {
@@ -74,47 +99,65 @@ export function EngineBrandDetailsPage(props: {
     setPartsStatus('');
   }
 
+  async function persistBrandSummaryFromRows(rows: BrandPartRow[]) {
+    if (!props.canEdit) return;
+    const { kinds, totalQty } = computeSummaryFromBrandRows(rows);
+    await persistBrandSummary(summaryDeps, summaryPersistState.current, props.brandId, kinds, totalQty);
+  }
+
   async function loadBrandParts() {
     if (!props.canViewParts) return;
-    const r = await window.matrica.parts.partBrandLinks.list({ engineBrandId: props.brandId }).catch((e) => ({ ok: false as const, error: String(e) }));
+    const r = await window.matrica.parts.list({ engineBrandId: props.brandId, limit: 50_000 }).catch((e) => ({
+      ok: false as const,
+      error: String(e),
+    }));
     if (!r.ok) {
       setBrandParts([]);
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return;
     }
-    const rows = await Promise.all(
-      r.brandLinks
-        .filter((link) => String(link.engineBrandId || '').trim() === props.brandId)
-        .map(async (link) => {
-          const partId = String(link.partId || '').trim();
-          if (!partId) return null;
-          const partRes = await window.matrica.parts.get(partId);
-          let label = partId;
-          if (partRes.ok) {
-            const attrs = Array.isArray((partRes.part as any).attributes) ? (partRes.part as any).attributes : [];
-            const valueByCode = new Map<string, unknown>(attrs.map((a: any) => [String(a.code || ''), a.value]));
-            const name = typeof valueByCode.get('name') === 'string' ? String(valueByCode.get('name')) : '';
-            const article = typeof valueByCode.get('article') === 'string' ? String(valueByCode.get('article')) : '';
-            label = String(name || article || partId);
-          }
-          const linkId = String(link.id || '').trim();
-          return {
-            id: partId,
-            label,
-            ...(linkId ? { linkId } : {}),
-            assemblyUnitNumber: String(link.assemblyUnitNumber ?? ''),
-            quantity: Number.isFinite(Number(link.quantity)) ? Number(link.quantity) : 0,
-          } satisfies BrandPartRow;
-        }),
-    );
-    const rowsFlat: BrandPartRow[] = [];
-    for (const row of rows) {
-      if (!row || !row.id.trim()) continue;
-      rowsFlat.push(row);
+    const rows: BrandPartRow[] = [];
+    const seenPartIds = new Set<string>();
+
+    for (const p of (r as any).parts ?? []) {
+      const part = p as Record<string, unknown>;
+      const partId = String(part?.id || '').trim();
+      if (!partId || seenPartIds.has(partId)) continue;
+
+      const brandLinks = Array.isArray(part?.brandLinks) ? (part.brandLinks as Record<string, unknown>[]) : [];
+      const linksForBrand = brandLinks.filter((link) => String((link as any)?.engineBrandId || '').trim() === props.brandId);
+      if (!linksForBrand.length) continue;
+      const firstLink = linksForBrand[0] ?? null;
+      const linkId = firstLink && typeof (firstLink as any).id === 'string' ? String((firstLink as any).id).trim() : '';
+
+      let assemblyUnitNumber = '';
+      let quantity = 0;
+      for (const link of linksForBrand) {
+        if (!assemblyUnitNumber) {
+          const fallback = String((link as any)?.assemblyUnitNumber || '').trim();
+          if (fallback) assemblyUnitNumber = fallback;
+        }
+        const rawQty = Number((link as any)?.quantity);
+        if (Number.isFinite(rawQty)) quantity += Math.max(0, Math.floor(rawQty));
+      }
+
+      const name = typeof part.name === 'string' ? String(part.name) : '';
+      const article = typeof part.article === 'string' ? String(part.article) : '';
+      const label = String(name || article || partId);
+
+      rows.push({
+        id: partId,
+        label,
+        ...(linkId ? { linkId } : {}),
+        assemblyUnitNumber: assemblyUnitNumber || 'не задано',
+        quantity,
+      } satisfies BrandPartRow);
+      seenPartIds.add(partId);
     }
-    rowsFlat.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-    setBrandParts(rowsFlat);
+    rows.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    setBrandParts(rows);
     setPartsStatus('');
+    persistBrandSummaryFromRows(rows);
   }
 
   async function saveName() {
@@ -215,7 +258,11 @@ export function EngineBrandDetailsPage(props: {
       return;
     }
     const updatedLinkId = r.linkId;
-    setBrandParts((prev) => prev.map((x) => (x.id === partId ? { ...x, linkId: x.linkId || updatedLinkId } : x)));
+    setBrandParts((prev) => {
+      const next = prev.map((x) => (x.id === partId ? { ...x, linkId: x.linkId || updatedLinkId } : x));
+      persistBrandSummaryFromRows(next);
+      return next;
+    });
     setPartsStatus('Сохранено');
     setTimeout(() => setPartsStatus(''), 1200);
   }
@@ -236,7 +283,11 @@ export function EngineBrandDetailsPage(props: {
       if (!linkId) throw new Error('Связь не найдена');
       const del = await window.matrica.parts.partBrandLinks.delete({ partId, linkId });
       if (!del.ok) throw new Error(del.error ?? 'Не удалось удалить связь');
-      setBrandParts((prev) => prev.filter((x) => x.id !== partId));
+      setBrandParts((prev) => {
+        const next = prev.filter((x) => x.id !== partId);
+        persistBrandSummaryFromRows(next);
+        return next;
+      });
       setPartsStatus('Сохранено');
       setTimeout(() => setPartsStatus(''), 900);
     } catch (e) {
@@ -352,6 +403,8 @@ export function EngineBrandDetailsPage(props: {
 
   const selectedParts = brandParts;
   const headerTitle = name.trim() ? `Марка двигателя: ${name.trim()}` : 'Марка двигателя';
+  const totalPartKinds = selectedParts.length;
+  const totalPartsQty = selectedParts.reduce((acc, p) => acc + (Number.isFinite(Number(p.quantity)) ? Math.max(0, Math.floor(Number(p.quantity))) : 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -426,6 +479,9 @@ export function EngineBrandDetailsPage(props: {
           ) : undefined
         }
       >
+        <div style={{ marginBottom: 10, color: 'var(--subtle)', fontSize: 13 }}>
+            Видов деталей: {totalPartKinds}, всего штук: {totalPartsQty}
+        </div>
 
         {showAddPart && props.canViewParts && props.canEditParts && (
           <div style={{ marginBottom: 10 }}>

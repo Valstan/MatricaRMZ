@@ -17,6 +17,11 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import {
+  createEngineBrandSummarySyncState,
+  persistEngineBrandSummaries as persistEngineBrandSummariesShared,
+  type EngineBrandSummarySyncState,
+} from '../utils/engineBrandSummary.js';
 
 type Attribute = {
   id: string;
@@ -200,6 +205,26 @@ export function PartDetailsPage(props: {
   const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
 
   const dirtyRef = useRef(false);
+  const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
+  const summaryDeps = useMemo(
+    () => ({
+      entityTypesList: async () => (await window.matrica.admin.entityTypes.list()) as unknown[],
+      upsertAttributeDef: async (args: {
+        entityTypeId: string;
+        code: string;
+        name: string;
+        dataType: 'number';
+        sortOrder: number;
+      }) => window.matrica.admin.attributeDefs.upsert(args),
+      setEntityAttr: async (entityId: string, code: string, value: number) =>
+        window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+        window.matrica.parts.list(args)
+          .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
+          .catch((error) => ({ ok: false as const, error: String(error) })),
+    }),
+    [],
+  );
 
   // Schema extension (add new fields)
   const [addFieldOpen, setAddFieldOpen] = useState(false);
@@ -359,6 +384,14 @@ export function PartDetailsPage(props: {
     }));
   }
 
+  async function persistEngineBrandSummaries(brandIds: string[]) {
+    await persistEngineBrandSummariesShared(
+      summaryDeps,
+      summaryPersistState.current,
+      brandIds,
+    );
+  }
+
   async function upsertBrandLink(link: {
     linkId?: string;
     engineBrandId: string;
@@ -389,6 +422,11 @@ export function PartDetailsPage(props: {
       quantity,
       ...(link.linkId ? { linkId: link.linkId } : {}),
     };
+    const prev = link.linkId ? brandLinks.find((x) => x.id === link.linkId) : null;
+    const affectedBrandIds = new Set<string>();
+    if (prev?.engineBrandId) affectedBrandIds.add(String(prev.engineBrandId).trim());
+    affectedBrandIds.add(engineBrandId);
+
     const r = await window.matrica.parts.partBrandLinks.upsert(payload);
     if (!r?.ok) {
       setBrandLinksStatus(`Ошибка: ${String(r?.error ?? 'unknown')}`);
@@ -402,6 +440,7 @@ export function PartDetailsPage(props: {
       return next;
     });
     await loadBrandLinks();
+    void persistEngineBrandSummaries(Array.from(affectedBrandIds));
     setTimeout(() => {
       setBrandLinksStatus((prev) => (prev.startsWith('Ошибка') ? prev : ''));
     }, 1500);
@@ -411,12 +450,14 @@ export function PartDetailsPage(props: {
     if (!props.canEdit) return;
     const ok = confirm('Удалить связь с маркой двигателя?');
     if (!ok) return;
+    const affectedBrandId = String(brandLinks.find((x) => x.id === linkId)?.engineBrandId || '').trim();
     const r = await window.matrica.parts.partBrandLinks.delete({ partId: props.partId, linkId });
     if (!r?.ok) {
       setBrandLinksStatus(`Ошибка: ${String(r?.error ?? 'unknown')}`);
       return;
     }
     await loadBrandLinks();
+    if (affectedBrandId) void persistEngineBrandSummaries([affectedBrandId]);
     setBrandLinksStatus('Удалено');
     setTimeout(() => setBrandLinksStatus(''), 1200);
   }
@@ -970,7 +1011,7 @@ export function PartDetailsPage(props: {
         label: 'Поставщик',
         value: supplier || '',
         render: (
-          <div style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
             <SearchSelectWithCreate
               value={supplierId}
               options={customerOptions}
@@ -1016,7 +1057,7 @@ export function PartDetailsPage(props: {
         label: 'Контракт',
         value: contractOptions.find((c) => c.id === contractId)?.label ?? (contractId || ''),
         render: (
-          <div style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
             <SearchSelectWithCreate
               value={contractId || null}
               options={contractOptions}
@@ -1109,7 +1150,7 @@ export function PartDetailsPage(props: {
       return (
         <div key={link.id} style={rowStyle}>
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: canEdit ? '2fr 2.2fr 1fr 150px' : '2fr 2.2fr 1fr', alignItems: 'end' }}>
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
               <SearchSelect
                 value={draft.engineBrandId || null}
                 options={engineBrandOptions}
@@ -1189,7 +1230,7 @@ export function PartDetailsPage(props: {
 
         {canEdit && (
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '2fr 2.2fr 1fr 150px', alignItems: 'end' }}>
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
               <SearchSelect
                 value={newBrandLink.engineBrandId || null}
                 options={engineBrandOptions}
@@ -1660,7 +1701,7 @@ export function PartDetailsPage(props: {
                             style={{ flex: 1 }}
                           />
                         ) : attr.dataType === 'link' ? (
-                          <div style={{ display: 'grid', gap: 6 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                             <SearchSelect
                               value={typeof value === 'string' ? value : ''}
                               options={linkOptionsByCode[attr.code] ?? []}

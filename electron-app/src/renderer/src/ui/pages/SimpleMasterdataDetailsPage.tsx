@@ -602,7 +602,7 @@ export function SimpleMasterdataDetailsPage(props: {
         label: 'Магазин',
         value: shop,
         render: (
-          <div style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
             <SearchSelectWithCreate
               value={storeOptions.find((o) => o.label === shop)?.id ?? null}
               options={storeOptions}

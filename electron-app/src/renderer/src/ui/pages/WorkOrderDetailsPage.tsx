@@ -521,7 +521,7 @@ export function WorkOrderDetailsPage(props: {
                     {group.lines.map((line, lineIdx) => (
                       <tr key={`${group.groupId}-line-${lineIdx}`}>
                         <td style={{ padding: 8 }}>
-                          <div style={{ display: 'grid', gap: 6 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                             <SearchSelect
                               value={line.serviceId}
                               options={groupServiceOptions}
@@ -652,7 +652,7 @@ export function WorkOrderDetailsPage(props: {
             {payload.freeWorks.map((line, idx) => (
               <tr key={`free-work-line-${idx}`}>
                 <td style={{ padding: 8 }}>
-                  <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                     <SearchSelect
                       value={line.serviceId}
                       options={allServiceOptions}
@@ -745,7 +745,7 @@ export function WorkOrderDetailsPage(props: {
             {payload.crew.map((member, idx) => (
               <tr key={`crew-${idx}-${member.employeeId}`}>
                 <td style={{ padding: 8 }}>
-                  <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                     <SearchSelect
                       value={member.employeeId || null}
                       options={employeeOptions}

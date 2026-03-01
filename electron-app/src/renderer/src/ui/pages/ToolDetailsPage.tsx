@@ -650,7 +650,7 @@ export function ToolDetailsPage(props: {
           return (
             <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: propertyRowGridTemplate, gap: 8, padding: '4px 6px' }}>
               <div>Свойство</div>
-              <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
                 <SearchSelectWithCreate
                   value={row.propertyId}
                   options={propertyOptions}
@@ -725,7 +725,7 @@ export function ToolDetailsPage(props: {
             <option value="received">Получил</option>
             <option value="returned">Вернул</option>
           </select>
-          <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
             <SearchSelect
               value={newMoveEmployeeId}
               options={employeeOptions}
@@ -745,7 +745,7 @@ export function ToolDetailsPage(props: {
             <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => setNewMoveConfirmed(e.target.checked)} disabled={!props.canEdit} />
             Подтверждено
           </label>
-          <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
             <SearchSelect
               value={newMoveConfirmedById}
               options={employeeOptions}

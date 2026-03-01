@@ -104,7 +104,7 @@ export function CounterpartiesPage(props: {
         return {
           id: String(r.id),
           displayName: r.displayName ? String(r.displayName) : '',
-          searchText: r.searchText ? String(r.searchText) : undefined,
+          searchText: r.searchText ? String(r.searchText) : '',
           inn: inn.trim() || undefined,
           updatedAt: Number(r.updatedAt ?? 0),
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),

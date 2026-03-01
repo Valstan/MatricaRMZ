@@ -9,6 +9,11 @@ import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { applyClassicMasterdataPreset } from './masterdataClassicPreset.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import {
+  createEngineBrandSummarySyncState,
+  persistEngineBrandSummaries as persistEngineBrandSummariesShared,
+  type EngineBrandSummarySyncState,
+} from '../utils/engineBrandSummary.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -117,6 +122,26 @@ export function MasterdataPage(props: {
   const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
   const [partsStatus, setPartsStatus] = useState<string>('');
   const autoResyncedTypes = useRef<Set<string>>(new Set());
+  const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
+  const summaryDeps = useMemo(
+    () => ({
+      entityTypesList: async () => (await window.matrica.admin.entityTypes.list()) as unknown[],
+      upsertAttributeDef: async (args: {
+        entityTypeId: string;
+        code: string;
+        name: string;
+        dataType: 'number';
+        sortOrder: number;
+      }) => window.matrica.admin.attributeDefs.upsert(args),
+      setEntityAttr: async (entityId: string, code: string, value: number) =>
+        window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+        window.matrica.parts.list(args)
+          .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
+          .catch((error) => ({ ok: false as const, error: String(error) })),
+    }),
+    [],
+  );
 
   const [deleteDialog, setDeleteDialog] = useState<
     | {
@@ -656,6 +681,10 @@ export function MasterdataPage(props: {
     setPartsStatus('');
   }
 
+  async function persistEngineBrandSummaries(brandIds: string[]) {
+    await persistEngineBrandSummariesShared(summaryDeps, summaryPersistState.current, brandIds);
+  }
+
   async function loadBrandParts(brandId: string) {
     if (!brandId) return;
     const r = await window.matrica.parts.list({ engineBrandId: brandId, limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
@@ -713,6 +742,7 @@ export function MasterdataPage(props: {
       }
     }
     setPartsStatus('Сохранено');
+    void persistEngineBrandSummaries([brandId]);
     setTimeout(() => setPartsStatus(''), 900);
   }
 

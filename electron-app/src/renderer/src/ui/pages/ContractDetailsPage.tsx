@@ -441,7 +441,7 @@ function SectionBlock(props: {
                   return (
                     <tr key={idx}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                        <div style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           {canEdit ? (
                             <SearchSelectWithCreate
                               value={row.engineBrandId || null}
@@ -540,7 +540,7 @@ function SectionBlock(props: {
                   return (
                     <tr key={idx}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                        <div style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           {canEdit ? (
                             <SearchSelectWithCreate
                               value={row.partId || null}

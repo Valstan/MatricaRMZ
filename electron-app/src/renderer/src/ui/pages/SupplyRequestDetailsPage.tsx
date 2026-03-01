@@ -916,7 +916,7 @@ export function SupplyRequestDetailsPage(props: {
                       </td>
                       <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>{idx + 1}</td>
                       <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>
-                        <div style={{ display: 'grid', gap: 6 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           <SearchSelectWithCreate
                             value={it.productId ?? ''}
                             options={productOptions}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -10,6 +10,14 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import {
+  createEngineBrandSummarySyncState,
+  PARTS_KINDS_COUNT_ATTR_CODE,
+  PARTS_TOTAL_QTY_ATTR_CODE,
+  persistBrandSummary,
+  toStoredInteger,
+  type EngineBrandSummarySyncState,
+} from '../utils/engineBrandSummary.js';
 
 type Row = {
   id: string;
@@ -17,9 +25,40 @@ type Row = {
   searchText?: string;
   updatedAt: number;
   partsCount?: number | null;
+  partsKindsCount?: number | null;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 type SortKey = 'displayName' | 'partsCount' | 'updatedAt';
+
+function getBrandPartsStats(parts: unknown[]): Map<string, { kinds: number; totalQty: number }> {
+  const map = new Map<string, { partIds: Set<string>; totalQty: number }>();
+
+  for (const item of parts) {
+    const part = item as Record<string, unknown>;
+    const partId = String(part?.id || '').trim();
+    if (!partId) continue;
+
+    const brandLinks = Array.isArray(part?.brandLinks) ? (part?.brandLinks as Array<Record<string, unknown>>) : [];
+    for (const link of brandLinks) {
+      const brandId = String(link?.engineBrandId || '').trim();
+      if (!brandId) continue;
+
+      const current = map.get(brandId) ?? { partIds: new Set<string>(), totalQty: 0 };
+      const rawQty = Number(link?.quantity);
+      const qty = Number.isFinite(rawQty) ? Math.max(0, Math.floor(rawQty)) : 0;
+
+      current.partIds.add(partId);
+      current.totalQty += qty;
+      map.set(brandId, current);
+    }
+  }
+
+  const out = new Map<string, { kinds: number; totalQty: number }>();
+  for (const [brandId, value] of map.entries()) {
+    out.set(brandId, { kinds: value.partIds.size, totalQty: value.totalQty });
+  }
+  return out;
+}
 
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
   if (!Array.isArray(raw)) return [];
@@ -57,6 +96,26 @@ export function EngineBrandsPage(props: {
   canCreate: boolean;
   canViewMasterData: boolean;
 }) {
+  const persistedSummaryState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
+  const summaryDeps = useMemo(
+    () => ({
+      entityTypesList: async () => (await window.matrica.admin.entityTypes.list()) as unknown[],
+      upsertAttributeDef: async (args: {
+        entityTypeId: string;
+        code: string;
+        name: string;
+        dataType: 'number';
+        sortOrder: number;
+      }) => window.matrica.admin.attributeDefs.upsert(args),
+      setEntityAttr: async (entityId: string, code: string, value: number) =>
+        window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+        window.matrica.parts.list(args)
+          .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
+          .catch((error) => ({ ok: false as const, error: String(error) })),
+    }),
+    [],
+  );
   const { state: listState, patchState } = useListUiState('list:engine_brands', {
     query: '',
     sortKey: 'displayName' as SortKey,
@@ -73,11 +132,20 @@ export function EngineBrandsPage(props: {
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
 
+  async function persistBrandSummaries(summaries: Array<{ id: string; kinds: number; totalQty: number }>): Promise<void> {
+    if (!summaries.length || !persistedSummaryState.current.canPersist) return;
+    await Promise.all(
+      summaries.map((s) => persistBrandSummary(summaryDeps, persistedSummaryState.current, s.id, s.kinds, s.totalQty)),
+    );
+  }
+
   async function loadType() {
     if (!props.canViewMasterData) return;
     const types = await window.matrica.admin.entityTypes.list();
     const type = (types as any[]).find((t) => String(t.code) === 'engine_brand');
-    setTypeId(type?.id ? String(type.id) : '');
+    const nextTypeId = type?.id ? String(type.id) : '';
+    setTypeId(nextTypeId);
+    persistedSummaryState.current.typeId = nextTypeId;
   }
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -96,32 +164,58 @@ export function EngineBrandsPage(props: {
       const nextRows = baseRows.map((row, idx) => {
         const attrs = (details[idx] as any)?.attributes ?? {};
         const attachmentPreviews = collectAttachmentPreviews(attrs);
+        const storedKinds = toStoredInteger((attrs as any)[PARTS_KINDS_COUNT_ATTR_CODE]);
+        const storedQty = toStoredInteger((attrs as any)[PARTS_TOTAL_QTY_ATTR_CODE]);
         return {
           id: String(row.id),
           displayName: row.displayName ? String(row.displayName) : '',
-          searchText: row.searchText ? String(row.searchText) : undefined,
+          searchText: row.searchText ? String(row.searchText) : '',
           updatedAt: Number(row.updatedAt ?? 0),
-          partsCount: null,
+          partsCount: storedQty,
+          partsKindsCount: storedKinds,
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
         };
       });
-      setRows(nextRows);
-      if (!silent) setStatus('');
+
+      const hasMissingSummary = nextRows.some((row) => row.partsCount == null || row.partsKindsCount == null);
+      if (!hasMissingSummary) {
+        setRows(nextRows);
+        if (!silent) setStatus('');
+        return;
+      }
+
       try {
-        const counts = await Promise.all(
-          nextRows.map(async (row) => {
-            const r = await window.matrica.parts.list({ engineBrandId: row.id, limit: 5000 }).catch((e) => ({
-              ok: false as const,
-              error: String(e),
-            }));
-            if (!r.ok) return { id: row.id, count: null };
-            return { id: row.id, count: Array.isArray((r as any).parts) ? (r as any).parts.length : null };
-          }),
-        );
-        const countMap = new Map(counts.map((c) => [c.id, c.count]));
-        setRows((prev) => prev.map((row) => ({ ...row, partsCount: countMap.get(row.id) ?? row.partsCount ?? null })));
+        const r = await window.matrica.parts.list({ limit: 50000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+        if (!r.ok) {
+          if (!silent) setStatus(r.error ? `Ошибка: ${r.error}` : 'Ошибка загрузки статистики по деталям');
+          setRows(nextRows);
+          return;
+        }
+
+        const stats = getBrandPartsStats((r as any).parts ?? []);
+        const withStats = nextRows.map((row) => {
+          const value = stats.get(row.id);
+          return {
+            ...row,
+            partsKindsCount: value?.kinds ?? 0,
+            partsCount: value ? value.totalQty : 0,
+          };
+        });
+        const prevRowsById = new Map(nextRows.map((row) => [row.id, row]));
+        const toPersist = withStats
+          .filter((row) => {
+            const prev = prevRowsById.get(row.id);
+            if (!prev) return false;
+            return prev.partsKindsCount !== row.partsKindsCount || prev.partsCount !== row.partsCount;
+          })
+          .filter((row) => row.partsKindsCount != null && row.partsCount != null)
+          .map((row) => ({ id: row.id, kinds: row.partsKindsCount!, totalQty: row.partsCount! }));
+        setRows(withStats);
+        void persistBrandSummaries(toPersist);
+        if (!silent) setStatus('');
       } catch {
-        // ignore parts count errors
+        setRows((prev) => prev.map((row) => ({ ...row, partsCount: row.partsCount ?? null, partsKindsCount: row.partsKindsCount ?? null })));
+        if (!silent) setStatus('');
       }
     } catch (e) {
       if (!silent) setStatus(`Ошибка: ${String(e)}`);
@@ -169,7 +263,7 @@ export function EngineBrandsPage(props: {
           Наименование марки двигателя {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'displayName')}
         </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('partsCount')}>
-          Количество деталей {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'partsCount')}
+          Количество деталей (видов / шт.) {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'partsCount')}
         </th>
         {showPreviews && <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#374151', width: 220 }}>Превью</th>}
       </tr>
@@ -206,7 +300,7 @@ export function EngineBrandsPage(props: {
               >
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.displayName || '(без названия)'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
-                  {row.partsCount == null ? '—' : row.partsCount}
+                  {row.partsCount == null || row.partsKindsCount == null ? '—' : `${row.partsKindsCount} / ${row.partsCount}`}
                 </td>
                 {showPreviews && (
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>

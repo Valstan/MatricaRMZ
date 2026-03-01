@@ -746,7 +746,7 @@ export function EmployeeDetailsPage(props: {
             }
           : null;
       return (
-        <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
           <SearchSelect
             value={current}
             disabled={!props.canEdit}

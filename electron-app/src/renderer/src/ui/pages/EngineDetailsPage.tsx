@@ -478,7 +478,7 @@ export function EngineDetailsPage(props: {
       label: 'Марка двигателя',
       value: engineBrand,
       render: (
-        <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
           <SearchSelectWithCreate
             value={engineBrandId || null}
             options={engineBrandOptions}
@@ -536,7 +536,7 @@ export function EngineDetailsPage(props: {
           label: 'Контракт',
           value: (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId,
           render: (
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
               <SearchSelectWithCreate
                 value={contractId || null}
                 options={linkLists.contract_id ?? []}
@@ -571,7 +571,7 @@ export function EngineDetailsPage(props: {
           label: 'Контрагент',
           value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
           render: (
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
               <Input value={(linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId} disabled />
               {customerId && props.onOpenCounterparty ? (
                 <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCounterparty?.(customerId)}>
