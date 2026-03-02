@@ -9,7 +9,6 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
-import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { STATUS_CODES, STATUS_LABELS, statusDateCode, type StatusCode } from '@matricarmz/shared';
@@ -206,6 +205,23 @@ export function PartDetailsPage(props: {
   const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
 
   const dirtyRef = useRef(false);
+  const isSavingCoreRef = useRef(false);
+  const isSavingAttributeQueueRef = useRef(false);
+  const isSavingBrandLinkQueueRef = useRef(false);
+  const isSavingFieldQueueRef = useRef(false);
+  const isSavingFieldOrderQueueRef = useRef(false);
+  const pendingAttributeSaveValuesRef = useRef(new Map<string, unknown>());
+  const pendingAttributeSaveResolversRef = useRef<Array<(result: SaveAttributeResult) => void>>([]);
+  const attributeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingBrandLinkOperationsRef = useRef<Array<QueuedBrandLinkOperation>>([]);
+  const pendingBrandLinkOperationResolversRef = useRef<Array<(result: BrandLinkSaveResult) => void>>([]);
+  const brandLinkQueueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingFieldOperationsRef = useRef<Array<QueuedFieldOperation>>([]);
+  const pendingFieldOperationResolversRef = useRef<Array<(result: FieldOperationResult) => void>>([]);
+  const fieldQueueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingFieldOrderCodesRef = useRef<FieldOrderOperation | null>(null);
+  const pendingFieldOrderResolversRef = useRef<Array<(result: FieldOrderSaveResult) => void>>([]);
+  const fieldOrderQueueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
   const summaryDeps = useMemo(
     () => ({
@@ -300,24 +316,19 @@ export function PartDetailsPage(props: {
             ? newFieldMetaJson.trim()
             : null;
 
-      const r = await window.matrica.parts.createAttributeDef({
+      const r = await queueFieldOperation({
         code,
         name,
         dataType: newFieldDataType,
         isRequired: newFieldIsRequired,
         sortOrder,
         metaJson,
+        ...(newFieldDataType === 'link' && newFieldLinkTouched && newFieldLinkTarget ? { linkTargetCode: newFieldLinkTarget } : {}),
       });
       if (!r?.ok) {
         setAddFieldStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
         return;
       }
-      if (newFieldDataType === 'link' && newFieldLinkTouched && newFieldLinkTarget) {
-        await upsertLinkRule(name, newFieldLinkTarget);
-      }
-
-      setAddFieldStatus('Поле добавлено');
-      setTimeout(() => setAddFieldStatus(''), 1200);
       setAddFieldOpen(false);
       setNewFieldCode('');
       setNewFieldName('');
@@ -327,7 +338,6 @@ export function PartDetailsPage(props: {
       setNewFieldMetaJson('');
       setNewFieldLinkTarget('');
       setNewFieldLinkTouched(false);
-      void load();
     } catch (e) {
       setAddFieldStatus(`Ошибка: ${String(e)}`);
     }
@@ -424,27 +434,23 @@ export function PartDetailsPage(props: {
       ...(link.linkId ? { linkId: link.linkId } : {}),
     };
     const prev = link.linkId ? brandLinks.find((x) => x.id === link.linkId) : null;
-    const affectedBrandIds = new Set<string>();
-    if (prev?.engineBrandId) affectedBrandIds.add(String(prev.engineBrandId).trim());
-    affectedBrandIds.add(engineBrandId);
 
-    const r = await window.matrica.parts.partBrandLinks.upsert(payload);
-    if (!r?.ok) {
-      setBrandLinksStatus(`Ошибка: ${String(r?.error ?? 'unknown')}`);
+    const result = await queueBrandLinkOperation({
+      type: 'upsert',
+      clearDraftLinkId: link.linkId,
+      payload: {
+        partId: payload.partId,
+        engineBrandId: payload.engineBrandId,
+        assemblyUnitNumber: payload.assemblyUnitNumber,
+        quantity: payload.quantity,
+        ...(payload.linkId ? { linkId: payload.linkId } : {}),
+      },
+      affectedBrandIds: [String(prev?.engineBrandId || '').trim(), String(payload.engineBrandId).trim()].filter(Boolean),
+    });
+    if (!result.ok) {
+      setBrandLinksStatus(`Ошибка: ${String(result.error)}`);
       return;
     }
-
-    setBrandLinksStatus('Сохранено');
-    setBrandLinkDrafts((prev) => {
-      const next = { ...prev };
-      if (link.linkId) delete next[link.linkId];
-      return next;
-    });
-    await loadBrandLinks();
-    void persistEngineBrandSummaries(Array.from(affectedBrandIds));
-    setTimeout(() => {
-      setBrandLinksStatus((prev) => (prev.startsWith('Ошибка') ? prev : ''));
-    }, 1500);
   }
 
   async function deleteBrandLink(linkId: string) {
@@ -452,15 +458,15 @@ export function PartDetailsPage(props: {
     const ok = confirm('Удалить связь с маркой двигателя?');
     if (!ok) return;
     const affectedBrandId = String(brandLinks.find((x) => x.id === linkId)?.engineBrandId || '').trim();
-    const r = await window.matrica.parts.partBrandLinks.delete({ partId: props.partId, linkId });
-    if (!r?.ok) {
-      setBrandLinksStatus(`Ошибка: ${String(r?.error ?? 'unknown')}`);
+    const result = await queueBrandLinkOperation({
+      type: 'delete',
+      linkId,
+      affectedBrandIds: affectedBrandId ? [affectedBrandId] : [],
+    });
+    if (!result.ok) {
+      setBrandLinksStatus(`Ошибка: ${String(result.error)}`);
       return;
     }
-    await loadBrandLinks();
-    if (affectedBrandId) void persistEngineBrandSummaries([affectedBrandId]);
-    setBrandLinksStatus('Удалено');
-    setTimeout(() => setBrandLinksStatus(''), 1200);
   }
 
   function sortBrandLinks(rows: PartBrandLink[]): PartBrandLink[] {
@@ -616,9 +622,15 @@ export function PartDetailsPage(props: {
     }
   }
 
-  async function upsertLinkRule(fieldName: string, targetTypeCode: string) {
+  async function upsertLinkRule(
+    fieldName: string,
+    targetTypeCode: string,
+    options?: { suppressReload?: boolean },
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const shouldReload = !options?.suppressReload;
+
     const ruleType = entityTypes.find((t) => t.code === 'link_field_rule');
-    if (!ruleType) return;
+    if (!ruleType) return { ok: false, error: 'Тип правила link_field_rule не найден' };
     const list = await window.matrica.admin.entities.listByEntityType(String(ruleType.id));
     const normalized = normalizeForMatch(fieldName);
     for (const row of list as any[]) {
@@ -626,18 +638,36 @@ export function PartDetailsPage(props: {
       const attrs = details.attributes ?? {};
       const existingName = normalizeForMatch(String(attrs.field_name ?? ''));
       if (existingName && existingName === normalized) {
-        await window.matrica.admin.entities.setAttr(String(row.id), 'target_type_code', targetTypeCode);
-        if (!attrs.priority) await window.matrica.admin.entities.setAttr(String(row.id), 'priority', 100);
-        await loadLinkRules();
-        return;
+        if (String(attrs.target_type_code ?? '') !== targetTypeCode) {
+          const updated = await window.matrica.admin.entities.setAttr(String(row.id), 'target_type_code', targetTypeCode);
+          if (!updated.ok) return { ok: false, error: String(updated.error ?? 'Ошибка обновления правила') };
+        }
+        if (!attrs.priority) {
+          const updated = await window.matrica.admin.entities.setAttr(String(row.id), 'priority', 100);
+          if (!updated.ok) return { ok: false, error: String(updated.error ?? 'Ошибка обновления приоритета') };
+        }
+        if (shouldReload) {
+          await loadLinkRules();
+        }
+        return { ok: true };
       }
     }
     const created = await window.matrica.admin.entities.create(String(ruleType.id));
-    if (!created.ok || !created.id) return;
-    await window.matrica.admin.entities.setAttr(created.id, 'field_name', fieldName);
-    await window.matrica.admin.entities.setAttr(created.id, 'target_type_code', targetTypeCode);
-    await window.matrica.admin.entities.setAttr(created.id, 'priority', 100);
-    await loadLinkRules();
+    if (!created.ok || !created.id) return { ok: false, error: String(created.error ?? 'Ошибка создания правила') };
+    const attrsUpdates = [
+      await window.matrica.admin.entities.setAttr(created.id, 'field_name', fieldName),
+      await window.matrica.admin.entities.setAttr(created.id, 'target_type_code', targetTypeCode),
+      await window.matrica.admin.entities.setAttr(created.id, 'priority', 100),
+    ];
+    for (const update of attrsUpdates) {
+      if (!update.ok) {
+        return { ok: false, error: String(update.error ?? 'Ошибка настройки правила') };
+      }
+    }
+    if (shouldReload) {
+      await loadLinkRules();
+    }
+    return { ok: true };
   }
 
   async function loadLinkOptions(typeCode: string, attrCode: string) {
@@ -845,46 +875,503 @@ export function PartDetailsPage(props: {
     };
   }, [name, article, props.registerCardCloseActions]);
 
-  async function saveAttribute(code: string, value: unknown): Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }> {
+  useEffect(() => {
+    return () => {
+      if (attributeSaveTimerRef.current) {
+        clearTimeout(attributeSaveTimerRef.current);
+        attributeSaveTimerRef.current = null;
+      }
+      if (pendingAttributeSaveResolversRef.current.length > 0) {
+        resolvePendingAttributeSaves({ ok: false, error: 'component unmounted' });
+      }
+      if (brandLinkQueueTimerRef.current) {
+        clearTimeout(brandLinkQueueTimerRef.current);
+        brandLinkQueueTimerRef.current = null;
+      }
+      if (pendingBrandLinkOperationResolversRef.current.length > 0) {
+        resolvePendingBrandLinkOperations({ ok: false, error: 'component unmounted' });
+      }
+      if (fieldQueueTimerRef.current) {
+        clearTimeout(fieldQueueTimerRef.current);
+        fieldQueueTimerRef.current = null;
+      }
+      if (fieldOrderQueueTimerRef.current) {
+        clearTimeout(fieldOrderQueueTimerRef.current);
+        fieldOrderQueueTimerRef.current = null;
+      }
+      if (pendingFieldOperationResolversRef.current.length > 0) {
+        resolvePendingFieldOperations({ ok: false, error: 'component unmounted' });
+      }
+      if (pendingFieldOrderResolversRef.current.length > 0) {
+        resolvePendingFieldOrderOperations({ ok: false, error: 'component unmounted' });
+      }
+      pendingAttributeSaveValuesRef.current.clear();
+      pendingBrandLinkOperationsRef.current = [];
+      pendingFieldOperationsRef.current = [];
+      pendingFieldOrderCodesRef.current = null;
+    };
+  }, []);
+
+  type SaveAttributeOptions = {
+    suppressStatus?: boolean;
+    suppressReload?: boolean;
+  };
+
+  type SaveAttributeResult = { ok: true; queued?: boolean } | { ok: false; error: string };
+  type BrandLinkSaveResult = { ok: true } | { ok: false; error: string };
+  type QueuedBrandLinkOperation = {
+    type: 'upsert' | 'delete';
+    linkId?: string;
+    payload?: {
+      partId: string;
+      engineBrandId: string;
+      assemblyUnitNumber: string;
+      quantity: number;
+      linkId?: string;
+    };
+    affectedBrandIds?: string[];
+    clearDraftLinkId?: string;
+  };
+  type FieldOperationResult = { ok: true } | { ok: false; error: string };
+  type QueuedFieldOperation = {
+    code: string;
+    name: string;
+    dataType: 'text' | 'number' | 'boolean' | 'date' | 'json' | 'link';
+    isRequired: boolean;
+    sortOrder: number;
+    metaJson: string | null;
+    linkTargetCode?: string;
+  };
+  type FieldOrderSaveResult = { ok: true } | { ok: false; error: string };
+  type FieldOrderOperation = { orderedCodes: string[]; startAt: number };
+
+  const ATTRIBUTE_SAVE_BATCH_DELAY_MS = 220;
+  const BRAND_LINK_BATCH_DELAY_MS = 220;
+  const FIELD_BATCH_DELAY_MS = 220;
+  const FIELD_ORDER_BATCH_DELAY_MS = 220;
+  const FIELD_ORDER_START_AT_DEFAULT = 10;
+
+  function normalizeCoreFieldValue(value: unknown) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    return value;
+  }
+
+  function getAttributeCurrentValue(code: string): unknown {
+    const found = part?.attributes.find((a) => a.code === code);
+    return found ? found.value : undefined;
+  }
+
+  function resolvePendingAttributeSaves(result: SaveAttributeResult) {
+    const resolvers = pendingAttributeSaveResolversRef.current;
+    pendingAttributeSaveResolversRef.current = [];
+    for (const resolve of resolvers) resolve(result);
+  }
+
+  function resolvePendingBrandLinkOperations(result: BrandLinkSaveResult) {
+    const resolvers = pendingBrandLinkOperationResolversRef.current;
+    pendingBrandLinkOperationResolversRef.current = [];
+    for (const resolve of resolvers) resolve(result);
+  }
+
+  function resolvePendingFieldOperations(result: FieldOperationResult) {
+    const resolvers = pendingFieldOperationResolversRef.current;
+    pendingFieldOperationResolversRef.current = [];
+    for (const resolve of resolvers) resolve(result);
+  }
+
+  function resolvePendingFieldOrderOperations(result: FieldOrderSaveResult) {
+    const resolvers = pendingFieldOrderResolversRef.current;
+    pendingFieldOrderResolversRef.current = [];
+    for (const resolve of resolvers) resolve(result);
+  }
+
+  function flushFieldOrderQueue() {
+    if (isSavingFieldOrderQueueRef.current) return;
+    if (!partTypeId || !pendingFieldOrderCodesRef.current) return;
+
+    isSavingFieldOrderQueueRef.current = true;
+    if (fieldOrderQueueTimerRef.current) {
+      clearTimeout(fieldOrderQueueTimerRef.current);
+      fieldOrderQueueTimerRef.current = null;
+    }
+
+    const queuedOrder = pendingFieldOrderCodesRef.current;
+    pendingFieldOrderCodesRef.current = null;
+    const orderedCodes = [...queuedOrder.orderedCodes];
+    const startAt = queuedOrder.startAt;
+
+    (async () => {
+      try {
+        await persistFieldOrder(orderedCodes, partDefs, { entityTypeId: partTypeId, startAt });
+        setPartDefs((prev) => [...prev]);
+        resolvePendingFieldOrderOperations({ ok: true });
+      } catch (error) {
+        const err = String(error);
+        setStatus(`Ошибка: ${err}`);
+        resolvePendingFieldOrderOperations({ ok: false, error: err });
+      } finally {
+        isSavingFieldOrderQueueRef.current = false;
+        if (pendingFieldOrderCodesRef.current) {
+          void flushFieldOrderQueue();
+        }
+      }
+    })();
+  }
+
+  function queueFieldOrderOperation(orderedCodes: string[], options?: { startAt?: number }): Promise<FieldOrderSaveResult> {
+    const result = new Promise<FieldOrderSaveResult>((resolve) => {
+      pendingFieldOrderCodesRef.current = {
+        orderedCodes: [...orderedCodes],
+        startAt: options?.startAt ?? FIELD_ORDER_START_AT_DEFAULT,
+      };
+      pendingFieldOrderResolversRef.current.push((payload) => {
+        resolve(payload);
+      });
+      if (fieldOrderQueueTimerRef.current) {
+        clearTimeout(fieldOrderQueueTimerRef.current);
+      }
+      fieldOrderQueueTimerRef.current = setTimeout(() => {
+        void flushFieldOrderQueue();
+      }, FIELD_ORDER_BATCH_DELAY_MS);
+    });
+
+    return result;
+  }
+
+  async function flushBrandLinkQueue() {
+    if (isSavingBrandLinkQueueRef.current) return;
+    if (!pendingBrandLinkOperationsRef.current.length) return;
+
+    isSavingBrandLinkQueueRef.current = true;
+    if (brandLinkQueueTimerRef.current) {
+      clearTimeout(brandLinkQueueTimerRef.current);
+      brandLinkQueueTimerRef.current = null;
+    }
+
+    const queue = [...pendingBrandLinkOperationsRef.current];
+    pendingBrandLinkOperationsRef.current = [];
+    setBrandLinksStatus('Сохранение...');
+
+    const affectedBrandIds = new Set<string>();
+    const clearDraftLinkIds: string[] = [];
+    let lastError: string | null = null;
+
+    for (const op of queue) {
+      if (op.type === 'upsert') {
+        if (!op.payload) {
+          lastError = 'Не хватает данных для сохранения связи';
+          break;
+        }
+        const r = await window.matrica.parts.partBrandLinks.upsert(op.payload);
+        if (!r?.ok) {
+          lastError = String((r as any).error ?? 'Не удалось сохранить связь');
+          break;
+        }
+      } else {
+        if (!op.linkId) {
+          lastError = 'Не хватает идентификатора связи для удаления';
+          break;
+        }
+        const r = await window.matrica.parts.partBrandLinks.delete({ partId: props.partId, linkId: op.linkId });
+        if (!r?.ok) {
+          lastError = String((r as any).error ?? 'Не удалось удалить связь');
+          break;
+        }
+      }
+      if (op.clearDraftLinkId) {
+        clearDraftLinkIds.push(op.clearDraftLinkId);
+      }
+      for (const affectedBrandId of op.affectedBrandIds ?? []) {
+        if (affectedBrandId) affectedBrandIds.add(affectedBrandId);
+      }
+    }
+
+    if (lastError) {
+      setBrandLinksStatus(`Ошибка: ${lastError}`);
+      isSavingBrandLinkQueueRef.current = false;
+      resolvePendingBrandLinkOperations({ ok: false, error: lastError });
+      if (pendingBrandLinkOperationsRef.current.length > 0) {
+        void flushBrandLinkQueue();
+      }
+      return;
+    }
+
+    await loadBrandLinks();
+    if (clearDraftLinkIds.length) {
+      setBrandLinkDrafts((prev) => {
+        const next = { ...prev };
+        for (const linkId of clearDraftLinkIds) {
+          delete next[linkId];
+        }
+        return next;
+      });
+    }
+    if (affectedBrandIds.size > 0) void persistEngineBrandSummaries(Array.from(affectedBrandIds));
+    setBrandLinksStatus('Сохранено');
+    setTimeout(() => {
+      setBrandLinksStatus((prev) => (prev.startsWith('Ошибка') ? prev : ''));
+    }, 1500);
+    isSavingBrandLinkQueueRef.current = false;
+    resolvePendingBrandLinkOperations({ ok: true });
+    if (pendingBrandLinkOperationsRef.current.length > 0) {
+      void flushBrandLinkQueue();
+    }
+  }
+
+  async function queueBrandLinkOperation(op: QueuedBrandLinkOperation): Promise<BrandLinkSaveResult> {
+    const result = await new Promise<BrandLinkSaveResult>((resolve) => {
+      pendingBrandLinkOperationsRef.current.push(op);
+      pendingBrandLinkOperationResolversRef.current.push((payload) => {
+        resolve(payload);
+      });
+      if (brandLinkQueueTimerRef.current) {
+        clearTimeout(brandLinkQueueTimerRef.current);
+      }
+      brandLinkQueueTimerRef.current = setTimeout(() => {
+        void flushBrandLinkQueue();
+      }, BRAND_LINK_BATCH_DELAY_MS);
+    });
+
+    return result;
+  }
+
+  async function flushFieldQueue() {
+    if (isSavingFieldQueueRef.current) return;
+    if (!pendingFieldOperationsRef.current.length) return;
+
+    isSavingFieldQueueRef.current = true;
+    if (fieldQueueTimerRef.current) {
+      clearTimeout(fieldQueueTimerRef.current);
+      fieldQueueTimerRef.current = null;
+    }
+
+    const queue = [...pendingFieldOperationsRef.current];
+    pendingFieldOperationsRef.current = [];
+    setAddFieldStatus('Создание полей…');
+
+    let hasError: string | null = null;
+    for (const op of queue) {
+      const r = await window.matrica.parts.createAttributeDef({
+        code: op.code,
+        name: op.name,
+        dataType: op.dataType,
+        isRequired: op.isRequired,
+        sortOrder: op.sortOrder,
+        metaJson: op.metaJson,
+      });
+      if (!r?.ok) {
+        hasError = String(r.error ?? 'Ошибка создания поля');
+        break;
+      }
+
+      if (op.linkTargetCode) {
+        const ruleResult = await upsertLinkRule(op.name, op.linkTargetCode, { suppressReload: true });
+        if (!ruleResult.ok) {
+          hasError = ruleResult.error;
+          break;
+        }
+      }
+    }
+
+    if (hasError) {
+      setAddFieldStatus(`Ошибка: ${hasError}`);
+      isSavingFieldQueueRef.current = false;
+      resolvePendingFieldOperations({ ok: false, error: hasError });
+      if (pendingFieldOperationsRef.current.length > 0) {
+        void flushFieldQueue();
+      }
+      return;
+    }
+
+    await load();
+    await loadLinkRules();
+
+    const addedCount = queue.length;
+    setAddFieldStatus(addedCount > 1 ? `Добавлено полей: ${addedCount}` : 'Поле добавлено');
+    setTimeout(() => setAddFieldStatus(''), 1200);
+
+    isSavingFieldQueueRef.current = false;
+    resolvePendingFieldOperations({ ok: true });
+    if (pendingFieldOperationsRef.current.length > 0) {
+      void flushFieldQueue();
+    }
+  }
+
+  async function queueFieldOperation(op: QueuedFieldOperation): Promise<FieldOperationResult> {
+    const result = await new Promise<FieldOperationResult>((resolve) => {
+      pendingFieldOperationsRef.current.push(op);
+      pendingFieldOperationResolversRef.current.push((payload) => {
+        resolve(payload);
+      });
+      if (fieldQueueTimerRef.current) {
+        clearTimeout(fieldQueueTimerRef.current);
+      }
+      fieldQueueTimerRef.current = setTimeout(() => {
+        void flushFieldQueue();
+      }, FIELD_BATCH_DELAY_MS);
+    });
+
+    return result;
+  }
+
+  async function flushAttributeSaveQueue() {
+    if (isSavingAttributeQueueRef.current) return;
+    const entries = Array.from(pendingAttributeSaveValuesRef.current.entries());
+    if (!entries.length) return;
+
+    isSavingAttributeQueueRef.current = true;
+    if (attributeSaveTimerRef.current) {
+      clearTimeout(attributeSaveTimerRef.current);
+      attributeSaveTimerRef.current = null;
+    }
+
+    const queue = new Map(entries);
+    pendingAttributeSaveValuesRef.current.clear();
+
+    setStatus('Сохранение…');
+    let hasQueued = false;
+    let lastError: string | null = null;
+
+    for (const [code, value] of queue) {
+      const r = await saveAttributeCore(code, value, { suppressReload: true, suppressStatus: true });
+      if (!r.ok) {
+        lastError = r.error;
+        break;
+      }
+      if ((r as any).queued) {
+        hasQueued = true;
+      }
+    }
+
+    if (lastError) {
+      setStatus(`Ошибка: ${lastError}`);
+      isSavingAttributeQueueRef.current = false;
+      resolvePendingAttributeSaves({ ok: false, error: lastError });
+      if (pendingAttributeSaveValuesRef.current.size > 0) {
+        void flushAttributeSaveQueue();
+      }
+      return;
+    }
+
+    await load();
+    isSavingAttributeQueueRef.current = false;
+    const finalResult = hasQueued ? { ok: true, queued: true } : { ok: true };
+    setStatus(hasQueued ? 'Отправлено на утверждение (см. «Изменения»)' : 'Сохранено');
+    setTimeout(() => setStatus(''), 2000);
+    resolvePendingAttributeSaves(finalResult);
+    if (pendingAttributeSaveValuesRef.current.size > 0) {
+      void flushAttributeSaveQueue();
+    }
+  }
+
+  async function saveAttribute(code: string, value: unknown): Promise<SaveAttributeResult> {
+    if (!props.canEdit) return { ok: false, error: 'no permission' };
+    if (!part) return { ok: false, error: 'part not loaded' };
+
+    const previous = getAttributeCurrentValue(code);
+    if (Object.is(normalizeCoreFieldValue(previous), normalizeCoreFieldValue(value))) {
+      return { ok: true };
+    }
+
+    pendingAttributeSaveValuesRef.current.set(code, normalizeCoreFieldValue(value));
+
+    const result = await new Promise<SaveAttributeResult>((resolve) => {
+      pendingAttributeSaveResolversRef.current.push((payload) => {
+        resolve(payload);
+      });
+      if (attributeSaveTimerRef.current) {
+        clearTimeout(attributeSaveTimerRef.current);
+      }
+      attributeSaveTimerRef.current = setTimeout(() => {
+        void flushAttributeSaveQueue();
+      }, ATTRIBUTE_SAVE_BATCH_DELAY_MS);
+    });
+
+    return result;
+  }
+
+  async function saveAttributeCore(
+    code: string,
+    value: unknown,
+    options: SaveAttributeOptions = {},
+  ): Promise<SaveAttributeResult> {
     if (!props.canEdit) return { ok: false, error: 'no permission' };
     try {
-      setStatus('Сохранение…');
+      if (!options.suppressStatus) setStatus('Сохранение…');
       const r = await window.matrica.parts.updateAttribute({ partId: props.partId, attributeCode: code, value });
       if (!r.ok) {
-        setStatus(`Ошибка: ${r.error}`);
+        if (!options.suppressStatus) setStatus(`Ошибка: ${r.error}`);
         return r;
       }
       invalidateListAllPartsCache();
-      if ((r as any).queued) {
-        setStatus('Отправлено на утверждение (см. «Изменения»)');
-        setTimeout(() => setStatus(''), 2500);
-      } else {
-        setStatus('Сохранено');
-        setTimeout(() => setStatus(''), 2000);
+      if (!options.suppressReload) {
+        void load();
       }
-      void load();
+      if (!options.suppressStatus) {
+        if ((r as any).queued) {
+          setStatus('Отправлено на утверждение (см. «Изменения»)');
+          setTimeout(() => setStatus(''), 2500);
+        } else {
+          setStatus('Сохранено');
+          setTimeout(() => setStatus(''), 2000);
+        }
+      }
       return r as any;
     } catch (e) {
       const err = String(e);
-      setStatus(`Ошибка: ${err}`);
+      if (!options.suppressStatus) setStatus(`Ошибка: ${err}`);
       return { ok: false, error: err };
     }
   }
 
   async function saveCore() {
     if (!props.canEdit) return;
-    const supplierLabel = supplierId ? customerOptions.find((c) => c.id === supplierId)?.label ?? '' : '';
-    // Save sequentially (simple + predictable)
-    await saveAttribute('name', name);
-    await saveAttribute('article', article);
-    await saveAttribute('description', description);
-    await saveAttribute('purchase_date', fromInputDate(purchaseDate));
-    await saveAttribute('supplier_id', supplierId || null);
-    await saveAttribute('supplier', supplierLabel || supplier);
-    await saveAttribute('contract_id', contractId || null);
-    for (const c of STATUS_CODES) {
-      await saveAttribute(c, statusFlags[c] ?? false);
-      await saveAttribute(statusDateCode(c), statusDates[c] ?? null);
+    if (!part || isSavingCoreRef.current) return;
+    isSavingCoreRef.current = true;
+    const suppressReloadAndStatus = { suppressReload: true, suppressStatus: true };
+    try {
+      const byCode = new Map(part.attributes.map((a) => [a.code, a.value] as const));
+      const supplierLabel = supplierId ? customerOptions.find((c) => c.id === supplierId)?.label ?? '' : '';
+
+      const candidates: Array<[string, unknown]> = [
+        ['name', name],
+        ['article', article],
+        ['description', description],
+        ['purchase_date', fromInputDate(purchaseDate)],
+        ['supplier_id', supplierId || null],
+        ['supplier', supplierLabel || supplier],
+        ['contract_id', contractId || null],
+        ...STATUS_CODES.flatMap((code) => [[code, statusFlags[code] ?? false], [statusDateCode(code), statusDates[code] ?? null]] as const),
+      ];
+
+      const updates = candidates.filter(([code, nextValue]) => {
+        const prev = byCode.get(code);
+        return !Object.is(normalizeCoreFieldValue(prev), normalizeCoreFieldValue(nextValue));
+      });
+
+      if (updates.length === 0) {
+        setStatus('Нет изменений');
+        setTimeout(() => setStatus(''), 1000);
+        return;
+      }
+
+      setStatus('Сохранение…');
+      let hasQueued = false;
+      for (const [code, value] of updates) {
+        const r = await saveAttributeCore(code, value, suppressReloadAndStatus);
+        if (!r.ok) {
+          setStatus(`Ошибка: ${r.error}`);
+          return;
+        }
+        if ((r as any).queued) hasQueued = true;
+      }
+
+      await load();
+      setStatus(hasQueued ? 'Отправлено на утверждение (см. «Изменения»)' : 'Сохранено');
+      setTimeout(() => setStatus(''), 2000);
+    } finally {
+      isSavingCoreRef.current = false;
     }
   }
 
@@ -1364,16 +1851,10 @@ export function PartDetailsPage(props: {
               : undefined
           }
           onReset={props.canEdit ? () => void load().then(() => { dirtyRef.current = false; }) : undefined}
+          onPrint={printPartCard}
           onDelete={props.canDelete ? () => void handleDelete() : undefined}
           onClose={props.requestClose ? () => props.requestClose?.() : undefined}
         />
-      }
-      actions={
-        <RowActions>
-          <Button variant="ghost" tone="info" onClick={printPartCard}>
-            Распечатать
-          </Button>
-        </RowActions>
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
     >
@@ -1384,13 +1865,6 @@ export function PartDetailsPage(props: {
         <SectionCard
           title="Основное"
           style={{ borderRadius: 0, padding: 16 }}
-          actions={
-            props.canEdit ? (
-              <Button variant="ghost" tone="success" onClick={() => void saveCore()}>
-                Сохранить
-              </Button>
-            ) : undefined
-          }
         >
 
           <DraggableFieldList
@@ -1399,11 +1873,7 @@ export function PartDetailsPage(props: {
             canDrag={props.canEdit}
             onReorder={(next) => {
               if (!partTypeId) return;
-              void persistFieldOrder(
-                next.map((f) => f.code),
-                partDefs,
-                { entityTypeId: partTypeId },
-              ).then(() => setPartDefs([...partDefs]));
+              void queueFieldOrderOperation(next.map((f) => f.code), { startAt: 10 });
             }}
             renderItem={(field, itemProps, _dragHandleProps, state) => (
               <div
@@ -1614,11 +2084,7 @@ export function PartDetailsPage(props: {
               canDrag={props.canEdit}
               onReorder={(next) => {
                 if (!partTypeId) return;
-                void persistFieldOrder(
-                  next.map((a) => a.code),
-                  partDefs,
-                  { entityTypeId: partTypeId, startAt: 300 },
-                ).then(() => setPartDefs([...partDefs]));
+              void queueFieldOrderOperation(next.map((a) => a.code), { startAt: 300 });
               }}
               renderItem={(attr, itemProps, _dragHandleProps, state) => {
                 const value = editingAttr[attr.code] !== undefined ? editingAttr[attr.code] : attr.value;

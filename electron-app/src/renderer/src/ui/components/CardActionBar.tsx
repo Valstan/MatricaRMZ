@@ -6,6 +6,7 @@ export type CardActionBarProps = {
   onCopyToNew?: (() => void) | undefined;
   onSaveAndClose?: (() => void) | undefined;
   onReset?: (() => void) | undefined;
+  onPrint?: (() => void) | undefined;
   onDelete?: (() => void) | undefined;
   onClose?: (() => void) | undefined;
 };
@@ -55,6 +56,11 @@ export function CardActionBar(props: CardActionBarProps) {
           {props.canEdit && props.onReset && (
             <Button variant="ghost" title="Сбросить внесенные изменения" onClick={props.onReset}>
               Сброс
+            </Button>
+          )}
+          {props.onPrint && (
+            <Button variant="ghost" tone="info" title="Распечатать карточку" onClick={props.onPrint}>
+              Распечатать
             </Button>
           )}
           {props.onClose && (
