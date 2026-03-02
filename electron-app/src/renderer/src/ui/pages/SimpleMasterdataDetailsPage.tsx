@@ -202,6 +202,14 @@ export function SimpleMasterdataDetailsPage(props: {
     return created.id;
   }
 
+  function normalizeNumberValue(raw: string): number | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.replace(',', '.');
+    const value = Number(normalized);
+    return Number.isFinite(value) ? value : null;
+  }
+
   useEffect(() => {
     if (!props.canEdit || !entityTypeId || defs.length === 0 || coreDefsReady) return;
     const desired = [
@@ -227,11 +235,15 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
-      await window.matrica.admin.entities.setAttr(props.entityId, 'name', name.trim());
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, 'name', name.trim());
+      if (!r?.ok) {
+        throw new Error(r?.error ?? 'save failed');
+      }
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 700);
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+      throw e;
     }
   }
 
@@ -239,11 +251,15 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
-      await window.matrica.admin.entities.setAttr(props.entityId, 'description', description.trim() || null);
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, 'description', description.trim() || null);
+      if (!r?.ok) {
+        throw new Error(r?.error ?? 'save failed');
+      }
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 700);
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+      throw e;
     }
   }
 
@@ -263,27 +279,38 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
-      await window.matrica.admin.entities.setAttr(props.entityId, code, value);
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, code, value);
+      if (!r?.ok) {
+        throw new Error(r?.error ?? 'save failed');
+      }
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 700);
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+      throw e;
     }
   }
 
-  async function saveAllAndClose() {
-    if (props.canEdit) {
-      await saveName();
-      await saveDescription();
-      await saveField('shop', shop.trim() || null);
-      await saveField('article', article.trim() || null);
-      await saveField('unit', unit.trim() || null);
-      await saveField('price', price ? Number(price) : null);
-      if (props.typeCode === 'service') {
-        await saveField('part_ids', partIds);
-      }
+  async function saveAll() {
+    if (!props.canEdit) return;
+    await saveName();
+    await saveDescription();
+    await saveField('shop', shop.trim() || null);
+    await saveField('article', article.trim() || null);
+    await saveField('unit', unit.trim() || null);
+    const parsedPrice = normalizeNumberValue(price);
+    if (price.trim() && parsedPrice == null) {
+      throw new Error('Цена должна быть числом');
+    }
+    await saveField('price', parsedPrice);
+    if (props.typeCode === 'service') {
+      await saveField('part_ids', partIds);
     }
     dirtyRef.current = false;
+  }
+
+  async function saveAllAndClose() {
+    await saveAll();
   }
 
   async function handleDelete() {
@@ -331,7 +358,19 @@ export function SimpleMasterdataDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [name, entityTypeId, props.registerCardCloseActions]);
+  }, [
+    name,
+    description,
+    shop,
+    article,
+    unit,
+    price,
+    partIds.join(','),
+    props.canEdit,
+    props.typeCode,
+    entityTypeId,
+    props.registerCardCloseActions,
+  ]);
 
   useLiveDataRefresh(
     async () => {
@@ -685,6 +724,8 @@ export function SimpleMasterdataDetailsPage(props: {
         value: price,
         render: (
           <Input
+            type="number"
+            step="0.01"
             value={price}
             disabled={!props.canEdit}
             onChange={(e) => { dirtyRef.current = true; setPrice(e.target.value); }}
@@ -729,6 +770,9 @@ export function SimpleMasterdataDetailsPage(props: {
       cardActions={
         <CardActionBar
           canEdit={props.canEdit}
+          onSave={() => {
+            void saveAll().catch(() => undefined);
+          }}
           onCopyToNew={() => {
             void (async () => {
               if (!entityTypeId) return;
@@ -738,7 +782,11 @@ export function SimpleMasterdataDetailsPage(props: {
               }
             })();
           }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAndClose={() => {
+            void saveAllAndClose()
+              .then(() => props.onClose())
+              .catch(() => undefined);
+          }}
           onReset={() => {
             void load().then(() => {
               dirtyRef.current = false;

@@ -778,7 +778,9 @@ export async function listEntitiesByType(entityTypeId: string) {
 
   const { byCode } = await getDefsByType(entityTypeId);
   const typeRows = await db.select({ code: entityTypes.code }).from(entityTypes).where(eq(entityTypes.id, entityTypeId as any)).limit(1);
-  const isEngineType = String(typeRows[0]?.code ?? '').toLowerCase() === 'engine';
+  const typeCode = String(typeRows[0]?.code ?? '').toLowerCase();
+  const isEngineType = typeCode === 'engine';
+  const isServiceType = typeCode === 'service';
   const scrapDefId = isEngineType ? byCode['is_scrap'] : null;
   const statusRejectedDefId = isEngineType ? byCode['status_rejected'] : null;
   const entityIds = rows.map((r) => String(r.id));
@@ -786,6 +788,7 @@ export async function listEntitiesByType(entityTypeId: string) {
   const isScrapByEntity = new Map<string, boolean>();
   const isStatusRejectedByEntity = new Map<string, boolean>();
   const isDefectScrapByEntity = new Map<string, boolean>();
+  const priceByEntity = new Map<string, number | null>();
 
   if (isEngineType && entityIds.length > 0) {
     const defIds = [scrapDefId, statusRejectedDefId].filter(Boolean) as string[];
@@ -829,6 +832,23 @@ export async function listEntitiesByType(entityTypeId: string) {
     }
   }
 
+  const priceDefId = isServiceType ? byCode['price'] : null;
+  if (priceDefId && entityIds.length > 0) {
+    const priceRows = await db
+      .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .where(and(inArray(attributeValues.entityId, entityIds as any), eq(attributeValues.attributeDefId, priceDefId as any), isNull(attributeValues.deletedAt)))
+      .limit(50_000);
+    for (const row of priceRows as any[]) {
+      const rawValue = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
+      const value = typeof rawValue === 'number' && Number.isFinite(rawValue)
+        ? rawValue
+        : typeof rawValue === 'string' ? Number(rawValue.trim().replace(',', '.'))
+        : null;
+      priceByEntity.set(String(row.entityId), Number.isFinite(value) ? value : null);
+    }
+  }
+
   const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
   const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
 
@@ -859,6 +879,7 @@ export async function listEntitiesByType(entityTypeId: string) {
           isDefectScrap: Boolean(isDefectScrapByEntity.get(String(e.id))),
         }
       : {}),
+    ...(isServiceType ? { price: priceByEntity.get(String(e.id)) } : {}),
   }));
 }
 

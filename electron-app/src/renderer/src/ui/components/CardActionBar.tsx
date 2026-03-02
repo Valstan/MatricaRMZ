@@ -4,6 +4,7 @@ import { Button } from './Button.js';
 export type CardActionBarProps = {
   canEdit: boolean;
   onCopyToNew?: (() => void) | undefined;
+  onSave?: (() => void) | undefined;
   onSaveAndClose?: (() => void) | undefined;
   onReset?: (() => void) | undefined;
   onPrint?: (() => void) | undefined;
@@ -35,6 +36,11 @@ export function CardActionBar(props: CardActionBarProps) {
           {props.canEdit && props.onCopyToNew && (
             <Button variant="ghost" title="Создать новую карточку с этими же данными" onClick={props.onCopyToNew}>
               Скопировать в новую карточку
+            </Button>
+          )}
+          {props.canEdit && props.onSave && (
+            <Button variant="ghost" tone="success" title="Сохранить изменения" onClick={props.onSave}>
+              Сохранить
             </Button>
           )}
           {props.canEdit && props.onSaveAndClose && (

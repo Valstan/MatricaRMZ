@@ -6,7 +6,6 @@ import { parseContractSections, STATUS_CODES, STATUS_LABELS, statusDateCode, typ
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
-import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -244,6 +243,21 @@ export function EngineDetailsPage(props: {
     sessionHadChanges.current = false;
   }, [props.engineId]);
 
+  function asNullableText(v: unknown): string | null {
+    const s = String(v ?? '').trim();
+    return s ? s : null;
+  }
+
+  function sameValue(a: unknown, b: unknown): boolean {
+    if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
+    const aNum = typeof a === 'number' ? a : typeof a === 'string' && a.trim() !== '' ? Number(a) : null;
+    const bNum = typeof b === 'number' ? b : typeof b === 'string' && b.trim() !== '' ? Number(b) : null;
+    if (Number.isFinite(aNum) || Number.isFinite(bNum)) {
+      return Number.isFinite(aNum) && Number.isFinite(bNum) ? Number(aNum) === Number(bNum) : false;
+    }
+    return (a == null ? null : String(a)) === (b == null ? null : String(b));
+  }
+
   async function saveAttr(code: string, value: unknown) {
     if (!props.canEditEngines) return;
     try {
@@ -259,17 +273,50 @@ export function EngineDetailsPage(props: {
 
   async function saveAllAndClose() {
     if (props.canEditEngines) {
+      const attrs = props.engine.attributes ?? {};
       const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
       const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
-      await saveAttr('engine_number', engineNumber);
-      await saveAttr('engine_brand_id', engineBrandId || null);
-      await saveAttr('engine_brand', brandLabel || null);
-      await saveAttr('arrival_date', fromInputDate(arrivalDate));
-      await saveAttr('customer_id', customerId || null);
-      await saveAttr('contract_id', contractId || null);
+
+      const nextValues: Record<string, unknown> = {
+        engine_number: engineNumber,
+        engine_brand_id: asNullableText(engineBrandId),
+        engine_brand: asNullableText(brandLabel),
+        arrival_date: fromInputDate(arrivalDate),
+        customer_id: asNullableText(customerId),
+        contract_id: asNullableText(contractId),
+      };
       for (const c of STATUS_CODES) {
-        await saveAttr(c, statusFlags[c] ?? false);
-        await saveAttr(statusDateCode(c), statusDates[c] ?? null);
+        nextValues[c] = Boolean(statusFlags[c]);
+        nextValues[statusDateCode(c)] = statusDates[c] ?? null;
+      }
+
+      const currentValues: Record<string, unknown> = {
+        engine_number: String(attrs.engine_number ?? ''),
+        engine_brand_id: asNullableText(attrs.engine_brand_id),
+        engine_brand: asNullableText(attrs.engine_brand),
+        arrival_date: normalizeDateInput(attrs.arrival_date),
+        customer_id: asNullableText(attrs.customer_id),
+        contract_id: asNullableText(attrs.contract_id),
+      };
+      for (const c of STATUS_CODES) {
+        currentValues[c] = Boolean(attrs[c]);
+        currentValues[statusDateCode(c)] = normalizeDateInput(attrs[statusDateCode(c)]);
+      }
+
+      const changedEntries = Object.entries(nextValues).filter(([code, nextValue]) => !sameValue(currentValues[code], nextValue));
+      if (changedEntries.length > 0) {
+        try {
+          setSaveStatus('Сохраняю...');
+          for (const [code, value] of changedEntries) {
+            await window.matrica.engines.setAttr(props.engineId, code, value);
+          }
+          await props.onEngineUpdated();
+          setSaveStatus('Сохранено');
+          setTimeout(() => setSaveStatus(''), 700);
+        } catch (e) {
+          setSaveStatus(`Ошибка сохранения: ${String(e)}`);
+          throw e;
+        }
       }
     }
     sessionHadChanges.current = false;
@@ -355,7 +402,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, contractId, statusFlags, statusDates, props.registerCardCloseActions]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, statusFlags, statusDates, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
     try {
@@ -629,6 +676,20 @@ export function EngineDetailsPage(props: {
   const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
   const arrivalDateMsForChecklist = fromInputDate(arrivalDate);
+  const handlePrint = () => {
+    const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
+    printEngineReport(
+      props.engine,
+      {
+        engineNumber,
+        engineBrand,
+        arrivalDate,
+        customer: pickLabel('customer_id', customerId),
+        contract: pickLabel('contract_id', contractId),
+      },
+      orderedPrintRows,
+    );
+  };
 
   return (
     <EntityCardShell
@@ -653,35 +714,10 @@ export function EngineDetailsPage(props: {
               sessionHadChanges.current = false;
             });
           }}
+          onPrint={props.canPrintEngineCard ? handlePrint : undefined}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
         />
-      }
-      actions={
-        <RowActions>
-          {props.canPrintEngineCard && (
-            <Button
-              variant="ghost"
-              tone="info"
-              onClick={() => {
-                const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
-                printEngineReport(
-                  props.engine,
-                  {
-                    engineNumber,
-                    engineBrand,
-                    arrivalDate,
-                    customer: pickLabel('customer_id', customerId),
-                    contract: pickLabel('contract_id', contractId),
-                  },
-                  orderedPrintRows,
-                );
-              }}
-            >
-              Распечатать
-            </Button>
-          )}
-        </RowActions>
       }
       status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div> : null}
     >
@@ -742,7 +778,7 @@ export function EngineDetailsPage(props: {
           <div style={{ flex: 1 }} />
           {props.canEditEngines && (
             <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
-              Автосохранение: номер — при выходе из поля, марка/связи — сразу при выборе.
+              Изменения сохраняются одним действием при закрытии карточки.
             </div>
           )}
         </div>

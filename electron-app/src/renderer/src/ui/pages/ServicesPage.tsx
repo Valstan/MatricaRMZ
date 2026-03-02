@@ -16,8 +16,9 @@ type Row = {
   displayName?: string;
   searchText?: string;
   updatedAt: number;
+  price?: unknown;
 };
-type SortKey = 'displayName' | 'updatedAt';
+type SortKey = 'displayName' | 'updatedAt' | 'price';
 
 export function ServicesPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -87,12 +88,26 @@ export function ServicesPage(props: {
     filtered,
     listState.sortKey as SortKey,
     listState.sortDir,
-    (row, key) => (key === 'updatedAt' ? Number(row.updatedAt ?? 0) : String(row.displayName ?? '').toLowerCase()),
+    (row, key) => {
+      if (key === 'updatedAt') return Number(row.updatedAt ?? 0);
+      if (key === 'price') {
+        const value = typeof row.price === 'number' ? row.price : Number(String(row.price ?? '').trim().replace(',', '.'));
+        return Number.isFinite(value) ? value : 0;
+      }
+      return String(row.displayName ?? '').toLowerCase();
+    },
     (row) => row.id,
   );
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
   }
+
+  const formatPrice = (price: unknown): string => {
+    if (price == null) return '—';
+    const value = typeof price === 'number' ? price : Number(String(price).trim().replace(',', '.'));
+    if (!Number.isFinite(value)) return String(price);
+    return value.toLocaleString('ru-RU');
+  };
 
   const tableHeader = (
     <thead>
@@ -102,6 +117,9 @@ export function ServicesPage(props: {
         </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
           Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
+        </th>
+        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('price')}>
+          Цена {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'price')}
         </th>
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
       </tr>
@@ -116,7 +134,7 @@ export function ServicesPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={4} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет услуг' : 'Не найдено'}
                 </td>
               </tr>
@@ -137,6 +155,7 @@ export function ServicesPage(props: {
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
                   {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
                 </td>
+                <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{formatPrice(row.price)}</td>
                 <td style={{ padding: '10px 12px' }}>
                   {props.canDelete && (
                     <Button

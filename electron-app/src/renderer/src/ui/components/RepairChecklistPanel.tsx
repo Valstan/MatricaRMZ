@@ -202,6 +202,47 @@ function toQtyValue(v: unknown) {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }
 
+const BRAND_ROW_SOURCE_KEY = '__brand_source';
+const BRAND_ROW_PART_ID_KEY = '__brand_part_id';
+const BRAND_ROW_SOURCE_VALUE = 'engine_brand';
+
+type ChecklistTableRow = Record<string, string | boolean | number>;
+
+function normalizeChecklistSignaturePart(v: unknown) {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+function defectRowSignature(row: ChecklistTableRow) {
+  return `${normalizeChecklistSignaturePart((row as any).part_name)}::${normalizeChecklistSignaturePart((row as any).part_number)}`;
+}
+
+function completenessRowSignature(row: ChecklistTableRow) {
+  return `${normalizeChecklistSignaturePart((row as any).part_name)}::${normalizeChecklistSignaturePart((row as any).assembly_unit_number)}`;
+}
+
+function getBrandPartId(row: ChecklistTableRow): string {
+  return String((row as any)?.[BRAND_ROW_PART_ID_KEY] ?? '').trim();
+}
+
+function isBrandLinkedChecklistRow(row: ChecklistTableRow): boolean {
+  return String((row as any)?.[BRAND_ROW_SOURCE_KEY] ?? '') === BRAND_ROW_SOURCE_VALUE && getBrandPartId(row) !== '';
+}
+
+function markBrandLinkedRow(row: ChecklistTableRow, partId: string): ChecklistTableRow {
+  return {
+    ...row,
+    [BRAND_ROW_SOURCE_KEY]: BRAND_ROW_SOURCE_VALUE,
+    [BRAND_ROW_PART_ID_KEY]: String(partId),
+  };
+}
+
+function clearBrandRowMeta(row: ChecklistTableRow): ChecklistTableRow {
+  const next = { ...row } as Record<string, string | boolean | number | undefined>;
+  delete next[BRAND_ROW_SOURCE_KEY];
+  delete next[BRAND_ROW_PART_ID_KEY];
+  return next as ChecklistTableRow;
+}
+
 function emptyAnswersForTemplate(t: RepairChecklistTemplate): RepairChecklistAnswers {
   const ans: RepairChecklistAnswers = {};
   for (const it of t.items) {
@@ -237,7 +278,11 @@ export function RepairChecklistPanel(props: {
   const [payload, setPayload] = useState<RepairChecklistPayload | null>(null);
   const [answers, setAnswers] = useState<RepairChecklistAnswers>({});
   const [collapsed, setCollapsed] = useState<boolean>(props.defaultCollapsed === true);
-  const prefillKey = useRef<string>('');
+  const [loadVersion, setLoadVersion] = useState(0);
+  const brandRowsSyncKeyRef = useRef<string>('');
+  const lastSavedAnswersRef = useRef<string>('');
+  const saveInFlightRef = useRef(false);
+  const queuedSaveAnswersRef = useRef<RepairChecklistAnswers | null>(null);
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
   const [defectOptions, setDefectOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [defectPartMetaByLabel, setDefectPartMetaByLabel] = useState<Record<string, { partNumber: string; quantity: number }>>({});
@@ -300,6 +345,7 @@ export function RepairChecklistPanel(props: {
     setPayload(r.payload ?? null);
 
     const t = (r.templates ?? []).find((x) => x.id === preferred) ?? (r.templates?.[0] ?? null);
+    let nextAnswers: RepairChecklistAnswers = {};
     if (r.payload?.answers) {
       const base = r.payload.answers;
       const normalized =
@@ -308,13 +354,14 @@ export function RepairChecklistPanel(props: {
           : props.stage === 'completeness'
             ? normalizeCompletenessAnswers(t ?? null, base)
             : { next: base, changed: false };
-      setAnswers(normalized.next);
+      nextAnswers = normalized.next;
     } else if (t) {
-      setAnswers(emptyAnswersForTemplate(t));
-    } else {
-      setAnswers({});
+      nextAnswers = emptyAnswersForTemplate(t);
     }
-
+    setAnswers(nextAnswers);
+    lastSavedAnswersRef.current = safeJsonStringify({ templateId: preferred, answers: nextAnswers });
+    brandRowsSyncKeyRef.current = '';
+    setLoadVersion((v) => v + 1);
     setStatus('');
   }
 
@@ -606,83 +653,130 @@ export function RepairChecklistPanel(props: {
     return opt.id;
   }
 
-  useEffect(() => {
-    if (!activeTemplate) return;
-    if (props.stage !== 'defect') return;
-    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
-    if (!tableItem) return;
-    if (payload?.answers) return;
-    const existing = (answers as any)[tableItem.id];
-    if (existing?.kind === 'table' && Array.isArray(existing.rows) && existing.rows.length > 0) {
-      prefillKey.current = `${props.engineBrandId ?? ''}:${activeTemplate.id}`;
-      return;
+  function mergeBrandManagedRows(
+    currentRows: ChecklistTableRow[],
+    freshBrandRows: ChecklistTableRow[],
+    getSignature: (row: ChecklistTableRow) => string,
+    mergeEditableFields: (base: ChecklistTableRow, prev: ChecklistTableRow | null) => ChecklistTableRow,
+  ) {
+    const currentByBrandPartId = new Map<string, ChecklistTableRow>();
+    const currentBySignature = new Map<string, ChecklistTableRow>();
+    for (const row of currentRows) {
+      const rowPartId = getBrandPartId(row);
+      if (rowPartId) currentByBrandPartId.set(rowPartId, row);
+      const signature = getSignature(row);
+      if (signature && !currentBySignature.has(signature)) currentBySignature.set(signature, row);
     }
-    if (!props.engineBrandId) return;
-    const key = `${props.engineBrandId}:${activeTemplate.id}`;
-    if (prefillKey.current === key) return;
-    prefillKey.current = key;
-    void (async () => {
-      const r = await listAllParts(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {});
-      if (!r.ok) return;
-      const rows = r.parts.map((p) => {
-        const link = getBrandLinkForPart(p, props.engineBrandId);
-        const qty = toQtyValue(link?.quantity ?? 0);
-        return {
-          part_name: String(p.name ?? p.article ?? p.id),
-          part_number: String(link?.partNumber ?? ''),
-          quantity: qty,
-          repairable_qty: qty,
-          scrap_qty: 0,
-        };
-      });
-      const normalized = normalizeDefectRows(rows as any);
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
-      setAnswers(next);
-      if (props.canEdit) void save(next);
-    })();
-  }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
+
+    const managedBrandSignatures = new Set<string>();
+    const mergedManagedRows = freshBrandRows.map((base) => {
+      const signature = getSignature(base);
+      managedBrandSignatures.add(signature);
+      const prev = currentByBrandPartId.get(getBrandPartId(base)) ?? currentBySignature.get(signature) ?? null;
+      return mergeEditableFields(base, prev);
+    });
+
+    const manualRows = currentRows.filter((row) => {
+      if (getBrandPartId(row)) return false;
+      const signature = getSignature(row);
+      return signature ? !managedBrandSignatures.has(signature) : true;
+    });
+
+    return [...mergedManagedRows, ...manualRows.map(clearBrandRowMeta)];
+  }
 
   useEffect(() => {
     if (!activeTemplate) return;
-    if (props.stage !== 'completeness') return;
-    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'completeness_items');
+    if (props.stage !== 'defect' && props.stage !== 'completeness') return;
+    const tableId = props.stage === 'defect' ? 'defect_items' : 'completeness_items';
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === tableId);
     if (!tableItem) return;
-    if (payload?.answers) return;
-    const existing = (answers as any)[tableItem.id];
-    if (existing?.kind === 'table' && Array.isArray(existing.rows) && existing.rows.length > 0) {
-      prefillKey.current = `${props.engineBrandId ?? ''}:${activeTemplate.id}`;
-      return;
-    }
-    if (!props.engineBrandId) return;
-    const key = `${props.engineBrandId}:${activeTemplate.id}`;
-    if (prefillKey.current === key) return;
-    prefillKey.current = key;
+    const syncKey = `${loadVersion}:${props.engineId}:${props.stage}:${activeTemplate.id}:${props.engineBrandId ?? ''}:${tableId}`;
+    if (brandRowsSyncKeyRef.current === syncKey) return;
+    brandRowsSyncKeyRef.current = syncKey;
+
     void (async () => {
-      const r = await listAllParts(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {});
-      if (!r.ok) return;
-      const rows = r.parts.map((p: any) => {
+      const current = (answers as any)[tableItem.id];
+      const currentRows: ChecklistTableRow[] =
+        current?.kind === 'table' && Array.isArray(current.rows) ? ((current.rows as ChecklistTableRow[]) ?? []) : [];
+      if (!props.engineBrandId) {
+        const normalizedRows = currentRows.map(clearBrandRowMeta);
+        const nextJson = safeJsonStringify(normalizedRows);
+        const currJson = safeJsonStringify(currentRows);
+        if (nextJson === currJson) return;
+        const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
+        setAnswers(next);
+        if (props.canEdit) void save(next);
+        return;
+      }
+      const parts = await listAllParts({ engineBrandId: props.engineBrandId });
+      if (!parts.ok) {
+        setStatus(`Ошибка: ${parts.error}`);
+        return;
+      }
+
+      if (props.stage === 'defect') {
+        const freshBrandRows = (parts.parts as any[]).map((p: any) => {
+          const link = getBrandLinkForPart(p, props.engineBrandId);
+          const qty = toQtyValue(link?.quantity ?? 0);
+          return markBrandLinkedRow(
+            {
+              part_name: String(p.name ?? p.article ?? p.id),
+              part_number: String(link?.partNumber ?? ''),
+              quantity: qty,
+              repairable_qty: qty,
+              scrap_qty: 0,
+            },
+            String((p as any).id ?? ''),
+          );
+        });
+        const merged = mergeBrandManagedRows(currentRows, freshBrandRows, defectRowSignature, (base, prev) => ({
+          ...base,
+          scrap_qty: toQtyValue((prev as any)?.scrap_qty ?? 0),
+        }));
+        const normalizedRows = normalizeDefectRows(merged as any).rows as ChecklistTableRow[];
+        const nextJson = safeJsonStringify(normalizedRows);
+        const currJson = safeJsonStringify(currentRows);
+        if (nextJson === currJson) return;
+        const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
+        setAnswers(next);
+        if (props.canEdit) void save(next);
+        return;
+      }
+
+      const freshBrandRows = (parts.parts as any[]).map((p: any) => {
         const link = getBrandLinkForPart(p, props.engineBrandId);
-        return {
-          part_name: String(p.name ?? p.article ?? p.id),
-          assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
-          quantity: toQtyValue(link?.quantity ?? 0),
-          present: false,
-          actual_qty: 0,
-        };
+        return markBrandLinkedRow(
+          {
+            part_name: String(p.name ?? p.article ?? p.id),
+            assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+            quantity: toQtyValue(link?.quantity ?? 0),
+            present: false,
+            actual_qty: 0,
+          },
+          String((p as any).id ?? ''),
+        );
       });
-      const normalized = normalizeCompletenessRows(rows as any);
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
+      const merged = mergeBrandManagedRows(currentRows, freshBrandRows, completenessRowSignature, (base, prev) => ({
+        ...base,
+        present: Boolean((prev as any)?.present),
+        actual_qty: toQtyValue((prev as any)?.actual_qty ?? 0),
+      }));
+      const normalizedRows = normalizeCompletenessRows(merged as any).rows as ChecklistTableRow[];
+      const nextJson = safeJsonStringify(normalizedRows);
+      const currJson = safeJsonStringify(currentRows);
+      if (nextJson === currJson) return;
+      const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
-  }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
+  }, [activeTemplate?.id, answers, loadVersion, props.canEdit, props.engineBrandId, props.engineId, props.stage]);
 
   // Note: normalization happens on load/save to avoid focus loss on each keystroke.
 
   async function save(nextAnswers: RepairChecklistAnswers) {
     if (!activeTemplate) return;
     if (!props.canEdit) return;
-    setStatus('Сохранение...');
     const normalized =
       props.stage === 'defect'
         ? normalizeDefectAnswers(activeTemplate, nextAnswers)
@@ -690,6 +784,16 @@ export function RepairChecklistPanel(props: {
           ? normalizeCompletenessAnswers(activeTemplate, nextAnswers)
           : { next: nextAnswers, changed: false };
     if (normalized.changed) setAnswers(normalized.next);
+
+    const snapshot = safeJsonStringify({ templateId: activeTemplate.id, answers: normalized.next });
+    if (snapshot && snapshot === lastSavedAnswersRef.current) return;
+    if (saveInFlightRef.current) {
+      queuedSaveAnswersRef.current = normalized.next;
+      return;
+    }
+
+    saveInFlightRef.current = true;
+    setStatus('Сохранение...');
     const r = await window.matrica.checklists.engineSave({
       engineId: props.engineId,
       stage: props.stage,
@@ -697,66 +801,24 @@ export function RepairChecklistPanel(props: {
       operationId,
       answers: normalized.next,
     });
+    saveInFlightRef.current = false;
+
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);
       return;
     }
     setOperationId(r.operationId);
+    lastSavedAnswersRef.current = snapshot;
     setStatus('Сохранено');
-    // слегка “успокаиваем” статус
     setTimeout(() => setStatus(''), 700);
-  }
 
-  async function restoreDefectRowsFromBrand() {
-    if (!activeTemplate || !props.engineBrandId) return;
-    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
-    if (!tableItem) return;
-    const r = await listAllParts({ engineBrandId: props.engineBrandId });
-    if (!r.ok) {
-      setStatus(`Ошибка: ${r.error}`);
-      return;
+    const queued = queuedSaveAnswersRef.current;
+    queuedSaveAnswersRef.current = null;
+    if (!queued) return;
+    const queuedSnapshot = safeJsonStringify({ templateId: activeTemplate.id, answers: queued });
+    if (queuedSnapshot && queuedSnapshot !== lastSavedAnswersRef.current) {
+      void save(queued);
     }
-    const rows = r.parts.map((p: any) => {
-      const link = getBrandLinkForPart(p, props.engineBrandId);
-      const qty = toQtyValue(link?.quantity ?? 0);
-      return {
-        part_name: String(p.name ?? p.article ?? p.id),
-        part_number: String(link?.partNumber ?? ''),
-        quantity: qty,
-        repairable_qty: qty,
-        scrap_qty: 0,
-      };
-    });
-    const normalized = normalizeDefectRows(rows as any);
-    const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
-    setAnswers(next);
-    if (props.canEdit) await save(next);
-  }
-
-  async function restoreCompletenessRowsFromBrand() {
-    if (!activeTemplate || !props.engineBrandId) return;
-    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'completeness_items');
-    if (!tableItem) return;
-    const r = await listAllParts({ engineBrandId: props.engineBrandId });
-    if (!r.ok) {
-      setStatus(`Ошибка: ${r.error}`);
-      return;
-    }
-    const rows = r.parts.map((p: any) => {
-      const link = getBrandLinkForPart(p, props.engineBrandId);
-      const qty = toQtyValue(link?.quantity ?? 0);
-      return {
-        part_name: String(p.name ?? p.article ?? p.id),
-        assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
-        quantity: qty,
-        present: false,
-        actual_qty: 0,
-      };
-    });
-    const normalized = normalizeCompletenessRows(rows as any);
-    const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
-    setAnswers(next);
-    if (props.canEdit) await save(next);
   }
 
   function exportJson() {
@@ -973,19 +1035,10 @@ export function RepairChecklistPanel(props: {
         <div style={{ color: '#64748b', fontSize: 12 }}>
           stage: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{props.stage}</span>
         </div>
-        {(props.stage === 'defect' || props.stage === 'completeness') && props.canEdit && props.engineBrandId && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (props.stage === 'defect') {
-                void restoreDefectRowsFromBrand();
-                return;
-              }
-              void restoreCompletenessRowsFromBrand();
-            }}
-          >
-            Восстановить список деталей из марки двигателя
-          </Button>
+        {(props.stage === 'defect' || props.stage === 'completeness') && (
+          <div style={{ color: '#64748b', fontSize: 12 }}>
+            Список деталей из марки двигателя синхронизируется автоматически при открытии карточки.
+          </div>
         )}
         {props.stage === 'defect' && props.canEdit && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1162,7 +1215,10 @@ export function RepairChecklistPanel(props: {
                         const defectRenderers =
                           props.stage === 'defect' && it.id === 'defect_items'
                             ? {
-                                part_name: ({ rowIdx, columnId, value, setValue }: any) => {
+                                part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
+                                  if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
+                                    return <Input value={String(value ?? '')} disabled />;
+                                  }
                                   const current = String(value ?? '');
                                   const match = defectOptions.find((o) => o.label === current) ?? null;
                                   const valueId = match?.id ?? null;
@@ -1177,6 +1233,8 @@ export function RepairChecklistPanel(props: {
                                       onChange={(next) => {
                                         const selected = defectOptions.find((o) => o.id === next) ?? null;
                                         const label = selected?.label ?? '';
+                                        setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
+                                        setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
                                         setValue(rowIdx, columnId, label);
                                         const meta = defectPartMetaByLabel[label];
                                         if (meta) {
@@ -1198,7 +1256,10 @@ export function RepairChecklistPanel(props: {
                         const completenessRenderers =
                           props.stage === 'completeness' && it.id === 'completeness_items'
                             ? {
-                                part_name: ({ rowIdx, columnId, value, setValue }: any) => {
+                                part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
+                                  if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
+                                    return <Input value={String(value ?? '')} disabled />;
+                                  }
                                   const current = String(value ?? '');
                                   const match = completenessOptions.find((o) => o.label === current) ?? null;
                                   const valueId = match?.id ?? null;
@@ -1213,6 +1274,8 @@ export function RepairChecklistPanel(props: {
                                       onChange={(next) => {
                                         const selected = completenessOptions.find((o) => o.id === next) ?? null;
                                         const label = selected?.label ?? '';
+                                        setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
+                                        setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
                                         setValue(rowIdx, columnId, label);
                                         const meta = completenessPartMetaByLabel[label];
                                         if (meta) {
@@ -1325,6 +1388,7 @@ function TableEditor(props: {
     string,
     (args: {
       rowIdx: number;
+      row: Record<string, string | boolean | number>;
       columnId: string;
       value: string | boolean | number;
       setValue: (rowIdx: number, columnId: string, value: string | boolean | number, save?: boolean) => void;
@@ -1337,6 +1401,8 @@ function TableEditor(props: {
   const rows = props.rows ?? [];
   const isDefectItemsTable = props.tableId === 'defect_items';
   const isCompletenessItemsTable = props.tableId === 'completeness_items';
+  const isCompactModeSupported = isDefectItemsTable || isCompletenessItemsTable;
+  const [compactMode, setCompactMode] = useState(isCompactModeSupported);
 
   function getColumnSizing(columnId: string): React.CSSProperties | undefined {
     if (isDefectItemsTable) {
@@ -1383,9 +1449,166 @@ function TableEditor(props: {
     return false;
   }
 
+  function canDeleteRow(rowIdx: number): boolean {
+    if (!props.canEdit) return false;
+    const row = rows[rowIdx] ?? {};
+    if ((isDefectItemsTable || isCompletenessItemsTable) && isBrandLinkedChecklistRow(row as ChecklistTableRow)) return false;
+    return true;
+  }
+
+  function renderCellInput(rowIdx: number, column: { id: string; label: string; kind?: 'text' | 'boolean' | 'number' }) {
+    const row = rows[rowIdx] ?? {};
+    const value = (row as any)?.[column.id];
+    const isBrandIdentityFieldLocked =
+      isBrandLinkedChecklistRow(row as ChecklistTableRow) &&
+      ((isDefectItemsTable && (column.id === 'part_name' || column.id === 'part_number')) ||
+        (isCompletenessItemsTable && (column.id === 'part_name' || column.id === 'assembly_unit_number')));
+    const renderer = props.cellRenderers?.[column.id];
+    if (renderer) {
+      return renderer({ rowIdx, row, columnId: column.id, value, setValue: setCell });
+    }
+
+    if (column.kind === 'boolean') {
+      return (
+        <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            disabled={!props.canEdit}
+            onChange={(e) => {
+              if (!props.canEdit) return;
+              const next = rows.map((row, i) => {
+                if (i !== rowIdx) return row;
+                const nextRow: Record<string, string | boolean | number> = { ...row, [column.id]: e.target.checked };
+                if (isCompletenessItemsTable && column.id === 'present') {
+                  const qty = Math.max(0, toNumberValue((row as any).quantity ?? 0));
+                  nextRow.actual_qty = e.target.checked ? qty : 0;
+                }
+                return nextRow;
+              });
+              props.onChange(next);
+              props.onSave(next);
+            }}
+          />
+          <span style={{ color: '#6b7280', fontSize: 12 }}>{Boolean(value) ? 'да' : 'нет'}</span>
+        </label>
+      );
+    }
+
+    if (column.kind === 'number') {
+      const readOnly = isReadOnlyNumberColumn(rowIdx, column.id);
+      const maxQty = getQuantityByRowIndex(rowIdx);
+      return (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+          <Input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={String(value ?? '')}
+            style={{ minWidth: 72, maxWidth: compactMode ? 110 : undefined }}
+            disabled={!props.canEdit || readOnly}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!/^\d*$/.test(raw)) return;
+              if (raw === '') {
+                setCell(rowIdx, column.id, '');
+                return;
+              }
+              let next = Number(raw);
+              if (isDefectItemsTable && column.id === 'scrap_qty') next = Math.min(next, maxQty);
+              if (isCompletenessItemsTable && column.id === 'actual_qty') next = Math.min(next, maxQty);
+              setCell(rowIdx, column.id, next);
+            }}
+            onBlur={() => {
+              if (!props.canEdit || readOnly) return;
+              const current = (rows[rowIdx] as any)?.[column.id];
+              if (current === '' || current == null || Number.isNaN(current)) {
+                setCell(rowIdx, column.id, 0, true);
+                return;
+              }
+              props.onSave(rows);
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'row', gap: 4 }}>
+            <button
+              type="button"
+              onClick={() => {
+                const readOnly = isReadOnlyNumberColumn(rowIdx, column.id);
+                if (!props.canEdit || readOnly) return;
+                const next = Math.max(0, toNumberValue((rows[rowIdx] as any)?.[column.id]) - 1);
+                setCell(rowIdx, column.id, next, true);
+              }}
+              style={{
+                width: 30,
+                height: 28,
+                borderRadius: 6,
+                border: '1px solid var(--input-border)',
+                background: 'var(--input-bg)',
+                color: 'var(--text)',
+                cursor: props.canEdit && !isReadOnlyNumberColumn(rowIdx, column.id) ? 'pointer' : 'not-allowed',
+              }}
+              aria-label="Уменьшить"
+              disabled={!props.canEdit || isReadOnlyNumberColumn(rowIdx, column.id)}
+            >
+              -
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const readOnly = isReadOnlyNumberColumn(rowIdx, column.id);
+                if (!props.canEdit || readOnly) return;
+                let next = toNumberValue((rows[rowIdx] as any)?.[column.id]) + 1;
+                const maxQty = getQuantityByRowIndex(rowIdx);
+                if ((isDefectItemsTable && column.id === 'scrap_qty') || (isCompletenessItemsTable && column.id === 'actual_qty')) {
+                  next = Math.min(next, maxQty);
+                }
+                setCell(rowIdx, column.id, next, true);
+              }}
+              style={{
+                width: 30,
+                height: 28,
+                borderRadius: 6,
+                border: '1px solid var(--input-border)',
+                background: 'var(--input-bg)',
+                color: 'var(--text)',
+                cursor: props.canEdit && !isReadOnlyNumberColumn(rowIdx, column.id) ? 'pointer' : 'not-allowed',
+              }}
+              aria-label="Увеличить"
+              disabled={!props.canEdit || isReadOnlyNumberColumn(rowIdx, column.id)}
+            >
+              +
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <Input
+        value={String(value ?? '')}
+        style={isDefectItemsTable && column.id === 'part_number' ? { minWidth: 120 } : undefined}
+        disabled={!props.canEdit || isBrandIdentityFieldLocked}
+        onChange={(e) => setCell(rowIdx, column.id, e.target.value)}
+        onBlur={() => props.canEdit && props.onSave(rows)}
+      />
+    );
+  }
+
   return (
     <div style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflowX: 'auto', overflowY: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      {isCompactModeSupported && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid rgba(15, 23, 42, 0.1)' }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>
+            {compactMode ? 'Компактный режим: заполнение по строкам без горизонтальной прокрутки' : 'Табличный режим'}
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
+            <input type="checkbox" checked={compactMode} onChange={(e) => setCompactMode(e.target.checked)} />
+            <span>Компактный режим</span>
+          </label>
+        </div>
+      )}
+      {!compactMode ? (
+      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <thead>
           <tr style={{ background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 120%)', color: '#fff' }}>
             {cols.map((c) => (
@@ -1407,146 +1630,25 @@ function TableEditor(props: {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, idx) => (
+          {rows.map((_, idx) => (
             <tr key={idx}>
-              {cols.map((c) => {
-                const renderer = props.cellRenderers?.[c.id];
-                return (
+              {cols.map((c) => (
                 <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8, ...(getColumnSizing(c.id) ?? {}) }}>
-                  {renderer ? (
-                    renderer({ rowIdx: idx, columnId: c.id, value: (r as any)[c.id], setValue: setCell })
-                  ) : c.kind === 'boolean' ? (
-                    <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean((r as any)[c.id])}
-                        disabled={!props.canEdit}
-                        onChange={(e) => {
-                          if (!props.canEdit) return;
-                          const next = rows.map((row, i) => {
-                            if (i !== idx) return row;
-                            const nextRow: Record<string, string | boolean | number> = { ...row, [c.id]: e.target.checked };
-                            if (isCompletenessItemsTable && c.id === 'present') {
-                              const qty = Math.max(0, toNumberValue((row as any).quantity ?? 0));
-                              nextRow.actual_qty = e.target.checked ? qty : 0;
-                            }
-                            return nextRow;
-                          });
-                          props.onChange(next);
-                          props.onSave(next);
-                        }}
-                      />
-                      <span style={{ color: '#6b7280', fontSize: 12 }}>{(r as any)[c.id] ? 'да' : 'нет'}</span>
-                    </label>
-                  ) : c.kind === 'number' ? (
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {(() => {
-                        const readOnly = isReadOnlyNumberColumn(idx, c.id);
-                        const maxQty = getQuantityByRowIndex(idx);
-                        return (
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={String((r as any)[c.id] ?? '')}
-                        style={{ minWidth: 72 }}
-                        disabled={!props.canEdit || readOnly}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          if (!/^\d*$/.test(raw)) return;
-                          if (raw === '') {
-                            setCell(idx, c.id, '');
-                            return;
-                          }
-                          let next = Number(raw);
-                          if (isDefectItemsTable && c.id === 'scrap_qty') next = Math.min(next, maxQty);
-                          if (isCompletenessItemsTable && c.id === 'actual_qty') next = Math.min(next, maxQty);
-                          setCell(idx, c.id, next);
-                        }}
-                        onBlur={() => {
-                          if (!props.canEdit || readOnly) return;
-                          const current = (rows[idx] as any)?.[c.id];
-                          if (current === '' || current == null || Number.isNaN(current)) {
-                            setCell(idx, c.id, 0, true);
-                            return;
-                          }
-                          props.onSave(rows);
-                        }}
-                      />
-                        );
-                      })()}
-                      <div style={{ display: 'flex', flexDirection: 'row', gap: 4 }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const readOnly = isReadOnlyNumberColumn(idx, c.id);
-                            if (!props.canEdit || readOnly) return;
-                            const next = Math.max(0, toNumberValue((rows[idx] as any)?.[c.id]) - 1);
-                            setCell(idx, c.id, next, true);
-                          }}
-                          style={{
-                            width: 30,
-                            height: 28,
-                            borderRadius: 6,
-                            border: '1px solid var(--input-border)',
-                            background: 'var(--input-bg)',
-                            color: 'var(--text)',
-                            cursor: props.canEdit && !isReadOnlyNumberColumn(idx, c.id) ? 'pointer' : 'not-allowed',
-                          }}
-                          aria-label="Уменьшить"
-                          disabled={!props.canEdit || isReadOnlyNumberColumn(idx, c.id)}
-                        >
-                          -
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const readOnly = isReadOnlyNumberColumn(idx, c.id);
-                            if (!props.canEdit || readOnly) return;
-                            let next = toNumberValue((rows[idx] as any)?.[c.id]) + 1;
-                            const maxQty = getQuantityByRowIndex(idx);
-                            if ((isDefectItemsTable && c.id === 'scrap_qty') || (isCompletenessItemsTable && c.id === 'actual_qty')) {
-                              next = Math.min(next, maxQty);
-                            }
-                            setCell(idx, c.id, next, true);
-                          }}
-                          style={{
-                            width: 30,
-                            height: 28,
-                            borderRadius: 6,
-                            border: '1px solid var(--input-border)',
-                            background: 'var(--input-bg)',
-                            color: 'var(--text)',
-                            cursor: props.canEdit && !isReadOnlyNumberColumn(idx, c.id) ? 'pointer' : 'not-allowed',
-                          }}
-                          aria-label="Увеличить"
-                          disabled={!props.canEdit || isReadOnlyNumberColumn(idx, c.id)}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <Input
-                      value={String((r as any)[c.id] ?? '')}
-                      style={isDefectItemsTable && c.id === 'part_number' ? { minWidth: 120 } : undefined}
-                      disabled={!props.canEdit}
-                      onChange={(e) => setCell(idx, c.id, e.target.value)}
-                      onBlur={() => props.canEdit && props.onSave(rows)}
-                    />
-                  )}
+                  {renderCellInput(idx, c)}
                 </td>
-                );
-              })}
+              ))}
               {props.canEdit && (
                 <td style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
                   <Button
                     variant="ghost"
                     onClick={() => {
+                      if (!canDeleteRow(idx)) return;
                       const next = rows.filter((_, i) => i !== idx);
                       props.onChange(next);
                       props.onSave(next);
                     }}
+                    title={canDeleteRow(idx) ? undefined : 'Строка из марки двигателя обновляется автоматически'}
+                    disabled={!canDeleteRow(idx)}
                   >
                     Удалить
                   </Button>
@@ -1563,6 +1665,38 @@ function TableEditor(props: {
           )}
         </tbody>
       </table>
+      ) : (
+        <div style={{ padding: 10 }}>
+          {rows.map((r, idx) => (
+            <div key={idx} style={{ border: '1px solid rgba(15, 23, 42, 0.12)', borderRadius: 10, padding: 10, marginBottom: 8, background: '#ffffff' }}>
+              {cols.map((c) => (
+                <div key={c.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(190px, 34%) 1fr', gap: 10, alignItems: 'start', marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, color: '#334155', paddingTop: 7 }}>{c.label}</div>
+                  <div style={{ minWidth: 0 }}>{renderCellInput(idx, c)}</div>
+                </div>
+              ))}
+              {props.canEdit && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      if (!canDeleteRow(idx)) return;
+                      const next = rows.filter((_, i) => i !== idx);
+                      props.onChange(next);
+                      props.onSave(next);
+                    }}
+                    title={canDeleteRow(idx) ? undefined : 'Строка из марки двигателя обновляется автоматически'}
+                    disabled={!canDeleteRow(idx)}
+                  >
+                    Удалить
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+          {rows.length === 0 && <div style={{ padding: 10, color: '#64748b' }}>Пусто</div>}
+        </div>
+      )}
       {props.canEdit && (
         <div style={{ padding: 10, display: 'flex', gap: 10 }}>
           <Button
