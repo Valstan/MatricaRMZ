@@ -14,6 +14,7 @@ import {
   persistEngineBrandSummaries as persistEngineBrandSummariesShared,
   type EngineBrandSummarySyncState,
 } from '../utils/engineBrandSummary.js';
+import { listAllParts } from '../utils/partsPagination.js';
 
 type EntityTypeRow = { id: string; code: string; name: string; updatedAt: number; deletedAt: number | null };
 type AttrDefRow = {
@@ -135,7 +136,7 @@ export function MasterdataPage(props: {
       }) => window.matrica.admin.attributeDefs.upsert(args),
       setEntityAttr: async (entityId: string, code: string, value: number) =>
         window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
-      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number; offset?: number }) =>
         window.matrica.parts.list(args)
           .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
           .catch((error) => ({ ok: false as const, error: String(error) })),
@@ -666,7 +667,7 @@ export function MasterdataPage(props: {
 
   async function loadPartsOptions() {
     setPartsStatus('Загрузка списка деталей...');
-    const r = await window.matrica.parts.list({ limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+    const r = await listAllParts();
     if (!r.ok) {
       setPartsOptions([]);
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
@@ -687,14 +688,21 @@ export function MasterdataPage(props: {
 
   async function loadBrandParts(brandId: string) {
     if (!brandId) return;
-    const r = await window.matrica.parts.list({ engineBrandId: brandId, limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+    const allIds: string[] = [];
+    const seen = new Set<string>();
+    const r = await listAllParts({ q: '', engineBrandId: brandId }).catch(() => ({ ok: false as const, error: 'unknown' }));
     if (!r.ok) {
       setEngineBrandPartIds([]);
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return;
     }
-    const ids = r.parts.map((p) => String(p?.id || '')).filter(Boolean);
-    setEngineBrandPartIds(ids);
+    for (const part of r.parts) {
+      const partId = String((part as any)?.id || '').trim();
+      if (!partId || seen.has(partId)) continue;
+      seen.add(partId);
+      allIds.push(partId);
+    }
+    setEngineBrandPartIds(allIds);
   }
 
   async function updateBrandParts(nextIds: string[]) {

@@ -820,7 +820,7 @@ async function listPartBrandLinksInternal(args?: { partIds?: string[]; partId?: 
   return result;
 }
 
-export async function listParts(args?: { q?: string; limit?: number; engineBrandId?: string }): Promise<
+export async function listParts(args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string }): Promise<
   | {
       ok: true;
       parts: {
@@ -840,6 +840,7 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
   try {
     const typeId = await ensurePartEntityType();
     const limit = args?.limit ?? 1000;
+    const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0) || 0));
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const engineBrandId = args?.engineBrandId ? String(args.engineBrandId).trim() : '';
 
@@ -848,7 +849,8 @@ export async function listParts(args?: { q?: string; limit?: number; engineBrand
       .from(entities)
       .where(and(eq(entities.typeId, typeId), isNull(entities.deletedAt)))
       .orderBy(desc(entities.updatedAt))
-      .limit(limit);
+      .limit(limit)
+      .offset(offset);
     if (!entityRows.length) {
       return { ok: true, parts: [] };
     }

@@ -14,6 +14,7 @@ import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { listAllParts } from '../utils/partsPagination.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
 
@@ -171,7 +172,7 @@ export function SimpleMasterdataDetailsPage(props: {
           opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
           setStoreOptions(opts);
         }
-        const partRes = await window.matrica.parts.list({ limit: 2000 }).catch(() => ({ ok: false as const, parts: [] as any[] }));
+        const partRes = await listAllParts();
         if (!alive) return;
         if (partRes.ok) {
           const opts = partRes.parts.map((p: any) => ({

@@ -7,6 +7,7 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import { listAllParts } from '../utils/partsPagination.js';
 
 type LinkOpt = { id: string; label: string };
 type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[] };
@@ -262,7 +263,7 @@ export function WorkOrderDetailsPage(props: {
     try {
       const [emps, partRes] = await Promise.all([
         window.matrica.employees.list().catch(() => [] as any[]),
-        window.matrica.parts.list({ limit: 2000 }).catch(() => ({ ok: false as const, parts: [] as any[] })),
+        listAllParts(),
       ]);
       setEmployees((emps as any[]).map((x) => ({ id: String(x.id), displayName: String(x.displayName || x.fullName || x.id) })));
       setParts(

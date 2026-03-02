@@ -10,6 +10,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { listAllParts } from '../utils/partsPagination.js';
 import {
   createEngineBrandSummarySyncState,
   PARTS_KINDS_COUNT_ATTR_CODE,
@@ -109,7 +110,7 @@ export function EngineBrandsPage(props: {
       }) => window.matrica.admin.attributeDefs.upsert(args),
       setEntityAttr: async (entityId: string, code: string, value: number) =>
         window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
-      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number; offset?: number }) =>
         window.matrica.parts.list(args)
           .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
           .catch((error) => ({ ok: false as const, error: String(error) })),
@@ -185,14 +186,14 @@ export function EngineBrandsPage(props: {
       }
 
       try {
-        const r = await window.matrica.parts.list({ limit: 50000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+        const r = await listAllParts();
         if (!r.ok) {
           if (!silent) setStatus(r.error ? `Ошибка: ${r.error}` : 'Ошибка загрузки статистики по деталям');
           setRows(nextRows);
           return;
         }
 
-        const stats = getBrandPartsStats((r as any).parts ?? []);
+        const stats = getBrandPartsStats(r.parts);
         const withStats = nextRows.map((row) => {
           const value = stats.get(row.id);
           return {

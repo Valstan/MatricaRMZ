@@ -19,6 +19,7 @@ import {
 } from '@matricarmz/shared';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { listAllParts } from '../utils/partsPagination.js';
 
 type Row = {
   id: string;
@@ -232,7 +233,7 @@ export function ContractsPage(props: {
       }
 
       const engines = await window.matrica.engines.list();
-      const partsRes = await window.matrica.parts.list({ limit: 5000 });
+      const partsRes = await listAllParts();
       const linkedItems: ProgressLinkedItem[] = [];
       const linkedEngineItems = Array.isArray(engines) ? engines : [];
       for (const e of linkedEngineItems) {

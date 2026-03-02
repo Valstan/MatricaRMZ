@@ -7,6 +7,7 @@ import { Input } from './Input.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
+import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
 
 function safeJsonStringify(v: unknown) {
   try {
@@ -490,7 +491,7 @@ export function RepairChecklistPanel(props: {
         setDefectOptionsStatus('Загрузка справочников...');
         const options: Array<{ id: string; label: string }> = [];
         const metaByLabel: Record<string, { partNumber: string; quantity: number }> = {};
-        const partsRes = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
+        const partsRes = await listAllParts(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {});
         if (partsRes && (partsRes as any).ok && Array.isArray((partsRes as any).parts)) {
           for (const p of (partsRes as any).parts) {
             const label = String(p.name ?? p.article ?? p.id);
@@ -536,7 +537,7 @@ export function RepairChecklistPanel(props: {
         setCompletenessOptionsStatus('Загрузка справочников...');
         const options: Array<{ id: string; label: string }> = [];
         const metaByLabel: Record<string, { assemblyUnitNumber: string; quantity: number }> = {};
-        const partsRes = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
+        const partsRes = await listAllParts(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {});
         if (partsRes && (partsRes as any).ok && Array.isArray((partsRes as any).parts)) {
           for (const p of (partsRes as any).parts) {
             const label = String(p.name ?? p.article ?? p.id);
@@ -585,6 +586,7 @@ export function RepairChecklistPanel(props: {
 
     const created = await window.matrica.parts.create({ attributes: { name } }).catch(() => null);
     if (!created || !(created as any).ok || !(created as any).part?.id) return null;
+    invalidateListAllPartsCache(props.engineBrandId ? { engineBrandId: props.engineBrandId } : undefined);
     const part = (created as any).part;
     const opt = { id: `part:${part.id}`, label: name };
     setDefectOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
@@ -597,6 +599,7 @@ export function RepairChecklistPanel(props: {
     if (!props.canEdit) return null;
     const created = await window.matrica.parts.create({ attributes: { name } }).catch(() => null);
     if (!created || !(created as any).ok || !(created as any).part?.id) return null;
+    invalidateListAllPartsCache(props.engineBrandId ? { engineBrandId: props.engineBrandId } : undefined);
     const part = (created as any).part;
     const opt = { id: `part:${part.id}`, label: name };
     setCompletenessOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
@@ -619,7 +622,7 @@ export function RepairChecklistPanel(props: {
     if (prefillKey.current === key) return;
     prefillKey.current = key;
     void (async () => {
-      const r = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
+      const r = await listAllParts(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {});
       if (!r.ok) return;
       const rows = r.parts.map((p) => {
         const link = getBrandLinkForPart(p, props.engineBrandId);
@@ -655,7 +658,7 @@ export function RepairChecklistPanel(props: {
     if (prefillKey.current === key) return;
     prefillKey.current = key;
     void (async () => {
-      const r = await window.matrica.parts.list({ limit: 5000, ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}) });
+      const r = await listAllParts(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {});
       if (!r.ok) return;
       const rows = r.parts.map((p: any) => {
         const link = getBrandLinkForPart(p, props.engineBrandId);
@@ -708,7 +711,7 @@ export function RepairChecklistPanel(props: {
     if (!activeTemplate || !props.engineBrandId) return;
     const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'defect_items');
     if (!tableItem) return;
-    const r = await window.matrica.parts.list({ limit: 5000, engineBrandId: props.engineBrandId });
+    const r = await listAllParts({ engineBrandId: props.engineBrandId });
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);
       return;
@@ -734,7 +737,7 @@ export function RepairChecklistPanel(props: {
     if (!activeTemplate || !props.engineBrandId) return;
     const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'completeness_items');
     if (!tableItem) return;
-    const r = await window.matrica.parts.list({ limit: 5000, engineBrandId: props.engineBrandId });
+    const r = await listAllParts({ engineBrandId: props.engineBrandId });
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);
       return;

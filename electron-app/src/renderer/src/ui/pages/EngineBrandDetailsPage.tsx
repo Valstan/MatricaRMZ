@@ -14,6 +14,7 @@ import {
   persistBrandSummary,
   type EngineBrandSummarySyncState,
 } from '../utils/engineBrandSummary.js';
+import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
 
 type PartOption = { id: string; label: string };
 type BrandPartRow = { id: string; label: string; linkId?: string; assemblyUnitNumber: string; quantity: number };
@@ -56,7 +57,7 @@ export function EngineBrandDetailsPage(props: {
       }) => window.matrica.admin.attributeDefs.upsert(args),
       setEntityAttr: async (entityId: string, code: string, value: number) =>
         window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
-      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number; offset?: number }) =>
         window.matrica.parts.list(args)
           .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
           .catch((error) => ({ ok: false as const, error: String(error) })),
@@ -84,7 +85,7 @@ export function EngineBrandDetailsPage(props: {
   async function loadPartsOptions() {
     if (!props.canViewParts) return;
     setPartsStatus('Загрузка списка деталей...');
-    const r = await window.matrica.parts.list({ limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+    const r = await listAllParts();
     if (!r.ok) {
       setPartsOptions([]);
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
@@ -107,10 +108,7 @@ export function EngineBrandDetailsPage(props: {
 
   async function loadBrandParts() {
     if (!props.canViewParts) return;
-    const r = await window.matrica.parts.list({ engineBrandId: props.brandId, limit: 50_000 }).catch((e) => ({
-      ok: false as const,
-      error: String(e),
-    }));
+    const r = await listAllParts({ engineBrandId: props.brandId }).catch(() => ({ ok: false as const, error: 'unknown' }));
     if (!r.ok) {
       setBrandParts([]);
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
@@ -119,7 +117,7 @@ export function EngineBrandDetailsPage(props: {
     const rows: BrandPartRow[] = [];
     const seenPartIds = new Set<string>();
 
-    for (const p of (r as any).parts ?? []) {
+    for (const p of r.parts) {
       const part = p as Record<string, unknown>;
       const partId = String(part?.id || '').trim();
       if (!partId || seenPartIds.has(partId)) continue;
@@ -341,6 +339,7 @@ export function EngineBrandDetailsPage(props: {
         setPartsStatus(`Ошибка: ${(created as any)?.error ?? 'Не удалось создать деталь'}`);
         return null;
       }
+      invalidateListAllPartsCache({ engineBrandId: props.brandId });
       const id = String(created.part.id);
       if (!partsOptions.some((o) => o.id === id)) {
         const nextOpts = [...partsOptions, { id, label: name }];

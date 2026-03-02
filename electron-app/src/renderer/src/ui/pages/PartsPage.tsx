@@ -10,6 +10,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
+import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
 
 type Row = {
   id: string;
@@ -46,7 +47,7 @@ export function PartsPage(props: {
     const silent = opts?.silent === true;
     try {
       if (!silent) setStatus('Загрузка…');
-      const r = await window.matrica.parts.list({ ...(query.trim() ? { q: query.trim() } : {}) });
+      const r = await listAllParts(query.trim() ? { q: query.trim() } : {});
       if (!r.ok) {
         if (!silent) setStatus(`Ошибка: ${r.error}`);
         return;
@@ -163,6 +164,7 @@ export function PartsPage(props: {
                             setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
                             return;
                           }
+                          invalidateListAllPartsCache();
                           setStatus('Удалено');
                           setTimeout(() => setStatus(''), 900);
                           await refresh();
@@ -202,6 +204,7 @@ export function PartsPage(props: {
                   setStatus(`Ошибка: ${r.error}`);
                   return;
                 }
+                invalidateListAllPartsCache();
                 // Проверка уже выполнена в partsService
                 setStatus('');
                 await props.onOpen(r.part.id);

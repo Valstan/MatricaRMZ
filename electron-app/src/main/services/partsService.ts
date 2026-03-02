@@ -2,6 +2,8 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
 
+const MAX_PARTS_LIST_LIMIT = 5000;
+
 function formatHttpError(r: { status: number; json?: any; text?: string }): string {
   const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
   const msg =
@@ -18,7 +20,7 @@ function formatHttpError(r: { status: number; json?: any; text?: string }): stri
 export async function partsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { q?: string; limit?: number; engineBrandId?: string },
+  args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string },
 ): Promise<
   | {
       ok: true;
@@ -39,7 +41,14 @@ export async function partsList(
   try {
     const queryParams = new URLSearchParams();
     if (args?.q) queryParams.set('q', args.q);
-    if (args?.limit) queryParams.set('limit', String(args.limit));
+    const normalizedLimit = args?.limit == null ? null : Number(args.limit);
+    if (Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
+      queryParams.set('limit', String(Math.min(Math.trunc(normalizedLimit), MAX_PARTS_LIST_LIMIT)));
+    }
+    const normalizedOffset = args?.offset == null ? null : Number(args.offset);
+    if (Number.isFinite(normalizedOffset) && normalizedOffset > 0) {
+      queryParams.set('offset', String(Math.max(0, Math.trunc(normalizedOffset))));
+    }
     if (args?.engineBrandId) queryParams.set('engineBrandId', String(args.engineBrandId));
 
     // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).

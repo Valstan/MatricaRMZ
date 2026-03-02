@@ -30,6 +30,7 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime, formatRuMoney, formatRuNumber } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
 
 type AttributeDef = {
   id: string;
@@ -695,7 +696,7 @@ export function ContractDetailsPage(props: {
 
   async function loadParts() {
     try {
-      const r = await window.matrica.parts.list({ limit: 5000 });
+      const r = await listAllParts();
       if (!r?.ok || !r.parts) {
         setPartOptions([]);
         return;
@@ -731,7 +732,7 @@ export function ContractDetailsPage(props: {
       const byContract: ProgressLinkedItem[] = Array.isArray(engines)
         ? engines.filter((e) => relatedContractIds.has(String(e.contractId ?? '')))
         : [];
-      const partsRes = await window.matrica.parts.list({ limit: 5000 });
+      const partsRes = await listAllParts();
       const parts: ProgressLinkedItem[] = partsRes?.ok && partsRes.parts ? partsRes.parts : [];
       const partStatusMap = parts.filter((p) => relatedContractIds.has(String(p.contractId ?? '')));
       const plannedCount = contractPlannedItemsCount(sections);
@@ -809,6 +810,7 @@ export function ContractDetailsPage(props: {
     if (typeCode === 'part') {
       const created = await window.matrica.parts.create({ attributes: { name: label } });
       if (!created?.ok || !created?.part?.id) return null;
+      invalidateListAllPartsCache();
       await loadParts();
       return created.part.id;
     }

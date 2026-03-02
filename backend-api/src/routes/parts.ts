@@ -29,7 +29,8 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
     logDebug('parts list', { method: req.method, query: req.query });
     const querySchema = z.object({
       q: z.string().optional(),
-      limit: z.coerce.number().int().positive().max(5000).optional(),
+      limit: z.coerce.number().int().positive().max(50000).optional(),
+      offset: z.coerce.number().int().nonnegative().optional(),
       engineBrandId: z.string().optional(),
     });
     const parsed = querySchema.safeParse(req.query);
@@ -40,6 +41,7 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
     const result = await listParts({
       ...(parsed.data.q !== undefined && { q: parsed.data.q }),
       ...(parsed.data.limit !== undefined && { limit: parsed.data.limit }),
+      ...(parsed.data.offset !== undefined && { offset: parsed.data.offset }),
       ...(parsed.data.engineBrandId !== undefined && { engineBrandId: parsed.data.engineBrandId }),
     });
     return res.json(result);

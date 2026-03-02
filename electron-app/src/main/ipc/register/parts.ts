@@ -17,7 +17,7 @@ import {
 } from '../../services/partsService.js';
 
 export function registerPartsIpc(ctx: IpcContext) {
-  ipcMain.handle('parts:list', async (_e, args?: { q?: string; limit?: number; engineBrandId?: string }) => {
+  ipcMain.handle('parts:list', async (_e, args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: parts are not available (server sync disabled)' };
     const gate = await requirePermOrResult(ctx, 'parts.view');
     if (!gate.ok) return gate as any;

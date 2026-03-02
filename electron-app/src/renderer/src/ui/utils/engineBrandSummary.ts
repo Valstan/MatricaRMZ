@@ -18,7 +18,11 @@ export type EngineBrandSummaryDeps = {
     sortOrder: number;
   }) => Promise<{ ok: boolean; error?: unknown }>;
   setEntityAttr: (entityId: string, code: string, value: number) => Promise<{ ok: boolean; error?: unknown }>;
-  listPartsByBrand: (args: { engineBrandId: string; limit: number }) => Promise<{ ok: boolean; parts?: unknown[]; error?: unknown }>;
+  listPartsByBrand: (args: {
+    engineBrandId: string;
+    limit: number;
+    offset?: number;
+  }) => Promise<{ ok: boolean; parts?: unknown[]; error?: unknown }>;
 };
 
 export function createEngineBrandSummarySyncState(): EngineBrandSummarySyncState {
@@ -173,22 +177,28 @@ export async function persistEngineBrandSummary(
   deps: EngineBrandSummaryDeps,
   state: EngineBrandSummarySyncState,
   engineBrandId: string,
-  limit = 50000,
+  limit = 5000,
 ): Promise<void> {
   const cleanId = String(engineBrandId || '').trim();
   if (!cleanId) return;
-  const r = await deps.listPartsByBrand({ engineBrandId: cleanId, limit });
-  if (!r.ok) return;
-
   let kinds = 0;
   let totalQty = 0;
-  for (const part of r.parts ?? []) {
-    const partId = String((part as any)?.id || '').trim();
-    if (!partId) continue;
-    const { linked, quantity } = getBrandQtyFromPart(part, cleanId);
-    if (!linked) continue;
-    kinds += 1;
-    totalQty += Number.isFinite(quantity) ? quantity : 0;
+  let offset = 0;
+
+  while (true) {
+    const r = await deps.listPartsByBrand({ engineBrandId: cleanId, limit, offset });
+    if (!r.ok) return;
+    const parts = Array.isArray(r.parts) ? r.parts : [];
+    for (const part of parts) {
+      const partId = String((part as any)?.id || '').trim();
+      if (!partId) continue;
+      const { linked, quantity } = getBrandQtyFromPart(part, cleanId);
+      if (!linked) continue;
+      kinds += 1;
+      totalQty += Number.isFinite(quantity) ? quantity : 0;
+    }
+    if (parts.length < limit) break;
+    offset += limit;
   }
 
   await persistBrandSummary(deps, state, cleanId, kinds, totalQty);

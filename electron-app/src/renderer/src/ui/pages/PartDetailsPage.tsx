@@ -17,6 +17,7 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { invalidateListAllPartsCache } from '../utils/partsPagination.js';
 import {
   createEngineBrandSummarySyncState,
   persistEngineBrandSummaries as persistEngineBrandSummariesShared,
@@ -218,7 +219,7 @@ export function PartDetailsPage(props: {
       }) => window.matrica.admin.attributeDefs.upsert(args),
       setEntityAttr: async (entityId: string, code: string, value: number) =>
         window.matrica.admin.entities.setAttr(entityId, code, value) as Promise<{ ok: boolean; error?: string }>,
-      listPartsByBrand: async (args: { engineBrandId: string; limit: number }) =>
+      listPartsByBrand: async (args: { engineBrandId: string; limit: number; offset?: number }) =>
         window.matrica.parts.list(args)
           .then((r) => r as { ok: boolean; parts?: unknown[]; error?: string })
           .catch((error) => ({ ok: false as const, error: String(error) })),
@@ -834,6 +835,7 @@ export function PartDetailsPage(props: {
         if (article.trim()) attrs.article = article.trim();
         const r = await window.matrica.parts.create(name.trim() || article.trim() ? { attributes: attrs } : undefined);
         if (r?.ok && r?.part?.id) {
+          invalidateListAllPartsCache();
           dirtyRef.current = false;
         }
       },
@@ -852,6 +854,7 @@ export function PartDetailsPage(props: {
         setStatus(`Ошибка: ${r.error}`);
         return r;
       }
+      invalidateListAllPartsCache();
       if ((r as any).queued) {
         setStatus('Отправлено на утверждение (см. «Изменения»)');
         setTimeout(() => setStatus(''), 2500);
@@ -902,6 +905,7 @@ export function PartDetailsPage(props: {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
+      invalidateListAllPartsCache();
       props.onClose();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -1348,6 +1352,7 @@ export function PartDetailsPage(props: {
                   if (article.trim()) attrs.article = article.trim();
                   const r = await window.matrica.parts.create(name.trim() || article.trim() ? { attributes: attrs } : undefined);
                   if (r?.ok && r?.part?.id) {
+          invalidateListAllPartsCache();
                     dirtyRef.current = false;
                   }
                 }
