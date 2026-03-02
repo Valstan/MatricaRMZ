@@ -32,6 +32,7 @@ type Employee = {
 };
 
 type Option = { id: string; label: string };
+type TextLookupMeta = { targetTypeCode: string; storeAs: 'id' | 'label' };
 
 type AttrDef = {
   id: string;
@@ -130,6 +131,46 @@ function getLinkTargetTypeCode(def: AttrDef): string | null {
   }
 }
 
+function normalizeLookupBaseCode(code: string): string {
+  const cleaned = code.trim().toLowerCase();
+  if (!cleaned) return '';
+  if (cleaned.endsWith('_id')) return cleaned.slice(0, -3);
+  if (cleaned.endsWith('_ref')) return cleaned.slice(0, -4);
+  return cleaned;
+}
+
+function getTextLookupConfig(def: AttrDef, knownTypeCodes: Set<string>): TextLookupMeta | null {
+  if (def.dataType !== 'text') return null;
+  const baseCode = normalizeLookupBaseCode(def.code);
+  if (!baseCode) return null;
+  let meta: Record<string, unknown> | null = null;
+  if (def.metaJson) {
+    try {
+      const parsed = JSON.parse(def.metaJson);
+      if (parsed && typeof parsed === 'object') meta = parsed as Record<string, unknown>;
+    } catch {
+      meta = null;
+    }
+  }
+  const aliases: Record<string, string> = {
+    brand: 'engine_brand',
+    enginebrand: 'engine_brand',
+    ctr: 'customer',
+    counterparty: 'customer',
+    contractor: 'customer',
+    partner: 'customer',
+    pos: 'position_ref',
+    position: 'position_ref',
+    position_ref: 'position_ref',
+  };
+  const explicitTarget = typeof meta?.lookupTargetTypeCode === 'string' ? meta.lookupTargetTypeCode.trim().toLowerCase() : '';
+  const targetTypeCode = aliases[explicitTarget] ?? aliases[baseCode] ?? baseCode;
+  if (!targetTypeCode || !knownTypeCodes.has(targetTypeCode)) return null;
+  const explicitStoreAs = typeof meta?.lookupStoreAs === 'string' ? meta.lookupStoreAs.trim().toLowerCase() : '';
+  const storeAs: 'id' | 'label' = explicitStoreAs === 'label' ? 'label' : baseCode.endsWith('_id') ? 'id' : 'label';
+  return { targetTypeCode, storeAs };
+}
+
 function keyValueTable(rows: Array<[string, string]>) {
   const body = rows
     .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
@@ -216,11 +257,15 @@ export function EmployeeDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [linkOptionsByDefId, setLinkOptionsByDefId] = useState<Record<string, { id: string; label: string }[]>>({});
   const [linkLoadingByDefId, setLinkLoadingByDefId] = useState<Record<string, boolean>>({});
+  const [textLookupOptionsByDefId, setTextLookupOptionsByDefId] = useState<Record<string, Option[]>>({});
+  const [textLookupLoadingByDefId, setTextLookupLoadingByDefId] = useState<Record<string, boolean>>({});
+  const [textLookupMetaByDefId, setTextLookupMetaByDefId] = useState<Record<string, TextLookupMeta>>({});
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
 
   const dirtyRef = useRef(false);
 
   const [departments, setDepartments] = useState<Option[]>([]);
+  const [positionOptions, setPositionOptions] = useState<Option[]>([]);
   const [departmentsStatus, setDepartmentsStatus] = useState('');
 
   const [accountPerms, setAccountPerms] = useState<{
@@ -326,6 +371,16 @@ export function EmployeeDetailsPage(props: {
   }, [customDefs, entityTypes]);
 
   useEffect(() => {
+    for (const def of customDefs) {
+      if (def.dataType !== 'text') continue;
+      const knownTypeCodes = new Set(entityTypes.map((t) => t.code));
+      if (!getTextLookupConfig(def, knownTypeCodes)) continue;
+      if (textLookupOptionsByDefId[def.id] || textLookupLoadingByDefId[def.id]) continue;
+      void ensureTextLookupOptions(def);
+    }
+  }, [customDefs, entityTypes, textLookupOptionsByDefId, textLookupLoadingByDefId]);
+
+  useEffect(() => {
     void loadAccountPerms();
   }, [props.employeeId]);
 
@@ -426,6 +481,21 @@ export function EmployeeDetailsPage(props: {
     return created.id;
   }
 
+  async function createPosition(label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const positionType = entityTypes.find((t) => t.code === 'position_ref');
+    if (!positionType) return null;
+    const created = await window.matrica.admin.entities.create(String(positionType.id));
+    if (!created.ok || !created.id) return null;
+    await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
+    setPositionOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    setPosition(clean);
+    dirtyRef.current = true;
+    return created.id;
+  }
+
   async function saveAllAndClose() {
     if (props.canEdit) {
       await saveAttr('last_name', lastName.trim() || null);
@@ -517,8 +587,21 @@ export function EmployeeDetailsPage(props: {
       setEntityTypes(list);
       const employeeType = list.find((t) => t.code === 'employee');
       setEmployeeTypeId(employeeType?.id ?? '');
+      const positionType = list.find((t) => t.code === 'position_ref');
+      if (positionType?.id) {
+        const positionRows = await window.matrica.admin.entities.listByEntityType(positionType.id);
+        const opts = (positionRows as any[])
+          .map((row) => ({
+            id: String(row.id),
+            label: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setPositionOptions(opts);
+      } else {
+        setPositionOptions([]);
+      }
     } catch {
-      // ignore
+      setPositionOptions([]);
     }
   }
 
@@ -591,6 +674,29 @@ export function EmployeeDetailsPage(props: {
     }
   }
 
+  async function ensureTextLookupOptions(def: AttrDef) {
+    const knownTypeCodes = new Set(entityTypes.map((t) => t.code));
+    const config = getTextLookupConfig(def, knownTypeCodes);
+    if (!config) return;
+    if (textLookupOptionsByDefId[def.id]) return;
+    if (textLookupLoadingByDefId[def.id]) return;
+    const targetType = entityTypes.find((t) => t.code === config.targetTypeCode);
+    if (!targetType?.id) return;
+    setTextLookupLoadingByDefId((prev) => ({ ...prev, [def.id]: true }));
+    try {
+      const list = await window.matrica.admin.entities.listByEntityType(targetType.id);
+      const opts = (list as any[]).map((x) => ({
+        id: String(x.id),
+        label: x.displayName ? String(x.displayName) : String(x.id),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setTextLookupOptionsByDefId((prev) => ({ ...prev, [def.id]: opts }));
+      setTextLookupMetaByDefId((prev) => ({ ...prev, [def.id]: config }));
+    } finally {
+      setTextLookupLoadingByDefId((prev) => ({ ...prev, [def.id]: false }));
+    }
+  }
+
   async function createLinkedEntity(def: AttrDef, label: string): Promise<string | null> {
     const targetCode = getLinkTargetTypeCode(def);
     if (!targetCode) return null;
@@ -606,6 +712,31 @@ export function EmployeeDetailsPage(props: {
     }
     const next = linkOptionsByDefId[def.id] ?? [];
     setLinkOptionsByDefId((p) => ({ ...p, [def.id]: [...next, { id: created.id, label }] }));
+    return created.id;
+  }
+
+  async function createTextLookupEntity(def: AttrDef, label: string): Promise<string | null> {
+    const knownTypeCodes = new Set(entityTypes.map((t) => t.code));
+    const config = textLookupMetaByDefId[def.id] ?? getTextLookupConfig(def, knownTypeCodes);
+    if (!config) return null;
+    const targetType = entityTypes.find((t) => t.code === config.targetTypeCode);
+    if (!targetType?.id) return null;
+    const created = await window.matrica.admin.entities.create(targetType.id);
+    if (!created.ok || !created.id) return null;
+    const defs = await window.matrica.admin.attributeDefs.listByEntityType(targetType.id);
+    const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
+    const labelDef = (defs as any[]).find((d) => labelKeys.includes(String(d.code))) ?? null;
+    if (labelDef?.code) {
+      await window.matrica.admin.entities.setAttr(created.id, String(labelDef.code), label);
+    }
+    const list = await window.matrica.admin.entities.listByEntityType(targetType.id);
+    const opts = (list as any[]).map((x) => ({
+      id: String(x.id),
+      label: x.displayName ? String(x.displayName) : String(x.id),
+    }));
+    opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    setTextLookupOptionsByDefId((prev) => ({ ...prev, [def.id]: opts }));
+    setTextLookupMetaByDefId((prev) => ({ ...prev, [def.id]: config }));
     return created.id;
   }
 
@@ -761,6 +892,55 @@ export function EmployeeDetailsPage(props: {
           />
           {current && openByTarget ? (
             <Button variant="outline" tone="neutral" size="sm" onClick={() => openByTarget?.(current)}>
+              Открыть
+            </Button>
+          ) : null}
+        </div>
+      );
+    }
+    const textLookupMeta = textLookupMetaByDefId[def.id] ?? null;
+    if (textLookupMeta) {
+      const options = textLookupOptionsByDefId[def.id] ?? [];
+      const loading = textLookupLoadingByDefId[def.id] === true;
+      const currentText = value == null ? '' : String(value);
+      const selectedId =
+        textLookupMeta.storeAs === 'id'
+          ? currentText || null
+          : (options.find((o) => o.label === currentText)?.id ?? null);
+      const openByTarget =
+        textLookupMeta.storeAs === 'id' && !['department', 'unit'].includes(textLookupMeta.targetTypeCode)
+          ? props.onOpenByCode?.[textLookupMeta.targetTypeCode]
+          : undefined;
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+          <SearchSelectWithCreate
+            value={selectedId}
+            options={options}
+            disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel={`Новая запись (${textLookupMeta.targetTypeCode})`}
+            placeholder={loading ? 'Загрузка…' : '(не выбрано)'}
+            onChange={(next) => {
+              if (!props.canEdit) return;
+              const selected = options.find((o) => o.id === (next ?? ''));
+              const nextValue = textLookupMeta.storeAs === 'id' ? (next ?? '') : (selected?.label ?? '');
+              dirtyRef.current = true;
+              setCustomDraftValues((prev) => ({ ...prev, [def.code]: nextValue }));
+            }}
+            onCreate={async (label) => {
+              const id = await createTextLookupEntity(def, label);
+              if (!id) return null;
+              const clean = label.trim();
+              dirtyRef.current = true;
+              setCustomDraftValues((prev) => ({
+                ...prev,
+                [def.code]: textLookupMeta.storeAs === 'id' ? id : clean,
+              }));
+              return id;
+            }}
+          />
+          {textLookupMeta.storeAs === 'id' && currentText && openByTarget ? (
+            <Button variant="outline" tone="neutral" size="sm" onClick={() => openByTarget(currentText)}>
               Открыть
             </Button>
           ) : null}
@@ -963,12 +1143,37 @@ export function EmployeeDetailsPage(props: {
         label: 'Должность',
         value: position,
         render: (
-          <Input
-            value={position}
-            onChange={(e) => {
+          <SearchSelectWithCreate
+            value={
+              (
+                (positionOptions.some((opt) => normalizeForMatch(opt.label) === normalizeForMatch(position))
+                  ? positionOptions
+                  : position.trim()
+                    ? [...positionOptions, { id: `__legacy__:${position}`, label: position }]
+                    : positionOptions
+                ).find((opt) => normalizeForMatch(opt.label) === normalizeForMatch(position))?.id ?? null
+              )
+            }
+            options={
+              positionOptions.some((opt) => normalizeForMatch(opt.label) === normalizeForMatch(position))
+                ? positionOptions
+                : position.trim()
+                  ? [...positionOptions, { id: `__legacy__:${position}`, label: position }]
+                  : positionOptions
+            }
+            onChange={(next) => {
               dirtyRef.current = true;
-              setPosition(e.target.value);
+              const optionList = positionOptions.some((opt) => normalizeForMatch(opt.label) === normalizeForMatch(position))
+                ? positionOptions
+                : position.trim()
+                  ? [...positionOptions, { id: `__legacy__:${position}`, label: position }]
+                  : positionOptions;
+              const label = optionList.find((opt) => opt.id === next)?.label ?? (next ? position : '');
+              setPosition(label);
             }}
+            onCreate={createPosition}
+            canCreate={props.canEdit}
+            createLabel="Новая должность"
             disabled={!props.canEdit}
             placeholder="Должность"
           />

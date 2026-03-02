@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -74,6 +73,7 @@ function fileListHtml(list: unknown) {
 export function ToolDetailsPage(props: {
   toolId: string;
   canEdit: boolean;
+  canCreateEmployees?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onOpenToolProperty?: (toolPropertyId: string) => void;
@@ -317,6 +317,31 @@ export function ToolDetailsPage(props: {
     }
     await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
     setDepartmentOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return created.id;
+  }
+
+  async function createEmployeeOption(label: string): Promise<string | null> {
+    if (props.canCreateEmployees !== true) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const created = await window.matrica.employees.create();
+    if (!created?.ok || !created?.id) {
+      setStatus(`Ошибка: ${created?.error ?? 'не удалось создать сотрудника'}`);
+      return null;
+    }
+    const chunks = clean.split(/\s+/).filter(Boolean);
+    const lastName = chunks[0] ?? clean;
+    const firstName = chunks[1] ?? '';
+    const middleName = chunks.slice(2).join(' ');
+    await window.matrica.employees.setAttr(created.id, 'last_name', lastName);
+    if (firstName) await window.matrica.employees.setAttr(created.id, 'first_name', firstName);
+    if (middleName) await window.matrica.employees.setAttr(created.id, 'middle_name', middleName);
+    await window.matrica.employees.setAttr(created.id, 'full_name', clean);
+    const dept = departmentId || currentDepartmentId || null;
+    if (dept) await window.matrica.employees.setAttr(created.id, 'department_id', dept);
+    const createdEmployee: EmployeeOption = { id: created.id, label: clean, departmentId: dept };
+    setEmployeeOptionsAll((prev) => [...prev, createdEmployee].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    setEmployeeOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
     return created.id;
   }
 
@@ -726,12 +751,20 @@ export function ToolDetailsPage(props: {
             <option value="returned">Вернул</option>
           </select>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-            <SearchSelect
+            <SearchSelectWithCreate
               value={newMoveEmployeeId}
               options={employeeOptions}
               placeholder="Сотрудник"
               disabled={!props.canEdit}
+              canCreate={props.canCreateEmployees === true}
+              createLabel="Новый сотрудник"
               onChange={(next) => setNewMoveEmployeeId(next ?? '')}
+              onCreate={async (label) => {
+                const id = await createEmployeeOption(label);
+                if (!id) return null;
+                setNewMoveEmployeeId(id);
+                return id;
+              }}
             />
             {newMoveEmployeeId && props.onOpenEmployee ? (
               <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(newMoveEmployeeId)}>
@@ -746,12 +779,20 @@ export function ToolDetailsPage(props: {
             Подтверждено
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-            <SearchSelect
+            <SearchSelectWithCreate
               value={newMoveConfirmedById}
               options={employeeOptions}
               placeholder="Заведующий"
               disabled={!props.canEdit || !newMoveConfirmed}
+              canCreate={props.canCreateEmployees === true}
+              createLabel="Новый сотрудник"
               onChange={(next) => setNewMoveConfirmedById(next ?? '')}
+              onCreate={async (label) => {
+                const id = await createEmployeeOption(label);
+                if (!id) return null;
+                setNewMoveConfirmedById(id);
+                return id;
+              }}
             />
             {newMoveConfirmedById && props.onOpenEmployee ? (
               <Button

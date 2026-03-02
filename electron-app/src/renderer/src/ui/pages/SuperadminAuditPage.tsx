@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ChatDeepLinkPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -18,6 +19,7 @@ type AuditRow = {
   documentLabel: string;
   clientId: string | null;
   tableName: string | null;
+  entityId: string | null;
 };
 
 type AdminUserDirectoryItem = {
@@ -315,6 +317,66 @@ export function SuperadminAuditPage() {
     return toInitials(fullName || String(actor ?? ''), String(actor ?? '-'));
   };
 
+  const getDeepLinkPayload = useCallback((row: AuditRow): ChatDeepLinkPayload | null => {
+    const entityId = String(row.entityId ?? '').trim();
+    if (!entityId) return null;
+    const action = String(row.action ?? '').trim().toLowerCase();
+    const section = String(row.section ?? '').trim().toLowerCase();
+    const table = String(row.tableName ?? '').trim().toLowerCase();
+    const tableIs = (...aliases: string[]) => aliases.includes(table);
+
+    if (action.startsWith('ui.engine.') || action.startsWith('engine.') || section === 'двигатели' || tableIs('engine', 'engines')) {
+      return { kind: 'app_link', tab: 'engine', engineId: entityId };
+    }
+    if (
+      action.startsWith('ui.supply_request.') ||
+      action.startsWith('supply_request.') ||
+      section === 'заявки' ||
+      tableIs('supply_request', 'supply_requests', 'request', 'requests')
+    ) {
+      return { kind: 'app_link', tab: 'request', requestId: entityId };
+    }
+    if (action.startsWith('part.') || section === 'детали' || tableIs('part', 'parts')) {
+      return { kind: 'app_link', tab: 'part', partId: entityId };
+    }
+    if (tableIs('tool_property', 'tool_properties') || action.startsWith('tool_property.') || action.includes('tool_property')) {
+      return { kind: 'app_link', tab: 'tool_property', toolPropertyId: entityId };
+    }
+    if (action.startsWith('tool.') || section === 'инструменты' || tableIs('tool', 'tools')) {
+      return { kind: 'app_link', tab: 'tool', toolId: entityId };
+    }
+    if (action.startsWith('employee.') || section === 'сотрудники' || tableIs('employee', 'employees')) {
+      return { kind: 'app_link', tab: 'employee', employeeId: entityId };
+    }
+    if (tableIs('contract', 'contracts')) {
+      return { kind: 'app_link', tab: 'contract', contractId: entityId };
+    }
+    if (tableIs('counterparty', 'counterparties', 'customer', 'customers')) {
+      return { kind: 'app_link', tab: 'counterparty', counterpartyId: entityId };
+    }
+    if (tableIs('product', 'products')) {
+      return { kind: 'app_link', tab: 'product', productId: entityId };
+    }
+    if (tableIs('service', 'services')) {
+      return { kind: 'app_link', tab: 'service', serviceId: entityId };
+    }
+    if (tableIs('engine_brand', 'engine_brands') || action.startsWith('engine_brand.')) {
+      return { kind: 'app_link', tab: 'engine_brand', engineBrandId: entityId };
+    }
+    return null;
+  }, []);
+
+  const handleClickLink = useCallback(async (link: ChatDeepLinkPayload) => {
+    try {
+      const result = await window.matrica.app.navigateDeepLink(link);
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'не удалось открыть документ'}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }, []);
+
   async function loadAll() {
     setLoading(true);
     setStatus('');
@@ -465,19 +527,43 @@ export function SuperadminAuditPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((r) => (
-              <tr key={r.id}>
-                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatAuditDate(r.createdAt)}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.actor}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{getActorInitials(r.actor)}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{describeAction(r)}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
-                  {r.section}
-                  {r.documentLabel ? ` / ${r.documentLabel}` : ''}
-                </td>
-                <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatClientId(r.clientId)}</td>
-              </tr>
-            ))}
+            {filteredRows.map((r) => {
+              const link = getDeepLinkPayload(r);
+              return (
+                <tr key={r.id}>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatAuditDate(r.createdAt)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.actor}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{getActorInitials(r.actor)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{describeAction(r)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
+                    {r.section}
+                    {r.documentLabel ? (
+                      <>
+                        {' / '}
+                        {link ? (
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              void handleClickLink(link);
+                            }}
+                            style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+                            title={`Перейти к документу: ${r.documentLabel}`}
+                          >
+                            {r.documentLabel}
+                          </a>
+                        ) : (
+                          r.documentLabel
+                        )}
+                      </>
+                    ) : (
+                      ''
+                    )}
+                  </td>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatClientId(r.clientId)}</td>
+                </tr>
+              );
+            })}
             {filteredRows.length === 0 && (
               <tr>
                 <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={6}>

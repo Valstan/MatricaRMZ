@@ -301,7 +301,7 @@ export function App() {
   const cardCloseFromAppRef = useRef(false);
   const cardCloseInProgressRef = useRef(false);
   const cardCloseTimerRef = useRef<number | null>(null);
-  const navigateDeepLinkRef = useRef<(link: any) => Promise<void>>(async () => {});
+  const navigateDeepLinkRef = useRef<(link: ChatDeepLinkPayload) => Promise<void>>(async () => {});
 
   const isCardTab = useCallback((nextTab: TabId) => CARD_DETAIL_TABS.includes(nextTab), []);
 
@@ -1444,12 +1444,13 @@ export function App() {
     setChatOpen(true);
   }
 
-  async function navigateDeepLink(link: any) {
-    const tabId = String(link?.tab ?? '') as any;
+  async function navigateDeepLink(link: ChatDeepLinkPayload) {
+    const tabId = String(link?.tab ?? '') as TabId;
     const engineId = link?.engineId ? String(link.engineId) : null;
     const requestId = link?.requestId ? String(link.requestId) : null;
     const partId = link?.partId ? String(link.partId) : null;
     const toolId = link?.toolId ? String(link.toolId) : null;
+    const toolPropertyId = link?.toolPropertyId ? String(link.toolPropertyId) : null;
     const contractId = link?.contractId ? String(link.contractId) : null;
     const employeeId = link?.employeeId ? String(link.employeeId) : null;
     const engineBrandId = link?.engineBrandId ? String(link.engineBrandId) : null;
@@ -1472,6 +1473,10 @@ export function App() {
     }
     if (toolId) {
       await openTool(toolId);
+      return;
+    }
+    if (toolPropertyId) {
+      await openToolProperty(toolPropertyId);
       return;
     }
     if (contractId) {
@@ -1501,6 +1506,16 @@ export function App() {
     setTab(tabId);
   }
   navigateDeepLinkRef.current = navigateDeepLink;
+
+  useEffect(() => {
+    if (!authStatus.loggedIn || !window.matrica?.app?.onDeepLink) return;
+    const unsubscribe = window.matrica.app.onDeepLink((link) => {
+      void navigateDeepLinkRef.current(link);
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [authStatus.loggedIn]);
 
   function shortId(id: string | null) {
     if (!id) return '';
@@ -2781,6 +2796,9 @@ export function App() {
             key={selectedWorkOrderId}
             id={selectedWorkOrderId}
             canEdit={caps.canEditWorkOrders}
+            canEditMasterData={caps.canEditMasterData}
+            canCreateParts={caps.canCreateParts}
+            canCreateEmployees={caps.canManageEmployees}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenPart={openPart}
@@ -2877,6 +2895,7 @@ export function App() {
             key={selectedToolId}
             toolId={selectedToolId}
             canEdit={caps.canEditMasterData}
+            canCreateEmployees={caps.canManageEmployees}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
             registerCardCloseActions={registerCardCloseActions}

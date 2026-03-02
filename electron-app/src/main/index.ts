@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
+import type { ChatDeepLinkPayload } from '@matricarmz/shared';
 
 if (!process.env.TZ) {
   process.env.TZ = 'Europe/Moscow';
@@ -406,6 +407,14 @@ ipcMain.handle('app:ping', async () => {
 
 ipcMain.handle('app:version', async () => {
   return { ok: true, version: app.getVersion() };
+});
+
+ipcMain.handle('app:navigateDeepLink', async (_event, link: ChatDeepLinkPayload) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false as const, error: 'Main window not available' };
+  }
+  mainWindow.webContents.send('app:deep-link-event', link);
+  return { ok: true as const };
 });
 
 ipcMain.on('app:close-response', (_event, args: { allowClose: boolean }) => {

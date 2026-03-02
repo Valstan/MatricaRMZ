@@ -1,10 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ChatDeepLinkPayload } from '@matricarmz/shared';
 
 // API, доступный в renderer. Дальше будем расширять CRUD и синхронизацию.
 const matricaApi = {
   ping: async () => ipcRenderer.invoke('app:ping'),
   app: {
     version: async () => ipcRenderer.invoke('app:version'),
+    navigateDeepLink: async (link: ChatDeepLinkPayload) => ipcRenderer.invoke('app:navigateDeepLink', link),
+    onDeepLink: (handler: (link: ChatDeepLinkPayload) => void) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, link: ChatDeepLinkPayload) => handler(link);
+      ipcRenderer.on('app:deep-link-event', wrapped);
+      return () => ipcRenderer.removeListener('app:deep-link-event', wrapped);
+    },
     onCloseRequest: (handler: () => void) => {
       const wrapped = () => handler();
       ipcRenderer.on('app:close-request', wrapped);

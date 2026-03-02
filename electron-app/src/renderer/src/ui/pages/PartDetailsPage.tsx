@@ -35,6 +35,7 @@ type Attribute = {
 };
 
 type LinkOpt = { id: string; label: string };
+type TextLookupMeta = { targetTypeCode: string; storeAs: 'id' | 'label' };
 
 type PartBrandLink = {
   id: string;
@@ -203,6 +204,9 @@ export function PartDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [linkOptionsByCode, setLinkOptionsByCode] = useState<Record<string, LinkOpt[]>>({});
   const [linkLoadingByCode, setLinkLoadingByCode] = useState<Record<string, boolean>>({});
+  const [textLookupOptionsByCode, setTextLookupOptionsByCode] = useState<Record<string, LinkOpt[]>>({});
+  const [textLookupMetaByCode, setTextLookupMetaByCode] = useState<Record<string, TextLookupMeta>>({});
+  const [textLookupLoadingByCode, setTextLookupLoadingByCode] = useState<Record<string, boolean>>({});
 
   const dirtyRef = useRef(false);
   const isSavingCoreRef = useRef(false);
@@ -834,6 +838,78 @@ export function PartDetailsPage(props: {
     return null;
   }
 
+  function normalizeLookupBaseCode(code: string): string {
+    const cleaned = code.trim().toLowerCase();
+    if (!cleaned) return '';
+    if (cleaned.endsWith('_id')) return cleaned.slice(0, -3);
+    if (cleaned.endsWith('_ref')) return cleaned.slice(0, -4);
+    return cleaned;
+  }
+
+  function getTextLookupConfig(attr: Attribute): TextLookupMeta | null {
+    if (attr.dataType !== 'text') return null;
+    const baseCode = normalizeLookupBaseCode(attr.code);
+    if (!baseCode) return null;
+    let meta: Record<string, unknown> | null = null;
+    if (attr.metaJson && typeof attr.metaJson === 'object') {
+      meta = attr.metaJson as Record<string, unknown>;
+    } else if (typeof attr.metaJson === 'string') {
+      try {
+        const parsed = JSON.parse(attr.metaJson);
+        if (parsed && typeof parsed === 'object') meta = parsed as Record<string, unknown>;
+      } catch {
+        meta = null;
+      }
+    }
+    const aliases: Record<string, string> = {
+      brand: 'engine_brand',
+      enginebrand: 'engine_brand',
+      ctr: 'customer',
+      counterparty: 'customer',
+      contractor: 'customer',
+      partner: 'customer',
+      pos: 'position_ref',
+      position: 'position_ref',
+      position_ref: 'position_ref',
+    };
+    const explicitTarget = typeof meta?.lookupTargetTypeCode === 'string' ? meta.lookupTargetTypeCode.trim().toLowerCase() : '';
+    const targetTypeCode = aliases[explicitTarget] ?? aliases[baseCode] ?? baseCode;
+    if (!targetTypeCode || !entityTypes.some((t) => t.code === targetTypeCode)) return null;
+    const explicitStoreAs = typeof meta?.lookupStoreAs === 'string' ? meta.lookupStoreAs.trim().toLowerCase() : '';
+    const storeAs: 'id' | 'label' = explicitStoreAs === 'label' ? 'label' : baseCode.endsWith('_id') ? 'id' : 'label';
+    return { targetTypeCode, storeAs };
+  }
+
+  async function loadTextLookupOptions(attr: Attribute) {
+    const config = getTextLookupConfig(attr);
+    if (!config) return;
+    if (textLookupLoadingByCode[attr.code]) return;
+    const targetType = entityTypes.find((t) => t.code === config.targetTypeCode);
+    if (!targetType?.id) return;
+    setTextLookupLoadingByCode((prev) => ({ ...prev, [attr.code]: true }));
+    try {
+      const rows = await window.matrica.admin.entities.listByEntityType(String(targetType.id));
+      const opts = (rows as any[]).map((x) => ({
+        id: String(x.id),
+        label: x.displayName ? String(x.displayName) : String(x.id),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setTextLookupOptionsByCode((prev) => ({ ...prev, [attr.code]: opts }));
+      setTextLookupMetaByCode((prev) => ({ ...prev, [attr.code]: config }));
+    } finally {
+      setTextLookupLoadingByCode((prev) => ({ ...prev, [attr.code]: false }));
+    }
+  }
+
+  async function createTextLookupEntity(attr: Attribute, label: string): Promise<string | null> {
+    const config = textLookupMetaByCode[attr.code] ?? getTextLookupConfig(attr);
+    if (!config) return null;
+    const id = await createMasterDataEntity(config.targetTypeCode, label);
+    if (!id) return null;
+    await loadTextLookupOptions(attr);
+    return id;
+  }
+
   useEffect(() => {
     if (!part) return;
     for (const attr of part.attributes) {
@@ -844,6 +920,17 @@ export function PartDetailsPage(props: {
       void loadLinkOptions(targetTypeCode, attr.code);
     }
   }, [part?.id, part?.updatedAt, linkOptionsByCode, linkLoadingByCode]);
+
+  useEffect(() => {
+    if (!part) return;
+    for (const attr of part.attributes) {
+      if (attr.dataType !== 'text') continue;
+      const config = getTextLookupConfig(attr);
+      if (!config) continue;
+      if (textLookupOptionsByCode[attr.code] || textLookupLoadingByCode[attr.code]) continue;
+      void loadTextLookupOptions(attr);
+    }
+  }, [part?.id, part?.updatedAt, entityTypes, textLookupOptionsByCode, textLookupLoadingByCode]);
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -2089,6 +2176,14 @@ export function PartDetailsPage(props: {
               renderItem={(attr, itemProps, _dragHandleProps, state) => {
                 const value = editingAttr[attr.code] !== undefined ? editingAttr[attr.code] : attr.value;
                 const isEditing = editingAttr[attr.code] !== undefined;
+                const textLookupMeta = attr.dataType === 'text' ? textLookupMetaByCode[attr.code] ?? null : null;
+                const textLookupOptions = textLookupMeta ? (textLookupOptionsByCode[attr.code] ?? []) : [];
+                const textLookupSelected =
+                  textLookupMeta && typeof value === 'string'
+                    ? textLookupMeta.storeAs === 'id'
+                      ? textLookupOptions.find((o) => o.id === value) ?? null
+                      : textLookupOptions.find((o) => o.label === value) ?? null
+                    : null;
                 const linkOpt =
                   attr.dataType === 'link' && typeof value === 'string'
                     ? (linkOptionsByCode[attr.code] ?? []).find((o) => o.id === value) ?? null
@@ -2096,13 +2191,19 @@ export function PartDetailsPage(props: {
                 const targetTypeCode = getLinkTargetTypeCode(attr);
                 const openByTarget =
                   targetTypeCode && !['department', 'unit'].includes(targetTypeCode) ? props.onOpenByCode?.[targetTypeCode] : undefined;
+                const textOpenByTarget =
+                  textLookupMeta?.storeAs === 'id' && textLookupMeta.targetTypeCode && !['department', 'unit'].includes(textLookupMeta.targetTypeCode)
+                    ? props.onOpenByCode?.[textLookupMeta.targetTypeCode]
+                    : undefined;
                 const readDisplay =
                   value === null || value === undefined
                     ? <span style={{ color: 'var(--subtle)' }}>—</span>
                     : attr.dataType === 'link'
                     ? linkOpt?.label ?? (typeof value === 'string' ? value : '')
                     : typeof value === 'string'
-                    ? value
+                    ? textLookupMeta?.storeAs === 'id'
+                      ? textLookupSelected?.label ?? value
+                      : value
                     : typeof value === 'number'
                     ? String(value)
                     : typeof value === 'boolean'
@@ -2149,14 +2250,15 @@ export function PartDetailsPage(props: {
                         }}
                       >
                         <span style={{ flex: 1 }}>{readDisplay}</span>
-                        {typeof value === 'string' && value && openByTarget ? (
+                        {typeof value === 'string' && value && (openByTarget || textOpenByTarget) ? (
                           <Button
                             variant="outline"
                             tone="neutral"
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
-                              openByTarget?.(value);
+                              if (openByTarget) openByTarget(value);
+                              else if (textOpenByTarget) textOpenByTarget(value);
                             }}
                           >
                             Открыть
@@ -2166,11 +2268,53 @@ export function PartDetailsPage(props: {
                     ) : (
                       <div style={{ display: 'flex', gap: 8 }}>
                         {attr.dataType === 'text' ? (
-                          <Input
-                            value={String(value ?? '')}
-                            onChange={(e) => setEditingAttr({ ...editingAttr, [attr.code]: e.target.value })}
-                            style={{ flex: 1 }}
-                          />
+                          textLookupMeta ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', flex: 1 }}>
+                              <SearchSelectWithCreate
+                                value={
+                                  typeof value === 'string'
+                                    ? textLookupMeta.storeAs === 'id'
+                                      ? value
+                                      : (textLookupOptions.find((o) => o.label === value)?.id ?? null)
+                                    : null
+                                }
+                                options={textLookupOptions}
+                                placeholder="Выберите значение"
+                                {...((!props.canEdit || textLookupLoadingByCode[attr.code]) ? { disabled: true } : {})}
+                                canCreate={props.canEdit}
+                                createLabel={`Новая запись (${textLookupMeta.targetTypeCode})`}
+                                onChange={(next) => {
+                                  const selected = textLookupOptions.find((o) => o.id === (next ?? ''));
+                                  const nextValue =
+                                    textLookupMeta.storeAs === 'id'
+                                      ? (next ?? '')
+                                      : (selected?.label ?? (typeof value === 'string' ? value : ''));
+                                  setEditingAttr({ ...editingAttr, [attr.code]: nextValue });
+                                }}
+                                onCreate={async (label) => {
+                                  const id = await createTextLookupEntity(attr, label);
+                                  if (!id) return null;
+                                  const clean = label.trim();
+                                  setEditingAttr((prev) => ({
+                                    ...prev,
+                                    [attr.code]: textLookupMeta.storeAs === 'id' ? id : clean,
+                                  }));
+                                  return id;
+                                }}
+                              />
+                              {typeof value === 'string' && value && textLookupMeta.storeAs === 'id' && textOpenByTarget ? (
+                                <Button variant="outline" tone="neutral" size="sm" onClick={() => textOpenByTarget(value)}>
+                                  Открыть
+                                </Button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <Input
+                              value={String(value ?? '')}
+                              onChange={(e) => setEditingAttr({ ...editingAttr, [attr.code]: e.target.value })}
+                              style={{ flex: 1 }}
+                            />
+                          )
                         ) : attr.dataType === 'link' ? (
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                             <SearchSelect

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listUsers } from '../api/adminUsers.js';
 import { dailyAuditSummary, listAudit } from '../api/audit.js';
@@ -19,6 +19,7 @@ type AuditRow = {
   documentLabel: string;
   clientId: string | null;
   tableName: string | null;
+  entityId: string | null;
 };
 type DailyRow = {
   login: string;
@@ -312,6 +313,51 @@ export function AuditPage() {
     return toInitials(fullName || String(actor ?? ''), String(actor ?? '-'));
   };
 
+  const getOpenEntityTarget = useCallback((row: AuditRow): { typeCode: string; entityId: string } | null => {
+    const entityId = String(row.entityId ?? '').trim();
+    if (!entityId) return null;
+    const action = String(row.action ?? '').trim().toLowerCase();
+    const section = String(row.section ?? '').trim().toLowerCase();
+    const table = String(row.tableName ?? '').trim().toLowerCase();
+    const tableIs = (...aliases: string[]) => aliases.includes(table);
+
+    if (action.startsWith('ui.engine.') || action.startsWith('engine.') || section === 'двигатели' || tableIs('engine', 'engines')) {
+      return { typeCode: 'engine', entityId };
+    }
+    if (tableIs('contract', 'contracts')) {
+      return { typeCode: 'contract', entityId };
+    }
+    if (tableIs('counterparty', 'counterparties', 'customer', 'customers')) {
+      return { typeCode: 'counterparty', entityId };
+    }
+    if (tableIs('product', 'products')) {
+      return { typeCode: 'product', entityId };
+    }
+    if (tableIs('service', 'services')) {
+      return { typeCode: 'service', entityId };
+    }
+    if (tableIs('employee', 'employees') || action.startsWith('employee.') || section === 'сотрудники') {
+      return { typeCode: 'employee', entityId };
+    }
+    if (tableIs('tool', 'tools') || action.startsWith('tool.') || section === 'инструменты') {
+      return { typeCode: 'tool', entityId };
+    }
+    if (tableIs('tool_property', 'tool_properties') || action.startsWith('tool_property.') || action.includes('tool_property')) {
+      return { typeCode: 'tool_property', entityId };
+    }
+    if (tableIs('part', 'parts') || action.startsWith('part.') || section === 'детали') {
+      return { typeCode: 'part', entityId };
+    }
+    if (tableIs('engine_brand', 'engine_brands') || action.startsWith('engine_brand.')) {
+      return { typeCode: 'engine_brand', entityId };
+    }
+    return null;
+  }, []);
+
+  const handleOpenEntity = useCallback((target: { typeCode: string; entityId: string }) => {
+    window.dispatchEvent(new CustomEvent('diagnostics:open-entity', { detail: target }));
+  }, []);
+
   async function loadAll() {
     setLoading(true);
     setStatus('');
@@ -463,19 +509,43 @@ export function AuditPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((r) => (
-              <tr key={r.id}>
-                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{formatAuditDate(r.createdAt)}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.actor}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{getActorInitials(r.actor)}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{describeAction(r)}</td>
-                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
-                  {r.section}
-                  {r.documentLabel ? ` / ${r.documentLabel}` : ''}
-                </td>
-                <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{formatClientId(r.clientId)}</td>
-              </tr>
-            ))}
+            {filteredRows.map((r) => {
+              const target = getOpenEntityTarget(r);
+              return (
+                <tr key={r.id}>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{formatAuditDate(r.createdAt)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.actor}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{getActorInitials(r.actor)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{describeAction(r)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
+                    {r.section}
+                    {r.documentLabel ? (
+                      <>
+                        {' / '}
+                        {target ? (
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleOpenEntity(target);
+                            }}
+                            style={{ color: '#2563eb', textDecoration: 'underline' }}
+                            title={`Перейти к документу: ${r.documentLabel}`}
+                          >
+                            {r.documentLabel}
+                          </a>
+                        ) : (
+                          r.documentLabel
+                        )}
+                      </>
+                    ) : (
+                      ''
+                    )}
+                  </td>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{formatClientId(r.clientId)}</td>
+                </tr>
+              );
+            })}
             {filteredRows.length === 0 && (
               <tr>
                 <td style={{ padding: 10, color: '#6b7280' }} colSpan={6}>

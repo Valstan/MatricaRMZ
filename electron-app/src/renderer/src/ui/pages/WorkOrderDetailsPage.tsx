@@ -5,7 +5,7 @@ import type { WorkOrderPayload, WorkOrderWorkGroup, WorkOrderWorkLine } from '@m
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
-import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { listAllParts } from '../utils/partsPagination.js';
 
@@ -207,6 +207,9 @@ export function WorkOrderDetailsPage(props: {
   id: string;
   onClose: () => void;
   canEdit: boolean;
+  canEditMasterData: boolean;
+  canCreateParts?: boolean;
+  canCreateEmployees?: boolean;
   onOpenPart?: (partId: string) => void;
   onOpenService?: (serviceId: string) => void;
   onOpenEmployee?: (employeeId: string) => void;
@@ -382,6 +385,73 @@ export function WorkOrderDetailsPage(props: {
     };
   }
 
+  async function createServiceFromWorkOrder(label: string, partId: string | null): Promise<string | null> {
+    if (!props.canEditMasterData) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
+    const serviceType = (types as any[]).find((x) => String(x.code) === 'service');
+    if (!serviceType?.id) {
+      setStatus('Справочник услуг не найден');
+      return null;
+    }
+    const created = await window.matrica.admin.entities.create(String(serviceType.id));
+    if (!created.ok || !created.id) {
+      setStatus(`Ошибка создания услуги: ${created.error ?? 'unknown'}`);
+      return null;
+    }
+    await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
+    await window.matrica.admin.entities.setAttr(created.id, 'unit', 'шт');
+    await window.matrica.admin.entities.setAttr(created.id, 'price', 0);
+    if (partId) {
+      await window.matrica.admin.entities.setAttr(created.id, 'part_ids', [partId]);
+    }
+    const nextService: ServiceInfo = {
+      id: created.id,
+      name: clean,
+      unit: 'шт',
+      priceRub: 0,
+      partIds: partId ? [partId] : [],
+    };
+    setServices((prev) => [...prev, nextService].sort((a, b) => a.name.localeCompare(b.name, 'ru')));
+    return created.id;
+  }
+
+  async function createPartFromWorkOrder(label: string): Promise<string | null> {
+    if (props.canCreateParts !== true) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const created = await window.matrica.parts.create({ attributes: { name: clean } });
+    if (!created?.ok || !created?.part?.id) {
+      setStatus(`Ошибка создания детали: ${created?.error ?? 'unknown'}`);
+      return null;
+    }
+    const id = String(created.part.id);
+    setParts((prev) => [...prev, { id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return id;
+  }
+
+  async function createEmployeeFromWorkOrder(label: string): Promise<string | null> {
+    if (props.canCreateEmployees !== true) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const created = await window.matrica.employees.create();
+    if (!created?.ok || !created?.id) {
+      setStatus(`Ошибка создания сотрудника: ${created?.error ?? 'unknown'}`);
+      return null;
+    }
+    const parts = clean.split(/\s+/).filter(Boolean);
+    const lastName = parts[0] ?? clean;
+    const firstName = parts[1] ?? '';
+    const middleName = parts.slice(2).join(' ');
+    await window.matrica.employees.setAttr(created.id, 'last_name', lastName);
+    if (firstName) await window.matrica.employees.setAttr(created.id, 'first_name', firstName);
+    if (middleName) await window.matrica.employees.setAttr(created.id, 'middle_name', middleName);
+    await window.matrica.employees.setAttr(created.id, 'full_name', clean);
+    setEmployees((prev) => [...prev, { id: created.id, displayName: clean }].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ru')));
+    return created.id;
+  }
+
   function updateGroup(groupIdx: number, updater: (group: WorkOrderWorkGroup) => WorkOrderWorkGroup) {
     if (!payload) return;
     const workGroups = payload.workGroups.map((group, idx) => (idx === groupIdx ? updater(group) : group));
@@ -464,10 +534,12 @@ export function WorkOrderDetailsPage(props: {
               <div key={group.groupId} style={{ border: '1px solid var(--border)', padding: 10, display: 'grid', gap: 8 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto auto', gap: 8, alignItems: 'center' }}>
                   <div style={{ color: 'var(--muted)' }}>Изделие</div>
-                  <SearchSelect
+                  <SearchSelectWithCreate
                     value={group.partId}
                     options={partOptions}
                     disabled={!props.canEdit}
+                    canCreate={props.canCreateParts === true}
+                    createLabel="Новая деталь"
                     onChange={(next) => {
                       const part = parts.find((x) => x.id === next);
                       updateGroup(groupIdx, (current) => {
@@ -480,6 +552,17 @@ export function WorkOrderDetailsPage(props: {
                           lines: linkedServices.map((service, idx) => buildLineFromService(service, idx + 1)),
                         };
                       });
+                    }}
+                    onCreate={async (label) => {
+                      const createdId = await createPartFromWorkOrder(label);
+                      if (!createdId) return null;
+                      updateGroup(groupIdx, (current) => ({
+                        ...current,
+                        partId: createdId,
+                        partName: label.trim(),
+                        lines: [],
+                      }));
+                      return createdId;
                     }}
                     placeholder="Выберите деталь"
                   />
@@ -523,16 +606,27 @@ export function WorkOrderDetailsPage(props: {
                       <tr key={`${group.groupId}-line-${lineIdx}`}>
                         <td style={{ padding: 8 }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                            <SearchSelect
+                            <SearchSelectWithCreate
                               value={line.serviceId}
                               options={groupServiceOptions}
                               disabled={!props.canEdit}
+                              canCreate={props.canEditMasterData}
+                              createLabel="Новая услуга"
                               onChange={(next) =>
                                 updateGroup(groupIdx, (current) => ({
                                   ...current,
                                   lines: applyServiceSnapshotToLines(current.lines, lineIdx, next),
                                 }))
                               }
+                              onCreate={async (label) => {
+                                const createdId = await createServiceFromWorkOrder(label, group.partId);
+                                if (!createdId) return null;
+                                updateGroup(groupIdx, (current) => ({
+                                  ...current,
+                                  lines: applyServiceSnapshotToLines(current.lines, lineIdx, createdId),
+                                }));
+                                return createdId;
+                              }}
                               placeholder="Выберите вид работ"
                             />
                             {line.serviceId && props.onOpenService ? (
@@ -654,16 +748,27 @@ export function WorkOrderDetailsPage(props: {
               <tr key={`free-work-line-${idx}`}>
                 <td style={{ padding: 8 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                    <SearchSelect
+                    <SearchSelectWithCreate
                       value={line.serviceId}
                       options={allServiceOptions}
                       disabled={!props.canEdit}
+                      canCreate={props.canEditMasterData}
+                      createLabel="Новая услуга"
                       onChange={(next) =>
                         patch({
                           ...payload,
                           freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, next),
                         })
                       }
+                      onCreate={async (label) => {
+                        const createdId = await createServiceFromWorkOrder(label, null);
+                        if (!createdId) return null;
+                        patch({
+                          ...payload,
+                          freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, createdId),
+                        });
+                        return createdId;
+                      }}
                       placeholder="Выберите вид работ"
                     />
                     {line.serviceId && props.onOpenService ? (
@@ -747,14 +852,26 @@ export function WorkOrderDetailsPage(props: {
               <tr key={`crew-${idx}-${member.employeeId}`}>
                 <td style={{ padding: 8 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                    <SearchSelect
+                    <SearchSelectWithCreate
                       value={member.employeeId || null}
                       options={employeeOptions}
                       disabled={!props.canEdit}
+                      canCreate={props.canCreateEmployees === true}
+                      createLabel="Новый сотрудник"
                       onChange={(next) => {
                         const e = employees.find((x) => x.id === next);
                         const crew = payload.crew.map((c, i) => (i === idx ? { ...c, employeeId: e?.id || '', employeeName: e?.displayName || '' } : c));
                         patch({ ...payload, crew });
+                      }}
+                      onCreate={async (label) => {
+                        const createdId = await createEmployeeFromWorkOrder(label);
+                        if (!createdId) return null;
+                        const clean = label.trim();
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx ? { ...c, employeeId: createdId, employeeName: clean } : c,
+                        );
+                        patch({ ...payload, crew });
+                        return createdId;
                       }}
                       placeholder="Выберите сотрудника"
                     />

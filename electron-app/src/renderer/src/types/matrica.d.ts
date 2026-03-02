@@ -1,9 +1,11 @@
-import type { MatricaApi } from '@matricarmz/shared';
+import type { ChatDeepLinkPayload, MatricaApi } from '@matricarmz/shared';
 
 type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
   app: MatricaApi['app'] & {
     onCloseRequest: (handler: () => void) => () => void;
     respondToCloseRequest: (args: { allowClose: boolean }) => void;
+    navigateDeepLink: (link: ChatDeepLinkPayload) => Promise<{ ok: boolean; error?: string }>;
+    onDeepLink: (handler: (link: ChatDeepLinkPayload) => void) => () => void;
   };
   admin: MatricaApi['admin'] & {
     entityTypes: MatricaApi['admin']['entityTypes'] & {

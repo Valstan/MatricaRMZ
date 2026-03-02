@@ -491,6 +491,8 @@ export type MatricaApi = {
     version: () => Promise<AppVersionResult>;
     onCloseRequest?: (handler: () => void) => () => void;
     respondToCloseRequest?: (args: { allowClose: boolean }) => void;
+    navigateDeepLink?: (link: ChatDeepLinkPayload) => Promise<{ ok: boolean; error?: string }>;
+    onDeepLink?: (handler: (link: ChatDeepLinkPayload) => void) => () => void;
   };
   log: {
     send: (level: LogLevel, message: string) => Promise<void>;
@@ -839,6 +841,7 @@ export type MatricaApi = {
               documentLabel: string;
               clientId: string | null;
               tableName: string | null;
+              entityId: string | null;
             }>;
           }
         | { ok: false; error: string }

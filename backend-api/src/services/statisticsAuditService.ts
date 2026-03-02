@@ -511,8 +511,21 @@ export async function listAuditStatistics(args: {
   if (args.actionType) filters.push(eq(statisticsAuditEvents.actionType, args.actionType));
 
   const rows = await db
-    .select()
+    .select({
+      sourceAuditId: statisticsAuditEvents.sourceAuditId,
+      createdAt: statisticsAuditEvents.createdAt,
+      actor: statisticsAuditEvents.actor,
+      action: statisticsAuditEvents.action,
+      actionType: statisticsAuditEvents.actionType,
+      section: statisticsAuditEvents.section,
+      actionText: statisticsAuditEvents.actionText,
+      documentLabel: statisticsAuditEvents.documentLabel,
+      clientId: statisticsAuditEvents.clientId,
+      tableName: statisticsAuditEvents.tableName,
+      entityId: auditLog.entityId,
+    })
     .from(statisticsAuditEvents)
+    .leftJoin(auditLog, eq(auditLog.id, statisticsAuditEvents.sourceAuditId))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(statisticsAuditEvents.createdAt))
     .limit(args.limit);
@@ -527,6 +540,7 @@ export async function listAuditStatistics(args: {
     documentLabel: row.documentLabel ?? '',
     clientId: row.clientId ?? null,
     tableName: row.tableName ?? null,
+    entityId: row.entityId ?? null,
   }));
 }
 

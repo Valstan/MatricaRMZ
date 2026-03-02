@@ -32,64 +32,87 @@ type AttrDefRow = {
 
 type EntityRow = { id: string; typeId: string; updatedAt: number; syncStatus: string; displayName?: string; searchText?: string };
 
-const CLASSIC_TYPE_ORDER = [
-  'unit',
-  'warehouse_ref',
-  'nomenclature_group',
-  'service',
-  'supplier_ref',
-  'department',
-  'section',
-  'workshop_ref',
-  'position_ref',
-  'payroll_item',
-  'cost_center',
-  'machine_operation',
-  'employee',
-  'tool',
-  'tool_catalog',
-  'tool_property',
-] as const;
-
-const CLASSIC_TYPE_CODES = new Set<string>(CLASSIC_TYPE_ORDER);
-const CLASSIC_GROUPS: Array<{ key: string; title: string; subtitle: string; icon: string; color: string; tint: string; codes: string[] }> = [
-  {
-    key: 'stock',
-    title: 'Склад и номенклатура',
-    subtitle: 'Единицы, склады, номенклатурные группы, поставщики, услуги',
-    icon: '📦',
-    color: '#1d4ed8',
-    tint: 'rgba(37,99,235,0.08)',
-    codes: ['unit', 'warehouse_ref', 'nomenclature_group', 'supplier_ref', 'service'],
-  },
-  {
-    key: 'people',
-    title: 'Кадры и зарплата',
-    subtitle: 'Подразделения, участки, должности, начисления/удержания, сотрудники',
-    icon: '👥',
-    color: '#7c3aed',
-    tint: 'rgba(124,58,237,0.08)',
-    codes: ['department', 'section', 'position_ref', 'payroll_item', 'employee'],
-  },
+const MASTERDATA_GROUPS: Array<{ key: string; title: string; subtitle: string; icon: string; color: string; tint: string }> = [
   {
     key: 'production',
-    title: 'Производство и машиностроение',
-    subtitle: 'Цеха, операции, инструмент и его классификаторы',
+    title: 'Производство',
+    subtitle: 'Двигатели, детали, инструменты, операции, услуги',
     icon: '🏭',
     color: '#b45309',
     tint: 'rgba(180,83,9,0.08)',
-    codes: ['workshop_ref', 'machine_operation', 'tool', 'tool_catalog', 'tool_property'],
+  },
+  {
+    key: 'logistics',
+    title: 'Снабжение и склад',
+    subtitle: 'Контрагенты, склады, номенклатура, договоры',
+    icon: '📦',
+    color: '#1d4ed8',
+    tint: 'rgba(37,99,235,0.08)',
+  },
+  {
+    key: 'people',
+    title: 'Персонал и оргструктура',
+    subtitle: 'Сотрудники, подразделения, участки, должности',
+    icon: '👥',
+    color: '#7c3aed',
+    tint: 'rgba(124,58,237,0.08)',
   },
   {
     key: 'finance',
-    title: 'Учет и аналитика',
-    subtitle: 'Центры затрат и управленческая аналитика',
+    title: 'Финансы и учет',
+    subtitle: 'Центры затрат, начисления, статьи',
     icon: '📊',
     color: '#0f766e',
     tint: 'rgba(15,118,110,0.08)',
-    codes: ['cost_center'],
+  },
+  {
+    key: 'other',
+    title: 'Прочее',
+    subtitle: 'Дополнительные справочники',
+    icon: '🧩',
+    color: '#475569',
+    tint: 'rgba(71,85,105,0.08)',
   },
 ];
+
+function resolveMasterdataGroupKey(codeRaw: string): string {
+  const code = String(codeRaw ?? '').trim().toLowerCase();
+  if (
+    code === 'engine_brand' ||
+    code === 'part' ||
+    code === 'service' ||
+    code === 'tool' ||
+    code === 'tool_catalog' ||
+    code === 'tool_property' ||
+    code === 'machine_operation' ||
+    code === 'workshop_ref' ||
+    code === 'product'
+  ) {
+    return 'production';
+  }
+  if (
+    code === 'customer' ||
+    code === 'contract' ||
+    code === 'supplier_ref' ||
+    code === 'warehouse_ref' ||
+    code === 'nomenclature_group' ||
+    code === 'unit'
+  ) {
+    return 'logistics';
+  }
+  if (
+    code === 'employee' ||
+    code === 'department' ||
+    code === 'section' ||
+    code === 'position_ref'
+  ) {
+    return 'people';
+  }
+  if (code === 'payroll_item' || code === 'cost_center') {
+    return 'finance';
+  }
+  return 'other';
+}
 
 const TECHNICAL_HIDDEN_CODES = new Set<string>([
   'engine',
@@ -116,8 +139,8 @@ export function MasterdataPage(props: {
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
   const [entityFilter, setEntityFilter] = useState<'all' | 'named' | 'empty'>('all');
   const [showDefsPanel, setShowDefsPanel] = useState(false);
-  const [showAllTypes, setShowAllTypes] = useState(false);
   const [advancedMode, setAdvancedMode] = useState(false);
+  const [expandedTreeGroups, setExpandedTreeGroups] = useState<Record<string, boolean>>({});
   const [engineBrandName, setEngineBrandName] = useState<string>('');
   const [partsOptions, setPartsOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
@@ -194,56 +217,26 @@ export function MasterdataPage(props: {
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
   const canUseDangerActions = props.canEditMasterData && advancedMode;
 
-  const typeOrderRank = useMemo(() => {
-    const rank = new Map<string, number>();
-    CLASSIC_TYPE_ORDER.forEach((code, i) => rank.set(code, i));
-    return rank;
-  }, []);
-
   const sortedNonTechnicalTypes = useMemo(() => {
     return types
       .filter((t) => !TECHNICAL_HIDDEN_CODES.has(t.code))
       .slice()
       .sort((a, b) => {
-        const ar = typeOrderRank.get(a.code);
-        const br = typeOrderRank.get(b.code);
-        if (ar != null && br != null) return ar - br;
-        if (ar != null) return -1;
-        if (br != null) return 1;
         return String(a.name).localeCompare(String(b.name), 'ru');
       });
-  }, [types, typeOrderRank]);
+  }, [types]);
 
-  const classicTypes = useMemo(() => sortedNonTechnicalTypes.filter((t) => CLASSIC_TYPE_CODES.has(t.code)), [sortedNonTechnicalTypes]);
-  const additionalTypes = useMemo(() => sortedNonTechnicalTypes.filter((t) => !CLASSIC_TYPE_CODES.has(t.code)), [sortedNonTechnicalTypes]);
-  const visibleTypes = useMemo(() => {
-    // Default to "classic only" to keep administration screen clean.
-    if (showAllTypes) return sortedNonTechnicalTypes;
-    return classicTypes.length > 0 ? classicTypes : sortedNonTechnicalTypes;
-  }, [showAllTypes, classicTypes, sortedNonTechnicalTypes]);
-  const classicGroupedTypes = useMemo(() => {
-    const byCode = new Map(visibleTypes.map((t) => [t.code, t]));
-    const groups = CLASSIC_GROUPS.map((group) => ({
-      key: group.key,
-      title: group.title,
-      subtitle: group.subtitle,
-      icon: group.icon,
-      color: group.color,
-      tint: group.tint,
-      items: group.codes.map((code) => byCode.get(code)).filter((v): v is EntityTypeRow => Boolean(v)),
-    })).filter((group) => group.items.length > 0);
-    if (groups.length > 0) return groups;
-    return [
-      {
-        key: 'all',
-        title: 'Разделы',
-        subtitle: 'Показан полный список разделов',
-        icon: '🧩',
-        color: '#475569',
-        tint: 'rgba(71,85,105,0.08)',
-        items: visibleTypes,
-      },
-    ];
+  const visibleTypes = useMemo(() => sortedNonTechnicalTypes, [sortedNonTechnicalTypes]);
+  const masterdataTreeGroups = useMemo(() => {
+    const byGroup = new Map<string, EntityTypeRow[]>();
+    for (const t of visibleTypes) {
+      const key = resolveMasterdataGroupKey(t.code);
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key)!.push(t);
+    }
+    return MASTERDATA_GROUPS
+      .map((group) => ({ ...group, items: byGroup.get(group.key) ?? [] }))
+      .filter((group) => group.items.length > 0);
   }, [visibleTypes]);
 
   const visibleDefs = useMemo(() => defs.filter((d) => d.code !== 'category_id'), [defs]);
@@ -279,6 +272,47 @@ export function MasterdataPage(props: {
     return linkTargetByCode[def.code] ?? null;
   }
 
+  function normalizeLookupBaseCode(baseCodeRaw: string): string {
+    const baseCode = String(baseCodeRaw ?? '').trim().toLowerCase();
+    if (baseCode === 'shop' || baseCode === 'supplier' || baseCode === 'counterparty') return 'customer';
+    if (baseCode === 'position') return 'position_ref';
+    if (baseCode === 'workshop') return 'workshop_ref';
+    return baseCode;
+  }
+
+  function getTextLookupConfig(def: AttrDefRow): { targetTypeCode: string; storeAs: 'id' | 'label' } | null {
+    if (def.dataType !== 'text') return null;
+    const meta = safeParseMetaJson(def.metaJson);
+    const explicitTarget = typeof meta?.lookupTargetTypeCode === 'string' ? String(meta.lookupTargetTypeCode).trim() : '';
+    const explicitStore = meta?.lookupStoreAs === 'id' ? 'id' : meta?.lookupStoreAs === 'label' ? 'label' : null;
+    if (explicitTarget) {
+      return { targetTypeCode: explicitTarget, storeAs: explicitStore ?? (def.code.endsWith('_id') ? 'id' : 'label') };
+    }
+    const code = String(def.code ?? '').trim().toLowerCase();
+    if (!code) return null;
+    if (code.endsWith('_id')) {
+      const baseCode = normalizeLookupBaseCode(code.slice(0, -3));
+      if (!baseCode) return null;
+      return { targetTypeCode: baseCode, storeAs: 'id' };
+    }
+    const aliases: Record<string, string> = {
+      unit: 'unit',
+      shop: 'customer',
+      supplier: 'customer',
+      customer: 'customer',
+      counterparty: 'customer',
+      department: 'department',
+      section: 'section',
+      workshop: 'workshop_ref',
+      position: 'position_ref',
+      employee: 'employee',
+      contract: 'contract',
+    };
+    const targetTypeCode = aliases[code];
+    if (!targetTypeCode) return null;
+    return { targetTypeCode, storeAs: 'label' };
+  }
+
   function formatDefDataType(def: AttrDefRow): string {
     if (def.dataType !== 'link') return def.dataType;
     const targetCode = getLinkTargetTypeCode(def);
@@ -289,7 +323,7 @@ export function MasterdataPage(props: {
 
   const [linkOptions, setLinkOptions] = useState<Record<string, { id: string; label: string }[]>>({});
   const [lookupOptionsByCode, setLookupOptionsByCode] = useState<Record<string, { id: string; label: string }[]>>({});
-  const lookupTypeIdByCode = useRef<Record<string, string>>({});
+  const lookupMetaByAttrCode = useRef<Record<string, { typeId: string; storeAs: 'id' | 'label' }>>({});
 
   const outgoingLinks = useMemo(() => {
     const linkDefs = visibleDefs.filter((d) => d.dataType === 'link');
@@ -322,7 +356,6 @@ export function MasterdataPage(props: {
     });
     if (rows.length > 0) {
       void loadLinkRules(rows as any);
-      void loadLookupOptions(rows as any);
     }
   }
 
@@ -386,42 +419,38 @@ export function MasterdataPage(props: {
     }
   }
 
-  async function loadLookupOptions(rows?: EntityTypeRow[]) {
+  async function refreshLookupOptions(defsForType: AttrDefRow[]) {
     try {
-      const list = rows ?? (await window.matrica.admin.entityTypes.list());
-      const map: Record<string, string> = {};
-      for (const t of list as any[]) {
-        if (String(t.code) === 'unit') map.unit = String(t.id);
-        if (String(t.code) === 'customer') map.shop = String(t.id);
-      }
-      lookupTypeIdByCode.current = map;
-      const next: Record<string, { id: string; label: string }[]> = {};
-      if (map.unit) {
-        const units = await window.matrica.admin.entities.listByEntityType(map.unit);
-        next.unit = (units as any[])
+      const nextOptions: Record<string, { id: string; label: string }[]> = {};
+      const nextMeta: Record<string, { typeId: string; storeAs: 'id' | 'label' }> = {};
+      for (const d of defsForType) {
+        const cfg = getTextLookupConfig(d);
+        if (!cfg) continue;
+        const targetType = types.find((t) => t.code === cfg.targetTypeCode);
+        if (!targetType?.id) continue;
+        const rows = await window.matrica.admin.entities.listByEntityType(String(targetType.id));
+        nextOptions[d.code] = (rows as any[])
           .map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }))
           .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        nextMeta[d.code] = { typeId: String(targetType.id), storeAs: cfg.storeAs };
       }
-      if (map.shop) {
-        const stores = await window.matrica.admin.entities.listByEntityType(map.shop);
-        next.shop = (stores as any[])
-          .map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }))
-          .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      }
-      setLookupOptionsByCode(next);
+      lookupMetaByAttrCode.current = nextMeta;
+      setLookupOptionsByCode(nextOptions);
     } catch {
+      lookupMetaByAttrCode.current = {};
       setLookupOptionsByCode({});
     }
   }
 
-  async function createLookupEntity(code: 'unit' | 'shop', label: string): Promise<string | null> {
-    const typeId = lookupTypeIdByCode.current[code];
+  async function createLookupEntity(attrCode: string, label: string): Promise<string | null> {
+    const cfg = lookupMetaByAttrCode.current[attrCode];
+    const typeId = cfg?.typeId;
     const name = label.trim();
     if (!typeId || !name) return null;
     const created = await window.matrica.admin.entities.create(typeId);
     if (!created.ok || !created.id) return null;
     await window.matrica.admin.entities.setAttr(created.id, 'name', name);
-    await loadLookupOptions();
+    await refreshLookupOptions(visibleDefs);
     return created.id;
   }
 
@@ -811,6 +840,17 @@ export function MasterdataPage(props: {
   }, [types, visibleTypes]);
 
   useEffect(() => {
+    if (masterdataTreeGroups.length === 0) return;
+    setExpandedTreeGroups((prev) => {
+      const next = { ...prev };
+      for (const group of masterdataTreeGroups) {
+        if (!(group.key in next)) next[group.key] = true;
+      }
+      return next;
+    });
+  }, [masterdataTreeGroups]);
+
+  useEffect(() => {
     if (!selectedEntityId) return;
     void loadEntity(selectedEntityId);
     void refreshIncomingLinks(selectedEntityId);
@@ -827,6 +867,7 @@ export function MasterdataPage(props: {
   useEffect(() => {
     if (!selectedTypeId) return;
     void refreshLinkOptions(visibleDefs);
+    void refreshLookupOptions(visibleDefs);
   }, [selectedTypeId, visibleDefs, types]);
 
   return (
@@ -912,69 +953,69 @@ export function MasterdataPage(props: {
               </div>
             )}
 
-            {!showAllTypes && additionalTypes.length > 0 && (
-              <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280' }}>
-                Показаны классические разделы. Дополнительные: {additionalTypes.length}.
-              </div>
-            )}
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-              {(showAllTypes
-                ? [
-                    {
-                      key: 'all',
-                      title: 'Все разделы',
-                      subtitle: 'Показан полный список, включая дополнительные справочники',
-                      icon: '🧩',
-                      color: '#475569',
-                      tint: 'rgba(71,85,105,0.08)',
-                      items: visibleTypes,
-                    },
-                  ]
-                : classicGroupedTypes
-              ).map((group) => (
-                <div key={group.key} style={{ border: '1px solid #f3f4f6', borderRadius: 10, padding: 8, background: group.tint }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: group.color }}>
+              {masterdataTreeGroups.map((group) => {
+                const expanded = expandedTreeGroups[group.key] !== false;
+                return (
+                  <div key={group.key} style={{ border: '1px solid #f3f4f6', borderRadius: 10, padding: 10, background: group.tint }}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedTreeGroups((prev) => ({ ...prev, [group.key]: !expanded }))}
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: 0,
+                        color: group.color,
+                        fontSize: 12,
+                        textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ width: 12 }}>{expanded ? '▾' : '▸'}</span>
                       <span>{group.icon}</span>
                       <span style={{ fontWeight: 700 }}>{group.title}</span>
-                    </div>
-                    <div style={{ marginTop: 2, fontSize: 11, color: '#64748b' }}>{group.subtitle}</div>
+                      <span style={{ marginLeft: 'auto', color: '#64748b' }}>{group.items.length}</span>
+                    </button>
+                    <div style={{ marginTop: 2, marginLeft: 20, fontSize: 11, color: '#64748b' }}>{group.subtitle}</div>
+                    {expanded && (
+                      <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                        {group.items.map((t) => {
+                          const active = t.id === selectedTypeId;
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => setSelectedTypeId(t.id)}
+                              style={{
+                                borderRadius: 8,
+                                border: active ? '1px solid #1e40af' : '1px solid #dbeafe',
+                                background: active ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)' : '#fff',
+                                color: active ? '#fff' : '#0f172a',
+                                cursor: 'pointer',
+                                padding: '8px 10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                                textAlign: 'left',
+                              }}
+                            >
+                              <span style={{ fontWeight: 600 }}>{t.name}</span>
+                              <span style={{ fontSize: 11, opacity: active ? 0.9 : 0.7 }}>{t.code}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {group.items.map((t) => {
-                      const active = t.id === selectedTypeId;
-                      return (
-                        <Button
-                          key={t.id}
-                          variant="ghost"
-                          onClick={() => setSelectedTypeId(t.id)}
-                          style={
-                            active
-                              ? {
-                                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)',
-                                  border: '1px solid #1e40af',
-                                  color: '#fff',
-                                  boxShadow: '0 10px 18px rgba(29, 78, 216, 0.18)',
-                                }
-                              : undefined
-                          }
-                        >
-                          {t.name}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {visibleTypes.length === 0 && <div style={{ color: '#6b7280' }}>(справочники не настроены)</div>}
             </div>
-            {additionalTypes.length > 0 && (
-              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-                <Button variant="ghost" onClick={() => setShowAllTypes((v) => !v)}>
-                  {showAllTypes ? 'Только классические' : `Показать все (${additionalTypes.length} доп.)`}
-                </Button>
-              </div>
-            )}
 
             {props.canEditMasterData && (
               <div style={{ marginTop: 12 }}>
@@ -1142,28 +1183,30 @@ export function MasterdataPage(props: {
               ) : (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
-                    {visibleDefs.map((d) => (
-                      <React.Fragment key={d.id}>
-                        <div style={{ color: '#6b7280' }}>{d.name}</div>
-                        <FieldEditor
-                          def={d}
-                          canEdit={props.canEditMasterData}
-                          value={entityAttrs[d.code]}
-                          linkOptions={linkOptions[d.code] ?? []}
-                          lookupOptions={lookupOptionsByCode[d.code] ?? []}
-                          {...(d.code === 'unit' || d.code === 'shop'
-                            ? { lookupCreate: async (label: string) => await createLookupEntity(d.code as 'unit' | 'shop', label) }
-                            : {})}
-                          onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
-                          onSave={async (v) => {
-                            const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
-                            if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                            else setStatus('Сохранено');
-                            await refreshEntities(selectedTypeId);
-                          }}
-                        />
-                      </React.Fragment>
-                    ))}
+                    {visibleDefs.map((d) => {
+                      const lookupMeta = lookupMetaByAttrCode.current[d.code] ?? null;
+                      return (
+                        <React.Fragment key={d.id}>
+                          <div style={{ color: '#6b7280' }}>{d.name}</div>
+                          <FieldEditor
+                            def={d}
+                            canEdit={props.canEditMasterData}
+                            value={entityAttrs[d.code]}
+                            linkOptions={linkOptions[d.code] ?? []}
+                            {...(lookupMeta ? { lookupOptions: lookupOptionsByCode[d.code] ?? [] } : {})}
+                            {...(lookupMeta ? { lookupStoreAs: lookupMeta.storeAs } : {})}
+                            {...(lookupMeta ? { lookupCreate: async (label: string) => await createLookupEntity(d.code, label) } : {})}
+                            onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
+                            onSave={async (v) => {
+                              const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
+                              if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                              else setStatus('Сохранено');
+                              await refreshEntities(selectedTypeId);
+                            }}
+                          />
+                        </React.Fragment>
+                      );
+                    })}
                   </div>
 
                   <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
@@ -1979,6 +2022,7 @@ function FieldEditor(props: {
   value: unknown;
   linkOptions: { id: string; label: string }[];
   lookupOptions?: { id: string; label: string }[];
+  lookupStoreAs?: 'id' | 'label';
   lookupCreate?: (label: string) => Promise<string | null>;
   onChange: (v: unknown) => void;
   onSave: (v: unknown) => Promise<void>;
@@ -2137,10 +2181,11 @@ function FieldEditor(props: {
     );
   }
 
-  if (dt === 'text' && (props.def.code === 'unit' || props.def.code === 'shop')) {
+  if (dt === 'text' && props.lookupOptions) {
     const opts = props.lookupOptions ?? [];
-    const currentLabel = typeof props.value === 'string' ? props.value : '';
-    const currentId = opts.find((o) => o.label === currentLabel)?.id ?? null;
+    const storeAs = props.lookupStoreAs ?? 'label';
+    const currentRaw = typeof props.value === 'string' ? props.value : '';
+    const currentId = storeAs === 'id' ? (currentRaw || null) : opts.find((o) => o.label === currentRaw)?.id ?? null;
     return (
       <SearchSelect
         value={currentId}
@@ -2149,6 +2194,11 @@ function FieldEditor(props: {
         placeholder="(не выбрано)"
         onChange={(next) => {
           if (!props.canEdit) return;
+          if (storeAs === 'id') {
+            props.onChange(next);
+            void props.onSave(next);
+            return;
+          }
           const label = opts.find((o) => o.id === next)?.label ?? '';
           props.onChange(label);
           void props.onSave(label);
@@ -2160,13 +2210,14 @@ function FieldEditor(props: {
                 if (!lookupCreate) return null;
                 const id = await lookupCreate(label);
                 if (!id) return null;
-                props.onChange(label.trim());
-                void props.onSave(label.trim());
+                const nextValue = storeAs === 'id' ? id : label.trim();
+                props.onChange(nextValue);
+                void props.onSave(nextValue);
                 return id;
               },
             }
           : {})}
-        createLabel={props.def.code === 'unit' ? 'Новая единица' : 'Новый контрагент'}
+        createLabel={`Новая запись (${props.def.code})`}
       />
     );
   }
