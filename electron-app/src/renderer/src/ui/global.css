@@ -277,6 +277,38 @@ table.list-table {
   overflow-x: auto;
 }
 
+.list-table-wrap--single {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  overflow-x: hidden;
+}
+
+table.list-table--single-mode {
+  width: 100%;
+  max-width: 100%;
+  table-layout: auto;
+}
+
+table.list-table--single-mode th,
+table.list-table--single-mode td {
+  width: auto !important;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+table.list-table--single-mode th[colspan],
+table.list-table--single-mode td[colspan] {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+}
+
 table.list-table th,
 table.list-table td {
   white-space: nowrap;
@@ -341,6 +373,11 @@ table.list-table td:nth-child(9) {
 table.list-table th:nth-child(10),
 table.list-table td:nth-child(10) {
   max-width: calc(var(--ui-list-col-10-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table.list-table--single-mode th,
+table.list-table.list-table--single-mode td {
+  max-width: none;
 }
 
 table.list-table tbody tr {

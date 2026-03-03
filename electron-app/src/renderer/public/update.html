@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Обновление MatricaRMZ</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 16px; margin: 0; }
+      .muted { color: #6b7280; }
+      .bar { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-top: 10px; }
+      .fill { height: 10px; background: #0f172a; width: 0%; }
+      .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+      .pct { font-variant-numeric: tabular-nums; }
+      .log { margin-top: 10px; font-size: 12px; color: #4b5563; max-height: 320px; overflow: auto; }
+      .log-item { margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <h2 style="margin: 0">Обновление</h2>
+    <div id="msg" class="muted" style="margin-top: 8px">Проверяем обновления...</div>
+    <div class="row">
+      <div class="pct" id="pct">0%</div>
+      <div class="muted" id="ver"></div>
+    </div>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div id="log" class="log"></div>
+
+    <script>
+      (function () {
+        function setText(id, value) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.textContent = value;
+        }
+
+        function setLog(lines) {
+          var root = document.getElementById('log');
+          if (!root) return;
+          root.innerHTML = '';
+          (Array.isArray(lines) ? lines : []).forEach(function (line) {
+            var item = document.createElement('div');
+            item.className = 'log-item';
+            item.textContent = String(line || '');
+            root.appendChild(item);
+          });
+        }
+
+        var api = window.matricaUpdate;
+        if (!api || typeof api.onState !== 'function') return;
+        api.onState(function (state) {
+          var msg = state && typeof state.message === 'string' ? state.message : '';
+          var pct = state && Number.isFinite(Number(state.pct)) ? Math.max(0, Math.min(100, Math.floor(Number(state.pct)))) : 0;
+          var version = state && typeof state.version === 'string' ? state.version.trim() : '';
+          setText('msg', msg);
+          setText('pct', pct + '%');
+          setText('ver', version ? 'Новая версия: ' + version : '');
+          var fill = document.getElementById('fill');
+          if (fill) fill.style.width = pct + '%';
+          setLog(state && Array.isArray(state.logs) ? state.logs : []);
+        });
+      })();
+    </script>
+  </body>
+</html>

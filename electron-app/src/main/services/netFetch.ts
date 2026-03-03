@@ -1,5 +1,4 @@
 import { net } from 'electron';
-import { spawn } from 'node:child_process';
 import { stat, rename } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
@@ -18,6 +17,7 @@ export type RetryOptions = {
 type DownloadOptions = RetryOptions & {
   onProgress?: (pct: number, transferred: number, total: number | null) => void;
   noProgressTimeoutMs?: number;
+  // Kept only for backward compatibility with old callers.
   useBitsOnWindows?: boolean;
   bitsTimeoutMs?: number;
 };
@@ -34,61 +34,6 @@ const RETRYABLE_CODES = new Set([
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function escapePowerShellString(value: string) {
-  return value.replace(/"/g, '`"');
-}
-
-async function downloadWithBits(
-  url: string,
-  outPath: string,
-  timeoutMs?: number,
-  onProgress?: (pct: number, transferred: number, total: number | null) => void,
-): Promise<{ ok: boolean; error?: string }> {
-  if (process.platform !== 'win32') return { ok: false, error: 'bits unsupported' };
-  onProgress?.(1, 0, null);
-  const escapedUrl = escapePowerShellString(url);
-  const escapedPath = escapePowerShellString(outPath);
-  const cmd = [
-    `$ProgressPreference='SilentlyContinue'`,
-    `Start-BitsTransfer -Source "${escapedUrl}" -Destination "${escapedPath}" -TransferType Download -Priority Foreground -ErrorAction Stop`,
-  ].join('; ');
-  return await new Promise((resolve) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], {
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    let done = false;
-    const finish = (ok: boolean, error?: string) => {
-      if (done) return;
-      done = true;
-      resolve(ok ? { ok: true } : { ok: false, error: error ?? 'bits failed' });
-    };
-    const timer =
-      timeoutMs && Number.isFinite(timeoutMs)
-        ? setTimeout(() => {
-            try {
-              child.kill();
-            } catch {
-              // ignore
-            }
-            finish(false, 'bits timeout');
-          }, Math.max(10_000, timeoutMs))
-        : null;
-    child.once('error', (err) => {
-      if (timer) clearTimeout(timer);
-      finish(false, String(err));
-    });
-    child.once('exit', (code) => {
-      if (timer) clearTimeout(timer);
-      if (code === 0) {
-        finish(true);
-      } else {
-        finish(false, `bits exit ${code ?? 'unknown'}`);
-      }
-    });
-  });
 }
 
 function getBackoffMs(attempt: number, opts: RetryOptions) {
@@ -228,16 +173,6 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       if (timeoutId) clearTimeout(timeoutId);
       if (noProgressTimer) clearInterval(noProgressTimer);
     }
-  }
-  if (opts.useBitsOnWindows && process.platform === 'win32') {
-    const bits = await downloadWithBits(url, outPath, opts.bitsTimeoutMs ?? opts.timeoutMs, opts.onProgress);
-    if (bits.ok) {
-      const st = await stat(outPath).catch(() => null);
-      const size = st?.isFile() ? st.size : 0;
-      opts.onProgress?.(100, size, size || null);
-      return { ok: true as const, filePath: outPath };
-    }
-    return { ok: false as const, error: String(bits.error ?? lastErr ?? 'download failed') };
   }
   return { ok: false as const, error: String(lastErr ?? 'download failed') };
 }

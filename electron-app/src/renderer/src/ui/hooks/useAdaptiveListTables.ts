@@ -1,5 +1,8 @@
 import { useEffect } from 'react';
 
+const LIST_COLUMNS_MODE_STORAGE_KEY = 'matrica:listColumnsMode';
+const LIST_COLUMNS_MODE_CHANGED_EVENT = 'matrica:list-columns-mode-changed';
+
 function clamp(n: number, min: number, max: number) {
   if (!Number.isFinite(n)) return min;
   if (n < min) return min;
@@ -25,6 +28,14 @@ function readNumberCssVar(root: HTMLElement, name: string, fallback: number): nu
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isSingleListMode() {
+  try {
+    return window?.localStorage?.getItem(LIST_COLUMNS_MODE_STORAGE_KEY) !== 'multi';
+  } catch {
+    return true;
+  }
+}
+
 function isMostlyNumeric(value: string) {
   const text = normalizeText(value);
   if (!text) return false;
@@ -36,11 +47,21 @@ function isMostlyNumeric(value: string) {
 
 function recalcAdaptiveTableColumns() {
   const root = document.documentElement;
+  const singleMode = isSingleListMode();
   const textMaxCh = clamp(readNumberCssVar(root, '--ui-list-text-max-ch', 48), 24, 88);
+  root.dataset.uiListColumnsMode = singleMode ? 'single' : 'multi';
   const tables = Array.from(document.querySelectorAll('table.list-table')) as HTMLTableElement[];
   for (const table of tables) {
     const wrapper = table.parentElement;
-    if (wrapper) wrapper.classList.add('list-table-wrap');
+    if (wrapper) {
+      wrapper.classList.add('list-table-wrap');
+      wrapper.classList.toggle('list-table-wrap--single', singleMode);
+    }
+    table.classList.toggle('list-table--single-mode', singleMode);
+    for (let col = 1; col <= 20; col += 1) {
+      table.style.removeProperty(`--ui-list-col-${col}-max-ch`);
+    }
+    if (singleMode) continue;
 
     const headerCells = Array.from(table.querySelectorAll('thead th'));
     const bodyRows = Array.from(table.querySelectorAll('tbody tr')).slice(0, 240);
@@ -117,10 +138,18 @@ export function useAdaptiveListTables() {
     const observer = new MutationObserver(() => schedule());
     observer.observe(document.body, { subtree: true, childList: true, characterData: true });
     window.addEventListener('resize', schedule);
+    const onModeChanged = () => schedule();
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === LIST_COLUMNS_MODE_STORAGE_KEY) schedule();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(LIST_COLUMNS_MODE_CHANGED_EVENT, onModeChanged);
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('resize', schedule);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(LIST_COLUMNS_MODE_CHANGED_EVENT, onModeChanged);
       observer.disconnect();
     };
   }, []);

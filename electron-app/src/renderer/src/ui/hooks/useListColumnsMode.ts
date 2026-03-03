@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 export type ListColumnsMode = 'single' | 'multi';
 
 const LIST_COLUMNS_MODE_STORAGE_KEY = 'matrica:listColumnsMode';
+const LIST_COLUMNS_MODE_CHANGED_EVENT = 'matrica:list-columns-mode-changed';
 
 function normalizeMode(raw: string | null): ListColumnsMode {
   return raw === 'multi' ? 'multi' : 'single';
@@ -19,6 +20,7 @@ function readStoredMode(): ListColumnsMode {
 function writeStoredMode(mode: ListColumnsMode): void {
   try {
     window?.localStorage?.setItem(LIST_COLUMNS_MODE_STORAGE_KEY, mode);
+    window?.dispatchEvent(new CustomEvent(LIST_COLUMNS_MODE_CHANGED_EVENT, { detail: { mode } }));
   } catch {
     // keep in-memory state as fallback
   }

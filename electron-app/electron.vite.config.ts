@@ -14,12 +14,16 @@ export default defineConfig({
     build: {
       outDir: 'dist/preload',
       rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          update: resolve(__dirname, 'src/preload/update.ts'),
+        },
         output: {
           // В Windows preload по умолчанию исполняется как CommonJS.
           // ESM preload (.mjs) может падать с "Cannot use import statement outside a module".
           format: 'cjs',
           // Явно используем .cjs, чтобы Electron не пытался интерпретировать как ESM.
-          entryFileNames: 'index.cjs',
+          entryFileNames: '[name].cjs',
         },
       },
     },

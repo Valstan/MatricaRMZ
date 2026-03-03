@@ -419,7 +419,7 @@ function SectionBlock(props: {
               </Button>
             )}
           </div>
-          <DataTable>
+          <DataTable className="list-table">
               <colgroup>
                 <col />
                 <col style={{ width: 110 }} />
@@ -518,7 +518,7 @@ function SectionBlock(props: {
               </Button>
             )}
           </div>
-          <DataTable>
+          <DataTable className="list-table">
               <colgroup>
                 <col />
                 <col style={{ width: 110 }} />

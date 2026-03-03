@@ -160,7 +160,7 @@ export function ChatPanel(props: {
       await refreshMessages();
     };
     void tick();
-    const id = setInterval(() => void tick(), 10_000);
+    const id = setInterval(() => void tick(), 30_000);
     return () => {
       alive = false;
       clearInterval(id);

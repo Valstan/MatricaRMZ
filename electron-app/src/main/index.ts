@@ -96,13 +96,8 @@ function createWindow(): void {
 
   mainWindow.webContents.on('did-finish-load', async () => {
     try {
-      const href = await mainWindow?.webContents.executeJavaScript('location.href', true);
-      const scripts = await mainWindow?.webContents.executeJavaScript(
-        "Array.from(document.scripts).map(s => s.src || s.type || '').join(' | ')",
-        true,
-      );
-      logToFile(`renderer did-finish-load: href=${String(href)}`);
-      logToFile(`renderer scripts: ${String(scripts)}`);
+      const href = mainWindow?.webContents.getURL() ?? '';
+      logToFile(`renderer did-finish-load: href=${href}`);
     } catch (e) {
       logToFile(`renderer did-finish-load inspect failed: ${String(e)}`);
     }

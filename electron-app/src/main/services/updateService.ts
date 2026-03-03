@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, shell } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { spawn } from 'node:child_process';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -13,6 +13,7 @@ import { SettingsKey, settingsGetString } from './settingsStore.js';
 import {
   getLanServerPort,
   getLocalLanPeers,
+  isLanUpdateEnabled,
   listLanPeers,
   listUpdatePeers,
   registerLanPeers,
@@ -47,7 +48,6 @@ export type UpdateHelperArgs = {
 const UPDATE_CHECK_TIMEOUT_MS = 20_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 const UPDATE_DOWNLOAD_NO_PROGRESS_MS = 45_000;
-const UPDATE_BITS_TIMEOUT_MS = 12 * 60_000;
 
 export function initAutoUpdate() {
   // kept for backward compatibility; no autoUpdater wiring needed
@@ -58,6 +58,18 @@ let backgroundInFlight = false;
 let updateUiWindow: BrowserWindow | null = null;
 let updateUiLocked = false;
 const updateLog: string[] = [];
+type UpdateUiViewState = {
+  message: string;
+  pct: number;
+  version: string;
+  logs: string[];
+};
+let updateUiViewState: UpdateUiViewState = {
+  message: 'Проверяем обновления…',
+  pct: 0,
+  version: '',
+  logs: [],
+};
 let lastManualUpdatePromptAt = 0;
 const MANUAL_UPDATE_PROMPT_COOLDOWN_MS = 30 * 60_000;
 
@@ -192,13 +204,40 @@ async function describePath(label: string, path: string) {
   }
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+function resolveUpdateUiPreloadPath(): string | null {
+  const appPath = app.getAppPath();
+  const candidates = [
+    join(appPath, 'dist/preload/update.cjs'),
+    join(appPath, 'dist/preload/update.js'),
+    join(appPath, 'dist/preload/update.mjs'),
+    join(process.resourcesPath, 'app/dist/preload/update.cjs'),
+    join(process.resourcesPath, 'app/dist/preload/update.js'),
+    join(process.resourcesPath, 'app/dist/preload/update.mjs'),
+    join(process.resourcesPath, 'app.asar/dist/preload/update.cjs'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveUpdateUiHtmlPath(): string | null {
+  const appPath = app.getAppPath();
+  const candidates = [
+    join(appPath, 'dist/renderer/update.html'),
+    join(process.resourcesPath, 'app/dist/renderer/update.html'),
+    join(process.resourcesPath, 'app.asar/dist/renderer/update.html'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function pushUpdateUiState() {
+  const w = updateUiWindow;
+  if (!w || w.isDestroyed()) return;
+  w.webContents.send('update:state', updateUiViewState);
 }
 
 async function pruneLogFile(path: string, maxDays: number) {
@@ -389,10 +428,8 @@ async function installNow(args: { installerPath: string; version?: string }) {
 async function renderUpdateLog() {
   const w = updateUiWindow;
   if (!w || w.isDestroyed()) return;
-  const items = updateLog.map((line) => `<div class="log-item">${escapeHtml(line)}</div>`).join('');
-  const safe = items.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  const js = `document.getElementById('log').innerHTML='${safe}';`;
-  await w.webContents.executeJavaScript(js, true).catch(() => {});
+  updateUiViewState = { ...updateUiViewState, logs: [...updateLog] };
+  pushUpdateUiState();
   const lineCount = Math.min(updateLog.length, 18);
   const baseHeight = 220;
   const lineHeight = 18;
@@ -426,6 +463,13 @@ export function getUpdateState(): UpdateRuntimeState {
 function showUpdateWindow(parent?: BrowserWindow | null) {
   if (updateUiWindow && !updateUiWindow.isDestroyed()) return updateUiWindow;
   updateLog.length = 0;
+  updateUiViewState = {
+    message: 'Проверяем обновления…',
+    pct: 0,
+    version: '',
+    logs: [],
+  };
+  const preloadPath = resolveUpdateUiPreloadPath();
   updateUiWindow = new BrowserWindow({
     width: 640,
     height: 360,
@@ -442,33 +486,31 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
       contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
+      ...(preloadPath ? { preload: preloadPath } : {}),
     },
   });
+  if (preloadPath) {
+    void writeUpdaterLog(`update-ui preload=${preloadPath}`);
+  } else {
+    void writeUpdaterLog('update-ui preload not found, fallback mode');
+  }
   updateUiWindow.setMenuBarVisibility(false);
   updateUiWindow.on('close', (e) => {
     if (updateUiLocked) e.preventDefault();
   });
-
-  const html = `<!doctype html>
-  <html><head><meta charset="utf-8"/><title>Update</title>
-  <style>
-    body{font-family:system-ui; padding:16px;}
-    .muted{color:#6b7280}
-    .bar{height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-top:10px}
-    .fill{height:10px;background:#0f172a;width:0%}
-    .row{display:flex;gap:8px;align-items:center;margin-top:8px}
-    .pct{font-variant-numeric:tabular-nums}
-    .log{margin-top:10px; font-size:12px; color:#4b5563}
-    .log-item{margin-top:4px}
-  </style></head>
-  <body>
-    <h2 style="margin:0">Обновление</h2>
-    <div id="msg" class="muted" style="margin-top:8px">Проверяем обновления…</div>
-    <div class="row"><div class="pct" id="pct">0%</div><div class="muted" id="ver"></div></div>
-    <div class="bar"><div class="fill" id="fill"></div></div>
-    <div id="log" class="log"></div>
-  </body></html>`;
-  void updateUiWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  const htmlPath = resolveUpdateUiHtmlPath();
+  if (htmlPath) {
+    void writeUpdaterLog(`update-ui html=${htmlPath}`);
+    void updateUiWindow.loadFile(htmlPath).catch((e) => {
+      void writeUpdaterLog(`update-ui loadFile error: ${String(e)}`);
+    });
+  } else {
+    void writeUpdaterLog('update-ui html not found, fallback to about:blank');
+    void updateUiWindow.loadURL('about:blank');
+  }
+  updateUiWindow.webContents.on('did-finish-load', () => {
+    pushUpdateUiState();
+  });
   return updateUiWindow;
 }
 
@@ -518,15 +560,14 @@ function quitMainAppSoon(ms = 800) {
 async function setUpdateUi(msg: string, pct?: number, version?: string) {
   const w = updateUiWindow;
   if (!w || w.isDestroyed()) return;
-  const safeMsg = msg.replace(/'/g, "\\'");
-  const p = pct == null ? null : Math.max(0, Math.min(100, Math.floor(pct)));
-  const safeVer = (version ?? '').replace(/'/g, "\\'");
-  const js = `
-    document.getElementById('msg').innerText='${safeMsg}';
-    ${p == null ? '' : `document.getElementById('pct').innerText='${p}%'; document.getElementById('fill').style.width='${p}%';`}
-    document.getElementById('ver').innerText='${safeVer ? 'Новая версия: ' + safeVer : ''}';
-  `;
-  await w.webContents.executeJavaScript(js, true).catch(() => {});
+  const nextPct = pct == null ? updateUiViewState.pct : Math.max(0, Math.min(100, Math.floor(pct)));
+  updateUiViewState = {
+    ...updateUiViewState,
+    message: msg,
+    pct: nextPct,
+    version: version ?? '',
+  };
+  pushUpdateUiState();
 }
 
 async function stageUpdate(msg: string, pct?: number, version?: string) {
@@ -914,8 +955,7 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
           attempts: 3,
           timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
           noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
-          useBitsOnWindows: true,
-          bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
+          useBitsOnWindows: false,
           backoffMs: 800,
           maxBackoffMs: 6000,
           jitterMs: 300,
@@ -1884,6 +1924,7 @@ function getUpdateDownloadDir(version?: string, fileName?: string) {
 }
 
 async function tryAdvertiseLan(meta: ServerUpdateMeta): Promise<void> {
+  if (!isLanUpdateEnabled()) return;
   const apiBaseUrl = await resolveUpdateApiBaseUrl();
   if (!apiBaseUrl) return;
   await logLan(`advertise start version=${meta.version} file=${meta.fileName}`);
@@ -1924,6 +1965,7 @@ async function tryDownloadFromLan(
   meta: ServerUpdateMeta,
   opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
 ): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
+  if (!isLanUpdateEnabled()) return { ok: false as const, error: 'lan update disabled' };
   const apiBaseUrl = await resolveUpdateApiBaseUrl();
   if (!apiBaseUrl) return { ok: false as const, error: 'apiBaseUrl missing' };
   const serverPort = getLanServerPort() ?? undefined;
@@ -2137,8 +2179,7 @@ async function downloadYandexUpdate(
       attempts: 4,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
       noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
-      useBitsOnWindows: true,
-      bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
+      useBitsOnWindows: false,
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
@@ -2163,8 +2204,7 @@ async function downloadGithubUpdate(
       attempts: 4,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
       noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
-      useBitsOnWindows: true,
-      bitsTimeoutMs: UPDATE_BITS_TIMEOUT_MS,
+      useBitsOnWindows: false,
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 300,
@@ -2276,77 +2316,12 @@ async function spawnInstallerDetached(installerPath: string, delayMs = 1200): Pr
     { delayMs: 10_000, label: 'retry-3' },
   ];
 
-  const runWithOutput = async (label: string, cmd: string, args: string[]) => {
-    try {
-      await writeUpdaterLog(`installer launch strategy=${label} cmd=${cmd} args=${args.map((a) => JSON.stringify(a)).join(' ')}`);
-      return await new Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string }>((resolve) => {
-        const child = spawn(cmd, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        let stdout = '';
-        let stderr = '';
-        child.stdout?.on('data', (buf) => {
-          stdout += String(buf);
-        });
-        child.stderr?.on('data', (buf) => {
-          stderr += String(buf);
-        });
-        child.once('error', (err) => {
-          resolve({ ok: false, code: null, stdout, stderr: `${stderr}${stderr ? '\n' : ''}${String(err)}` });
-        });
-        child.once('close', (code) => {
-          resolve({ ok: code === 0, code: code ?? null, stdout, stderr });
-        });
-      });
-    } catch (e) {
-      return { ok: false, code: null, stdout: '', stderr: String(e) };
-    }
-  };
-
-  const tryCmdStart = async (label: string) => {
-    const args = ['/c', 'start', '""', installerPath];
-    const res = await runWithOutput(`cmd-start-${label}`, 'cmd.exe', args);
-    if (!res.ok) {
-      await writeUpdaterLog(
-        `installer launch cmd-start failed (${label}) code=${res.code ?? 'n/a'} stdout=${res.stdout.trim()} stderr=${res.stderr.trim()}`,
-      );
-      return false;
-    }
-    await writeUpdaterLog(`installer launched via cmd-start (${label})`);
-    return true;
-  };
-
-  const tryPowerShell = async () => {
-    const escaped = installerPath.replace(/"/g, '`"');
-    const cmd = `Start-Process -FilePath "${escaped}" -Verb RunAs -PassThru | Select-Object -ExpandProperty Id`;
-    const res = await runWithOutput('powershell-start', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]);
-    if (!res.ok) {
-      await writeUpdaterLog(
-        `installer launch powershell failed code=${res.code ?? 'n/a'} stdout=${res.stdout.trim()} stderr=${res.stderr.trim()}`,
-      );
-      return false;
-    }
-    const pid = Number(res.stdout.trim().split(/\s+/).at(-1));
-    if (!Number.isFinite(pid) || pid <= 0) {
-      await writeUpdaterLog(`installer launch powershell returned invalid pid stdout=${res.stdout.trim()}`);
-      return false;
-    }
-    await writeUpdaterLog(`installer launched via powershell-start pid=${pid}`);
-    return true;
-  };
-
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i];
     if (!attempt) continue;
     await writeUpdaterLog(`installer launch scheduled in ${Math.round(attempt.delayMs / 1000)}s (${attempt.label})`);
     await sleep(attempt.delayMs);
     try {
-      if (process.platform === 'win32') {
-        if (await tryCmdStart(attempt.label)) {
-          return true;
-        }
-        if (await tryPowerShell()) {
-          return true;
-        }
-      }
       await writeUpdaterLog(`installer launch strategy=shell-open path=${installerPath}`);
       const result = await shell.openPath(installerPath);
       if (!result) {

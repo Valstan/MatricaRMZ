@@ -1490,7 +1490,7 @@ function TableEditor(props: {
               props.onSave(next);
             }}
           />
-          <span style={{ color: '#6b7280', fontSize: 12 }}>{Boolean(value) ? 'да' : 'нет'}</span>
+          <span style={{ color: '#6b7280', fontSize: 12 }}>{value ? 'да' : 'нет'}</span>
         </label>
       );
     }
@@ -1608,7 +1608,7 @@ function TableEditor(props: {
         </div>
       )}
       {!compactMode ? (
-      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+      <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <thead>
           <tr style={{ background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 120%)', color: '#fff' }}>
             {cols.map((c) => (

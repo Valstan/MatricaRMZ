@@ -44,6 +44,8 @@ jobs:
       - name: Publish release (Windows x64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: pnpm -C electron-app exec electron-builder --win --x64 --publish always
 
       - name: Upload artifacts to Yandex Disk

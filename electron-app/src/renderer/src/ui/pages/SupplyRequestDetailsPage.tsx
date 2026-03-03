@@ -825,7 +825,7 @@ export function SupplyRequestDetailsPage(props: {
         </div>
 
         <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--button-primary-bg)', color: 'var(--button-primary-text)' }}>
                 <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6, width: 34 }} />

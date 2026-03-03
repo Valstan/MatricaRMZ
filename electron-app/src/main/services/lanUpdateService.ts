@@ -15,6 +15,22 @@ type LanServerState = {
 
 let currentServer: LanServerState | null = null;
 
+function isEnabledByEnv() {
+  const raw = String(process.env.MATRICA_UPDATE_LAN_ENABLED ?? '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+function pickBindHost(): string {
+  const raw = String(process.env.MATRICA_UPDATE_LAN_BIND ?? '').trim().toLowerCase();
+  if (raw === '0.0.0.0') return '0.0.0.0';
+  return '127.0.0.1';
+}
+
+export function isLanUpdateEnabled(): boolean {
+  return isEnabledByEnv();
+}
+
 function isPrivateIp(address: string): boolean {
   const v4 = address.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (v4) {
@@ -78,6 +94,9 @@ async function readFileSize(filePath: string): Promise<number | null> {
 }
 
 export async function startLanUpdateServer(filePath: string, fileName: string): Promise<{ ok: true; port: number } | { ok: false; error: string }> {
+  if (!isEnabledByEnv()) {
+    return { ok: false as const, error: 'lan update disabled by MATRICA_UPDATE_LAN_ENABLED' };
+  }
   const safeName = basename(fileName);
   const safePath = join(getUpdatesRootDir(), safeName);
   const finalPath = filePath && basename(filePath) === safeName ? filePath : safePath;
@@ -149,7 +168,7 @@ export async function startLanUpdateServer(filePath: string, fileName: string): 
     server.once('error', (err) => {
       resolve({ ok: false as const, error: String(err) });
     });
-    server.listen(port, '0.0.0.0', () => {
+    server.listen(port, pickBindHost(), () => {
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
       currentServer = { server, port: actualPort, filePath: finalPath, fileName: safeName };
@@ -167,6 +186,8 @@ export function getLanServerFileName(): string | null {
 }
 
 export function getLocalLanPeers(port: number): Array<{ ip: string; port: number }> {
+  if (!isEnabledByEnv()) return [];
+  if (pickBindHost() !== '0.0.0.0') return [];
   const ips = getLocalLanIps();
   return ips.map((ip) => ({ ip, port }));
 }
@@ -182,6 +203,7 @@ export async function registerLanPeers(
   version: string,
   peers: Array<{ ip: string; port: number }>,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isEnabledByEnv()) return { ok: false as const, error: 'lan update disabled by MATRICA_UPDATE_LAN_ENABLED' };
   if (!apiBaseUrl || !version || peers.length === 0) return { ok: false as const, error: 'missing args' };
   const url = joinUrl(apiBaseUrl, '/updates/lan/peers');
   try {
@@ -206,6 +228,7 @@ export async function listLanPeers(
   version: string,
   exclude?: { ip?: string; port?: number },
 ): Promise<Array<{ ip: string; port?: number }>> {
+  if (!isEnabledByEnv()) return [];
   if (!apiBaseUrl || !version) return [];
   const params = new URLSearchParams({ version });
   if (exclude?.ip) params.set('ip', exclude.ip);
@@ -233,6 +256,7 @@ export async function registerUpdatePeers(
   infoHash: string,
   peers: Array<{ ip: string; port: number }>,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isEnabledByEnv()) return { ok: false as const, error: 'lan update disabled by MATRICA_UPDATE_LAN_ENABLED' };
   if (!apiBaseUrl || !infoHash || peers.length === 0) return { ok: false as const, error: 'missing args' };
   const url = joinUrl(apiBaseUrl, '/updates/peers');
   try {
@@ -257,6 +281,7 @@ export async function listUpdatePeers(
   infoHash: string,
   exclude?: { ip?: string; port?: number },
 ): Promise<Array<{ ip: string; port?: number }>> {
+  if (!isEnabledByEnv()) return [];
   if (!apiBaseUrl || !infoHash) return [];
   const params = new URLSearchParams({ infoHash });
   if (exclude?.ip) params.set('ip', exclude.ip);
