@@ -2,9 +2,20 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import {
+  buildCopyRowsStatus,
+  buildDeleteConfirmMessage,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  printRowsPreview,
+  resolveMenuRows,
+} from '../utils/listContextActions.js';
 
 type Row = {
   id: string;
@@ -28,6 +39,7 @@ export function ToolPropertiesPage(props: {
   const query = String(listState.query ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -71,9 +83,57 @@ export function ToolPropertiesPage(props: {
     },
     (row) => row.id,
   );
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  const selection = useListSelection(sorted.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
+  const contextColumns = useMemo(
+    () => [
+      { title: 'Название', value: (row: Row) => row.name || '(без названия)' },
+      { title: 'Параметры', value: (row: Row) => row.params || '—' },
+    ],
+    [],
+  );
+
+  function printRows(items: Row[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные свойства (${items.length})` : `Свойство: ${items[0]?.name || '(без названия)'}`,
+      sectionTitle: 'Список свойств',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: Row[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  async function deleteRows(ids: string[]) {
+    if (!props.canDelete || ids.length === 0) return;
+    const message = buildDeleteConfirmMessage({
+      selectedCount: ids.length,
+      selectedManyLabel: 'выделенные свойства',
+      singleLabel: 'свойство',
+    });
+    if (!confirm(message)) return;
+    let failed = 0;
+    for (const id of ids) {
+      const r = await window.matrica.tools.properties.delete(id);
+      if (!r.ok) failed += 1;
+    }
+    setStatus(
+      buildDeleteRowsStatus({
+        failedCount: failed,
+        deletedCount: ids.length,
+        deletedManyLabel: 'свойств',
+      }),
+    );
+    selection.clearSelection();
+    await refresh();
   }
 
   return (
@@ -117,15 +177,12 @@ export function ToolPropertiesPage(props: {
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('params')}>
                   Параметры {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'params')}
                 </th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>
-                  Действия
-                </th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={3} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                  <td colSpan={2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                     {rows.length === 0 ? 'Нет свойств' : 'Не найдено'}
                   </td>
                 </tr>
@@ -133,40 +190,44 @@ export function ToolPropertiesPage(props: {
               {sorted.map((row) => (
                 <tr
                   key={row.id}
+                  data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
                   style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
-                  onClick={() => void props.onOpen(row.id)}
+                  onContextMenu={(e) => {
+                    const result = selection.onRowContextMenu(e, row.id);
+                    if (!result.openMenu) return;
+                    setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                  }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
                 >
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.name || '(без названия)'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.params || '—'}</td>
-                  <td style={{ padding: '10px 12px' }}>
-                    {props.canDelete && (
-                      <Button
-                        variant="ghost"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (!confirm('Удалить свойство?')) return;
-                          setStatus('Удаление…');
-                          const r = await window.matrica.tools.properties.delete(row.id);
-                          if (!r.ok) {
-                            setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                            return;
-                          }
-                          setStatus('Удалено');
-                          setTimeout(() => setStatus(''), 900);
-                          await refresh();
-                        }}
-                        style={{ color: '#b91c1c' }}
-                      >
-                        Удалить
-                      </Button>
-                    )}
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            canDelete: props.canDelete,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onPrint: printRows,
+            onCopy: copyRows,
+            onDelete: deleteRows,
+            onClearSelection: selection.clearSelection,
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

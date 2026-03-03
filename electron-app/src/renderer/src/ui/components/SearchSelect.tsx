@@ -179,7 +179,7 @@ export function SearchSelect(props: {
                 overflow: 'hidden',
               }}
             >
-              <div ref={dropdown.listRef} style={{ maxHeight: 280, overflowY: 'auto' }}>
+              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight, overflowY: 'auto' }}>
                 {dropdown.filtered.length === 0 && <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>}
                 {dropdown.filtered.map((o, idx) => {
                   const active = props.value === o.id;

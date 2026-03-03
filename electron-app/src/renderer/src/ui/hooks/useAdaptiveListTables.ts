@@ -48,7 +48,7 @@ function isMostlyNumeric(value: string) {
 function recalcAdaptiveTableColumns() {
   const root = document.documentElement;
   const singleMode = isSingleListMode();
-  const textMaxCh = clamp(readNumberCssVar(root, '--ui-list-text-max-ch', 48), 24, 88);
+  const textMaxCh = clamp(readNumberCssVar(root, '--ui-list-text-max-ch', 100), 24, 100);
   root.dataset.uiListColumnsMode = singleMode ? 'single' : 'multi';
   const tables = Array.from(document.querySelectorAll('table.list-table')) as HTMLTableElement[];
   for (const table of tables) {

@@ -88,7 +88,7 @@ body {
   --list-row-padding-x: 6px;
   --ui-list-cell-default-max-ch: 30;
   --ui-list-cell-name-max-ch: 44;
-  --ui-list-text-max-ch: 48;
+  --ui-list-text-max-ch: 100;
   --ui-list-auto-columns-enabled: 1;
   --ui-list-auto-columns-max: 3;
   --ui-list-auto-columns-gap-px: 10;
@@ -296,7 +296,7 @@ table.list-table--single-mode td {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
-  max-width: none;
+  max-width: 100ch;
   min-width: 0;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -377,7 +377,7 @@ table.list-table td:nth-child(10) {
 
 table.list-table.list-table--single-mode th,
 table.list-table.list-table--single-mode td {
-  max-width: none;
+  max-width: 100ch;
 }
 
 table.list-table tbody tr {
@@ -391,6 +391,12 @@ table.list-table tbody tr:nth-child(even) {
 
 table.list-table tbody tr:hover {
   background: var(--list-row-bg-hover);
+}
+
+table.list-table tbody tr[data-list-selected='true'] {
+  background: color-mix(in srgb, var(--list-row-bg-hover) 72%, #60a5fa 28%);
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
 }
 
 table.list-table th {

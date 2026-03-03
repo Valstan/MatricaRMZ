@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
@@ -18,6 +20,15 @@ import {
   parseContractSections,
 } from '@matricarmz/shared';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
+import {
+  buildCopyRowsStatus,
+  buildDeleteConfirmMessage,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  printRowsPreview,
+  resolveMenuRows,
+} from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listAllParts } from '../utils/partsPagination.js';
 
@@ -185,6 +196,7 @@ export function ContractsPage(props: {
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const { state: listState, patchState } = useListUiState<ContractsListUiState>('list:contracts', {
     query: '',
     sortKey: 'updatedAt' as SortKey,
@@ -385,9 +397,61 @@ export function ContractsPage(props: {
     },
     (row) => row.id,
   );
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  const selection = useListSelection(sorted.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
+  const contextColumns = useMemo(
+    () => [
+      { title: 'Номер', value: (row: Row) => row.number || '(без номера)' },
+      { title: 'Внутренний номер', value: (row: Row) => row.internalNumber || '—' },
+      { title: 'Контрагент', value: (row: Row) => row.counterparty || '—' },
+      { title: 'Дата заключения', value: (row: Row) => (row.dateMs ? formatMoscowDate(row.dateMs) : '—') },
+      { title: 'Дата исполнения', value: (row: Row) => (row.dueDateMs ? formatMoscowDate(row.dueDateMs) : '—') },
+      { title: 'Сумма', value: (row: Row) => formatRuMoney(row.contractAmount) },
+    ],
+    [],
+  );
+
+  function printRows(items: Row[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные контракты (${items.length})` : `Контракт: ${items[0]?.number || '(без номера)'}`,
+      sectionTitle: 'Список контрактов',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: Row[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  async function deleteRows(ids: string[]) {
+    if (!props.canDelete || ids.length === 0) return;
+    const message = buildDeleteConfirmMessage({
+      selectedCount: ids.length,
+      selectedManyLabel: 'выделенные контракты',
+      singleLabel: 'контракт',
+    });
+    if (!confirm(message)) return;
+    let failed = 0;
+    for (const id of ids) {
+      const r = await window.matrica.admin.entities.softDelete(id);
+      if (!r.ok) failed += 1;
+    }
+    setStatus(
+      buildDeleteRowsStatus({
+        failedCount: failed,
+        deletedCount: ids.length,
+        deletedManyLabel: 'контрактов',
+      }),
+    );
+    selection.clearSelection();
+    await loadContracts();
   }
 
   const tableHeader = (
@@ -429,12 +493,21 @@ export function ContractsPage(props: {
     return (
       <tr
         key={row.id}
+        data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
         style={{
           borderBottom: '1px solid #f3f4f6',
           cursor: 'pointer',
           ...(rowVisual.style && rowVisual.style),
         }}
-        onClick={() => void props.onOpen(row.id)}
+        onContextMenu={(e) => {
+          const result = selection.onRowContextMenu(e, row.id);
+          if (!result.openMenu) return;
+          setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+        }}
+        onClick={() => {
+          selection.onRowPrimaryAction(row.id);
+          void props.onOpen(row.id);
+        }}
         onMouseEnter={(e) => {
           if (rowVisual.hoverable) e.currentTarget.style.backgroundColor = '#f9fafb';
         }}
@@ -552,6 +625,24 @@ export function ContractsPage(props: {
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            canDelete: props.canDelete,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onPrint: printRows,
+            onCopy: copyRows,
+            onDelete: deleteRows,
+            onClearSelection: selection.clearSelection,
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

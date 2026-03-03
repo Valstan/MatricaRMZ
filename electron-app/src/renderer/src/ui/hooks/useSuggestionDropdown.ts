@@ -10,7 +10,7 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(-1);
-  const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -35,15 +35,38 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
 
   useEffect(() => {
     if (!open) return;
+    let rafId = 0;
     const update = () => {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setPopupRect({ left: rect.left, top: rect.bottom + 6, width: rect.width });
+      const gap = 6;
+      const padding = 8;
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+      const width = Math.min(rect.width, Math.max(160, viewportW - padding * 2));
+      const popupHeight = popupRef.current?.getBoundingClientRect().height ?? 300;
+
+      let left = rect.left;
+      if (left + width > viewportW - padding) left = viewportW - padding - width;
+      if (left < padding) left = padding;
+
+      const spaceBelow = Math.max(0, viewportH - rect.bottom - gap - padding);
+      const spaceAbove = Math.max(0, rect.top - gap - padding);
+      const preferTop = spaceBelow < Math.min(220, popupHeight) && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(120, Math.min(320, preferTop ? spaceAbove : spaceBelow));
+      const shownHeight = Math.min(popupHeight, maxHeight);
+      let top = preferTop ? rect.top - shownHeight - gap : rect.bottom + gap;
+      if (top < padding) top = padding;
+      if (top + shownHeight > viewportH - padding) top = viewportH - padding - shownHeight;
+
+      setPopupRect({ left, top, width, maxHeight });
     };
     update();
+    rafId = requestAnimationFrame(update);
     window.addEventListener('resize', update);
     window.addEventListener('scroll', update, true);
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };

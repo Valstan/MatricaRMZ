@@ -9,6 +9,7 @@ export type CardActionBarProps = {
   onReset?: (() => void) | undefined;
   onPrint?: (() => void) | undefined;
   onDelete?: (() => void) | undefined;
+  deleteLabel?: string | undefined;
   onClose?: (() => void) | undefined;
 };
 
@@ -78,7 +79,7 @@ export function CardActionBar(props: CardActionBarProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flex: 1 }}>
           {props.canEdit && props.onDelete && (
             <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={props.onDelete}>
-              Удалить карточку
+              {props.deleteLabel || 'Удалить карточку'}
             </Button>
           )}
         </div>

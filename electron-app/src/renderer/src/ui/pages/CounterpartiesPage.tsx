@@ -2,14 +2,25 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
+import {
+  buildCopyRowsStatus,
+  buildDeleteConfirmMessage,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  printRowsPreview,
+  resolveMenuRows,
+} from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
@@ -61,6 +72,7 @@ export function CounterpartiesPage(props: {
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const { state: listState, patchState } = useListUiState('list:counterparties', {
     query: '',
     sortKey: 'displayName' as SortKey,
@@ -147,9 +159,58 @@ export function CounterpartiesPage(props: {
     },
     (row) => row.id,
   );
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  const selection = useListSelection(sorted.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
+  const contextColumns = useMemo(
+    () => [
+      { title: 'Название', value: (row: Row) => row.displayName || '(без названия)' },
+      { title: 'ИНН', value: (row: Row) => row.inn || '—' },
+      { title: 'Обновлено', value: (row: Row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
+    ],
+    [],
+  );
+
+  function printRows(items: Row[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные контрагенты (${items.length})` : `Контрагент: ${items[0]?.displayName || '(без названия)'}`,
+      sectionTitle: 'Список контрагентов',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: Row[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  async function deleteRows(ids: string[]) {
+    if (!props.canDelete || ids.length === 0) return;
+    const message = buildDeleteConfirmMessage({
+      selectedCount: ids.length,
+      selectedManyLabel: 'выделенных контрагентов',
+      singleLabel: 'контрагента',
+    });
+    if (!confirm(message)) return;
+    let failed = 0;
+    for (const id of ids) {
+      const r = await window.matrica.admin.entities.softDelete(id);
+      if (!r.ok) failed += 1;
+    }
+    setStatus(
+      buildDeleteRowsStatus({
+        failedCount: failed,
+        deletedCount: ids.length,
+        deletedManyLabel: 'контрагентов',
+      }),
+    );
+    selection.clearSelection();
+    await refresh();
   }
 
   const tableHeader = (
@@ -164,7 +225,6 @@ export function CounterpartiesPage(props: {
         <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
           Обновлено {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
         </th>
-        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', width: 140 }}>Действия</th>
         {showPreviews && <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#374151', width: 220 }}>Превью</th>}
       </tr>
     </thead>
@@ -178,7 +238,7 @@ export function CounterpartiesPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={showPreviews ? 5 : 4} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={showPreviews ? 4 : 3} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
                 </td>
               </tr>
@@ -186,8 +246,17 @@ export function CounterpartiesPage(props: {
             {items.map((row) => (
               <tr
                 key={row.id}
+                data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
                 style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
-                onClick={() => void props.onOpen(row.id)}
+                onContextMenu={(e) => {
+                  const result = selection.onRowContextMenu(e, row.id);
+                  if (!result.openMenu) return;
+                  setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                }}
+                onClick={() => {
+                  selection.onRowPrimaryAction(row.id);
+                  void props.onOpen(row.id);
+                }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = '#f9fafb';
                 }}
@@ -199,33 +268,6 @@ export function CounterpartiesPage(props: {
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.inn || '—'}</td>
                 <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>
                   {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
-                </td>
-                <td style={{ padding: '10px 12px' }}>
-                  {props.canDelete && (
-                    <Button
-                      variant="ghost"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!confirm('Удалить контрагента?')) return;
-                        try {
-                          setStatus('Удаление…');
-                          const r = await window.matrica.admin.entities.softDelete(row.id);
-                          if (!r.ok) {
-                            setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                            return;
-                          }
-                          setStatus('Удалено');
-                          setTimeout(() => setStatus(''), 900);
-                          await refresh();
-                        } catch (err) {
-                          setStatus(`Ошибка: ${String(err)}`);
-                        }
-                      }}
-                      style={{ color: '#b91c1c' }}
-                    >
-                      Удалить
-                    </Button>
-                  )}
                 </td>
                 {showPreviews && (
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>
@@ -280,6 +322,24 @@ export function CounterpartiesPage(props: {
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            canDelete: props.canDelete,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onPrint: printRows,
+            onCopy: copyRows,
+            onDelete: deleteRows,
+            onClearSelection: selection.clearSelection,
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

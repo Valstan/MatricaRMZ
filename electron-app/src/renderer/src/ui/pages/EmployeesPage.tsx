@@ -2,13 +2,24 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import {
+  buildCopyRowsStatus,
+  buildDeleteConfirmMessage,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  printRowsPreview,
+  resolveMenuRows,
+} from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 
 type Row = {
@@ -52,6 +63,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const width = useWindowWidth();
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -132,6 +144,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       return as.localeCompare(bs, 'ru') * dir;
     });
   }, [filtered, listState.sortDir, listState.sortKey]);
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  const selection = useListSelection(sorted.map((row) => row.id));
 
   const headerCellStyle: React.CSSProperties = {
     padding: '10px 12px',
@@ -185,11 +199,68 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <th style={headerCellStyle}>{renderSortLabel('Подразделение', 'departmentName')}</th>
         <th style={headerCellStyle}>{renderSortLabel('Статус', 'employmentStatus')}</th>
         <th style={headerCellStyle}>{renderSortLabel('Доступ', 'access')}</th>
-        <th style={{ ...headerCellStyle, width: 140 }}>Действия</th>
         {showPreviews && <th style={{ ...headerCellStyle, width: 220, textAlign: 'right' }}>Превью</th>}
       </tr>
     </thead>
   );
+
+  const contextColumns = useMemo(
+    () => [
+      { title: 'Сотрудник', value: (row: Row) => row.displayName || '(без ФИО)' },
+      { title: 'Должность', value: (row: Row) => row.position || '—' },
+      { title: 'Подразделение', value: (row: Row) => row.departmentName || '—' },
+      {
+        title: 'Статус',
+        value: (row: Row) => {
+          const status = String(row.employmentStatus ?? '').toLowerCase();
+          return status === 'fired' ? 'уволен' : status || 'работает';
+        },
+      },
+      {
+        title: 'Доступ',
+        value: (row: Row) => (row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено'),
+      },
+    ],
+    [],
+  );
+
+  const printRows = useCallback((items: Row[]) => {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные сотрудники (${items.length})` : `Сотрудник: ${items[0]?.displayName || '(без ФИО)'}`,
+      sectionTitle: 'Список сотрудников',
+      rows: items,
+      columns: contextColumns,
+    });
+  }, [contextColumns]);
+
+  const copyRows = useCallback(async (items: Row[]) => {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }, [contextColumns]);
+
+  const deleteRows = useCallback(async (ids: string[]) => {
+    if (!props.canDelete || ids.length === 0) return;
+    const message = buildDeleteConfirmMessage({
+      selectedCount: ids.length,
+      selectedManyLabel: 'выделенных сотрудников',
+      singleLabel: 'сотрудника',
+    });
+    if (!confirm(message)) return;
+    let failed = 0;
+    for (const id of ids) {
+      const r = await window.matrica.employees.delete(id);
+      if (!r.ok) failed += 1;
+    }
+    setStatus(
+      buildDeleteRowsStatus({
+        failedCount: failed,
+        deletedCount: ids.length,
+        deletedManyLabel: 'сотрудников',
+      }),
+    );
+    selection.clearSelection();
+    await refresh();
+  }, [props.canDelete, refresh, selection]);
 
   function renderTable(items: Row[]) {
     return (
@@ -199,7 +270,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={showPreviews ? 7 : 6} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={showPreviews ? 6 : 5} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
                 </td>
               </tr>
@@ -214,11 +285,20 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
               return (
                 <tr
                   key={row.id}
+                  data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
                   style={{
                     borderBottom: '1px solid #f3f4f6',
                     cursor: 'pointer',
                   }}
-                  onClick={() => void props.onOpen(row.id)}
+                  onContextMenu={(e) => {
+                    const result = selection.onRowContextMenu(e, row.id);
+                    if (!result.openMenu) return;
+                    setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                  }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = '#f9fafb';
                   }}
@@ -250,37 +330,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                   <td style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{statusLabel}</td>
                   <td style={{ padding: '10px 12px', fontSize: 14, color: accessColor }}>
                     {accessLabel}
-                  </td>
-                  <td style={{ padding: '10px 12px' }}>
-                    {props.canDelete && (
-                      <Button
-                        variant="ghost"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (!confirm('Удалить сотрудника?')) return;
-                          try {
-                            setStatus('Удаление…');
-                            const r = await window.matrica.employees.delete(row.id);
-                            if (!r.ok) {
-                              setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                              return;
-                            }
-                            if ((r as any).mode === 'deleted') {
-                              setStatus('Удалено');
-                            } else {
-                              setStatus('Запрос на удаление отправлен');
-                            }
-                            setTimeout(() => setStatus(''), 900);
-                            await refresh();
-                          } catch (err) {
-                            setStatus(`Ошибка: ${String(err)}`);
-                          }
-                        }}
-                        style={{ color: '#b91c1c' }}
-                      >
-                        Удалить
-                      </Button>
-                    )}
                   </td>
                   {showPreviews && (
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>
@@ -333,6 +382,24 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            canDelete: props.canDelete,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onPrint: printRows,
+            onCopy: copyRows,
+            onDelete: deleteRows,
+            onClearSelection: selection.clearSelection,
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

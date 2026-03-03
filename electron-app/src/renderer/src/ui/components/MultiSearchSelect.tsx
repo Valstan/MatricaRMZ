@@ -127,7 +127,7 @@ export function MultiSearchSelect(props: {
                 overflow: 'hidden',
               }}
             >
-              <div ref={dropdown.listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
+              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight, overflowY: 'auto' }}>
                 {dropdown.filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
                 {dropdown.filtered.map((o) => {
                   const checked = safeValues.includes(o.id);

@@ -2,13 +2,24 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
+import {
+  buildDeleteConfirmMessage,
+  buildCopyRowsStatus,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  printRowsPreview,
+  resolveMenuRows,
+} from '../utils/listContextActions.js';
 
 type Row = {
   id: string;
@@ -38,6 +49,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
   const month = String(listState.month ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const width = useWindowWidth();
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1600;
@@ -86,9 +98,61 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
     },
     (row) => row.id,
   );
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  const selection = useListSelection(sorted.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
+  }
+
+  const contextColumns = useMemo(
+    () => [
+      { title: 'Номер', value: (row: Row) => String(row.workOrderNumber) },
+      { title: 'Дата', value: (row: Row) => (row.orderDate ? formatMoscowDate(row.orderDate) : '-') },
+      { title: 'Изделия', value: (row: Row) => row.partName || '-' },
+      { title: 'Бригада', value: (row: Row) => String(row.crewCount) },
+      { title: 'Итог', value: (row: Row) => rub(row.totalAmountRub) },
+    ],
+    [],
+  );
+
+  function printRows(items: Row[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные наряды (${items.length})` : `Наряд №${items[0]?.workOrderNumber ?? '-'}`,
+      sectionTitle: 'Список нарядов',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: Row[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  async function deleteRows(ids: string[]) {
+    if (!props.canDelete) return;
+    if (!ids.length) return;
+    const message = buildDeleteConfirmMessage({
+      selectedCount: ids.length,
+      selectedManyLabel: 'выбранные наряды',
+      singleLabel: 'наряд',
+    });
+    if (!confirm(message)) return;
+    const failed: string[] = [];
+    for (const id of ids) {
+      const r = await window.matrica.workOrders.delete(id);
+      if (!r.ok) failed.push(`${id}: ${r.error}`);
+    }
+    setStatus(
+      buildDeleteRowsStatus({
+        failedCount: failed.length,
+        deletedCount: ids.length,
+        deletedManyLabel: 'документов',
+      }),
+    );
+    selection.clearSelection();
+    await refresh();
   }
 
   const tableHeader = (
@@ -109,7 +173,6 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('total')}>
           Итог {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'total')}
         </th>
-        {props.canDelete && <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 100 }}>Действия</th>}
       </tr>
     </thead>
   );
@@ -121,46 +184,65 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
           {tableHeader}
           <tbody>
             {items.map((row) => (
-              <tr key={row.id}>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+              <tr
+                key={row.id}
+                data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
+                onContextMenu={(e) => {
+                  const result = selection.onRowContextMenu(e, row.id);
+                  if (!result.openMenu) return;
+                  setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                }}
+              >
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
+                >
                   {row.workOrderNumber}
                 </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
+                >
                   {row.orderDate ? formatMoscowDate(row.orderDate) : '-'}
                 </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
+                >
                   {row.partName || '-'}
                 </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
+                >
                   {row.crewCount}
                 </td>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+                <td
+                  style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
+                >
                   {rub(row.totalAmountRub)}
                 </td>
-                {props.canDelete && (
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>
-                    <Button
-                      variant="ghost"
-                      style={{ color: '#b91c1c' }}
-                      onClick={async () => {
-                        if (!confirm('Удалить наряд?')) return;
-                        const r = await window.matrica.workOrders.delete(row.id);
-                        if (!r.ok) {
-                          alert(`Ошибка удаления: ${r.error}`);
-                          return;
-                        }
-                        await refresh();
-                      }}
-                    >
-                      Удалить
-                    </Button>
-                  </td>
-                )}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={props.canDelete ? 6 : 5}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={5}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -172,6 +254,21 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
   }
 
   const totalRowsAmount = useMemo(() => rows.reduce((acc, row) => acc + Number(row.totalAmountRub ?? 0), 0), [rows]);
+  const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, rowById) : []), [menu, rowById]);
+  const menuItems = useMemo(() => {
+    if (!menu) return [];
+    return buildListContextMenuItems({
+      rows: menuRows,
+      bulk: menu.bulk,
+      canDelete: props.canDelete,
+      getId: (row) => row.id,
+      onSelect: selection.toggleSelect,
+      onPrint: printRows,
+      onCopy: copyRows,
+      onDelete: deleteRows,
+      onClearSelection: selection.clearSelection,
+    });
+  }, [menu, menuRows, props.canDelete, selection, printRows, copyRows, deleteRows]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -208,6 +305,9 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
+      {menu && menuItems.length > 0 ? (
+        <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      ) : null}
     </div>
   );
 }

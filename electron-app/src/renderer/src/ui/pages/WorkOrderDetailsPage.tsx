@@ -7,7 +7,9 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 import { listAllParts } from '../utils/partsPagination.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 type LinkOpt = { id: string; label: string };
 type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[] };
@@ -242,13 +244,8 @@ export function WorkOrderDetailsPage(props: {
         dirtyRef.current = false;
       },
       copyToNew: async () => {
-        const r = await window.matrica.workOrders.create();
-        if (r?.ok && r.id && payload) {
-          await window.matrica.workOrders.update({
-            id: r.id,
-            payload: { ...payload, workOrderNumber: 0 },
-          });
-        }
+        if (!payload) return;
+        await copyToNewWorkOrder(payload);
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
@@ -317,6 +314,31 @@ export function WorkOrderDetailsPage(props: {
     setStatus('');
     setLoading(false);
     dirtyRef.current = false;
+  }
+
+  async function copyToNewWorkOrder(sourcePayload: WorkOrderPayload) {
+    const created = await window.matrica.workOrders.create();
+    if (!created.ok) {
+      setStatus(`Ошибка копирования: ${created.error}`);
+      return;
+    }
+
+    const nextNumber = Number(created.payload.workOrderNumber ?? 0);
+    const copyPayload: WorkOrderPayload = {
+      ...sourcePayload,
+      workOrderNumber: nextNumber > 0 ? nextNumber : sourcePayload.workOrderNumber,
+      orderDate: Number(created.payload.orderDate ?? Date.now()),
+    };
+
+    const saved = await window.matrica.workOrders.update({
+      id: created.id,
+      payload: copyPayload,
+    });
+    if (!saved.ok) {
+      setStatus(`Ошибка копирования: ${saved.error}`);
+      return;
+    }
+    setStatus(`Создан новый наряд №${copyPayload.workOrderNumber}`);
   }
 
   useEffect(() => {
@@ -474,6 +496,70 @@ export function WorkOrderDetailsPage(props: {
     });
   }
 
+  function printWorkOrderCard(current: WorkOrderPayload) {
+    const keyValueTable = (rows: Array<[string, string]>) =>
+      `<table><tbody>${rows
+        .map(
+          ([k, v]) =>
+            `<tr><th style="width:38%;white-space:nowrap;">${escapeHtml(k)}</th><td>${escapeHtml(v || '—')}</td></tr>`,
+        )
+        .join('')}</tbody></table>`;
+
+    const linesTable = (lines: WorkOrderWorkLine[]) =>
+      lines.length
+        ? `<table><thead><tr><th>Вид работ</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${lines
+            .map(
+              (line) =>
+                `<tr><td>${escapeHtml(line.serviceName || '—')}</td><td>${escapeHtml(String(line.qty ?? 0))}</td><td>${escapeHtml(
+                  line.unit || '—',
+                )}</td><td>${escapeHtml(money(line.priceRub ?? 0))}</td><td>${escapeHtml(money(line.amountRub ?? 0))}</td></tr>`,
+            )
+            .join('')}</tbody></table>`
+        : `<div class="muted">Нет данных</div>`;
+
+    const groupsHtml = current.workGroups.length
+      ? current.workGroups
+          .map(
+            (group, idx) =>
+              `<div style="margin:0 0 12px;"><div style="font-weight:700;margin-bottom:6px;">${escapeHtml(
+                `Изделие ${idx + 1}: ${group.partName || 'Без названия'}`,
+              )}</div>${linesTable(group.lines)}</div>`,
+          )
+          .join('')
+      : `<div class="muted">Нет данных</div>`;
+
+    const crewHtml = current.crew.length
+      ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Выплата</th><th>Заморозка</th></tr></thead><tbody>${current.crew
+          .map(
+            (member) =>
+              `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td><td>${escapeHtml(
+                money(member.payoutRub ?? 0),
+              )}</td><td>${member.payoutFrozen ? 'Да' : 'Нет'}</td></tr>`,
+          )
+          .join('')}</tbody></table>`
+      : `<div class="muted">Нет данных</div>`;
+
+    openPrintPreview({
+      title: `Наряд №${current.workOrderNumber || '—'}`,
+      subtitle: current.orderDate ? `Дата: ${formatMoscowDate(current.orderDate)}` : 'Дата: —',
+      sections: [
+        {
+          id: 'main',
+          title: 'Основное',
+          html: keyValueTable([
+            ['Номер наряда', String(current.workOrderNumber || '—')],
+            ['Дата', current.orderDate ? formatMoscowDate(current.orderDate) : '—'],
+            ['Итог', money(current.totalAmountRub || 0)],
+            ['База на человека', money(current.basePerWorkerRub || 0)],
+          ]),
+        },
+        { id: 'groups', title: 'Работы по изделиям', html: groupsHtml },
+        { id: 'free', title: 'Работы без привязки к изделию', html: linesTable(current.freeWorks) },
+        { id: 'crew', title: 'Бригада и выплаты', html: crewHtml },
+      ],
+    });
+  }
+
   if (loading) return <div style={{ color: 'var(--muted)' }}>Загрузка…</div>;
   if (!payload) return <div style={{ color: 'var(--danger)' }}>{status || 'Карточка наряда недоступна'}</div>;
 
@@ -484,13 +570,8 @@ export function WorkOrderDetailsPage(props: {
           canEdit={props.canEdit}
           onCopyToNew={() => {
             void (async () => {
-              const r = await window.matrica.workOrders.create();
-              if (r?.ok && r.id && payload) {
-                await window.matrica.workOrders.update({
-                  id: r.id,
-                  payload: { ...payload, workOrderNumber: 0 },
-                });
-              }
+              if (!payload) return;
+              await copyToNewWorkOrder(payload);
             })();
           }}
           onSaveAndClose={() => {
@@ -505,7 +586,20 @@ export function WorkOrderDetailsPage(props: {
               dirtyRef.current = false;
             });
           }}
+          onPrint={() => printWorkOrderCard(payload)}
           onClose={() => props.requestClose?.()}
+          onDelete={() => {
+            void (async () => {
+              if (!confirm('Удалить наряд?')) return;
+              const r = await window.matrica.workOrders.delete(props.id);
+              if (!r.ok) {
+                setStatus(`Ошибка удаления: ${r.error}`);
+                return;
+              }
+              props.onClose();
+            })();
+          }}
+          deleteLabel="Удалить наряд"
         />
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -968,26 +1062,6 @@ export function WorkOrderDetailsPage(props: {
         )}
       </div>
 
-      {props.canEdit && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button onClick={() => void flushSave(payload)}>Сохранить сейчас</Button>
-          <Button
-            variant="ghost"
-            style={{ color: 'var(--danger)' }}
-            onClick={async () => {
-              if (!confirm('Удалить наряд?')) return;
-              const r = await window.matrica.workOrders.delete(props.id);
-              if (!r.ok) {
-                setStatus(`Ошибка удаления: ${r.error}`);
-                return;
-              }
-              props.onClose();
-            }}
-          >
-            Удалить наряд
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
