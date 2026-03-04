@@ -18,7 +18,7 @@
   StrCpy $R2 "0"
 killRetry:
   !insertmacro CheckClientRunning $R0
-  StrCmp $R0 "0" doSoftClose killDone
+  StrCmp $R0 "0" killDone doSoftClose
 
 doSoftClose:
   DetailPrint "Обнаружен MatricaRMZ.exe. Пытаемся закрыть корректно..."
@@ -26,19 +26,19 @@ doSoftClose:
   Sleep 3000
 
   !insertmacro CheckClientRunning $R0
-  StrCmp $R0 "0" askUser killDone
+  StrCmp $R0 "0" killDone askUser
 
 askUser:
   IntOp $R2 $R2 + 1
   StrCmp $R2 "4" cancelInstall
-  MessageBox MB_YESNO|MB_ICONEXCLAMATION "МатрicaRMZ все еще запущена и блокирует установку.$\r$\nЗавершить её принудительно?" IDYES forceClose IDNO killRetry
+  MessageBox MB_YESNO|MB_ICONEXCLAMATION "MatricaRMZ все еще запущена и блокирует установку.$\r$\nЗавершить её принудительно?" IDYES forceClose IDNO killRetry
 
 forceClose:
   DetailPrint "Пользователь выбрал принудительное закрытие MatricaRMZ.exe."
   nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /IM "MatricaRMZ.exe"'
   Sleep 2000
   !insertmacro CheckClientRunning $R0
-  StrCmp $R0 "0" askUser killDone
+  StrCmp $R0 "0" killDone askUser
 
 cancelInstall:
   Abort "Установка отменена: закройте MatricaRMZ и запустите установку снова."

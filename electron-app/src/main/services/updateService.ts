@@ -1005,6 +1005,7 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
     launchPath: helper.launchPath,
     resourcesPath: helper.resourcesPath,
     version: pending.version,
+    parentPid: process.pid,
   });
   if (!spawned) {
     await writeUpdaterLog('update-helper spawn failed, pending update retained');
