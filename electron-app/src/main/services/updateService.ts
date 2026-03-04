@@ -371,6 +371,109 @@ async function validateInstallerIntegrity(
   return { ok: true };
 }
 
+async function validateInstallerBeforeLaunch(args: {
+  installerPath: string;
+  expectedSize?: number | null;
+  expectedSha?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const basic = await validateInstallerPath(args.installerPath, args.installerPath, args.expectedSize ?? null);
+  if (!basic.ok) return basic;
+  const expectedSha = String(args.expectedSha ?? '').trim();
+  if (expectedSha) {
+    const actualSha = await computeSha256(args.installerPath);
+    if (actualSha.toLowerCase() !== expectedSha.toLowerCase()) {
+      return { ok: false, error: 'installer sha256 mismatch' };
+    }
+  }
+  return { ok: true };
+}
+
+async function ensureInstallerReadyForInstall(args: {
+  installerPath: string;
+  version?: string;
+  expectedSize?: number | null;
+  expectedSha?: string | null;
+  downloadUrl?: string | null;
+}): Promise<{ ok: true; expectedSize?: number | null; expectedSha?: string | null } | { ok: false; error: string }> {
+  let expectedSize = args.expectedSize ?? null;
+  let expectedSha = args.expectedSha ?? null;
+
+  // If pending metadata is incomplete, try to enrich from server meta.
+  if (args.version && (expectedSize == null || !expectedSha)) {
+    const meta = await fetchLatestUpdateMetaFromServer();
+    if (meta && meta.version === args.version) {
+      if (expectedSize == null) expectedSize = meta.size;
+      if (!expectedSha && meta.sha256) expectedSha = meta.sha256;
+    }
+  }
+
+  const initialCheck = await validateInstallerBeforeLaunch({
+    installerPath: args.installerPath,
+    expectedSize,
+    expectedSha,
+  });
+  if (initialCheck.ok) return { ok: true, expectedSize, expectedSha };
+
+  await writeUpdaterLog(`installer integrity failed before launch: ${initialCheck.error}`);
+  const downloadUrl = String(args.downloadUrl ?? '').trim();
+  const canRedownload = /^https?:\/\//i.test(downloadUrl);
+  if (!canRedownload) {
+    await rm(args.installerPath, { force: true }).catch(() => {});
+    return { ok: false, error: initialCheck.error };
+  }
+
+  // Try to resume first.
+  await writeUpdaterLog(`installer integrity repair: resume download start (${downloadUrl})`);
+  const resumed = await downloadWithResume(downloadUrl, args.installerPath, {
+    attempts: 3,
+    timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+    noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+    useBitsOnWindows: false,
+    backoffMs: 800,
+    maxBackoffMs: 6000,
+    jitterMs: 300,
+  });
+  if (resumed.ok && resumed.filePath) {
+    const resumeCheck = await validateInstallerBeforeLaunch({
+      installerPath: args.installerPath,
+      expectedSize,
+      expectedSha,
+    });
+    if (resumeCheck.ok) return { ok: true, expectedSize, expectedSha };
+    await writeUpdaterLog(`installer integrity failed after resume: ${resumeCheck.error}`);
+  } else {
+    await writeUpdaterLog(`installer resume failed: ${resumed.error ?? 'download failed'}`);
+  }
+
+  // Resume didn't help: remove broken file and download from scratch.
+  await rm(args.installerPath, { force: true }).catch(() => {});
+  await writeUpdaterLog(`installer integrity repair: full re-download start (${downloadUrl})`);
+  const redownloaded = await downloadWithResume(downloadUrl, args.installerPath, {
+    attempts: 4,
+    timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+    noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+    useBitsOnWindows: false,
+    backoffMs: 800,
+    maxBackoffMs: 6000,
+    jitterMs: 300,
+  });
+  if (!redownloaded.ok || !redownloaded.filePath) {
+    await rm(args.installerPath, { force: true }).catch(() => {});
+    return { ok: false, error: `installer re-download failed: ${redownloaded.error ?? 'download failed'}` };
+  }
+
+  const finalCheck = await validateInstallerBeforeLaunch({
+    installerPath: args.installerPath,
+    expectedSize,
+    expectedSha,
+  });
+  if (!finalCheck.ok) {
+    await rm(args.installerPath, { force: true }).catch(() => {});
+    return { ok: false, error: `installer corrupted after re-download: ${finalCheck.error}` };
+  }
+  return { ok: true, expectedSize, expectedSha };
+}
+
 async function queuePendingUpdate(args: {
   version: string;
   installerPath: string;
@@ -396,11 +499,19 @@ async function installNow(args: { installerPath: string; version?: string }) {
   await stageUpdate('Скачивание завершено. Готовим установку…', 60, args.version);
   lockUpdateUi(true);
   await stageUpdate('Подготовка установщика…', 70, args.version);
-  const validation = await validateInstallerPath(args.installerPath, args.installerPath);
-  if (!validation.ok) {
-    await writeUpdaterLog(`installer validation failed: ${validation.error}`);
+  const pending = await readPendingUpdate();
+  const pendingForInstaller =
+    pending && pending.installerPath === args.installerPath ? pending : null;
+  const ready = await ensureInstallerReadyForInstall({
+    installerPath: args.installerPath,
+    version: args.version ?? pendingForInstaller?.version,
+    expectedSize: pendingForInstaller?.expectedSize ?? null,
+    downloadUrl: pendingForInstaller?.downloadUrl ?? null,
+  });
+  if (!ready.ok) {
+    await writeUpdaterLog(`installer validation failed: ${ready.error}`);
+    if (pendingForInstaller) await clearPendingUpdate();
     await stageUpdate('Установщик поврежден. Повторим позже.', 100, args.version);
-    await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
     closeUpdateWindowSoon(4000);
     return;
   }
@@ -951,40 +1062,16 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
     await clearPendingUpdate();
     return false;
   }
-  if (pending.expectedSize && Number.isFinite(pending.expectedSize)) {
-    const validation = await validateInstallerPath(pending.installerPath, pending.installerPath, pending.expectedSize ?? null);
-    if (!validation.ok) {
-      await writeUpdaterLog(`pending-update integrity failed: ${validation.error}`);
-      if (pending.downloadUrl) {
-        await writeUpdaterLog(`pending-update re-download start url=${pending.downloadUrl}`);
-        const redl = await downloadWithResume(pending.downloadUrl, pending.installerPath, {
-          attempts: 3,
-          timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
-          noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
-          useBitsOnWindows: false,
-          backoffMs: 800,
-          maxBackoffMs: 6000,
-          jitterMs: 300,
-        });
-        if (!redl.ok || !redl.filePath) {
-          await writeUpdaterLog(`pending-update re-download failed: ${redl.error ?? 'download failed'}`);
-          await rm(pending.installerPath, { force: true }).catch(() => {});
-          await clearPendingUpdate();
-          return false;
-        }
-        const recheck = await validateInstallerPath(pending.installerPath, pending.installerPath, pending.expectedSize ?? null);
-        if (!recheck.ok) {
-          await writeUpdaterLog(`pending-update integrity still failed: ${recheck.error}`);
-          await rm(pending.installerPath, { force: true }).catch(() => {});
-          await clearPendingUpdate();
-          return false;
-        }
-      } else {
-        await rm(pending.installerPath, { force: true }).catch(() => {});
-        await clearPendingUpdate();
-        return false;
-      }
-    }
+  const ready = await ensureInstallerReadyForInstall({
+    installerPath: pending.installerPath,
+    version: pending.version,
+    expectedSize: pending.expectedSize ?? null,
+    downloadUrl: pending.downloadUrl ?? null,
+  });
+  if (!ready.ok) {
+    await writeUpdaterLog(`pending-update integrity failed: ${ready.error}`);
+    await clearPendingUpdate();
+    return false;
   }
   showUpdateWindow(parentWindow ?? null);
   lockUpdateUi(true);
