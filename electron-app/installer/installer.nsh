@@ -4,29 +4,20 @@
 ; Show install progress page.
 !insertmacro MUI_PAGE_INSTFILES
 
-Function IsClientRunning
+!macro CheckClientRunning outVar
   nsExec::ExecToStack '"$SYSDIR\cmd.exe" /C tasklist /FI "IMAGENAME eq MatricaRMZ.exe" /NH | find /I "MatricaRMZ.exe" >NUL'
   Pop $R0
   Pop $R1
-  StrCmp $R0 "0" doneIsClient
-  StrCpy $R0 "1"
-doneIsClient:
-FunctionEnd
-
-Function un.IsClientRunning
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /C tasklist /FI "IMAGENAME eq MatricaRMZ.exe" /NH | find /I "MatricaRMZ.exe" >NUL'
-  Pop $R0
-  Pop $R1
-  StrCmp $R0 "0" doneUnClient
-  StrCpy $R0 "1"
-doneUnClient:
-FunctionEnd
+  StrCpy ${outVar} "1"
+  StrCmp $R0 "0" +2
+  StrCpy ${outVar} "0"
+!macroend
 
 ; Terminate any running client instances before install.
 !macro KillClientProcesses
   StrCpy $R2 "0"
 killRetry:
-  Call IsClientRunning
+  !insertmacro CheckClientRunning $R0
   StrCmp $R0 "0" doSoftClose killDone
 
 doSoftClose:
@@ -34,7 +25,7 @@ doSoftClose:
   nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /IM "MatricaRMZ.exe"'
   Sleep 3000
 
-  Call IsClientRunning
+  !insertmacro CheckClientRunning $R0
   StrCmp $R0 "0" askUser killDone
 
 askUser:
@@ -48,7 +39,7 @@ forceClose:
   DetailPrint "Пользователь выбрал принудительное закрытие MatricaRMZ.exe."
   nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /IM "MatricaRMZ.exe"'
   Sleep 2000
-  Call IsClientRunning
+  !insertmacro CheckClientRunning $R0
   StrCmp $R0 "0" askUser killDone
 
 cancelInstall:
@@ -59,7 +50,7 @@ killDone:
 
 ; Terminate any running client instances before uninstall/update check in uninstall context.
 !macro KillClientProcessesUninstall
-  Call un.IsClientRunning
+  !insertmacro CheckClientRunning $R0
   StrCmp $R0 "0" killDoneUninstall doSoftCloseUninstall
 
 doSoftCloseUninstall:
@@ -67,14 +58,14 @@ doSoftCloseUninstall:
   nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /IM "MatricaRMZ.exe"'
   Sleep 3000
 
-  Call un.IsClientRunning
+  !insertmacro CheckClientRunning $R0
   StrCmp $R0 "0" killDoneUninstall forceCloseUninstall
 
 forceCloseUninstall:
   DetailPrint "Пользователь выбрал принудительное закрытие MatricaRMZ.exe."
   nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /IM "MatricaRMZ.exe"'
   Sleep 2000
-  Call un.IsClientRunning
+  !insertmacro CheckClientRunning $R0
   StrCmp $R0 "0" killDoneUninstall cancelInstallUninstall
 
 cancelInstallUninstall:
