@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/web-admin",
-  "version": "1.8.28",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
   "scripts": {
