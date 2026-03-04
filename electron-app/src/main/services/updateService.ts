@@ -20,6 +20,7 @@ import {
   registerUpdatePeers,
   startLanUpdateServer,
 } from './lanUpdateService.js';
+import { setForceQuit } from '../index.js';
 
 export type UpdateCheckResult =
   | {
@@ -533,7 +534,12 @@ function closeUpdateWindowSoon(ms = 500) {
   }, ms);
 }
 
-function quitMainAppSoon(ms = 800) {
+function quitMainAppSoon(ms = 0) {
+  try {
+    setForceQuit(true);
+  } catch {
+    // ignore
+  }
   setTimeout(() => {
     try {
       for (const w of BrowserWindow.getAllWindows()) {
@@ -547,14 +553,14 @@ function quitMainAppSoon(ms = 800) {
     } catch {
       // ignore
     }
-  }, ms);
+  }, Math.max(0, ms));
   setTimeout(() => {
     try {
       app.exit(0);
     } catch {
       // ignore
     }
-  }, Math.max(ms + 8000, 10000));
+  }, Math.max(ms + 3000, 3000));
 }
 
 async function setUpdateUi(msg: string, pct?: number, version?: string) {
@@ -1739,8 +1745,7 @@ export async function runUpdateHelperFlow(args: UpdateHelperArgs): Promise<void>
       setTimeout(() => app.quit(), 4200);
       return;
     }
-    await sleep(300);
-    app.quit();
+    app.exit(0);
   } catch (e) {
     await writeUpdaterLog(`update-helper error: ${String(e)}`);
     await setUpdateUi(`Ошибка установки: ${String(e)}`, 100, args.version);

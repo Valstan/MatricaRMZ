@@ -42,6 +42,10 @@ const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);
 
+export function setForceQuit(value: boolean) {
+  forceQuit = value;
+}
+
 function maybeShowMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!mainWindowReady || !allowMainWindowShow) return;
@@ -414,7 +418,7 @@ ipcMain.handle('app:navigateDeepLink', async (_event, link: ChatDeepLinkPayload)
 
 ipcMain.on('app:close-response', (_event, args: { allowClose: boolean }) => {
   if (args?.allowClose) {
-    forceQuit = true;
+    setForceQuit(true);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.close();
     } else {
