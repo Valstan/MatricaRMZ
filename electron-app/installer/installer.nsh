@@ -31,9 +31,7 @@ doSoftClose:
 askUser:
   IntOp $R2 $R2 + 1
   StrCmp $R2 "4" cancelInstall
-  MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION \
-    "Программа MatricaRMZ все еще запущена и блокирует установку.$\r$\n$\r$\nRetry: закройте MatricaRMZ вручную и повторите.$\r$\nIgnore: принудительно закрыть MatricaRMZ.$\r$\nAbort: отменить установку." \
-    IDRETRY killRetry IDIGNORE forceClose IDABORT cancelInstall
+  MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION "Программа MatricaRMZ все еще запущена и блокирует установку.$\r$\n$\r$\nRetry: закройте MatricaRMZ вручную и повторите.$\r$\nIgnore: принудительно закрыть MatricaRMZ.$\r$\nAbort: отменить установку." IDRETRY killRetry IDIGNORE forceClose IDABORT cancelInstall
 
 forceClose:
   DetailPrint "Пользователь выбрал принудительное закрытие MatricaRMZ.exe."
