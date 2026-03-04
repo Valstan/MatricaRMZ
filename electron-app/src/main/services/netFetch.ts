@@ -1,5 +1,5 @@
 import { net } from 'electron';
-import { stat, rename } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -57,6 +57,8 @@ export function isTransientNetworkError(e: unknown): boolean {
     message.includes('no-progress') ||
     message.includes('socket hang up') ||
     message.includes('network') ||
+    message.includes('resume-') ||
+    message.includes('content-range') ||
     message.includes('ENOTFOUND') ||
     message.includes('ECONNRESET')
   );
@@ -88,10 +90,30 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Retry
   throw lastErr ?? new Error('fetch failed');
 }
 
+function parseContentRangeInfo(header: string): { start: number; end: number; total: number | null } | null {
+  const h = String(header ?? '').trim();
+  const match = h.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const totalRaw = match[3];
+  const total = totalRaw && totalRaw !== '*' ? Number(totalRaw) : null;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (total != null && !Number.isFinite(total)) return null;
+  return { start, end, total };
+}
+
+function parseUnsatisfiedRangeTotal(header: string): number | null {
+  const h = String(header ?? '').trim();
+  const match = h.match(/^bytes\s+\*\/(\d+)$/i);
+  if (!match) return null;
+  const total = Number(match[1]);
+  return Number.isFinite(total) ? total : null;
+}
+
 function parseTotalBytes(res: Response, rangeStart: number) {
-  const contentRange = res.headers.get('content-range') ?? '';
-  const match = contentRange.match(/\/(\d+)$/);
-  if (match) return Number(match[1]);
+  const contentRange = parseContentRangeInfo(res.headers.get('content-range') ?? '');
+  if (contentRange?.total != null) return contentRange.total;
   const len = Number(res.headers.get('content-length') ?? 0);
   if (len > 0) return rangeStart > 0 ? len + rangeStart : len;
   return null;
@@ -135,19 +157,36 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
       if (existingSize > 0) headers.set('Range', `bytes=${existingSize}-`);
       const res = await net.fetch(url, { method: 'GET', headers, signal: ac.signal as any });
       if (res.status === 416 && existingSize > 0) {
-        const stNow = await stat(outPath).catch(() => null);
-        const sizeNow = stNow?.isFile() ? stNow.size : 0;
-        opts.onProgress?.(100, sizeNow, sizeNow || null);
-        return { ok: true as const, filePath: outPath };
+        const total = parseUnsatisfiedRangeTotal(res.headers.get('content-range') ?? '');
+        if (total != null && existingSize === total) {
+          const stNow = await stat(outPath).catch(() => null);
+          const sizeNow = stNow?.isFile() ? stNow.size : 0;
+          opts.onProgress?.(100, sizeNow, sizeNow || null);
+          return { ok: true as const, filePath: outPath };
+        }
+        await rm(outPath, { force: true }).catch(() => {});
+        throw new Error(`resume-range-not-satisfiable local=${existingSize} remote=${total ?? 'unknown'}`);
       }
       if (!res.ok || !res.body) throw new Error(`download HTTP ${res.status}`);
 
       const isPartial = res.status === 206;
-      const start = isPartial ? existingSize : 0;
+      const contentRange = parseContentRangeInfo(res.headers.get('content-range') ?? '');
+      if (isPartial) {
+        if (!contentRange) {
+          await rm(outPath, { force: true }).catch(() => {});
+          throw new Error('resume-invalid-content-range');
+        }
+        if (existingSize > 0 && contentRange.start !== existingSize) {
+          await rm(outPath, { force: true }).catch(() => {});
+          throw new Error(`resume-range-mismatch expected=${existingSize} got=${contentRange.start}`);
+        }
+      }
+
+      const start = isPartial ? (contentRange?.start ?? existingSize) : 0;
       const total = parseTotalBytes(res, start);
 
       if (!isPartial && existingSize > 0) {
-        await rename(outPath, `${outPath}.bak`).catch(() => {});
+        await rm(outPath, { force: true }).catch(() => {});
         existingSize = 0;
       }
 

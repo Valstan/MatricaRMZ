@@ -45,3 +45,9 @@
 4. Проверить на узкой ширине окна (без наползания).
 5. Проверить выравнивание чисел (`num`) и подписание колонок.
 
+## Фокус зон при UI-рефакторинге
+- Меню/навигация: `electron-app/src/renderer/src/ui/layout/Tabs.tsx`, `electron-app/src/renderer/src/ui/App.tsx`
+- Базовые компоненты: `Button.tsx`, `Input.tsx`, `SectionCard.tsx`, `DataTable.tsx`
+- Общие токены: `electron-app/src/renderer/src/ui/global.css`
+- Наиболее перегруженные inline-стилями страницы: `SettingsPage.tsx`, `ToolsPage.tsx`, `NotesPage.tsx`, `SuperadminAuditPage.tsx`
+

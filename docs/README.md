@@ -1,35 +1,27 @@
-# MatricaRMZ (Матрица РМЗ)
+# MatricaRMZ Docs
 
-Монорепо приложения **MatricaRMZ**:
-- **Electron клиент** (локальная SQLite + UI)
-- **Backend API** (PostgreSQL + sync push/pull + auth)
-- **shared** (общие типы/контракты/доменные модели)
+Документация приведена к рабочему минимуму, чтобы новая сессия разработки (в том числе с ИИ-агентом) быстро входила в контекст без поиска по лишним файлам.
 
-## Структура репозитория
-- `electron-app/` — Electron (main/preload/renderer), локальная SQLite, синхронизация и UI.
-- `backend-api/` — Express API, PostgreSQL, авторизация (JWT+refresh), админка пользователей/прав.
-- `shared/` — общие DTO/типы и доменные модели (включая sync-контракт).
-- `docs/` — справка по разработке/эксплуатации.
+## С чего начинать
+- Общая карта проекта, запуск, ENV, логи и ключевые команды: [`OPERATIONS.md`](OPERATIONS.md)
+- Если есть инцидент с синком/деплоем: [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
+- Если задача про обновления/релизы: [`RELEASE.md`](RELEASE.md)
+- Если задача про отчеты: [`REPORTS.md`](REPORTS.md)
+- Если задача про ledger/sync архитектуру: [`BLOCKCHAIN.md`](BLOCKCHAIN.md)
 
-## Быстрый старт (разработка)
-См. [`start_session.md`](start_session.md).
+## Профильные документы
+- Безопасность и секреты: [`SECURITY.md`](SECURITY.md)
+- UI-стандарты renderer: [`UI_VISUAL_STANDARDS.md`](UI_VISUAL_STANDARDS.md)
+- AI/Ollama профили: [`AI_PERFORMANCE_PROFILES.md`](AI_PERFORMANCE_PROFILES.md)
 
-## Установка и запуск на VPS (прод)
-См. [`start_session.md`](start_session.md).
+## Правило поддержки актуальности docs
+- Обязательная политика обновления документации при изменениях в коде: [`DOCUMENTATION_POLICY.md`](DOCUMENTATION_POLICY.md)
+- Коротко: любой значимый change в архитектуре, update-flow, отчетах, ENV, скриптах или эксплуатационных шагах должен сопровождаться обновлением документации в той же сессии/PR.
 
-## Документация
-- **Пути/ENV/логи (справочник)**: [`docs/PATHS.md`](docs/PATHS.md)
-- **Стартовый файл сессии**: [`docs/start_session.md`](docs/start_session.md)
-- **Troubleshooting (sync/деплой)**: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
-- **Релизы**: [`RELEASE.md`](RELEASE.md)
-- **Секреты/безопасность**: [`SECURITY.md`](SECURITY.md)
-- **Блокчейн‑слой (ledger)**: [`docs/BLOCKCHAIN.md`](docs/BLOCKCHAIN.md)
-- **Архив (редко нужно)**: [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REQUIREMENTS_EXTRACTED.md`](docs/REQUIREMENTS_EXTRACTED.md)
-
-## Ключевые принципы
-- **Секреты** (`.env`, токены, пароли) **не храним в репозитории** — см. [`SECURITY.md`](SECURITY.md).
-- Клиент хранит данные локально в SQLite и синхронизирует изменения через ledger: `POST /ledger/tx/submit` и `GET /ledger/state/changes`.
-- `clientId` клиента должен быть **стабильным** (хранится в локальном `sync_state`), чтобы на сервере не плодились записи `sync_state` и чтобы диагностика была понятной.
-- Релиз клиента фиксируется в ledger (version/fileName/size/SHA256) — без этого клиент не установит обновление.
+## Базовые инварианты системы
+- Синхронизация клиента только через ledger-эндпоинты: `POST /ledger/tx/submit`, `GET /ledger/state/changes`.
+- Legacy `sync/*` не используется в рабочем контуре.
+- Релиз клиента для автообновлений должен быть опубликован в ledger с корректными `version`, `fileName`, `size`, `sha256`.
+- Секреты (`.env`, токены, ключи) не храним в репозитории.
 
 

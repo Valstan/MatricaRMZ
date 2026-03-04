@@ -1,87 +1,86 @@
-# Релиз MatricaRMZ
+# Релиз и обновления MatricaRMZ
 
-Этот документ описывает только то, что реально происходит сейчас.
-Все автоматизируемые шаги перенесены в `pnpm release:auto`.
+Этот документ фиксирует текущий рабочий процесс релиза и фактический update-flow клиента.
 
-## Версия
-Одна версия для всего проекта (клиент, backend, web-admin, shared).
-Источник истины: файл `VERSION` в корне репозитория.
+## Версионирование
+- Единая версия для `electron-app`, `backend-api`, `shared`, `web-admin`.
+- Источник истины: файл `VERSION` в корне.
+- Формат: `MAJOR.MINOR.RELEASE`.
 
-Формат: **MAJOR.MINOR.RELEASE**.
-- `MAJOR` — несовместимые изменения.
-- `MINOR` — заметные изменения без ломаний.
-- `RELEASE` — монотонный счётчик релизов.
-
-## Релиз (1 команда)
+## Базовый релиз (основной путь)
 ```bash
 cd /home/valstan/MatricaRMZ
 pnpm release:auto
 ```
 
-`pnpm release:auto` автоматически подгружает переменные из `backend-api/.env` (если файл существует), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
+`release:auto` использует env из `backend-api/.env` (если файл доступен), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
 
-### Что делает `pnpm release:auto`
-- Коммитит текущее рабочее дерево (если есть изменения).
-- Синхронизирует версии пакетов с `VERSION` (или увеличивает `RELEASE`, если тег совпадает).
+## Что делает `release:auto`
+- Коммитит рабочее дерево (если есть изменения).
+- Выравнивает версии пакетов с `VERSION` (или повышает `RELEASE`, если тег уже существует).
 - Создает релизный коммит и тег `vX.Y.Z`, пушит `main` и теги.
-- Если есть изменения в `backend-api`/`web-admin`/`shared` — собирает и перезапускает backend.
-- Ждет Windows‑артефакт в GitHub Releases и скачивает **.exe установщик** в `/opt/matricarmz/updates`.
-- Проверяет `/updates/status` (если сервис обновлений включен).
-- Публикует релиз в ledger **автоматически**, если задан `MATRICA_LEDGER_RELEASE_TOKEN`.
+- При изменениях backend/web-admin/shared пересобирает и перезапускает backend.
+- Ждет Windows `.exe` asset в GitHub Release и скачивает установщик.
+- Проверяет статус update-сервиса (если включен).
+- Публикует релиз в ledger автоматически при наличии `MATRICA_LEDGER_RELEASE_TOKEN`.
 
-## Что нельзя автоматизировать (и нужно сделать вручную)
-1) **Смена MAJOR/MINOR**
-   - Обновите `VERSION` вручную, если нужен переход MAJOR/MINOR.
-2) **Если GitHub Actions/gh недоступны**
-   - Проверьте workflow `release-electron-windows.yml` и артефакты релиза `vX.Y.Z`.
-   - При необходимости запустите вручную:
-     ```bash
-     gh workflow run release-electron-windows.yml --ref vX.Y.Z
-     ```
-3) **Если release:auto не успел подписать ledger (timeout ожидания asset)**
-   - После появления .exe в GitHub Release выполните:
-     ```bash
-     pnpm release:ledger-publish
-     ```
-     Версия берётся из VERSION. Скрипт скачает .exe с GitHub и опубликует в ledger.
-   - Либо укажите путь к установщику:
-     ```bash
-     pnpm release:ledger-publish 1.5.11 --installer /opt/matricarmz/updates/MatricaRMZ\ Setup\ 1.5.11.exe
-     ```
-4) **Если нет токена ledger**
-   - Публикация в ledger обязательна для автообновлений.
-   - Сгенерируйте токен в web-admin: Админка → Release token.
-   - Либо вручную через curl:
-     ```bash
-     curl -sS -X POST http://127.0.0.1:3001/ledger/releases/publish \
-       -H "Content-Type: application/json" \
-       -H "Authorization: Bearer <token>" \
-       --data '{"version":"X.Y.Z","notes":"short changelog","fileName":"<installer>.exe","sha256":"<hex>","size":12345678}'
-     ```
-     SHA256: `sha256sum "<installer>.exe"`
+## Ручной fallback для ledger publish
+Если `.exe` появился позже, чем скрипт дождался:
 
-## Имена релизных файлов
-- Windows‑установщик — **.exe** (NSIS), имя задается `electron-builder`.
-- Скрипт ждёт **любой .exe asset** из GitHub Release. Если .exe несколько, лучше оставить один установщик.
-- В релизе обычно есть:
-  - `<Product> Setup X.Y.Z.exe`
-  - `<Product> Setup X.Y.Z.exe.blockmap`
+```bash
+pnpm release:ledger-publish
+```
 
-## Переменные релиз‑скрипта (по необходимости)
+Или с явным путём:
+
+```bash
+pnpm release:ledger-publish 1.8.26 --installer "/opt/matricarmz/updates/MatricaRMZ Setup 1.8.26.exe"
+```
+
+## Обязательные условия для автообновлений
+- Релиз должен быть опубликован в ledger (`/ledger/releases/publish`) с валидными:
+  - `version`
+  - `fileName`
+  - `size`
+  - `sha256`
+- Без этого клиент не применит установку автоматически.
+
+## Актуальный update-flow клиента
+
+При поиске/скачивании новой версии используется каскад:
+1. Торрент-пиры в локальной сети
+2. LAN peers (`/updates/lan/peers`)
+3. Yandex.Disk
+4. GitHub Releases
+5. Любые торрент-пиры + webseed (`/updates/file/:name`)
+6. Ручной fallback (диалог пользователю с выбором: закрыть приложение или продолжить запуск без автообновления)
+
+## Проверка целостности установщика перед запуском
+- Перед запуском installer проходит валидацию:
+  - наличие файла
+  - корректный размер
+  - SHA256 (если доступен)
+- Если файл поврежден:
+  1) попытка докачки (resume),
+  2) если не помогло — удаление битого файла и полная перезакачка,
+  3) повторная валидация.
+- Если после перезакачки валидация не проходит — установка отменяется, pending update очищается.
+
+## Поведение helper-процесса установки
+- Update helper запускается отдельным процессом с `parentPid`.
+- Helper ждет завершения основного процесса (с таймаутом), затем запускает `.exe`.
+- NSIS-скрипт дополнительно закрывает `MatricaRMZ.exe` (мягко -> принудительно с подтверждением пользователя).
+
+## Полезные переменные
 - `MATRICA_RELEASE_ASSET_WAIT_MS`
 - `MATRICA_RELEASE_ASSET_WAIT_ATTEMPTS`
 - `MATRICA_RELEASE_ASSET_POLL_MS`
 - `MATRICA_RELEASE_DOWNLOAD_ATTEMPTS`
 - `MATRICA_RELEASE_STATUS_WAIT_MS`
 - `MATRICA_RELEASE_STATUS_POLL_MS`
-- `MATRICA_RELEASE_SKIP_STATUS_WAIT=true` (если сервис обновлений отключен)
-- `MATRICA_RELEASE_TRIGGER_WINDOWS_WORKFLOW=true` (если нужен ручной запуск workflow)
-- `MATRICA_LEDGER_RELEASE_TOKEN` (публикация релиза в ledger)
-- `MATRICA_LEDGER_RELEASE_NOTES` (опционально, notes для ledger)
-
-## Обновления клиента (актуально)
-- Источники: **GitHub Releases** и **Yandex.Disk**.
-- Клиент проверяет обновления при запуске, скачивает тихо и устанавливает при следующем запуске.
-- Перед установкой выполняется проверка по ledger (version/fileName/size/sha256).
+- `MATRICA_RELEASE_SKIP_STATUS_WAIT=true`
+- `MATRICA_RELEASE_TRIGGER_WINDOWS_WORKFLOW=true`
+- `MATRICA_LEDGER_RELEASE_TOKEN`
+- `MATRICA_LEDGER_RELEASE_NOTES`
 
 

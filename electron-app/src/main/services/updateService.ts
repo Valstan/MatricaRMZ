@@ -311,6 +311,31 @@ async function computeSha256(filePath: string): Promise<string> {
   });
 }
 
+async function readFilePrefix(filePath: string, byteCount: number): Promise<Buffer> {
+  return await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const stream = createReadStream(filePath, { start: 0, end: Math.max(0, byteCount - 1) });
+    stream.on('error', reject);
+    stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+async function validateInstallerBinarySignature(
+  installerPath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const prefix = await readFilePrefix(installerPath, 2);
+    const looksLikeExe = prefix.length >= 2 && prefix[0] === 0x4d && prefix[1] === 0x5a; // "MZ"
+    if (!looksLikeExe) {
+      return { ok: false, error: 'installer binary signature mismatch (expected MZ header)' };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `installer signature check failed: ${String(e)}` };
+  }
+}
+
 async function fetchLatestUpdateMetaFromServer(): Promise<ServerUpdateMeta | null> {
   const apiBaseUrl = await resolveUpdateApiBaseUrl();
   if (!apiBaseUrl) return null;
@@ -362,6 +387,8 @@ async function validateInstallerIntegrity(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const basic = await validateInstallerPath(installerPath, expectedName, expectedSize);
   if (!basic.ok) return basic;
+  const binary = await validateInstallerBinarySignature(installerPath);
+  if (!binary.ok) return binary;
   if (expectedSha) {
     const actual = await computeSha256(installerPath);
     if (actual.toLowerCase() !== expectedSha.toLowerCase()) {
@@ -378,6 +405,8 @@ async function validateInstallerBeforeLaunch(args: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const basic = await validateInstallerPath(args.installerPath, args.installerPath, args.expectedSize ?? null);
   if (!basic.ok) return basic;
+  const binary = await validateInstallerBinarySignature(args.installerPath);
+  if (!binary.ok) return binary;
   const expectedSha = String(args.expectedSha ?? '').trim();
   if (expectedSha) {
     const actualSha = await computeSha256(args.installerPath);
