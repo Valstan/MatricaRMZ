@@ -9,14 +9,12 @@ Function IsClientRunning
   Pop $R0
   Pop $R1
   StrCmp $R0 "0" done
-  StrCmp $R0 "1" done
-  StrCmp $R1 "0" useSecond
-  StrCmp $R1 "1" useSecond
   StrCpy $R0 "1"
-  Goto done
-useSecond:
-  StrCpy $R0 $R1
 done:
+FunctionEnd
+
+Function un.IsClientRunning
+  Call IsClientRunning
 FunctionEnd
 
 ; Terminate any running client instances before install.
@@ -54,6 +52,41 @@ cancelInstall:
 killDone:
 !macroend
 
+; Terminate any running client instances before uninstall/update check in uninstall context.
+!macro KillClientProcessesUninstall
+  StrCpy $R2 "0"
+killRetryUninstall:
+  Call un.IsClientRunning
+  StrCmp $R0 "0" doSoftCloseUninstall killDoneUninstall
+
+doSoftCloseUninstall:
+  DetailPrint "Обнаружен MatricaRMZ.exe. Пытаемся закрыть корректно..."
+  nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /IM "MatricaRMZ.exe"'
+  Sleep 3000
+
+  Call un.IsClientRunning
+  StrCmp $R0 "0" askUserUninstall killDoneUninstall
+
+askUserUninstall:
+  IntOp $R2 $R2 + 1
+  StrCmp $R2 "4" cancelInstallUninstall
+  MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION \
+    "Программа MatricaRMZ все еще запущена и блокирует установку.$\r$\n$\r$\nRetry: закройте MatricaRMZ вручную и повторите.$\r$\nIgnore: принудительно закрыть MatricaRMZ.$\r$\nAbort: отменить установку." \
+    IDRETRY killRetryUninstall IDIGNORE forceCloseUninstall IDABORT cancelInstallUninstall
+
+forceCloseUninstall:
+  DetailPrint "Пользователь выбрал принудительное закрытие MatricaRMZ.exe."
+  nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /IM "MatricaRMZ.exe"'
+  Sleep 2000
+  Call un.IsClientRunning
+  StrCmp $R0 "0" askUserUninstall killDoneUninstall
+
+cancelInstallUninstall:
+  Abort "Установка отменена: закройте MatricaRMZ и запустите установку снова."
+
+killDoneUninstall:
+!macroend
+
 !macro CleanupMatricaFiles
   ; Installation folders (local and possible historical machine-wide installs).
   RMDir /r "$LOCALAPPDATA\Programs\MatricaRMZ"
@@ -75,6 +108,6 @@ killDone:
 !macroend
 
 !macro customCheckAppRunning
-  !insertmacro KillClientProcesses
+  !insertmacro KillClientProcessesUninstall
 !macroend
 
