@@ -62,7 +62,7 @@ killDone:
   StrCpy $R2 "0"
 killRetryUninstall:
   Call un.IsClientRunning
-  StrCmp $R0 "0" doSoftCloseUninstall killDoneUninstall
+  StrCmp $R0 "0" killDoneUninstall doSoftCloseUninstall
 
 doSoftCloseUninstall:
   DetailPrint "Обнаружен MatricaRMZ.exe. Пытаемся закрыть корректно..."
@@ -70,21 +70,14 @@ doSoftCloseUninstall:
   Sleep 3000
 
   Call un.IsClientRunning
-  StrCmp $R0 "0" askUserUninstall killDoneUninstall
-
-askUserUninstall:
-  IntOp $R2 $R2 + 1
-  StrCmp $R2 "4" cancelInstallUninstall
-  MessageBox MB_ABORTRETRYIGNORE|MB_ICONEXCLAMATION \
-    "Программа MatricaRMZ все еще запущена и блокирует установку.$\r$\n$\r$\nRetry: закройте MatricaRMZ вручную и повторите.$\r$\nIgnore: принудительно закрыть MatricaRMZ.$\r$\nAbort: отменить установку." \
-    IDRETRY killRetryUninstall IDIGNORE forceCloseUninstall IDABORT cancelInstallUninstall
+  StrCmp $R0 "0" killDoneUninstall forceCloseUninstall
 
 forceCloseUninstall:
   DetailPrint "Пользователь выбрал принудительное закрытие MatricaRMZ.exe."
   nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /IM "MatricaRMZ.exe"'
   Sleep 2000
   Call un.IsClientRunning
-  StrCmp $R0 "0" askUserUninstall killDoneUninstall
+  StrCmp $R0 "0" killDoneUninstall cancelInstallUninstall
 
 cancelInstallUninstall:
   Abort "Установка отменена: закройте MatricaRMZ и запустите установку снова."
