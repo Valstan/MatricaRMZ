@@ -181,6 +181,39 @@ const CLASSIC_PRESET: TypeSeed[] = [
     ],
   },
   {
+    code: 'storage_zone',
+    name: 'Зоны хранения',
+    defs: [
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
+      { code: 'code', name: 'Код зоны', dataType: 'text', sortOrder: 20 },
+      { code: 'warehouse_code', name: 'Код склада', dataType: 'text', sortOrder: 30 },
+      { code: 'zone_type', name: 'Тип зоны', dataType: 'text', sortOrder: 40 },
+    ],
+    entries: [
+      { name: 'Приемка WH-01', attrs: { code: 'WH01-IN', warehouse_code: 'WH-01', zone_type: 'incoming' } },
+      { name: 'Основное хранение WH-01', attrs: { code: 'WH01-ST', warehouse_code: 'WH-01', zone_type: 'storage' } },
+      { name: 'Карантин WH-01', attrs: { code: 'WH01-QC', warehouse_code: 'WH-01', zone_type: 'quarantine' } },
+      { name: 'Отгрузка WH-01', attrs: { code: 'WH01-OUT', warehouse_code: 'WH-01', zone_type: 'outgoing' } },
+      { name: 'Склад инструмента - стеллаж 1', attrs: { code: 'WH02-R1', warehouse_code: 'WH-02', zone_type: 'storage' } },
+    ],
+  },
+  {
+    code: 'stock_write_off_reason',
+    name: 'Причины списания',
+    defs: [
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
+      { code: 'code', name: 'Код причины', dataType: 'text', sortOrder: 20 },
+      { code: 'reason_class', name: 'Класс причины', dataType: 'text', sortOrder: 30 },
+    ],
+    entries: [
+      { name: 'Естественная убыль', attrs: { code: 'NATURAL_LOSS', reason_class: 'planned' } },
+      { name: 'Брак в производстве', attrs: { code: 'PROD_DEFECT', reason_class: 'quality' } },
+      { name: 'Повреждение при хранении', attrs: { code: 'STORAGE_DAMAGE', reason_class: 'incident' } },
+      { name: 'Истекший срок годности', attrs: { code: 'EXPIRED', reason_class: 'expiry' } },
+      { name: 'Недостача по инвентаризации', attrs: { code: 'INVENTORY_SHORTAGE', reason_class: 'inventory' } },
+    ],
+  },
+  {
     code: 'service',
     name: 'Услуги',
     defs: [

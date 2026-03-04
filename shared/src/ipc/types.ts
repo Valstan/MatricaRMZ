@@ -299,11 +299,17 @@ export type ChatDeepLinkPayload = {
     | 'masterdata'
     | 'contracts'
     | 'contract'
+    | 'counterparties'
+    | 'counterparty'
     | 'changes'
     | 'engines'
+    | 'engine_brands'
     | 'engine'
+    | 'engine_brand'
     | 'requests'
     | 'request'
+    | 'work_orders'
+    | 'work_order'
     | 'parts'
     | 'part'
     | 'tools'
@@ -312,6 +318,19 @@ export type ChatDeepLinkPayload = {
     | 'tool_property'
     | 'employees'
     | 'employee'
+    | 'products'
+    | 'product'
+    | 'services'
+    | 'service'
+    | 'nomenclature'
+    | 'nomenclature_item'
+    | 'stock_balances'
+    | 'stock_receipts'
+    | 'stock_issues'
+    | 'stock_transfers'
+    | 'stock_documents'
+    | 'stock_document'
+    | 'stock_inventory'
     | 'reports'
     | 'admin'
     | 'audit'
@@ -329,6 +348,8 @@ export type ChatDeepLinkPayload = {
   productId?: string | null;
   serviceId?: string | null;
   counterpartyId?: string | null;
+  nomenclatureId?: string | null;
+  stockDocumentId?: string | null;
   breadcrumbs?: string[];
 };
 

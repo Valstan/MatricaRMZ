@@ -17,6 +17,15 @@ export type TabId =
   | 'product'
   | 'services'
   | 'service'
+  | 'nomenclature'
+  | 'nomenclature_item'
+  | 'stock_balances'
+  | 'stock_receipts'
+  | 'stock_issues'
+  | 'stock_transfers'
+  | 'stock_documents'
+  | 'stock_document'
+  | 'stock_inventory'
   | 'contracts'
   | 'contract'
   | 'requests'
@@ -51,6 +60,8 @@ export type MenuTabId = Exclude<
   | 'engine_brand'
   | 'product'
   | 'service'
+  | 'nomenclature_item'
+  | 'stock_document'
   | 'counterparty'
   | 'tool'
   | 'tool_property'
@@ -73,6 +84,7 @@ export type MenuGroupId =
   | 'history'
   | 'production'
   | 'supply'
+  | 'warehouse'
   | 'business'
   | 'people'
   | 'control';
@@ -80,17 +92,19 @@ export type MenuGroupId =
 export const GROUP_LABELS: Record<MenuGroupId, string> = {
   history: 'История',
   production: 'Производство',
-  supply: 'Снабжение и склад',
+  supply: 'Снабжение',
+  warehouse: 'Склад',
   business: 'Договоры и контрагенты',
   people: 'Персонал и доступ',
   control: 'Контроль и аналитика',
 };
 
-const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'business', 'people', 'control'];
+const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
   production: ['engines', 'engine_brands', 'parts'],
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
+  warehouse: ['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
   control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'admin'],
@@ -112,6 +126,11 @@ const GROUP_VISUALS: Record<MenuGroupId, GroupVisualMeta> = {
     icon: '📦',
     subtitle: 'Заявки, наряды и снабжение',
     gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
+  },
+  warehouse: {
+    icon: '🏭',
+    subtitle: 'Остатки, документы и инвентаризация',
+    gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)',
   },
   business: {
     icon: '🤝',
@@ -141,6 +160,12 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   tools: { icon: '🔧', subtitle: 'Инструменты и оснащение', gradient: 'linear-gradient(135deg, #059669 0%, #22c55e 100%)' },
   products: { icon: '📦', subtitle: 'Товары и номенклатура', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
   services: { icon: '🧰', subtitle: 'Услуги и операции', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
+  nomenclature: { icon: '🗃️', subtitle: 'Единый каталог ТМЦ', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
+  stock_balances: { icon: '📊', subtitle: 'Остатки по складам', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
+  stock_receipts: { icon: '📥', subtitle: 'Документы поступления', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%)' },
+  stock_issues: { icon: '📤', subtitle: 'Документы расхода', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
+  stock_transfers: { icon: '🔄', subtitle: 'Перемещения и списание', gradient: 'linear-gradient(135deg, #0c4a6e 0%, #0284c7 100%)' },
+  stock_inventory: { icon: '📋', subtitle: 'Инвентаризация склада', gradient: 'linear-gradient(135deg, #075985 0%, #0284c7 100%)' },
   contracts: { icon: '📄', subtitle: 'Договоры и условия', gradient: 'linear-gradient(135deg, #7c3aed 0%, #c084fc 100%)' },
   counterparties: { icon: '🤝', subtitle: 'Поставщики и партнеры', gradient: 'linear-gradient(135deg, #9333ea 0%, #ec4899 100%)' },
   employees: { icon: '👥', subtitle: 'Сотрудники и профили', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
@@ -188,6 +213,7 @@ export function deriveMenuState(availableTabs: MenuTabId[], layout?: TabsLayoutP
     history: [],
     production: [],
     supply: [],
+    warehouse: [],
     business: [],
     people: [],
     control: [],
@@ -278,6 +304,7 @@ export function Tabs(props: {
       history: [],
       production: [],
       supply: [],
+      warehouse: [],
       business: [],
       people: [],
       control: [],
@@ -361,6 +388,12 @@ export function Tabs(props: {
     tools: 'Инструменты',
     products: 'Товары',
     services: 'Услуги',
+    nomenclature: 'Номенклатура',
+    stock_balances: 'Остатки',
+    stock_receipts: 'Приход',
+    stock_issues: 'Расход',
+    stock_transfers: 'Перемещения',
+    stock_inventory: 'Инвентаризация',
     employees: 'Сотрудники',
     reports: 'Отчёты',
     audit: 'Журнал',

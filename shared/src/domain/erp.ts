@@ -25,6 +25,11 @@ export const ErpDocumentType = {
   PartsReceipt: 'parts_receipt',
   PartsWriteoff: 'parts_writeoff',
   PartsTransfer: 'parts_transfer',
+  StockReceipt: 'stock_receipt',
+  StockIssue: 'stock_issue',
+  StockTransfer: 'stock_transfer',
+  StockWriteoff: 'stock_writeoff',
+  StockInventory: 'stock_inventory',
 } as const;
 
 export type ErpDocumentType = (typeof ErpDocumentType)[keyof typeof ErpDocumentType];

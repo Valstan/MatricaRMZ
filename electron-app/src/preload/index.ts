@@ -359,6 +359,21 @@ const matricaApi = {
     }) => ipcRenderer.invoke('erp:documents:create', args),
     documentsPost: async (documentId: string) => ipcRenderer.invoke('erp:documents:post', documentId),
   },
+  warehouse: {
+    nomenclatureList: async (args?: { search?: string; itemType?: string; groupId?: string; isActive?: boolean }) =>
+      ipcRenderer.invoke('warehouse:nomenclature:list', args),
+    nomenclatureUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:nomenclature:upsert', args),
+    nomenclatureDelete: async (id: string) => ipcRenderer.invoke('warehouse:nomenclature:delete', id),
+    stockList: async (args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean }) =>
+      ipcRenderer.invoke('warehouse:stock:list', args),
+    documentsList: async (args?: { status?: string; docType?: string; fromDate?: number; toDate?: number }) =>
+      ipcRenderer.invoke('warehouse:documents:list', args),
+    documentGet: async (id: string) => ipcRenderer.invoke('warehouse:documents:get', id),
+    documentCreate: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:documents:create', args),
+    documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
+    movementsList: async (args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number }) =>
+      ipcRenderer.invoke('warehouse:movements:list', args),
+  },
   files: {
     upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
       ipcRenderer.invoke('files:upload', args),

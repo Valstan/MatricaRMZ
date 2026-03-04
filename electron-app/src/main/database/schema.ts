@@ -404,17 +404,70 @@ export const erpDocumentLines = sqliteTable(
   }),
 );
 
+export const erpNomenclature = sqliteTable(
+  'erp_nomenclature',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    itemType: text('item_type').notNull().default('material'),
+    groupId: text('group_id'),
+    unitId: text('unit_id'),
+    barcode: text('barcode'),
+    minStock: integer('min_stock'),
+    maxStock: integer('max_stock'),
+    defaultWarehouseId: text('default_warehouse_id'),
+    specJson: text('spec_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code),
+    itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
+    groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
+    nameIdx: index('erp_nomenclature_name_idx').on(t.name),
+  }),
+);
+
 export const erpRegStockBalance = sqliteTable(
   'erp_reg_stock_balance',
   {
     id: text('id').primaryKey(),
-    partCardId: text('part_card_id').notNull(),
+    nomenclatureId: text('nomenclature_id'),
+    partCardId: text('part_card_id'),
     warehouseId: text('warehouse_id').notNull().default('default'),
     qty: integer('qty').notNull().default(0),
+    reservedQty: integer('reserved_qty').notNull().default(0),
     updatedAt: integer('updated_at').notNull(),
   },
   (t) => ({
     partWarehouseUq: uniqueIndex('erp_reg_stock_balance_part_warehouse_uq').on(t.partCardId, t.warehouseId),
+    nomenclatureWarehouseUq: uniqueIndex('erp_reg_stock_balance_nomenclature_warehouse_uq').on(t.nomenclatureId, t.warehouseId),
+  }),
+);
+
+export const erpRegStockMovements = sqliteTable(
+  'erp_reg_stock_movements',
+  {
+    id: text('id').primaryKey(),
+    nomenclatureId: text('nomenclature_id').notNull(),
+    warehouseId: text('warehouse_id').notNull().default('default'),
+    documentHeaderId: text('document_header_id'),
+    movementType: text('movement_type').notNull(),
+    qty: integer('qty').notNull().default(0),
+    direction: text('direction').notNull(),
+    counterpartyId: text('counterparty_id'),
+    reason: text('reason'),
+    performedAt: integer('performed_at').notNull(),
+    performedBy: text('performed_by'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({
+    nomenclatureWarehouseIdx: index('erp_reg_stock_movements_nomenclature_warehouse_idx').on(t.nomenclatureId, t.warehouseId),
+    headerIdx: index('erp_reg_stock_movements_header_idx').on(t.documentHeaderId),
+    performedAtIdx: index('erp_reg_stock_movements_performed_at_idx').on(t.performedAt),
   }),
 );
 

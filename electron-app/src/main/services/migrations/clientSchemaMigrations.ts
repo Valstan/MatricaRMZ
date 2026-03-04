@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 2;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 3;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -53,6 +53,101 @@ const MIGRATIONS: Migration[] = [
     name: 'baseline no-op migration',
     up: async () => {
       // Intentionally empty. Ensures automated migration pipeline is exercised.
+    },
+  },
+  {
+    from: 2,
+    to: 3,
+    name: 'warehouse schema tables and indexes',
+    up: async (_db, sqlite) => {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_nomenclature (
+          id text PRIMARY KEY NOT NULL,
+          code text NOT NULL,
+          name text NOT NULL,
+          item_type text NOT NULL DEFAULT 'material',
+          group_id text,
+          unit_id text,
+          barcode text,
+          min_stock integer,
+          max_stock integer,
+          default_warehouse_id text,
+          spec_json text,
+          is_active integer NOT NULL DEFAULT 1,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_nomenclature_code_uq ON erp_nomenclature(code);
+        CREATE INDEX IF NOT EXISTS erp_nomenclature_item_type_idx ON erp_nomenclature(item_type);
+        CREATE INDEX IF NOT EXISTS erp_nomenclature_group_idx ON erp_nomenclature(group_id);
+        CREATE INDEX IF NOT EXISTS erp_nomenclature_name_idx ON erp_nomenclature(name);
+      `);
+
+      const stockColumns = sqlite.prepare(`PRAGMA table_info('erp_reg_stock_balance')`).all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      const partCardColumn = stockColumns.find((c) => c.name === 'part_card_id');
+      const hasNomenclatureId = stockColumns.some((c) => c.name === 'nomenclature_id');
+      const hasReservedQty = stockColumns.some((c) => c.name === 'reserved_qty');
+      const mustRebuildStockBalance = !hasNomenclatureId || !hasReservedQty || Number(partCardColumn?.notnull ?? 0) === 1;
+
+      if (mustRebuildStockBalance) {
+        const selectNomenclatureExpr = hasNomenclatureId ? 'nomenclature_id' : 'NULL';
+        const selectReservedExpr = hasReservedQty ? 'COALESCE(reserved_qty, 0)' : '0';
+        sqlite.exec(`PRAGMA foreign_keys=OFF;`);
+        sqlite.exec(`
+          CREATE TABLE IF NOT EXISTS __erp_reg_stock_balance_new (
+            id text PRIMARY KEY NOT NULL,
+            nomenclature_id text,
+            part_card_id text,
+            warehouse_id text NOT NULL DEFAULT 'default',
+            qty integer NOT NULL DEFAULT 0,
+            reserved_qty integer NOT NULL DEFAULT 0,
+            updated_at integer NOT NULL
+          );
+        `);
+        sqlite.exec(`
+          INSERT INTO __erp_reg_stock_balance_new (id, nomenclature_id, part_card_id, warehouse_id, qty, reserved_qty, updated_at)
+          SELECT id, ${selectNomenclatureExpr}, part_card_id, warehouse_id, qty, ${selectReservedExpr}, updated_at
+          FROM erp_reg_stock_balance;
+        `);
+        sqlite.exec(`DROP TABLE erp_reg_stock_balance;`);
+        sqlite.exec(`ALTER TABLE __erp_reg_stock_balance_new RENAME TO erp_reg_stock_balance;`);
+        sqlite.exec(`PRAGMA foreign_keys=ON;`);
+      }
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_reg_stock_balance_part_warehouse_uq
+          ON erp_reg_stock_balance(part_card_id, warehouse_id);
+      `);
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_reg_stock_balance_nomenclature_warehouse_uq
+          ON erp_reg_stock_balance(nomenclature_id, warehouse_id);
+      `);
+
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_reg_stock_movements (
+          id text PRIMARY KEY NOT NULL,
+          nomenclature_id text NOT NULL,
+          warehouse_id text NOT NULL DEFAULT 'default',
+          document_header_id text,
+          movement_type text NOT NULL,
+          qty integer NOT NULL DEFAULT 0,
+          direction text NOT NULL,
+          counterparty_id text,
+          reason text,
+          performed_at integer NOT NULL,
+          performed_by text,
+          created_at integer NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_nomenclature_warehouse_idx
+          ON erp_reg_stock_movements(nomenclature_id, warehouse_id);
+        CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_header_idx
+          ON erp_reg_stock_movements(document_header_id);
+        CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_performed_at_idx
+          ON erp_reg_stock_movements(performed_at);
+      `);
     },
   },
 ];

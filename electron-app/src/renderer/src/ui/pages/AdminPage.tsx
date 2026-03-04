@@ -95,6 +95,8 @@ function resolveMasterdataGroupKey(codeRaw: string): string {
     code === 'contract' ||
     code === 'supplier_ref' ||
     code === 'warehouse_ref' ||
+    code === 'storage_zone' ||
+    code === 'stock_write_off_reason' ||
     code === 'nomenclature_group' ||
     code === 'unit'
   ) {

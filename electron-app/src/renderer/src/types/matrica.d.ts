@@ -17,6 +17,7 @@ type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
     defs: () => Promise<any[]>;
     resyncFromServer: () => Promise<any>;
   };
+  warehouse: any;
   tools: any;
   update: MatricaApi['update'] & {
     reset: () => Promise<any>;

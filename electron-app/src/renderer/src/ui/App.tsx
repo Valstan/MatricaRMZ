@@ -50,6 +50,12 @@ import { EmployeesPage } from './pages/EmployeesPage.js';
 import { EmployeeDetailsPage } from './pages/EmployeeDetailsPage.js';
 import { ProductsPage } from './pages/ProductsPage.js';
 import { ServicesPage } from './pages/ServicesPage.js';
+import { NomenclaturePage } from './pages/NomenclaturePage.js';
+import { NomenclatureDetailsPage } from './pages/NomenclatureDetailsPage.js';
+import { StockBalancesPage } from './pages/StockBalancesPage.js';
+import { StockDocumentsPage } from './pages/StockDocumentsPage.js';
+import { StockDocumentDetailsPage } from './pages/StockDocumentDetailsPage.js';
+import { StockInventoryPage } from './pages/StockInventoryPage.js';
 import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { NotesPage } from './pages/NotesPage.js';
@@ -76,6 +82,7 @@ type RecentVisitEntry = {
 
 const RECENT_VISITS_LIMIT = 10;
 const NAVIGATION_HISTORY_LIMIT = 10;
+type StockDocumentParentTab = 'stock_documents' | 'stock_receipts' | 'stock_issues' | 'stock_transfers' | 'stock_inventory';
 
 type AppNavigationStep = {
   id: string;
@@ -101,6 +108,8 @@ function appLinkSignature(link: ChatDeepLinkPayload) {
     productId: link.productId ?? null,
     serviceId: link.serviceId ?? null,
     counterpartyId: link.counterpartyId ?? null,
+    nomenclatureId: link.nomenclatureId ?? null,
+    stockDocumentId: link.stockDocumentId ?? null,
   });
 }
 
@@ -159,6 +168,15 @@ function appTabTitle(tab: string): string {
     product: 'Карточка товара',
     services: 'Услуги',
     service: 'Карточка услуги',
+    nomenclature: 'Номенклатура',
+    nomenclature_item: 'Карточка номенклатуры',
+    stock_balances: 'Остатки',
+    stock_receipts: 'Приход',
+    stock_issues: 'Расход',
+    stock_transfers: 'Перемещения',
+    stock_documents: 'Складские документы',
+    stock_document: 'Карточка складского документа',
+    stock_inventory: 'Инвентаризация',
     reports: 'Отчёты',
     changes: 'Изменения',
     notes: 'Заметки',
@@ -181,6 +199,8 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   counterparty: 'counterparties',
   product: 'products',
   service: 'services',
+  nomenclature_item: 'nomenclature',
+  stock_document: 'stock_documents',
 };
 
 const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
@@ -196,6 +216,8 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'counterparty',
   'product',
   'service',
+  'nomenclature_item',
+  'stock_document',
 ];
 
 export function App() {
@@ -254,6 +276,9 @@ export function App() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [selectedNomenclatureId, setSelectedNomenclatureId] = useState<string | null>(null);
+  const [selectedStockDocumentId, setSelectedStockDocumentId] = useState<string | null>(null);
+  const [stockDocumentParentTab, setStockDocumentParentTab] = useState<StockDocumentParentTab>('stock_documents');
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
@@ -1013,6 +1038,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
+    ...(caps.canViewMasterData ? (['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'] as const) : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
@@ -1036,6 +1062,8 @@ export function App() {
     | 'engine_brand'
     | 'product'
     | 'service'
+    | 'nomenclature_item'
+    | 'stock_document'
     | 'counterparty'
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
@@ -1053,6 +1081,12 @@ export function App() {
     tools: 'Инструменты',
     products: 'Товары',
     services: 'Услуги',
+    nomenclature: 'Номенклатура',
+    stock_balances: 'Остатки',
+    stock_receipts: 'Приход',
+    stock_issues: 'Расход',
+    stock_transfers: 'Перемещения',
+    stock_inventory: 'Инвентаризация',
     employees: 'Сотрудники',
     reports: 'Отчёты',
     audit: 'Журнал',
@@ -1250,7 +1284,9 @@ export function App() {
       tab === 'contract' ||
       tab === 'counterparty' ||
       tab === 'product' ||
-      tab === 'service'
+      tab === 'service' ||
+      tab === 'nomenclature_item' ||
+      tab === 'stock_document'
     )
       return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
@@ -1417,6 +1453,17 @@ export function App() {
     setTab('service');
   }
 
+  async function openNomenclature(id: string) {
+    setSelectedNomenclatureId(id);
+    setTab('nomenclature_item');
+  }
+
+  async function openStockDocument(id: string, parentTab: StockDocumentParentTab = 'stock_documents') {
+    setStockDocumentParentTab(parentTab);
+    setSelectedStockDocumentId(id);
+    setTab('stock_document');
+  }
+
   async function openCounterparty(id: string) {
     setSelectedCounterpartyId(id);
     setTab('counterparty');
@@ -1431,6 +1478,7 @@ export function App() {
     engineBrand: openEngineBrand,
     service: openService,
     product: openProduct,
+    nomenclature: openNomenclature,
     employee: openEmployee,
     tool_property: openToolProperty,
   };
@@ -1457,6 +1505,8 @@ export function App() {
     const productId = link?.productId ? String(link.productId) : null;
     const serviceId = link?.serviceId ? String(link.serviceId) : null;
     const counterpartyId = link?.counterpartyId ? String(link.counterpartyId) : null;
+    const nomenclatureId = link?.nomenclatureId ? String(link.nomenclatureId) : null;
+    const stockDocumentId = link?.stockDocumentId ? String(link.stockDocumentId) : null;
 
     // Prefer opening specific entities if IDs are present.
     if (engineId) {
@@ -1497,6 +1547,14 @@ export function App() {
     }
     if (counterpartyId) {
       await openCounterparty(counterpartyId);
+      return;
+    }
+    if (nomenclatureId) {
+      await openNomenclature(nomenclatureId);
+      return;
+    }
+    if (stockDocumentId) {
+      await openStockDocument(stockDocumentId);
       return;
     }
     if (engineBrandId) {
@@ -1549,6 +1607,15 @@ export function App() {
       product: 'Карточка товара',
       services: 'Услуги',
       service: 'Карточка услуги',
+      nomenclature: 'Номенклатура',
+      nomenclature_item: 'Карточка номенклатуры',
+      stock_balances: 'Остатки',
+      stock_receipts: 'Приход',
+      stock_issues: 'Расход',
+      stock_transfers: 'Перемещения',
+      stock_documents: 'Складские документы',
+      stock_document: 'Карточка складского документа',
+      stock_inventory: 'Инвентаризация',
       employees: 'Сотрудники',
       employee: 'Карточка сотрудника',
       reports: 'Отчёты',
@@ -1570,6 +1637,8 @@ export function App() {
       employee: 'Сотрудники',
       product: 'Товары',
       service: 'Услуги',
+      nomenclature_item: 'Номенклатура',
+      stock_document: 'Складские документы',
     };
 
     const crumbs: string[] = [];
@@ -1594,6 +1663,8 @@ export function App() {
     if (tab === 'employee' && selectedEmployeeId) crumbs.push(`ID ${shortId(selectedEmployeeId)}`);
     if (tab === 'product' && selectedProductId) crumbs.push(`ID ${shortId(selectedProductId)}`);
     if (tab === 'service' && selectedServiceId) crumbs.push(`ID ${shortId(selectedServiceId)}`);
+    if (tab === 'nomenclature_item' && selectedNomenclatureId) crumbs.push(`ID ${shortId(selectedNomenclatureId)}`);
+    if (tab === 'stock_document' && selectedStockDocumentId) crumbs.push(`ID ${shortId(selectedStockDocumentId)}`);
 
     return crumbs.filter(Boolean);
   }
@@ -1624,6 +1695,10 @@ export function App() {
                     ? selectedServiceId ?? null
                     : tab === 'counterparty'
                       ? selectedCounterpartyId ?? null
+                      : tab === 'nomenclature_item'
+                        ? selectedNomenclatureId ?? null
+                        : tab === 'stock_document'
+                          ? selectedStockDocumentId ?? null
                       : null,
       entityType:
         tab === 'engine'
@@ -1648,6 +1723,10 @@ export function App() {
                     ? 'service'
                     : tab === 'counterparty'
                       ? 'customer'
+                      : tab === 'nomenclature_item'
+                        ? 'nomenclature'
+                        : tab === 'stock_document'
+                          ? 'warehouse_document'
                       : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
@@ -1664,6 +1743,8 @@ export function App() {
       selectedProductId,
       selectedServiceId,
       selectedCounterpartyId,
+      selectedNomenclatureId,
+      selectedStockDocumentId,
       engineDetails,
     ],
   );
@@ -1692,6 +1773,8 @@ export function App() {
       productId: tab === 'product' ? selectedProductId ?? null : null,
       serviceId: tab === 'service' ? selectedServiceId ?? null : null,
       counterpartyId: tab === 'counterparty' ? selectedCounterpartyId ?? null : null,
+      nomenclatureId: tab === 'nomenclature_item' ? selectedNomenclatureId ?? null : null,
+      stockDocumentId: tab === 'stock_document' ? selectedStockDocumentId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
     [
@@ -1707,6 +1790,8 @@ export function App() {
       selectedProductId,
       selectedServiceId,
       selectedCounterpartyId,
+      selectedNomenclatureId,
+      selectedStockDocumentId,
       engineDetails,
     ],
   );
@@ -1966,6 +2051,24 @@ export function App() {
               ? 'Матрица РМЗ — Услуги'
               : tab === 'service'
                 ? 'Матрица РМЗ — Карточка услуги'
+                : tab === 'nomenclature'
+                  ? 'Матрица РМЗ — Номенклатура'
+                  : tab === 'nomenclature_item'
+                    ? 'Матрица РМЗ — Карточка номенклатуры'
+                    : tab === 'stock_balances'
+                      ? 'Матрица РМЗ — Остатки склада'
+                      : tab === 'stock_receipts'
+                        ? 'Матрица РМЗ — Склад: Приход'
+                        : tab === 'stock_issues'
+                          ? 'Матрица РМЗ — Склад: Расход'
+                          : tab === 'stock_transfers'
+                            ? 'Матрица РМЗ — Склад: Перемещения'
+                            : tab === 'stock_documents'
+                              ? 'Матрица РМЗ — Складские документы'
+                              : tab === 'stock_document'
+                                ? 'Матрица РМЗ — Карточка складского документа'
+                                : tab === 'stock_inventory'
+                                  ? 'Матрица РМЗ — Инвентаризация'
         : tab === 'counterparties'
           ? 'Матрица РМЗ — Контрагенты'
           : tab === 'counterparty'
@@ -2869,6 +2972,43 @@ export function App() {
           />
         )}
 
+        {tab === 'nomenclature' && (
+          <NomenclaturePage
+            onOpen={openNomenclature}
+            canEdit={caps.canEditMasterData}
+          />
+        )}
+
+        {(tab === 'stock_receipts' || tab === 'stock_issues' || tab === 'stock_transfers' || tab === 'stock_documents') && (
+          <StockDocumentsPage
+            defaultDocType={
+              tab === 'stock_receipts'
+                ? 'stock_receipt'
+                : tab === 'stock_issues'
+                  ? 'stock_issue'
+                  : tab === 'stock_transfers'
+                    ? 'stock_transfer'
+                    : undefined
+            }
+            canEdit={caps.canEditOperations}
+            onOpen={(id) =>
+              void openStockDocument(
+                id,
+                tab === 'stock_receipts' || tab === 'stock_issues' || tab === 'stock_transfers' ? tab : 'stock_documents',
+              )
+            }
+          />
+        )}
+
+        {tab === 'stock_balances' && <StockBalancesPage />}
+
+        {tab === 'stock_inventory' && (
+          <StockInventoryPage
+            canEdit={caps.canEditOperations}
+            onOpenDocument={(id) => void openStockDocument(id, 'stock_inventory')}
+          />
+        )}
+
         {tab === 'part' && selectedPartId && (
           <PartDetailsPage
             key={selectedPartId}
@@ -3022,6 +3162,30 @@ export function App() {
           />
         )}
 
+        {tab === 'nomenclature_item' && selectedNomenclatureId && (
+          <NomenclatureDetailsPage
+            key={selectedNomenclatureId}
+            id={selectedNomenclatureId}
+            canEdit={caps.canEditMasterData}
+            onClose={() => {
+              setSelectedNomenclatureId(null);
+              setTabState('nomenclature');
+            }}
+          />
+        )}
+
+        {tab === 'stock_document' && selectedStockDocumentId && (
+          <StockDocumentDetailsPage
+            key={selectedStockDocumentId}
+            id={selectedStockDocumentId}
+            canEdit={caps.canEditOperations}
+            onClose={() => {
+              setSelectedStockDocumentId(null);
+              setTabState(stockDocumentParentTab);
+            }}
+          />
+        )}
+
         {tab === 'changes' && authStatus.loggedIn && authStatus.user && (
           <ChangesPage
             me={authStatus.user}
@@ -3110,6 +3274,14 @@ export function App() {
 
         {tab === 'service' && !selectedServiceId && (
           <div style={{ color: 'var(--muted)' }}>Выберите услугу из списка.</div>
+        )}
+
+        {tab === 'nomenclature_item' && !selectedNomenclatureId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите номенклатуру из списка.</div>
+        )}
+
+        {tab === 'stock_document' && !selectedStockDocumentId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите складской документ из списка.</div>
         )}
           </div>
         </div>

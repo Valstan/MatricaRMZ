@@ -22,6 +22,7 @@ export const EntityTypeCode = {
   ToolProperty: 'tool_property',
   ToolCatalog: 'tool_catalog',
   PartEngineBrand: 'part_engine_brand',
+  Nomenclature: 'nomenclature',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];
@@ -51,6 +52,9 @@ export const OperationTypeCode = {
   CustomerDelivery: 'customer_delivery', // подтверждение доставки/претензии
   SupplyRequest: 'supply_request', // заявки в снабжение
   ToolMovement: 'tool_movement', // движение инструмента
+  StockReceipt: 'stock_receipt', // приход на склад
+  StockIssue: 'stock_issue', // расход со склада
+  StockTransfer: 'stock_transfer', // перемещение между складами
 } as const;
 
 export type OperationTypeCode = (typeof OperationTypeCode)[keyof typeof OperationTypeCode];

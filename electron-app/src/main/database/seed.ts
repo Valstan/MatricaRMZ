@@ -57,6 +57,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   const departmentTypeId = await ensureEntityType(EntityTypeCode.Department, 'Подразделение / служба');
   const productTypeId = await ensureEntityType(EntityTypeCode.Product, 'Продукты');
   const serviceTypeId = await ensureEntityType(EntityTypeCode.Service, 'Услуги');
+  const nomenclatureTypeId = await ensureEntityType(EntityTypeCode.Nomenclature, 'Номенклатура');
   const categoryTypeId = await ensureEntityType(EntityTypeCode.Category, 'Категории');
   const employeeTypeId = await ensureEntityType(EntityTypeCode.Employee, 'Сотрудник');
   const unitTypeId = await ensureEntityType(EntityTypeCode.Unit, 'Единицы измерения');
@@ -293,6 +294,40 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
     JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
   );
   await ensureAttrDef(productTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
+
+  // Warehouse nomenclature (единый каталог ТМЦ)
+  await ensureAttrDef(nomenclatureTypeId, 'code', 'Код / артикул', AttributeDataType.Text, 10);
+  await ensureAttrDef(nomenclatureTypeId, 'name', 'Наименование', AttributeDataType.Text, 20);
+  await ensureAttrDef(nomenclatureTypeId, 'item_type', 'Тип номенклатуры', AttributeDataType.Text, 30);
+  await ensureAttrDef(
+    nomenclatureTypeId,
+    'group_id',
+    'Номенклатурная группа',
+    AttributeDataType.Link,
+    40,
+    JSON.stringify({ linkTargetTypeCode: 'nomenclature_group' }),
+  );
+  await ensureAttrDef(
+    nomenclatureTypeId,
+    'unit_id',
+    'Единица измерения',
+    AttributeDataType.Link,
+    50,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Unit }),
+  );
+  await ensureAttrDef(
+    nomenclatureTypeId,
+    'default_warehouse_id',
+    'Склад по умолчанию',
+    AttributeDataType.Link,
+    60,
+    JSON.stringify({ linkTargetTypeCode: 'warehouse_ref' }),
+  );
+  await ensureAttrDef(nomenclatureTypeId, 'barcode', 'Штрихкод', AttributeDataType.Text, 70);
+  await ensureAttrDef(nomenclatureTypeId, 'min_stock', 'Мин. остаток', AttributeDataType.Number, 80);
+  await ensureAttrDef(nomenclatureTypeId, 'max_stock', 'Макс. остаток', AttributeDataType.Number, 90);
+  await ensureAttrDef(nomenclatureTypeId, 'spec_json', 'Характеристики', AttributeDataType.Json, 100);
+  await ensureAttrDef(nomenclatureTypeId, 'attachments', 'Вложения', AttributeDataType.Json, 9990);
 
   // Services
   await ensureAttrDef(serviceTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);

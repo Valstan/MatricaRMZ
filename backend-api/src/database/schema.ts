@@ -781,19 +781,74 @@ export const erpDocumentLines = pgTable(
   }),
 );
 
+export const erpNomenclature = pgTable(
+  'erp_nomenclature',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    itemType: text('item_type').notNull().default('material'),
+    groupId: uuid('group_id').references(() => entities.id),
+    unitId: uuid('unit_id').references(() => entities.id),
+    barcode: text('barcode'),
+    minStock: integer('min_stock'),
+    maxStock: integer('max_stock'),
+    defaultWarehouseId: text('default_warehouse_id'),
+    specJson: text('spec_json'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code),
+    itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
+    groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
+    nameIdx: index('erp_nomenclature_name_idx').on(t.name),
+  }),
+);
+
 export const erpRegStockBalance = pgTable(
   'erp_reg_stock_balance',
   {
     id: uuid('id').primaryKey(),
-    partCardId: uuid('part_card_id')
-      .notNull()
-      .references(() => erpPartCards.id),
+    nomenclatureId: uuid('nomenclature_id').references(() => erpNomenclature.id),
+    partCardId: uuid('part_card_id').references(() => erpPartCards.id),
     warehouseId: text('warehouse_id').notNull().default('default'),
     qty: integer('qty').notNull().default(0),
+    reservedQty: integer('reserved_qty').notNull().default(0),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
   },
   (t) => ({
-    partWarehouseUq: uniqueIndex('erp_reg_stock_balance_part_warehouse_uq').on(t.partCardId, t.warehouseId),
+    partWarehouseUq: uniqueIndex('erp_reg_stock_balance_part_warehouse_uq').on(t.partCardId, t.warehouseId).where(sql`${t.partCardId} is not null`),
+    nomenclatureWarehouseUq: uniqueIndex('erp_reg_stock_balance_nomenclature_warehouse_uq')
+      .on(t.nomenclatureId, t.warehouseId)
+      .where(sql`${t.nomenclatureId} is not null`),
+  }),
+);
+
+export const erpRegStockMovements = pgTable(
+  'erp_reg_stock_movements',
+  {
+    id: uuid('id').primaryKey(),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    warehouseId: text('warehouse_id').notNull().default('default'),
+    documentHeaderId: uuid('document_header_id').references(() => erpDocumentHeaders.id),
+    movementType: text('movement_type').notNull(),
+    qty: integer('qty').notNull().default(0),
+    direction: text('direction').notNull(),
+    counterpartyId: uuid('counterparty_id').references(() => erpCounterparties.id),
+    reason: text('reason'),
+    performedAt: bigint('performed_at', { mode: 'number' }).notNull(),
+    performedBy: text('performed_by'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    nomenclatureWarehouseIdx: index('erp_reg_stock_movements_nomenclature_warehouse_idx').on(t.nomenclatureId, t.warehouseId),
+    headerIdx: index('erp_reg_stock_movements_header_idx').on(t.documentHeaderId),
+    performedAtIdx: index('erp_reg_stock_movements_performed_at_idx').on(t.performedAt),
   }),
 );
 

@@ -30,6 +30,9 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  erpNomenclature,
+  erpRegStockBalance,
+  erpRegStockMovements,
   entities,
   entityTypes,
   noteShares,
@@ -115,7 +118,7 @@ async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
 
 const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
 const SYNC_V2_ENABLED = String(process.env.MATRICA_SYNC_V2 ?? '1') !== '0';
-const FULL_STATE_SYNC_TABLES: SyncTableName[] = [
+const FULL_STATE_SYNC_TABLES: string[] = [
   SyncTableName.EntityTypes,
   SyncTableName.Entities,
   SyncTableName.AttributeDefs,
@@ -127,6 +130,9 @@ const FULL_STATE_SYNC_TABLES: SyncTableName[] = [
   SyncTableName.UserPresence,
   SyncTableName.Notes,
   SyncTableName.NoteShares,
+  'erp_nomenclature',
+  'erp_reg_stock_balance',
+  'erp_reg_stock_movements',
 ];
 
 // Moved to sync/progressEmitter.ts
@@ -1352,6 +1358,9 @@ async function applyPulledChanges(
     [SyncTableName.Notes]: [],
     [SyncTableName.NoteShares]: [],
   };
+  const warehouseNomenclatureRows: any[] = [];
+  const warehouseBalanceRows: any[] = [];
+  const warehouseMovementRows: any[] = [];
 
   for (const item of parsedChanges) {
     const ch = item.ch;
@@ -1552,6 +1561,61 @@ async function applyPulledChanges(
           });
         }
         break;
+      case 'erp_nomenclature':
+        {
+          const payload = payloadRaw;
+          warehouseNomenclatureRows.push({
+            id: payload.id,
+            code: payload.code,
+            name: payload.name,
+            itemType: payload.item_type,
+            groupId: payload.group_id ?? null,
+            unitId: payload.unit_id ?? null,
+            barcode: payload.barcode ?? null,
+            minStock: payload.min_stock ?? null,
+            maxStock: payload.max_stock ?? null,
+            defaultWarehouseId: payload.default_warehouse_id ?? null,
+            specJson: payload.spec_json ?? null,
+            isActive: payload.is_active !== false,
+            createdAt: Number(payload.created_at ?? ts),
+            updatedAt: Number(payload.updated_at ?? ts),
+            deletedAt: payload.deleted_at ?? null,
+          });
+        }
+        break;
+      case 'erp_reg_stock_balance':
+        {
+          const payload = payloadRaw;
+          warehouseBalanceRows.push({
+            id: payload.id,
+            nomenclatureId: payload.nomenclature_id ?? null,
+            partCardId: payload.part_card_id ?? null,
+            warehouseId: payload.warehouse_id ?? 'default',
+            qty: Number(payload.qty ?? 0),
+            reservedQty: Number(payload.reserved_qty ?? 0),
+            updatedAt: Number(payload.updated_at ?? ts),
+          });
+        }
+        break;
+      case 'erp_reg_stock_movements':
+        {
+          const payload = payloadRaw;
+          warehouseMovementRows.push({
+            id: payload.id,
+            nomenclatureId: payload.nomenclature_id,
+            warehouseId: payload.warehouse_id ?? 'default',
+            documentHeaderId: payload.document_header_id ?? null,
+            movementType: payload.movement_type ?? 'receipt',
+            qty: Number(payload.qty ?? 0),
+            direction: payload.direction ?? 'in',
+            counterpartyId: payload.counterparty_id ?? null,
+            reason: payload.reason ?? null,
+            performedAt: Number(payload.performed_at ?? ts),
+            performedBy: payload.performed_by ?? null,
+            createdAt: Number(payload.created_at ?? ts),
+          });
+        }
+        break;
     }
   }
 
@@ -1598,6 +1662,9 @@ async function applyPulledChanges(
   groups.notes = dedupById(groups.notes);
   groups.note_shares = dedupById(groups.note_shares);
   groups.user_presence = dedupById(groups.user_presence);
+  const dedupWarehouseNomenclature = dedupById(warehouseNomenclatureRows);
+  const dedupWarehouseBalances = dedupById(warehouseBalanceRows);
+  const dedupWarehouseMovements = dedupById(warehouseMovementRows);
 
   if (groups.attribute_values.length > 0) {
     const invalid = groups.attribute_values.filter((row: any) => !row.entityId || !row.attributeDefId);
@@ -1769,6 +1836,16 @@ async function applyPulledChanges(
       detail: `строк: ${count}`,
       counts: { batch: count },
       ...(breakdown ? { breakdown } : {}),
+    });
+  };
+  const emitApplyRaw = (table: string, count: number) => {
+    if (!opts?.onProgress || count <= 0) return;
+    opts.onProgress({
+      stage: 'apply',
+      service: 'sync',
+      table: table as SyncProgressEvent['table'],
+      detail: `строк: ${count}`,
+      counts: { batch: count },
     });
   };
   const maybeYieldAfterBatch = async (count: number) => {
@@ -2032,6 +2109,57 @@ async function applyPulledChanges(
     });
   }
 
+  if (dedupWarehouseNomenclature.length > 0) {
+    emitApplyRaw('erp_nomenclature', dedupWarehouseNomenclature.length);
+    await upsertPulledRowsInChunks(db, erpNomenclature, dedupWarehouseNomenclature, erpNomenclature.id, {
+      code: sql`excluded.code`,
+      name: sql`excluded.name`,
+      itemType: sql`excluded.item_type`,
+      groupId: sql`excluded.group_id`,
+      unitId: sql`excluded.unit_id`,
+      barcode: sql`excluded.barcode`,
+      minStock: sql`excluded.min_stock`,
+      maxStock: sql`excluded.max_stock`,
+      defaultWarehouseId: sql`excluded.default_warehouse_id`,
+      specJson: sql`excluded.spec_json`,
+      isActive: sql`excluded.is_active`,
+      updatedAt: sql`excluded.updated_at`,
+      deletedAt: sql`excluded.deleted_at`,
+    });
+    await maybeYieldAfterBatch(dedupWarehouseNomenclature.length);
+  }
+
+  if (dedupWarehouseBalances.length > 0) {
+    emitApplyRaw('erp_reg_stock_balance', dedupWarehouseBalances.length);
+    await upsertPulledRowsInChunks(db, erpRegStockBalance, dedupWarehouseBalances, erpRegStockBalance.id, {
+      nomenclatureId: sql`excluded.nomenclature_id`,
+      partCardId: sql`excluded.part_card_id`,
+      warehouseId: sql`excluded.warehouse_id`,
+      qty: sql`excluded.qty`,
+      reservedQty: sql`excluded.reserved_qty`,
+      updatedAt: sql`excluded.updated_at`,
+    });
+    await maybeYieldAfterBatch(dedupWarehouseBalances.length);
+  }
+
+  if (dedupWarehouseMovements.length > 0) {
+    emitApplyRaw('erp_reg_stock_movements', dedupWarehouseMovements.length);
+    await upsertPulledRowsInChunks(db, erpRegStockMovements, dedupWarehouseMovements, erpRegStockMovements.id, {
+      nomenclatureId: sql`excluded.nomenclature_id`,
+      warehouseId: sql`excluded.warehouse_id`,
+      documentHeaderId: sql`excluded.document_header_id`,
+      movementType: sql`excluded.movement_type`,
+      qty: sql`excluded.qty`,
+      direction: sql`excluded.direction`,
+      counterpartyId: sql`excluded.counterparty_id`,
+      reason: sql`excluded.reason`,
+      performedAt: sql`excluded.performed_at`,
+      performedBy: sql`excluded.performed_by`,
+      createdAt: sql`excluded.created_at`,
+    });
+    await maybeYieldAfterBatch(dedupWarehouseMovements.length);
+  }
+
   // Обновим время локального состояния (для диагностики) один раз на пачку.
   await setSyncStateNumber(db, SettingsKey.LastAppliedAt, ts);
 }
@@ -2267,7 +2395,7 @@ export async function runSync(
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
       emitStage('prepare', 'подготовка синхронизации', { service: 'sync' });
-      const pullStatePage = async (table: SyncTableName, cursorId: string | null) => {
+      const pullStatePage = async (table: string, cursorId: string | null) => {
         const query = new URLSearchParams();
         query.set('table', table);
         query.set('limit', String(FULL_STATE_PAGE_SIZE));
@@ -2287,7 +2415,7 @@ export async function runSync(
         }
         return (await res.json()) as {
           ok: boolean;
-          table: SyncTableName;
+          table: string;
           rows: Array<Record<string, unknown>>;
           has_more: boolean;
           next_cursor_id: string | null;
@@ -2322,7 +2450,7 @@ export async function runSync(
                 const payload = { ...row, last_server_seq: serverSeq };
                 const rowId = String((payload as any).id ?? '');
                 return {
-                  table,
+                  table: table as SyncPullResponse['changes'][number]['table'],
                   row_id: rowId,
                   op: ((payload as any).deleted_at != null ? 'delete' : 'upsert') as 'upsert' | 'delete',
                   payload_json: JSON.stringify(payload),
