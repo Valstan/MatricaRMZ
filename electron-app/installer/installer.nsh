@@ -8,13 +8,18 @@ Function IsClientRunning
   nsExec::ExecToStack '"$SYSDIR\cmd.exe" /C tasklist /FI "IMAGENAME eq MatricaRMZ.exe" /NH | find /I "MatricaRMZ.exe" >NUL'
   Pop $R0
   Pop $R1
-  StrCmp $R0 "0" done
+  StrCmp $R0 "0" doneIsClient
   StrCpy $R0 "1"
-done:
+doneIsClient:
 FunctionEnd
 
 Function un.IsClientRunning
-  Call IsClientRunning
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /C tasklist /FI "IMAGENAME eq MatricaRMZ.exe" /NH | find /I "MatricaRMZ.exe" >NUL'
+  Pop $R0
+  Pop $R1
+  StrCmp $R0 "0" doneUnClient
+  StrCpy $R0 "1"
+doneUnClient:
 FunctionEnd
 
 ; Terminate any running client instances before install.
