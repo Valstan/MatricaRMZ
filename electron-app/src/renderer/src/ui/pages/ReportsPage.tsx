@@ -48,11 +48,25 @@ function fromInputDate(value: string, mode: 'start' | 'end'): number | null {
   return mode === 'end' ? endOfDayMs(date) : startOfDayMs(date);
 }
 
-function formatCell(kind: ReportFilterSpec['type'] | 'date' | 'datetime' | 'number' | 'text', value: ReportCellValue): string {
+function formatCell(
+  kind: ReportFilterSpec['type'] | 'date' | 'datetime' | 'number' | 'text',
+  value: ReportCellValue,
+  columnKey = '',
+): string {
   if (value == null) return '';
   if (kind === 'date' && typeof value === 'number') return formatMoscowDate(value);
   if (kind === 'datetime' && typeof value === 'number') return formatMoscowDateTime(value);
-  if (kind === 'number' && typeof value === 'number') return formatRuNumber(value);
+  if (kind === 'number' && typeof value === 'number') {
+    const key = String(columnKey).toLowerCase();
+    if (key.includes('pct') || key.includes('progress')) {
+      return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    }
+    if (key.includes('amount') || key.includes('sum') || key.includes('rub')) {
+      return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return formatRuNumber(value, { maximumFractionDigits: 2 });
+  }
+  if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
   return String(value);
 }
 
@@ -76,6 +90,12 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   acceptance: 'Приёмка',
   shipment: 'Отгрузка',
   customer_delivery: 'Доставка заказчику',
+  overdueContracts: 'Просрочено, шт.',
+  dueSoonContracts: 'Срок до 30 дней, шт.',
+  withIgk: 'С ИГК, шт.',
+  withoutIgk: 'Без ИГК, шт.',
+  withSeparateAccount: 'С отдельным счетом, шт.',
+  withoutSeparateAccount: 'Без отдельного счета, шт.',
 };
 const REPORT_METRIC_NOTES: Record<string, string> = {
   scrapQty: 'Утиль: количество бракованных деталей.',
@@ -88,6 +108,12 @@ const REPORT_METRIC_NOTES: Record<string, string> = {
   remainingQty: 'Остаток: еще не закрытый объем.',
   fulfillmentPct: 'Процент выполнения: доля выполнения по плану.',
   progressPct: 'Прогресс: доля закрытых этапов.',
+  overdueContracts: 'Просрочено: количество контрактов, срок которых уже истек.',
+  dueSoonContracts: 'Срок до 30 дней: контракты, где дедлайн наступит в ближайший месяц.',
+  withIgk: 'С ИГК: количество контрактов с заполненным ИГК.',
+  withoutIgk: 'Без ИГК: количество контрактов без ИГК.',
+  withSeparateAccount: 'С отдельным счетом: количество контрактов с заполненным полем счета.',
+  withoutSeparateAccount: 'Без отдельного счета: количество контрактов без заполненного счета.',
 };
 
 function reportTotalLabel(key: string): string {
@@ -182,7 +208,7 @@ function renderReportTableHtml(report: PreviewOk) {
             const cells = report.columns
               .map((column) => {
                 const value = row[column.key] ?? null;
-                const text = formatCell(column.kind ?? 'text', value as ReportCellValue);
+                const text = formatCell(column.kind ?? 'text', value as ReportCellValue, column.key);
                 return `<td style="text-align:${column.align === 'right' ? 'right' : 'left'}">${escapeHtml(text)}</td>`;
               })
               .join('');
@@ -289,7 +315,7 @@ export function ReportsPage(props: { canExport: boolean }) {
       { id: 'table', title: 'Данные отчета', html: renderReportTableHtml(report) },
       {
         id: 'totals',
-        title: 'Итого по всем контрактам',
+        title: 'Итого по отчету',
         html:
           report.totals && Object.keys(report.totals).length > 0
             ? `<ul>${formatReportTotals(report.totals)
@@ -548,7 +574,7 @@ export function ReportsPage(props: { canExport: boolean }) {
                     <tr key={`report-row-${idx}`}>
                       {preview.columns.map((column) => (
                         <td key={`${idx}-${column.key}`} style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}>
-                          {formatCell(column.kind ?? 'text', (row[column.key] ?? null) as ReportCellValue)}
+                          {formatCell(column.kind ?? 'text', (row[column.key] ?? null) as ReportCellValue, column.key)}
                         </td>
                       ))}
                     </tr>
@@ -563,7 +589,7 @@ export function ReportsPage(props: { canExport: boolean }) {
             </div>
             {preview.totals && Object.keys(preview.totals).length > 0 ? (
               <div style={{ fontWeight: 700 }}>
-                Итого по всем контрактам: {formatReportTotals(preview.totals).join(', ')}
+                Итого по отчету: {formatReportTotals(preview.totals).join(', ')}
               </div>
             ) : null}
           </div>

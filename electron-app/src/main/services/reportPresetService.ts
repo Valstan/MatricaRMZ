@@ -65,6 +65,12 @@ const TOTAL_LABEL_MAP: Record<string, string> = {
   acceptance: 'Приёмка',
   shipment: 'Отгрузка',
   customer_delivery: 'Доставка заказчику',
+  overdueContracts: 'Просрочено, шт.',
+  dueSoonContracts: 'Срок до 30 дней, шт.',
+  withIgk: 'С ИГК, шт.',
+  withoutIgk: 'Без ИГК, шт.',
+  withSeparateAccount: 'С отдельным счетом, шт.',
+  withoutSeparateAccount: 'Без отдельного счета, шт.',
 };
 const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   scrapQty: 'Количество бракованных деталей, фактически зафиксированных в периоде.',
@@ -77,6 +83,12 @@ const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   remainingQty: 'Остаток незакрытого объема по заказу.',
   fulfillmentPct: 'Доля выполнения плана по объему в процентах.',
   progressPct: 'Прогресс выполнения этапов в процентах.',
+  overdueContracts: 'Количество контрактов, срок исполнения которых уже истек.',
+  dueSoonContracts: 'Количество контрактов со сроком исполнения в ближайшие 30 дней.',
+  withIgk: 'Количество контрактов, где указан ИГК.',
+  withoutIgk: 'Количество контрактов без ИГК.',
+  withSeparateAccount: 'Количество контрактов с заполненным отдельным счетом.',
+  withoutSeparateAccount: 'Количество контрактов без отдельного счета.',
 };
 
 function labelTotalKey(key: string): string {
@@ -177,6 +189,10 @@ function asNumberOrNull(value: unknown): number | null {
   return null;
 }
 
+function hasText(value: unknown): boolean {
+  return normalizeText(value, '') !== '';
+}
+
 function readPeriod(filters: ReportPresetFilters | undefined): { startMs?: number; endMs: number } {
   const now = Date.now();
   const endRaw = asNumberOrNull(filters?.endMs);
@@ -249,6 +265,42 @@ function statusLabel(status: string): string {
     default:
       return status || '—';
   }
+}
+
+function matchesDueState(dueAt: number | null, now: number, dueState: string): boolean {
+  if (dueState === 'all') return true;
+  if (!dueAt) return dueState === 'no_due';
+  const daysLeft = Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000));
+  if (dueState === 'overdue') return daysLeft < 0;
+  if (dueState === 'due_30') return daysLeft >= 0 && daysLeft <= 30;
+  if (dueState === 'due_90') return daysLeft >= 0 && daysLeft <= 90;
+  if (dueState === 'no_due') return false;
+  return true;
+}
+
+function matchesPresenceFilter(value: unknown, state: string): boolean {
+  if (state === 'all') return true;
+  const present = hasText(value);
+  if (state === 'with') return present;
+  if (state === 'without') return !present;
+  return true;
+}
+
+function classifyContractRisk(dueAt: number | null, now: number): string {
+  if (!dueAt) return 'Без срока';
+  const daysLeft = Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000));
+  if (daysLeft < 0) return 'Просрочен';
+  if (daysLeft <= 30) return 'Высокий (<= 30 дн.)';
+  if (daysLeft <= 90) return 'Средний (<= 90 дн.)';
+  return 'Низкий (> 90 дн.)';
+}
+
+function matchesProgressState(progressPct: number, state: string): boolean {
+  if (state === 'all') return true;
+  if (state === 'no_progress') return progressPct <= 0;
+  if (state === 'completed') return progressPct >= 100;
+  if (state === 'in_progress') return progressPct > 0 && progressPct < 100;
+  return true;
 }
 
 function entityLabel(attrs: Record<string, unknown> | undefined, fallback = ''): string {
@@ -325,6 +377,14 @@ function getIdsByType(snapshot: Snapshot, typeCode: string): string[] {
   return out;
 }
 
+function getIdsByTypeCodes(snapshot: Snapshot, typeCodes: string[]): string[] {
+  const out = new Set<string>();
+  for (const code of typeCodes) {
+    for (const id of getIdsByType(snapshot, code)) out.add(id);
+  }
+  return Array.from(out);
+}
+
 function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[] {
   return getIdsByType(snapshot, typeCode)
     .map((id) => {
@@ -337,11 +397,41 @@ function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
 
+function buildCounterpartyOptions(snapshot: Snapshot): ReportFilterOption[] {
+  const ids = getIdsByTypeCodes(snapshot, ['counterparty', 'customer']);
+  return ids
+    .map((id) => {
+      const label = entityLabel(snapshot.attrsByEntity.get(id), '');
+      return { value: id, label: label || '(не указан)' };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+}
+
+function resolveCounterpartyLabel(
+  snapshot: Snapshot,
+  counterpartyOptions: Map<string, string>,
+  counterpartyId: string,
+): string {
+  if (!counterpartyId) return '(не указан)';
+  const mapped = normalizeText(counterpartyOptions.get(counterpartyId), '');
+  if (mapped) return mapped;
+  const fromAttrs = entityLabel(snapshot.attrsByEntity.get(counterpartyId), '');
+  return fromAttrs || '(не указан)';
+}
+
 function formatCell(column: ReportColumn, value: ReportCellValue): string {
   if (value == null) return '';
   if (column.kind === 'date' && typeof value === 'number') return msToDate(value);
   if (column.kind === 'datetime' && typeof value === 'number') return msToDateTime(value);
-  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  if (typeof value === 'number') {
+    const key = String(column.key ?? '').toLowerCase();
+    const looksPercent = key.includes('pct') || key.includes('progress');
+    const looksMoney = key.includes('amount') || key.includes('sum') || key.includes('rub');
+    if (looksPercent) return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    if (looksMoney) return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatRuNumber(value, { maximumFractionDigits: Number.isInteger(value) ? 0 : 2 });
+  }
+  if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
   return String(value);
 }
 
@@ -531,7 +621,7 @@ async function buildEngineStagesReport(
   }
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
-  const counterpartyOptions = new Map(buildOptions(snapshot, 'counterparty').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const rows: Array<Record<string, ReportCellValue>> = [];
   for (const engineId of getIdsByType(snapshot, 'engine')) {
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
@@ -552,7 +642,7 @@ async function buildEngineStagesReport(
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
-      counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       currentStage: stageLabel(latest.stage),
       progressPct,
       arrivalDate: asNumberOrNull(attrs.acceptance_at ?? attrs.arrival_date),
@@ -587,16 +677,42 @@ async function buildEngineStagesReport(
   };
 }
 
+function collectContractTotals(attrs: Record<string, unknown>) {
+  const sections = parseContractSections(attrs);
+  let totalQty = 0;
+  let totalAmountRub = 0;
+  const sectionList = [sections.primary, ...sections.addons];
+  for (const section of sectionList) {
+    for (const item of section.engineBrands ?? []) {
+      const qty = Math.max(0, toNumber(item.qty));
+      const unitPrice = Math.max(0, toNumber(item.unitPrice));
+      totalQty += qty;
+      totalAmountRub += qty * unitPrice;
+    }
+    for (const item of section.parts ?? []) {
+      const qty = Math.max(0, toNumber(item.qty));
+      const unitPrice = Math.max(0, toNumber(item.unitPrice));
+      totalQty += qty;
+      totalAmountRub += qty * unitPrice;
+    }
+  }
+  return { sections, totalQty, totalAmountRub };
+}
+
 async function buildContractsFinanceReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const contractFilter = asArray(filters?.contractIds);
   const statusFilter = normalizeText(filters?.status, 'all');
+  const dueState = normalizeText(filters?.dueState, 'all');
+  const igkState = normalizeText(filters?.igkState, 'all');
+  const separateAccountState = normalizeText(filters?.separateAccountState, 'all');
   const snapshot = await loadSnapshot(db);
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
-  const counterpartyOptions = new Map(buildOptions(snapshot, 'counterparty').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const progressByContract = new Map<string, { count: number; sum: number }>();
   for (const engineId of getIdsByType(snapshot, 'engine')) {
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
@@ -613,8 +729,9 @@ async function buildContractsFinanceReport(
   const rows: Array<Record<string, ReportCellValue>> = [];
   const now = Date.now();
   for (const contractId of getIdsByType(snapshot, 'contract')) {
+    if (contractFilter.length > 0 && !contractFilter.includes(contractId)) continue;
     const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
-    const sections = parseContractSections(attrs);
+    const { sections, totalQty, totalAmountRub } = collectContractTotals(attrs);
     const signedAt = sections.primary.signedAt ?? asNumberOrNull(attrs.date);
     const dueAt = effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date);
     if (signedAt != null) {
@@ -623,40 +740,28 @@ async function buildContractsFinanceReport(
     }
     const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
-    let totalQty = 0;
-    let totalAmountRub = 0;
-    const sectionList = [sections.primary, ...sections.addons];
-    for (const section of sectionList) {
-      for (const item of section.engineBrands ?? []) {
-        const qty = Math.max(0, toNumber(item.qty));
-        const unitPrice = Math.max(0, toNumber(item.unitPrice));
-        totalQty += qty;
-        totalAmountRub += qty * unitPrice;
-      }
-      for (const item of section.parts ?? []) {
-        const qty = Math.max(0, toNumber(item.qty));
-        const unitPrice = Math.max(0, toNumber(item.unitPrice));
-        totalQty += qty;
-        totalAmountRub += qty * unitPrice;
-      }
-    }
     const progressData = progressByContract.get(contractId);
     const progressPct = progressData && progressData.count > 0 ? progressData.sum / progressData.count : 0;
     const state = progressPct >= 100 ? 'completed' : dueAt && dueAt < now ? 'overdue' : 'active';
     if (statusFilter !== 'all' && statusFilter !== state) continue;
+    if (!matchesDueState(dueAt, now, dueState)) continue;
+    const igk = normalizeText(attrs.igk ?? attrs.goz_igk, '');
+    const separateAccount = normalizeText(attrs.separate_account ?? attrs.separate_account_number, '');
+    if (!matchesPresenceFilter(igk, igkState)) continue;
+    if (!matchesPresenceFilter(separateAccount, separateAccountState)) continue;
     const daysLeft = dueAt ? Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000)) : null;
     rows.push({
       contractLabel: resolveContractLabel(contractId, contractOptions),
       internalNumber: normalizeText(sections.primary.internalNumber ?? attrs.internal_number, ''),
-      counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       signedAt,
       dueAt,
       totalQty,
       totalAmountRub,
       progressPct,
       daysLeft,
-      igk: normalizeText(attrs.igk ?? attrs.goz_igk, ''),
-      separateAccount: normalizeText(attrs.separate_account ?? attrs.separate_account_number, ''),
+      igk,
+      separateAccount,
     });
   }
   rows.sort((a, b) => String(a.contractLabel ?? '').localeCompare(String(b.contractLabel ?? ''), 'ru'));
@@ -665,11 +770,163 @@ async function buildContractsFinanceReport(
     totalQty: rows.reduce((acc, row) => acc + toNumber(row.totalQty), 0),
     totalAmountRub: rows.reduce((acc, row) => acc + toNumber(row.totalAmountRub), 0),
     progressPct: rows.length ? rows.reduce((acc, row) => acc + toNumber(row.progressPct), 0) / rows.length : 0,
+    withIgk: rows.filter((row) => hasText(row.igk)).length,
+    withoutIgk: rows.filter((row) => !hasText(row.igk)).length,
+    withSeparateAccount: rows.filter((row) => hasText(row.separateAccount)).length,
+    withoutSeparateAccount: rows.filter((row) => !hasText(row.separateAccount)).length,
   };
   const preset = getPreset('contracts_finance');
   return {
     ok: true,
     presetId: 'contracts_finance',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals,
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildContractsDeadlinesReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const contractFilter = asArray(filters?.contractIds);
+  const dueState = normalizeText(filters?.dueState, 'all');
+  const progressState = normalizeText(filters?.progressState, 'all');
+  const snapshot = await loadSnapshot(db);
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+  const progressByContract = new Map<string, { count: number; sum: number }>();
+  for (const engineId of getIdsByType(snapshot, 'engine')) {
+    const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+    const contractId = normalizeText(attrs.contract_id, '');
+    if (!contractId) continue;
+    const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
+    for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
+    const progress = computeObjectProgress(statusFlags);
+    const g = progressByContract.get(contractId) ?? { count: 0, sum: 0 };
+    g.count += 1;
+    g.sum += progress;
+    progressByContract.set(contractId, g);
+  }
+
+  const now = Date.now();
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    if (contractFilter.length > 0 && !contractFilter.includes(contractId)) continue;
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const { sections, totalAmountRub } = collectContractTotals(attrs);
+    const signedAt = sections.primary.signedAt ?? asNumberOrNull(attrs.date);
+    const dueAt = effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date);
+    if (signedAt != null) {
+      if (period.startMs != null && signedAt < period.startMs) continue;
+      if (signedAt > period.endMs) continue;
+    }
+    if (!matchesDueState(dueAt, now, dueState)) continue;
+    const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+    const progressData = progressByContract.get(contractId);
+    const progressPct = progressData && progressData.count > 0 ? progressData.sum / progressData.count : 0;
+    if (!matchesProgressState(progressPct, progressState)) continue;
+    const daysLeft = dueAt ? Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000)) : null;
+    rows.push({
+      contractLabel: resolveContractLabel(contractId, contractOptions),
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
+      signedAt,
+      dueAt,
+      daysLeft,
+      riskLabel: classifyContractRisk(dueAt, now),
+      progressPct,
+      totalAmountRub,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      toNumber(a.daysLeft) - toNumber(b.daysLeft) ||
+      String(a.contractLabel ?? '').localeCompare(String(b.contractLabel ?? ''), 'ru'),
+  );
+  const totals = {
+    contracts: rows.length,
+    overdueContracts: rows.filter((row) => toNumber(row.daysLeft) < 0).length,
+    dueSoonContracts: rows.filter((row) => {
+      const days = toNumber(row.daysLeft);
+      return days >= 0 && days <= 30;
+    }).length,
+    totalAmountRub: rows.reduce((acc, row) => acc + toNumber(row.totalAmountRub), 0),
+    progressPct: rows.length ? rows.reduce((acc, row) => acc + toNumber(row.progressPct), 0) / rows.length : 0,
+  };
+  const preset = getPreset('contracts_deadlines');
+  return {
+    ok: true,
+    presetId: 'contracts_deadlines',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals,
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildContractsRequisitesReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const contractFilter = asArray(filters?.contractIds);
+  const igkState = normalizeText(filters?.igkState, 'all');
+  const separateAccountState = normalizeText(filters?.separateAccountState, 'all');
+  const snapshot = await loadSnapshot(db);
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    if (contractFilter.length > 0 && !contractFilter.includes(contractId)) continue;
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const { sections, totalAmountRub } = collectContractTotals(attrs);
+    const signedAt = sections.primary.signedAt ?? asNumberOrNull(attrs.date);
+    const dueAt = effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date);
+    if (signedAt != null) {
+      if (period.startMs != null && signedAt < period.startMs) continue;
+      if (signedAt > period.endMs) continue;
+    }
+    const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+    const igk = normalizeText(attrs.igk ?? attrs.goz_igk, '');
+    const separateAccount = normalizeText(attrs.separate_account ?? attrs.separate_account_number, '');
+    if (!matchesPresenceFilter(igk, igkState)) continue;
+    if (!matchesPresenceFilter(separateAccount, separateAccountState)) continue;
+    const requisitesState = hasText(igk) && hasText(separateAccount) ? 'Полные' : 'Неполные';
+    rows.push({
+      contractLabel: resolveContractLabel(contractId, contractOptions),
+      internalNumber: normalizeText(sections.primary.internalNumber ?? attrs.internal_number, ''),
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
+      signedAt,
+      dueAt,
+      igk,
+      separateAccount,
+      requisitesState,
+      totalAmountRub,
+    });
+  }
+  rows.sort((a, b) => String(a.contractLabel ?? '').localeCompare(String(b.contractLabel ?? ''), 'ru'));
+  const totals = {
+    contracts: rows.length,
+    withIgk: rows.filter((row) => hasText(row.igk)).length,
+    withoutIgk: rows.filter((row) => !hasText(row.igk)).length,
+    withSeparateAccount: rows.filter((row) => hasText(row.separateAccount)).length,
+    withoutSeparateAccount: rows.filter((row) => !hasText(row.separateAccount)).length,
+    totalAmountRub: rows.reduce((acc, row) => acc + toNumber(row.totalAmountRub), 0),
+  };
+  const preset = getPreset('contracts_requisites');
+  return {
+    ok: true,
+    presetId: 'contracts_requisites',
     title: preset.title,
     subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
     columns: preset.columns,
@@ -815,7 +1072,7 @@ async function buildEngineMovementsReport(
   const snapshot = await loadSnapshot(db);
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
-  const counterpartyOptions = new Map(buildOptions(snapshot, 'counterparty').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const allowed = ['acceptance', 'shipment', 'customer_delivery'];
   const rows: Array<Record<string, ReportCellValue>> = [];
   const sourceOps = await db
@@ -842,7 +1099,7 @@ async function buildEngineMovementsReport(
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
-      counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       note: normalizeText(op.note, ''),
     });
   }
@@ -883,7 +1140,7 @@ async function buildEnginesListReport(
 
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
-  const counterpartyOptions = new Map(buildOptions(snapshot, 'counterparty').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
   const rows: Array<Record<string, ReportCellValue>> = [];
   let totalScrap = 0;
@@ -927,7 +1184,7 @@ async function buildEnginesListReport(
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, id),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
-      counterpartyLabel: (counterpartyOptions.get(counterpartyId) ?? counterpartyId) || '(не указан)',
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       arrivalDate: arrivalDateRaw > 0 ? arrivalDateRaw : null,
       shippingDate: shippingDateRaw > 0 ? shippingDateRaw : null,
       isScrap: isScrap ? 'Да' : 'Нет',
@@ -962,7 +1219,7 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
       optionSets: {
         contracts: buildOptions(snapshot, 'contract'),
         brands: buildOptions(snapshot, 'engine_brand'),
-        counterparties: buildOptions(snapshot, 'counterparty'),
+        counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
       },
     };
@@ -983,6 +1240,10 @@ export async function buildReportByPreset(
         return buildEngineStagesReport(db, args.filters);
       case 'contracts_finance':
         return buildContractsFinanceReport(db, args.filters);
+      case 'contracts_deadlines':
+        return buildContractsDeadlinesReport(db, args.filters);
+      case 'contracts_requisites':
+        return buildContractsRequisitesReport(db, args.filters);
       case 'supply_fulfillment':
         return buildSupplyFulfillmentReport(db, args.filters);
       case 'work_order_costs':
@@ -1007,7 +1268,7 @@ export function buildReportCsv(report: OkPreview): string {
   }
   if (report.totals && Object.keys(report.totals).length > 0) {
     lines.push('');
-    lines.push(['Итого по всем контрактам', ...formatTotalsForDisplay(report.totals)].map(csvEscape).join(';'));
+    lines.push(['Итого по отчету', ...formatTotalsForDisplay(report.totals)].map(csvEscape).join(';'));
   }
   return lines.join('\n') + '\n';
 }
@@ -1034,7 +1295,7 @@ export function renderReportHtml(report: OkPreview): string {
   const totalsGuideHtml = report.totals && Object.keys(report.totals).length > 0 ? formatTotalsGuide(report.totals) : '';
   const totalsHtml =
     report.totals && Object.keys(report.totals).length > 0
-      ? `<div class="totals"><b>Итого по всем контрактам:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
+      ? `<div class="totals"><b>Итого по отчету:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
       : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>

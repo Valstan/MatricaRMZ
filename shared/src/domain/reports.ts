@@ -2,6 +2,8 @@ export type ReportPresetId =
   | 'parts_demand'
   | 'engine_stages'
   | 'contracts_finance'
+  | 'contracts_deadlines'
+  | 'contracts_requisites'
   | 'supply_fulfillment'
   | 'work_order_costs'
   | 'engine_movements'
@@ -150,6 +152,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     filters: [
       { type: 'date_range', key: 'period', label: 'Период заключения', startKey: 'startMs', endKey: 'endMs' },
       { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
       {
         type: 'select',
         key: 'status',
@@ -159,6 +162,38 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
           { value: 'active', label: 'Активные' },
           { value: 'overdue', label: 'Просроченные' },
           { value: 'completed', label: 'Завершенные' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'dueState',
+        label: 'Срок исполнения',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'overdue', label: 'Просроченные' },
+          { value: 'due_30', label: 'Срок до 30 дней' },
+          { value: 'due_90', label: 'Срок до 90 дней' },
+          { value: 'no_due', label: 'Без срока' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'igkState',
+        label: 'ИГК',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'with', label: 'С ИГК' },
+          { value: 'without', label: 'Без ИГК' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'separateAccountState',
+        label: 'Отдельный счет',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'with', label: 'Есть' },
+          { value: 'without', label: 'Нет' },
         ],
       },
     ],
@@ -174,6 +209,90 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'daysLeft', label: 'Дней до окончания', kind: 'number', align: 'right' },
       { key: 'igk', label: 'ИГК' },
       { key: 'separateAccount', label: 'Отдельный счет' },
+    ],
+  },
+  {
+    id: 'contracts_deadlines',
+    title: 'Контракты: сроки и риски',
+    description: 'Контроль дедлайнов, риска просрочки и прогресса исполнения.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период заключения', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+      {
+        type: 'select',
+        key: 'dueState',
+        label: 'Срок исполнения',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'overdue', label: 'Просроченные' },
+          { value: 'due_30', label: 'Срок до 30 дней' },
+          { value: 'due_90', label: 'Срок до 90 дней' },
+          { value: 'no_due', label: 'Без срока' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'progressState',
+        label: 'Прогресс',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'no_progress', label: '0%' },
+          { value: 'in_progress', label: 'В работе (1-99%)' },
+          { value: 'completed', label: '100%' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'contractLabel', label: 'Контракт' },
+      { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'signedAt', label: 'Дата заключения', kind: 'date' },
+      { key: 'dueAt', label: 'Срок исполнения', kind: 'date' },
+      { key: 'daysLeft', label: 'Дней до окончания', kind: 'number', align: 'right' },
+      { key: 'riskLabel', label: 'Риск срока' },
+      { key: 'progressPct', label: 'Прогресс, %', kind: 'number', align: 'right' },
+      { key: 'totalAmountRub', label: 'Сумма (руб)', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'contracts_requisites',
+    title: 'Контракты: реквизиты для бухгалтерии',
+    description: 'ИГК, отдельные счета, сроки и контроль полноты реквизитов.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период заключения', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+      {
+        type: 'select',
+        key: 'igkState',
+        label: 'ИГК',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'with', label: 'С ИГК' },
+          { value: 'without', label: 'Без ИГК' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'separateAccountState',
+        label: 'Отдельный счет',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'with', label: 'Есть' },
+          { value: 'without', label: 'Нет' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'contractLabel', label: 'Контракт' },
+      { key: 'internalNumber', label: 'Внутр. номер' },
+      { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'signedAt', label: 'Дата заключения', kind: 'date' },
+      { key: 'dueAt', label: 'Срок исполнения', kind: 'date' },
+      { key: 'igk', label: 'ИГК' },
+      { key: 'separateAccount', label: 'Отдельный счет' },
+      { key: 'requisitesState', label: 'Полнота реквизитов' },
+      { key: 'totalAmountRub', label: 'Сумма (руб)', kind: 'number', align: 'right' },
     ],
   },
   {
