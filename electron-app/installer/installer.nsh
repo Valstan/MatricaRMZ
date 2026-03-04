@@ -59,8 +59,6 @@ killDone:
 
 ; Terminate any running client instances before uninstall/update check in uninstall context.
 !macro KillClientProcessesUninstall
-  StrCpy $R2 "0"
-killRetryUninstall:
   Call un.IsClientRunning
   StrCmp $R0 "0" killDoneUninstall doSoftCloseUninstall
 
