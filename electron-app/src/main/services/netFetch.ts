@@ -50,17 +50,21 @@ export function isTransientNetworkError(e: unknown): boolean {
   const code = anyE?.code ? String(anyE.code) : '';
   const name = anyE?.name ? String(anyE.name) : '';
   const message = anyE?.message ? String(anyE.message) : String(e);
+  const lower = message.toLowerCase();
   if (code && RETRYABLE_CODES.has(code)) return true;
   if (name === 'AbortError') return true;
   return (
-    message.includes('timeout') ||
-    message.includes('no-progress') ||
-    message.includes('socket hang up') ||
-    message.includes('network') ||
-    message.includes('resume-') ||
-    message.includes('content-range') ||
-    message.includes('ENOTFOUND') ||
-    message.includes('ECONNRESET')
+    lower.includes('timeout') ||
+    lower.includes('no-progress') ||
+    lower.includes('socket hang up') ||
+    lower.includes('network') ||
+    lower.includes('resume-') ||
+    lower.includes('content-range') ||
+    lower.includes('enotfound') ||
+    lower.includes('econnreset') ||
+    lower.includes('net::err_connection_reset') ||
+    lower.includes('net::err_empty_response') ||
+    lower.includes('net::err_content_length_mismatch')
   );
 }
 

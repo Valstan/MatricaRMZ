@@ -25,6 +25,9 @@ type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
   engines: MatricaApi['engines'] & {
     delete: (id: string) => Promise<any>;
   };
+  diagnostics: {
+    criticalEventsList: (args?: { days?: number; limit?: number }) => Promise<any>;
+  };
 };
 
 declare global {

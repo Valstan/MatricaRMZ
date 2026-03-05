@@ -50,6 +50,10 @@ function nowMs() {
   return Date.now();
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
 function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'upsert' | 'delete' {
   return row.deleted_at ? 'delete' : 'upsert';
 }
@@ -112,6 +116,14 @@ export async function applyPushBatch(
 ): Promise<{ applied: number; changes?: AppliedSyncChange[]; idRemaps: SyncIdRemaps; skipped: SyncSkippedRow[] }> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
+  const actorId = isUuid(actor.id) ? actor.id : '';
+  if (!actorId && actor.id) {
+    logWarn('sync actor id is not uuid, using anonymous actor id', {
+      actor_id: actor.id,
+      actor: actor.username,
+      client_id: req.client_id,
+    });
+  }
   const actorRole = String(actor.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const collected = applyOpts.collectChanges ?? null;
@@ -203,10 +215,10 @@ export async function applyPushBatch(
 
     // Presence heartbeat: treat every push as "user is active now".
     // We do it server-side (do not trust client-provided presence payloads).
-    if (actor.id) {
+    if (actorId) {
       const presencePayload = {
-        id: actor.id,
-        user_id: actor.id,
+        id: actorId,
+        user_id: actorId,
         last_activity_at: appliedAt,
         created_at: appliedAt,
         updated_at: appliedAt,
@@ -216,8 +228,8 @@ export async function applyPushBatch(
       await tx
         .insert(userPresence)
         .values({
-          id: actor.id as any,
-          userId: actor.id as any,
+          id: actorId as any,
+          userId: actorId as any,
           lastActivityAt: appliedAt,
           createdAt: appliedAt,
           updatedAt: appliedAt,
@@ -592,7 +604,7 @@ export async function applyPushBatch(
         // Ownership for newly created rows (deferred batch insert)
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            queueOwner(SyncTableName.EntityTypes, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.EntityTypes, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
       }
@@ -669,7 +681,7 @@ export async function applyPushBatch(
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            queueOwner(SyncTableName.Entities, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.Entities, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
       }
@@ -842,7 +854,7 @@ export async function applyPushBatch(
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            queueOwner(SyncTableName.AttributeDefs, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.AttributeDefs, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
       }
@@ -984,7 +996,7 @@ export async function applyPushBatch(
         // Ownership for newly created attribute_values is inherited from parent entity.
         for (const r of allowedDeduped) {
           if (!existingMap.get(String(r.id))) {
-            queueOwner(SyncTableName.AttributeValues, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.AttributeValues, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
       }
@@ -1091,7 +1103,7 @@ export async function applyPushBatch(
 
         for (const r of allowed) {
           if (!existingMap.get(String(r.id))) {
-            queueOwner(SyncTableName.Operations, String(r.id), { userId: actor.id || null, username: actor.username });
+            queueOwner(SyncTableName.Operations, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
       }
@@ -1141,11 +1153,11 @@ export async function applyPushBatch(
     {
       const raw = grouped.get(SyncTableName.ChatMessages) ?? [];
       const parsedAll = parseRows(SyncTableName.ChatMessages, raw, chatMessageRowSchema);
-      if (parsedAll.length > 0 && actor.id) {
+      if (parsedAll.length > 0 && actorId) {
         // Never trust sender fields from client.
         const parsed = parsedAll.map((r) => ({
           ...r,
-          sender_user_id: actor.id,
+          sender_user_id: actorId,
           sender_username: actor.username,
         }));
         let rows = await filterStaleBySeqOrUpdatedAt(chatMessages, parsed, SyncTableName.ChatMessages);
@@ -1197,7 +1209,7 @@ export async function applyPushBatch(
             allowed.push(r);
             continue;
           }
-          const senderOk = String(cur.senderUserId ?? '') === actor.id;
+          const senderOk = String(cur.senderUserId ?? '') === actorId;
           if (!senderOk && !actorIsAdmin) {
             throw new Error('sync_policy_denied: chat_message_sender');
           }
@@ -1258,11 +1270,11 @@ export async function applyPushBatch(
     {
       const raw = grouped.get(SyncTableName.ChatReads) ?? [];
       const parsedAll = parseRows(SyncTableName.ChatReads, raw, chatReadRowSchema);
-      if (parsedAll.length > 0 && actor.id) {
+      if (parsedAll.length > 0 && actorId) {
         // Never trust user_id from client (read receipts are personal).
         const parsed = parsedAll.map((r) => ({
           ...r,
-          user_id: actor.id,
+          user_id: actorId,
         }));
         const rows = await filterStaleBySeqOrUpdatedAt(chatReads, parsed, SyncTableName.ChatReads);
         const messageIds = Array.from(new Set(rows.map((r) => String(r.message_id))));
@@ -1315,7 +1327,7 @@ export async function applyPushBatch(
     {
       const raw = grouped.get(SyncTableName.Notes) ?? [];
       const parsedAll = parseRows(SyncTableName.Notes, raw, noteRowSchema);
-      if (parsedAll.length > 0 && actor.id) {
+      if (parsedAll.length > 0 && actorId) {
         const parsed = parsedAll;
         const rows = await filterStaleBySeqOrUpdatedAt(notes, parsed, SyncTableName.Notes);
         const ids = rows.map((r) => r.id);
@@ -1335,7 +1347,7 @@ export async function applyPushBatch(
             : await tx
                 .select({ noteId: noteShares.noteId })
                 .from(noteShares)
-                .where(and(eq(noteShares.recipientUserId, actor.id as any), inArray(noteShares.noteId, ids as any), isNull(noteShares.deletedAt)))
+                .where(and(eq(noteShares.recipientUserId, actorId as any), inArray(noteShares.noteId, ids as any), isNull(noteShares.deletedAt)))
                 .limit(50_000);
         const editableSharedNoteIds = new Set<string>(editableShares.map((s) => String(s.noteId)));
 
@@ -1344,14 +1356,14 @@ export async function applyPushBatch(
           const cur = existingMap.get(String(r.id));
           if (!cur) {
             // For new rows owner is always creator (actor), regardless of client payload.
-            allowed.push({ ...r, owner_user_id: actor.id });
+            allowed.push({ ...r, owner_user_id: actorId });
             continue;
           }
-          const ownerOk = String(cur.ownerUserId ?? '') === actor.id;
+          const ownerOk = String(cur.ownerUserId ?? '') === actorId;
           const shareOk = editableSharedNoteIds.has(String(r.id));
           if (!ownerOk && !shareOk && !actorIsAdmin) throw new Error('sync_policy_denied: note_owner');
           // Preserve original owner for existing notes.
-          allowed.push({ ...r, owner_user_id: String(cur.ownerUserId ?? actor.id) });
+          allowed.push({ ...r, owner_user_id: String(cur.ownerUserId ?? actorId) });
         }
 
         if (allowed.length > 0) {
@@ -1396,7 +1408,7 @@ export async function applyPushBatch(
     {
       const raw = grouped.get(SyncTableName.NoteShares) ?? [];
       const parsedAll = parseRows(SyncTableName.NoteShares, raw, noteShareRowSchema);
-      if (parsedAll.length > 0 && actor.id) {
+      if (parsedAll.length > 0 && actorId) {
         let rows = await filterStaleBySeqOrUpdatedAt(noteShares, parsedAll, SyncTableName.NoteShares);
         const noteIds = Array.from(new Set(rows.map((r) => String(r.note_id))));
         const notesRows =
@@ -1455,8 +1467,8 @@ export async function applyPushBatch(
           const recipientId = String(r.recipient_user_id);
           const ownerId = ownerByNote.get(noteId);
           if (!ownerId) continue;
-          const isOwner = ownerId === actor.id;
-          const isRecipient = recipientId === actor.id;
+          const isOwner = ownerId === actorId;
+          const isRecipient = recipientId === actorId;
           if (!isOwner && !isRecipient && !actorIsAdmin) throw new Error('sync_policy_denied: note_share');
           if (isRecipient && !isOwner) {
             const existing = existingByKey.get(shareKey(noteId, recipientId));

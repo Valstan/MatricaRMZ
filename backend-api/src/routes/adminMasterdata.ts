@@ -83,15 +83,23 @@ adminMasterdataRouter.post('/entity-types/:id/sync-snapshot', async (req, res) =
   if (!actor) return;
   const id = String(req.params.id || '');
   if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
-  const r = await emitEntityTypeSyncSnapshot(id);
-  return res.json(r);
+  try {
+    const r = await emitEntityTypeSyncSnapshot(id);
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 adminMasterdataRouter.post('/sync-snapshot/all', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
-  const r = await emitAllMasterdataSyncSnapshot();
-  return res.json(r);
+  try {
+    const r = await emitAllMasterdataSyncSnapshot();
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 adminMasterdataRouter.get('/entity-types/:id/delete-info', async (req, res) => {

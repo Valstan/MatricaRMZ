@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SyncTableName } from './tables.js';
+import { OperationTypeCode } from '../domain/enums.js';
 
 // Базовые поля синхронизации для всех таблиц.
 export const baseRowFields = {
@@ -43,20 +44,7 @@ export const attributeValueRowSchema = z.object({
 export const operationRowSchema = z.object({
   ...baseRowFields,
   engine_entity_id: z.string().uuid(),
-  operation_type: z.enum([
-    'acceptance',
-    'kitting',
-    'defect',
-    'repair',
-    'completeness',
-    'test',
-    'disassembly',
-    'otk',
-    'packaging',
-    'shipment',
-    'customer_delivery',
-    'supply_request',
-  ]),
+  operation_type: z.union([z.nativeEnum(OperationTypeCode), z.string().min(1)]),
   status: z.string().min(1),
   note: z.string().nullable().optional(),
   performed_at: z.number().int().nullable().optional(),

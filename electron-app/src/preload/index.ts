@@ -88,6 +88,9 @@ const matricaApi = {
   server: {
     health: async () => ipcRenderer.invoke('server:health'),
   },
+  diagnostics: {
+    criticalEventsList: async (args?: { days?: number; limit?: number }) => ipcRenderer.invoke('diagnostics:criticalEvents:list', args),
+  },
   reports: {
     presetList: async () => ipcRenderer.invoke('reports:presetList'),
     presetPreview: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPreview', args),

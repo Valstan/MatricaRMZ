@@ -68,6 +68,12 @@ function hydrateLoginCacheFromUpdates(updates: any[]) {
   }
 }
 
+export function getCachedChatIdByLogin(rawLogin: string) {
+  const normalized = normalizeUserLogin(rawLogin);
+  if (!normalized) return null;
+  return loginToChatIdCache.get(normalized) ?? null;
+}
+
 async function resolveChatIdByLogin(login: string): Promise<string | null> {
   const normalized = normalizeUserLogin(login);
   if (!normalized) return null;

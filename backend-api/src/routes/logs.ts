@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
+import { ingestClientLogForCriticalEvent } from '../services/criticalEventsService.js';
 
 export const logsRouter = Router();
 logsRouter.use(requireAuth);
@@ -69,6 +70,13 @@ logsRouter.post('/client', async (req, res) => {
         : new Date().toLocaleString('ru-RU', { timeZone: CLIENT_LOG_TZ });
       const logLine = `[${timestamp}] [${logEntry.level.toUpperCase()}] [${actor.username}] ${logEntry.message}${logEntry.metadata ? ' ' + JSON.stringify(logEntry.metadata) : ''}\n`;
       appendFileSync(logFile, logLine, 'utf-8');
+      ingestClientLogForCriticalEvent({
+        username: actor.username,
+        level: logEntry.level,
+        message: logEntry.message,
+        ...(logEntry.metadata ? { metadata: logEntry.metadata } : {}),
+        ...(logEntry.timestamp ? { timestamp: logEntry.timestamp } : {}),
+      });
     }
 
     pruneOldClientLogs(10);

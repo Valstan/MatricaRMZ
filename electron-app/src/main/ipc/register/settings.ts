@@ -9,6 +9,7 @@ import {
 import type { IpcContext } from '../ipcContext.js';
 import { getSession } from '../../services/authService.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from '../../services/settingsStore.js';
+import { criticalEventsList } from '../../services/criticalEventsService.js';
 
 const THEMES = new Set(['auto', 'light', 'dark']);
 const CHAT_SIDES = new Set(['left', 'right']);
@@ -196,4 +197,18 @@ export function registerSettingsIpc(ctx: IpcContext) {
   });
 
   // ui:control:setUser removed — user-managed UI settings are disabled.
+
+  ipcMain.handle('diagnostics:criticalEvents:list', async (_e, args?: { days?: number; limit?: number }) => {
+    try {
+      const session = await getSession(ctx.sysDb).catch(() => null);
+      const role = String(session?.user?.role ?? '').trim().toLowerCase();
+      if (role !== 'superadmin') return { ok: false as const, error: 'permission denied: superadmin only' };
+      return await criticalEventsList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+        days: Number(args?.days ?? 10),
+        limit: Number(args?.limit ?? 300),
+      });
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
 }

@@ -1,3 +1,5 @@
+import { ingestServerLogForCriticalEvent } from '../services/criticalEventsService.js';
+
 type LogMode = 'dev' | 'prod';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -33,11 +35,31 @@ export function logInfo(message: string, meta?: LogMeta, opts?: { critical?: boo
 export function logWarn(message: string, meta?: LogMeta, opts?: { critical?: boolean }) {
   if (!shouldLog('warn', opts?.critical === true)) return;
   console.warn(formatLine('warn', message, meta));
+  try {
+    ingestServerLogForCriticalEvent({
+      level: 'warn',
+      message,
+      ...(meta ? { metadata: meta } : {}),
+      critical: opts?.critical === true,
+    });
+  } catch {
+    // ignore monitor logging failures
+  }
 }
 
 export function logError(message: string, meta?: LogMeta) {
   if (!shouldLog('error', true)) return;
   console.error(formatLine('error', message, meta));
+  try {
+    ingestServerLogForCriticalEvent({
+      level: 'error',
+      message,
+      ...(meta ? { metadata: meta } : {}),
+      critical: true,
+    });
+  } catch {
+    // ignore monitor logging failures
+  }
 }
 
 export function logDebug(message: string, meta?: LogMeta) {

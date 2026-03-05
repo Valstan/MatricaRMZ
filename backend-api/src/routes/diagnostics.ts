@@ -9,6 +9,7 @@ import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
 import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
+import { listCriticalEvents } from '../services/criticalEventsService.js';
 
 export const diagnosticsRouter = Router();
 
@@ -142,6 +143,29 @@ diagnosticsRouter.post('/ledger/replay', requirePermission(PermissionCode.Client
     if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
     const result = await replayLedgerToDb({ id: actor.id, username: actor.username, role: actor.role });
     return res.json({ ok: true, applied: result.applied });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/critical-events', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const role = String(actor?.role ?? '').trim().toLowerCase();
+  if (role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для superadmin' });
+  }
+  const parsed = z
+    .object({
+      days: z.coerce.number().int().min(1).max(30).optional(),
+      limit: z.coerce.number().int().min(1).max(1000).optional(),
+    })
+    .safeParse(req.query ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const days = Number(parsed.data.days ?? 10);
+    const limit = Number(parsed.data.limit ?? 300);
+    const events = listCriticalEvents({ days, limit });
+    return res.json({ ok: true, days, limit, events });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

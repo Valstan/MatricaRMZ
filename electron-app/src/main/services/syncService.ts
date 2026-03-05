@@ -64,8 +64,8 @@ import { fetchWithRetry } from './netFetch.js';
 
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
-const PULL_PAGE_SIZE = 5000;
-const FULL_STATE_PAGE_SIZE = 4000;
+const PULL_PAGE_SIZE = 2000;
+const FULL_STATE_PAGE_SIZE = 2000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 1000,
@@ -82,6 +82,7 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
 };
 const SQLITE_BIND_PARAM_LIMIT = 900;
 const CHUNK_SIZE_FALLBACK = 200;
+const IN_ARRAY_CHUNK = 400;
 
 function getUpsertChunkSize(rows: Array<Record<string, unknown>>) {
   if (!rows.length) return CHUNK_SIZE_FALLBACK;
@@ -93,6 +94,54 @@ function getUpsertChunkSize(rows: Array<Record<string, unknown>>) {
     }, 0),
   );
   return Math.max(1, Math.min(CHUNK_SIZE_FALLBACK, Math.floor(SQLITE_BIND_PARAM_LIMIT / keyCount)));
+}
+
+function chunkArrayBySize<T>(items: T[], chunkSize: number): T[][] {
+  if (items.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+async function queryInChunks<T>(
+  values: string[],
+  queryFn: (chunk: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const chunks = chunkArrayBySize(values, IN_ARRAY_CHUNK);
+  if (chunks.length === 0) return [];
+  if (chunks.length === 1) return queryFn(chunks[0] ?? []);
+  const out: T[] = [];
+  for (const chunk of chunks) {
+    const rows = await queryFn(chunk);
+    if (rows.length > 0) out.push(...rows);
+  }
+  return out;
+}
+
+async function queryInDualChunks<T>(
+  leftValues: string[],
+  rightValues: string[],
+  queryFn: (leftChunk: string[], rightChunk: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const leftChunks = chunkArrayBySize(leftValues, IN_ARRAY_CHUNK);
+  const rightChunks = chunkArrayBySize(rightValues, IN_ARRAY_CHUNK);
+  if (leftChunks.length === 0 || rightChunks.length === 0) return [];
+  const out: T[] = [];
+  for (const leftChunk of leftChunks) {
+    for (const rightChunk of rightChunks) {
+      const rows = await queryFn(leftChunk, rightChunk);
+      if (rows.length > 0) out.push(...rows);
+    }
+  }
+  return out;
+}
+
+function warnLargeInArray(label: string, ...arrays: Array<{ name: string; length: number }>) {
+  const total = arrays.reduce((sum, item) => sum + Number(item.length || 0), 0);
+  if (total <= 800) return;
+  logSync(`warn inarray near limit label=${label} total=${total} ${arrays.map((x) => `${x.name}=${x.length}`).join(' ')}`);
 }
 
 async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
@@ -983,7 +1032,7 @@ async function collectPending(db: BetterSQLite3Database) {
       }
     }
     if (invalidIds.length > 0) {
-      await db.update(attributeDefs).set({ syncStatus: 'error' }).where(inArray(attributeDefs.id, invalidIds));
+      await markPendingError(db, SyncTableName.AttributeDefs, invalidIds);
       logSync(`push drop invalid attribute_defs count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.AttributeDefs, valid);
@@ -1305,11 +1354,14 @@ async function applyPulledChanges(
   {
     const codes = Array.from(new Set(incomingEntityTypes.map((x) => x.code)));
     if (codes.length > 0) {
-      const existing = await db
-        .select({ id: entityTypes.id, code: entityTypes.code })
-        .from(entityTypes)
-        .where(inArray(entityTypes.code, codes))
-        .limit(50_000);
+      warnLargeInArray('pull_entity_types_by_code', { name: 'codes', length: codes.length });
+      const existing = await queryInChunks(codes, async (codeChunk) =>
+        db
+          .select({ id: entityTypes.id, code: entityTypes.code })
+          .from(entityTypes)
+          .where(inArray(entityTypes.code, codeChunk as any))
+          .limit(50_000),
+      );
       const byCode = new Map<string, string>();
       for (const r of existing) byCode.set(String(r.code), String(r.id));
       for (const inc of incomingEntityTypes) {
@@ -1329,11 +1381,18 @@ async function applyPulledChanges(
     const typeIds = Array.from(new Set(normalized.map((x) => x.entity_type_id)));
     const codes = Array.from(new Set(normalized.map((x) => x.code)));
     if (typeIds.length > 0 && codes.length > 0) {
-      const existing = await db
-        .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
-        .from(attributeDefs)
-        .where(inArray(attributeDefs.entityTypeId, typeIds))
-        .limit(50_000);
+      warnLargeInArray(
+        'pull_attr_defs_by_type',
+        { name: 'typeIds', length: typeIds.length },
+        { name: 'codes', length: codes.length },
+      );
+      const existing = await queryInChunks(typeIds, async (typeIdChunk) =>
+        db
+          .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+          .from(attributeDefs)
+          .where(inArray(attributeDefs.entityTypeId, typeIdChunk as any))
+          .limit(50_000),
+      );
       const keyToId = new Map<string, string>();
       for (const r of existing) {
         keyToId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
@@ -1738,11 +1797,18 @@ async function applyPulledChanges(
     const entityIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.entityId))));
     const defIds = Array.from(new Set(groups.attribute_values.map((r: any) => String(r.attributeDefId))));
     if (entityIds.length > 0 && defIds.length > 0) {
-      const existing = await db
-        .select({ id: attributeValues.id, entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId })
-        .from(attributeValues)
-        .where(and(inArray(attributeValues.entityId, entityIds as any), inArray(attributeValues.attributeDefId, defIds as any)))
-        .limit(50_000);
+      warnLargeInArray(
+        'pull_attr_values_lookup',
+        { name: 'entityIds', length: entityIds.length },
+        { name: 'defIds', length: defIds.length },
+      );
+      const existing = await queryInDualChunks(entityIds, defIds, async (entityChunk, defChunk) =>
+        db
+          .select({ id: attributeValues.id, entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId })
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.entityId, entityChunk as any), inArray(attributeValues.attributeDefId, defChunk as any)))
+          .limit(50_000),
+      );
       const keyToId = new Map<string, string>();
       for (const r of existing as any[]) {
         keyToId.set(`${String(r.entityId)}::${String(r.attributeDefId)}`, String(r.id));
@@ -1767,11 +1833,18 @@ async function applyPulledChanges(
     const messageIds = Array.from(new Set(groups.chat_reads.map((r: any) => String(r.messageId))));
     const userIds = Array.from(new Set(groups.chat_reads.map((r: any) => String(r.userId))));
     if (messageIds.length > 0 && userIds.length > 0) {
-      const existing = await db
-        .select({ id: chatReads.id, messageId: chatReads.messageId, userId: chatReads.userId })
-        .from(chatReads)
-        .where(and(inArray(chatReads.messageId, messageIds as any), inArray(chatReads.userId, userIds as any)))
-        .limit(50_000);
+      warnLargeInArray(
+        'pull_chat_reads_lookup',
+        { name: 'messageIds', length: messageIds.length },
+        { name: 'userIds', length: userIds.length },
+      );
+      const existing = await queryInDualChunks(messageIds, userIds, async (messageChunk, userChunk) =>
+        db
+          .select({ id: chatReads.id, messageId: chatReads.messageId, userId: chatReads.userId })
+          .from(chatReads)
+          .where(and(inArray(chatReads.messageId, messageChunk as any), inArray(chatReads.userId, userChunk as any)))
+          .limit(50_000),
+      );
       const keyToId = new Map<string, string>();
       for (const r of existing as any[]) {
         keyToId.set(`${String(r.messageId)}::${String(r.userId)}`, String(r.id));
@@ -1800,11 +1873,18 @@ async function applyPulledChanges(
     const noteIds = Array.from(new Set(groups.note_shares.map((r: any) => String(r.noteId))));
     const userIds = Array.from(new Set(groups.note_shares.map((r: any) => String(r.recipientUserId))));
     if (noteIds.length > 0 && userIds.length > 0) {
-      const existing = await db
-        .select({ id: noteShares.id, noteId: noteShares.noteId, recipientUserId: noteShares.recipientUserId })
-        .from(noteShares)
-        .where(and(inArray(noteShares.noteId, noteIds as any), inArray(noteShares.recipientUserId, userIds as any)))
-        .limit(50_000);
+      warnLargeInArray(
+        'pull_note_shares_lookup',
+        { name: 'noteIds', length: noteIds.length },
+        { name: 'userIds', length: userIds.length },
+      );
+      const existing = await queryInDualChunks(noteIds, userIds, async (noteChunk, userChunk) =>
+        db
+          .select({ id: noteShares.id, noteId: noteShares.noteId, recipientUserId: noteShares.recipientUserId })
+          .from(noteShares)
+          .where(and(inArray(noteShares.noteId, noteChunk as any), inArray(noteShares.recipientUserId, userChunk as any)))
+          .limit(50_000),
+      );
       const keyToId = new Map<string, string>();
       for (const r of existing as any[]) {
         keyToId.set(`${String(r.noteId)}::${String(r.recipientUserId)}`, String(r.id));
@@ -1859,11 +1939,14 @@ async function applyPulledChanges(
   const ensureEntityTypeCodes = async (ids: string[]) => {
     const missing = ids.filter((id) => id && !entityTypeCodeById.has(String(id)));
     if (missing.length === 0) return;
-    const rows = await db
-      .select({ id: entityTypes.id, code: entityTypes.code })
-      .from(entityTypes)
-      .where(inArray(entityTypes.id, missing as any))
-      .limit(50_000);
+    warnLargeInArray('pull_ensure_entity_type_codes', { name: 'missing', length: missing.length });
+    const rows = await queryInChunks(missing, async (missingChunk) =>
+      db
+        .select({ id: entityTypes.id, code: entityTypes.code })
+        .from(entityTypes)
+        .where(inArray(entityTypes.id, missingChunk as any))
+        .limit(50_000),
+    );
     for (const r of rows) {
       if (r?.id && r?.code) entityTypeCodeById.set(String(r.id), String(r.code));
     }
@@ -1947,11 +2030,18 @@ async function applyPulledChanges(
     const typeIds = Array.from(new Set(groups.attribute_defs.map((r: any) => String(r.entityTypeId))));
     const codes = Array.from(new Set(groups.attribute_defs.map((r: any) => String(r.code))));
     if (typeIds.length > 0 && codes.length > 0) {
-      const existing = await db
-        .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
-        .from(attributeDefs)
-        .where(and(inArray(attributeDefs.entityTypeId, typeIds as any), inArray(attributeDefs.code, codes as any)))
-        .limit(50_000);
+      warnLargeInArray(
+        'pull_attr_defs_lookup',
+        { name: 'typeIds', length: typeIds.length },
+        { name: 'codes', length: codes.length },
+      );
+      const existing = await queryInDualChunks(typeIds, codes, async (typeChunk, codeChunk) =>
+        db
+          .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+          .from(attributeDefs)
+          .where(and(inArray(attributeDefs.entityTypeId, typeChunk as any), inArray(attributeDefs.code, codeChunk as any)))
+          .limit(50_000),
+      );
       const keyToId = new Map<string, string>();
       for (const r of existing as any[]) {
         keyToId.set(`${String(r.entityTypeId)}::${String(r.code)}`, String(r.id));
@@ -2345,6 +2435,94 @@ export async function runSync(
       : '';
     logSync(`sync.recovery id=${syncRunId} reason=${reason}${suffix}`);
   };
+  const summarizePackRowsDebug = (rows: unknown[]) => {
+    const signatureCount = new Map<string, number>();
+    const sample: string[] = [];
+    let total = 0;
+    for (const row of rows ?? []) {
+      if (!row || typeof row !== 'object') continue;
+      const r = row as Record<string, unknown>;
+      total += 1;
+      const candidates = [
+        'operation_type',
+        'code',
+        'table_name',
+        'entity_type_id',
+        'type_id',
+        'message_type',
+        'status',
+        'actor',
+        'user_id',
+        'owner_user_id',
+        'note_id',
+      ];
+      let signature = 'unknown';
+      for (const key of candidates) {
+        const text = String(r[key] ?? '').trim();
+        if (text) {
+          signature = `${key}=${text}`;
+          break;
+        }
+      }
+      signatureCount.set(signature, (signatureCount.get(signature) ?? 0) + 1);
+      if (sample.length < 12) {
+        const id = String(r.id ?? '').trim() || '?';
+        const fallback = String(r.code ?? r.status ?? r.table_name ?? '').trim();
+        sample.push(`${id}:${signature}${fallback ? `:${fallback}` : ''}`);
+      }
+    }
+    const top = Array.from(signatureCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([type, count]) => `${type}=${count}`)
+      .join('|');
+    return {
+      total,
+      signatures: top || 'n/a',
+      sample: sample.join(','),
+    };
+  };
+  const logInvalidPack = (
+    reason: string,
+    table: SyncTableName,
+    packs: Array<{ table: SyncTableName; rows: Record<string, unknown>[] }>,
+    useOperationsSummary = false,
+  ) => {
+    const pack = packs.find((p) => p.table === table);
+    const rows = pack?.rows ?? [];
+    const summary = table === SyncTableName.Operations ? summarizeOperationsDebug(rows as unknown[]) : summarizePackRowsDebug(rows as unknown[]);
+    logRecovery(reason, {
+      total: summary.total,
+      ...(useOperationsSummary ? { operationTypes: summary.typeCount, sampleRows: summary.sample } : { signatures: summary.signatures, sampleRows: summary.sample }),
+    });
+  };
+  const summarizeOperationsDebug = (rows: unknown[]) => {
+    const typeCount = new Map<string, number>();
+    const sample: string[] = [];
+    let total = 0;
+    for (const row of rows ?? []) {
+      if (!row || typeof row !== 'object') continue;
+      const r = row as Record<string, unknown>;
+      total += 1;
+      const operationType = String(r.operation_type ?? '').trim() || 'unknown';
+      typeCount.set(operationType, (typeCount.get(operationType) ?? 0) + 1);
+      if (sample.length < 12) {
+        const id = String(r.id ?? '').trim() || '?';
+        const status = String(r.status ?? '').trim() || '?';
+        sample.push(`${id}:${operationType}:${status}`);
+      }
+    }
+    const top = Array.from(typeCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([type, count]) => `${type}=${count}`)
+      .join('|');
+    return {
+      total,
+      typeCount: top || 'n/a',
+      sample: sample.join(','),
+    };
+  };
   logSync(`sync.run.start id=${syncRunId} clientId=${clientId} mode=${progressMode}`);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -2406,7 +2584,7 @@ export async function runSync(
           currentApiBaseUrl,
           url,
           { method: 'GET' },
-          { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' },
+          { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull', retryOnStatuses: [502, 503, 504] },
         );
         if (!res.ok) {
           const body = await safeBodyText(res);
@@ -2491,7 +2669,7 @@ export async function runSync(
           currentApiBaseUrl,
           pullUrl,
           { method: 'GET' },
-          { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull' },
+          { attempts: 5, timeoutMs: PULL_TIMEOUT_MS, label: 'pull', retryOnStatuses: [502, 503, 504] },
         );
         if (!pull.ok) {
           const body = await safeBodyText(pull);
@@ -2558,6 +2736,7 @@ export async function runSync(
         let attemptedChatReadsFix = false;
         let attemptedDependencyRecovery = false;
         let attemptedConflictRecovery = false;
+        let attemptedInvalidEntityTypes = false;
         let attemptedInvalidAttrDefs = false;
         let attemptedInvalidEntities = false;
         let attemptedInvalidChatMessages = false;
@@ -2565,6 +2744,7 @@ export async function runSync(
         let attemptedInvalidAttributeValues = false;
         let attemptedInvalidNotes = false;
         let attemptedInvalidOperations = false;
+        let attemptedInvalidNoteShares = false;
         let pushedPacks = upserts;
 
         while (pushedPacks.length > 0) {
@@ -2591,7 +2771,7 @@ export async function runSync(
             currentApiBaseUrl,
             pushUrl,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pushBody) },
-            { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push' },
+            { attempts: 5, timeoutMs: PUSH_TIMEOUT_MS, label: 'push', retryOnStatuses: [502, 503, 504] },
           );
           if (!r.ok) {
             const body = await safeBodyText(r);
@@ -2634,9 +2814,20 @@ export async function runSync(
               }
               continue;
             }
+            if (!attemptedInvalidEntityTypes && isInvalidRowError(body, 'entity_types')) {
+              attemptedInvalidEntityTypes = true;
+              logInvalidPack('invalid_entity_types_mark_error', SyncTableName.EntityTypes, pushedPacks);
+              await markPendingError(db, SyncTableName.EntityTypes);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
             if (!attemptedInvalidAttrDefs && isInvalidRowError(body, 'attribute_defs')) {
               attemptedInvalidAttrDefs = true;
-              logRecovery('invalid_attribute_defs_mark_error');
+              logInvalidPack('invalid_attribute_defs_mark_error', SyncTableName.AttributeDefs, pushedPacks);
               await markPendingError(db, SyncTableName.AttributeDefs);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2647,7 +2838,7 @@ export async function runSync(
             }
             if (!attemptedInvalidEntities && isInvalidRowError(body, 'entities')) {
               attemptedInvalidEntities = true;
-              logRecovery('invalid_entities_mark_error');
+              logInvalidPack('invalid_entities_mark_error', SyncTableName.Entities, pushedPacks);
               await markPendingError(db, SyncTableName.Entities);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2658,7 +2849,7 @@ export async function runSync(
             }
             if (!attemptedInvalidChatMessages && isInvalidRowError(body, 'chat_messages')) {
               attemptedInvalidChatMessages = true;
-              logRecovery('invalid_chat_messages_mark_error');
+              logInvalidPack('invalid_chat_messages_mark_error', SyncTableName.ChatMessages, pushedPacks);
               await markPendingError(db, SyncTableName.ChatMessages);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2669,7 +2860,7 @@ export async function runSync(
             }
             if (!attemptedInvalidChatReads && isInvalidRowError(body, 'chat_reads')) {
               attemptedInvalidChatReads = true;
-              logRecovery('invalid_chat_reads_mark_error');
+              logInvalidPack('invalid_chat_reads_mark_error', SyncTableName.ChatReads, pushedPacks);
               await markPendingError(db, SyncTableName.ChatReads);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2680,7 +2871,7 @@ export async function runSync(
             }
             if (!attemptedInvalidAttributeValues && isInvalidRowError(body, 'attribute_values')) {
               attemptedInvalidAttributeValues = true;
-              logRecovery('invalid_attribute_values_mark_error');
+              logInvalidPack('invalid_attribute_values_mark_error', SyncTableName.AttributeValues, pushedPacks);
               await markPendingError(db, SyncTableName.AttributeValues);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
@@ -2691,8 +2882,19 @@ export async function runSync(
             }
             if (!attemptedInvalidNotes && isInvalidRowError(body, 'notes')) {
               attemptedInvalidNotes = true;
-              logRecovery('invalid_notes_mark_error');
+              logInvalidPack('invalid_notes_mark_error', SyncTableName.Notes, pushedPacks);
               await markPendingError(db, SyncTableName.Notes);
+              pushedPacks = await collectPending(db);
+              if (pushedPacks.length === 0) {
+                pushed = 0;
+                break;
+              }
+              continue;
+            }
+            if (!attemptedInvalidNoteShares && isInvalidRowError(body, 'note_shares')) {
+              attemptedInvalidNoteShares = true;
+              logInvalidPack('invalid_note_shares_mark_error', SyncTableName.NoteShares, pushedPacks);
+              await markPendingError(db, SyncTableName.NoteShares);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {
                 pushed = 0;
@@ -2702,7 +2904,7 @@ export async function runSync(
             }
             if (!attemptedInvalidOperations && isInvalidRowError(body, 'operations')) {
               attemptedInvalidOperations = true;
-              logRecovery('invalid_operations_mark_error');
+              logInvalidPack('invalid_operations_mark_error', SyncTableName.Operations, pushedPacks, true);
               await markPendingError(db, SyncTableName.Operations);
               pushedPacks = await collectPending(db);
               if (pushedPacks.length === 0) {

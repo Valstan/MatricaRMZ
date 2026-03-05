@@ -4,6 +4,20 @@ import type { UiDisplayPrefs } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 
+type CriticalEventItem = {
+  id: string;
+  createdAt: number;
+  source: 'client' | 'server';
+  severity: 'warn' | 'error' | 'fatal';
+  category: string;
+  eventCode: string;
+  title: string;
+  humanMessage: string;
+  aiDetails: string;
+  username: string | null;
+  clientId: string | null;
+};
+
 export function SettingsPage(props: {
   uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
   onUiPrefsChange: (prefs: {
@@ -51,6 +65,9 @@ export function SettingsPage(props: {
     | null
   >(null);
   const [serverStatus, setServerStatus] = useState<string>('');
+  const [criticalEvents, setCriticalEvents] = useState<CriticalEventItem[]>([]);
+  const [criticalLoading, setCriticalLoading] = useState<boolean>(false);
+  const [criticalStatus, setCriticalStatus] = useState<string>('');
 
   function formatError(e: unknown): string {
     if (e == null) return 'unknown error';
@@ -60,6 +77,51 @@ export function SettingsPage(props: {
       return JSON.stringify(e);
     } catch {
       return String(e);
+    }
+  }
+
+  function formatCriticalTs(value: number): string {
+    const ts = Number(value);
+    if (!Number.isFinite(ts) || ts <= 0) return '—';
+    return new Date(ts).toLocaleString('ru-RU');
+  }
+
+  async function copyText(text: string) {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCriticalStatus('Скопировано в буфер обмена.');
+        setTimeout(() => setCriticalStatus(''), 2000);
+        return;
+      }
+      setCriticalStatus('Буфер обмена недоступен в этом окружении.');
+      setTimeout(() => setCriticalStatus(''), 3000);
+    } catch (e) {
+      setCriticalStatus(`Ошибка копирования: ${formatError(e)}`);
+      setTimeout(() => setCriticalStatus(''), 3000);
+    }
+  }
+
+  async function refreshCriticalEvents() {
+    try {
+      setCriticalLoading(true);
+      const role = String(authUser?.role ?? profileUser?.role ?? '').trim().toLowerCase();
+      if (role !== 'superadmin') {
+        setCriticalEvents([]);
+        setCriticalStatus('');
+        return;
+      }
+      const r = await window.matrica.diagnostics.criticalEventsList({ days: 10, limit: 300 });
+      if (r?.ok) {
+        setCriticalEvents(Array.isArray(r.events) ? (r.events as CriticalEventItem[]) : []);
+        setCriticalStatus('');
+      } else {
+        setCriticalStatus(`Ошибка загрузки критичных событий: ${formatError(r?.error ?? 'unknown error')}`);
+      }
+    } catch (e) {
+      setCriticalStatus(`Ошибка загрузки критичных событий: ${formatError(e)}`);
+    } finally {
+      setCriticalLoading(false);
     }
   }
 
@@ -98,6 +160,8 @@ export function SettingsPage(props: {
           setTelegramLogin('');
           setMaxLogin('');
         }
+      } else {
+        setCriticalEvents([]);
       }
     } finally {
       setLoading(false);
@@ -231,6 +295,14 @@ export function SettingsPage(props: {
   }, []);
 
   useEffect(() => {
+    const role = String(authUser?.role ?? profileUser?.role ?? '').trim().toLowerCase();
+    if (role !== 'superadmin') return;
+    void refreshCriticalEvents();
+    const timer = setInterval(() => void refreshCriticalEvents(), 60_000);
+    return () => clearInterval(timer);
+  }, [authUser?.role, profileUser?.role]);
+
+  useEffect(() => {
     setUiTheme(props.uiPrefs.theme);
     setChatSide(props.uiPrefs.chatSide);
     setEnterAsTab(props.uiPrefs.enterAsTab === true);
@@ -346,6 +418,8 @@ export function SettingsPage(props: {
   if (loading) {
     return <div style={{ padding: 20, color: 'var(--muted)' }}>Загрузка настроек...</div>;
   }
+
+  const isSuperadmin = String(authUser?.role ?? profileUser?.role ?? '').trim().toLowerCase() === 'superadmin';
 
   const sectionBaseStyle: React.CSSProperties = {
     border: '1px solid var(--border)',
@@ -771,6 +845,98 @@ export function SettingsPage(props: {
             </div>
           )}
         </div>
+
+        {isSuperadmin && (
+          <div style={{ ...sectionBaseStyle, background: 'rgba(185, 28, 28, 0.1)', gridColumn: '1 / -1' }}>
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Критические события приложения (последние 10 дней)</h3>
+            <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
+              Автомониторинг: здесь копятся серьезные ошибки синхронизации и других важных частей системы. Блок доступен только superadmin.
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+              <Button variant="ghost" disabled={criticalLoading} onClick={() => void refreshCriticalEvents()}>
+                {criticalLoading ? 'Загрузка...' : 'Обновить список'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={criticalEvents.length === 0}
+                onClick={() =>
+                  void copyText(
+                    criticalEvents
+                      .map((ev) =>
+                        [
+                          `[${formatCriticalTs(ev.createdAt)}] [${ev.severity.toUpperCase()}] [${ev.source}] ${ev.title}`,
+                          ev.humanMessage,
+                          ev.aiDetails,
+                        ].join('\n'),
+                      )
+                      .join('\n\n-----\n\n'),
+                  )
+                }
+              >
+                Копировать всё для разработчика
+              </Button>
+              {criticalStatus && <span style={{ color: 'var(--muted)', fontSize: 12 }}>{criticalStatus}</span>}
+            </div>
+
+            {criticalEvents.length === 0 ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>За последние 10 дней критичных событий не найдено.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {criticalEvents.map((ev) => (
+                  <div
+                    key={ev.id}
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 10,
+                      padding: 10,
+                      background: 'rgba(15, 23, 42, 0.25)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                      <span style={{ fontWeight: 700 }}>{formatCriticalTs(ev.createdAt)}</span>
+                      <span style={{ color: ev.severity === 'fatal' ? 'var(--danger)' : 'var(--muted)' }}>
+                        {ev.severity.toUpperCase()}
+                      </span>
+                      <span style={{ color: 'var(--muted)' }}>source: {ev.source}</span>
+                      <span style={{ color: 'var(--muted)' }}>category: {ev.category}</span>
+                      {ev.clientId && <span style={{ color: 'var(--muted)' }}>clientId: {ev.clientId}</span>}
+                      {ev.username && <span style={{ color: 'var(--muted)' }}>user: {ev.username}</span>}
+                    </div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{ev.title}</div>
+                    <div style={{ marginBottom: 8, whiteSpace: 'pre-wrap' }}>{ev.humanMessage}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          void copyText(
+                            [`[${formatCriticalTs(ev.createdAt)}] [${ev.severity.toUpperCase()}] ${ev.title}`, ev.humanMessage, ev.aiDetails].join('\n\n'),
+                          )
+                        }
+                      >
+                        Копировать событие
+                      </Button>
+                    </div>
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer', color: 'var(--muted)' }}>Подробности для разработчика/ИИ</summary>
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          whiteSpace: 'pre-wrap',
+                          fontSize: 12,
+                          lineHeight: 1.35,
+                          color: 'var(--muted)',
+                        }}
+                      >
+                        {ev.aiDetails}
+                      </pre>
+                    </details>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
     </div>

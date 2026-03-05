@@ -12,7 +12,30 @@ const DEFAULT_TZ = 'Europe/Moscow';
 const DEFAULT_DAILY_TIME = '21:00';
 const CHECK_TICK_MS = 60_000;
 const BOT_POLL_MS = 15_000;
+const BOT_POLL_ERROR_LOG_STREAK = 3;
 let knownSuperadminChatId: string | null = null;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientBotPollError(raw: string) {
+  const text = String(raw ?? '').toLowerCase();
+  if (!text) return false;
+  return (
+    text.includes('fetch failed') ||
+    text.includes('etimedout') ||
+    text.includes('econnreset') ||
+    text.includes('eai_again') ||
+    text.includes('socket hang up') ||
+    text.includes('timeout') ||
+    text.includes('http 429') ||
+    text.includes('http 500') ||
+    text.includes('http 502') ||
+    text.includes('http 503') ||
+    text.includes('http 504')
+  );
+}
 
 function parseBool(raw: string | undefined, fallback: boolean) {
   const v = String(raw ?? '').trim().toLowerCase();
@@ -141,6 +164,8 @@ export function startSyncPipelineSupervisorService() {
   let lastNightlyDate = '';
   let updateOffset = 0;
   let botPollingDisabledLogged = false;
+  let botPollFailureStreak = 0;
+  let lastBotPollError = '';
 
   const runNightlyCheck = async () => {
     const health = await getSyncPipelineHealth();
@@ -174,7 +199,14 @@ export function startSyncPipelineSupervisorService() {
     if (cmd === '/sync_help') {
       await sendTelegramMessageToChat({
         chatId,
-        text: 'Доступные команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь',
+        text: 'Доступные команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь\n/sync_chat_id — узнать chat_id текущего чата',
+      });
+      return;
+    }
+    if (cmd === '/sync_chat_id') {
+      await sendTelegramMessageToChat({
+        chatId,
+        text: `chat_id: ${chatId}`,
       });
       return;
     }
@@ -207,10 +239,33 @@ export function startSyncPipelineSupervisorService() {
       return;
     }
     botPollingDisabledLogged = false;
-    const updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
+    let updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
+    if (!updatesRes.ok && isTransientBotPollError(updatesRes.error)) {
+      await sleep(800);
+      updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
+    }
+    if (!updatesRes.ok && isTransientBotPollError(updatesRes.error)) {
+      await sleep(1_600);
+      updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
+    }
     if (!updatesRes.ok) {
-      logWarn('sync pipeline bot poll failed', { error: updatesRes.error });
+      botPollFailureStreak += 1;
+      const err = String(updatesRes.error ?? '');
+      const changedError = err !== lastBotPollError;
+      lastBotPollError = err;
+      const shouldLog = (botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)) || changedError;
+      if (shouldLog) {
+        logWarn('sync pipeline bot poll failed', {
+          error: updatesRes.error,
+          streak: botPollFailureStreak,
+        });
+      }
       return;
+    }
+    if (botPollFailureStreak > 0) {
+      logInfo('sync pipeline bot poll recovered', { streak: botPollFailureStreak });
+      botPollFailureStreak = 0;
+      lastBotPollError = '';
     }
     if (!updatesRes.updates.length) return;
     const admin = await getSuperadminTelegram();
@@ -241,7 +296,7 @@ export function startSyncPipelineSupervisorService() {
         if (data === 'sync:help') {
           await sendTelegramMessageToChat({
             chatId,
-            text: 'Команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь',
+            text: 'Команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь\n/sync_chat_id — узнать chat_id текущего чата',
           });
           await answerTelegramCallbackQuery({ callbackQueryId: String(cb.id), text: 'Ок' });
         }

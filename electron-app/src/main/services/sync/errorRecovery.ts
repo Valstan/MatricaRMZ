@@ -59,6 +59,7 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.Notes]: notes,
   [SyncTableName.NoteShares]: noteShares,
 };
+const IN_ARRAY_CHUNK = 400;
 
 /**
  * Mark pending rows for a specific table as 'error'.
@@ -68,7 +69,10 @@ export async function markPendingError(db: BetterSQLite3Database, table: SyncTab
   const drizzleTable = DRIZZLE_TABLE_MAP[table];
   if (!drizzleTable) return;
   if (ids && ids.length > 0) {
-    await db.update(drizzleTable).set({ syncStatus: 'error' }).where(inArray(drizzleTable.id, ids));
+    for (let i = 0; i < ids.length; i += IN_ARRAY_CHUNK) {
+      const chunk = ids.slice(i, i + IN_ARRAY_CHUNK);
+      await db.update(drizzleTable).set({ syncStatus: 'error' }).where(inArray(drizzleTable.id, chunk));
+    }
   } else {
     await db.update(drizzleTable).set({ syncStatus: 'error' }).where(eq(drizzleTable.syncStatus, 'pending'));
   }
@@ -82,14 +86,23 @@ export async function dropPendingChatReads(db: BetterSQLite3Database, messageIds
   if (ids.length === 0) return 0;
   const pending = 'pending';
   const whereUser = userId ? eq(chatReads.userId, userId) : undefined;
+  let totalChanges = 0;
   if (whereUser) {
-    const res = await db
-      .delete(chatReads)
-      .where(and(eq(chatReads.syncStatus, pending), whereUser, inArray(chatReads.messageId, ids)));
-    return Number((res as any)?.changes ?? 0);
+    for (let i = 0; i < ids.length; i += IN_ARRAY_CHUNK) {
+      const chunk = ids.slice(i, i + IN_ARRAY_CHUNK);
+      const res = await db
+        .delete(chatReads)
+        .where(and(eq(chatReads.syncStatus, pending), whereUser, inArray(chatReads.messageId, chunk)));
+      totalChanges += Number((res as any)?.changes ?? 0);
+    }
+    return totalChanges;
   }
-  const res = await db.delete(chatReads).where(and(eq(chatReads.syncStatus, pending), inArray(chatReads.messageId, ids)));
-  return Number((res as any)?.changes ?? 0);
+  for (let i = 0; i < ids.length; i += IN_ARRAY_CHUNK) {
+    const chunk = ids.slice(i, i + IN_ARRAY_CHUNK);
+    const res = await db.delete(chatReads).where(and(eq(chatReads.syncStatus, pending), inArray(chatReads.messageId, chunk)));
+    totalChanges += Number((res as any)?.changes ?? 0);
+  }
+  return totalChanges;
 }
 
 /**
