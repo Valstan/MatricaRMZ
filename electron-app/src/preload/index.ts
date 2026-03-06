@@ -214,6 +214,8 @@ const matricaApi = {
     check: async () => ipcRenderer.invoke('update:check'),
     status: async () => ipcRenderer.invoke('update:status'),
     reset: async () => ipcRenderer.invoke('update:reset'),
+    downloadDirGet: async () => ipcRenderer.invoke('update:downloadDir:get'),
+    downloadDirPick: async () => ipcRenderer.invoke('update:downloadDir:pick'),
   },
   checklists: {
     templatesList: async (args?: { stage?: string }) => ipcRenderer.invoke('checklists:templates:list', args),

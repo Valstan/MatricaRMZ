@@ -53,6 +53,8 @@ export function SettingsPage(props: {
   );
   const [e2eExport, setE2eExport] = useState<string>('');
   const [e2eLoading, setE2eLoading] = useState<boolean>(false);
+  const [updateDownloadDir, setUpdateDownloadDir] = useState<string>('');
+  const [updateDirLoading, setUpdateDirLoading] = useState<boolean>(false);
   const [updateResetLoading, setUpdateResetLoading] = useState<boolean>(false);
   const [localDbResetLoading, setLocalDbResetLoading] = useState<boolean>(false);
   const [fullSyncLoading, setFullSyncLoading] = useState<boolean>(false);
@@ -226,6 +228,39 @@ export function SettingsPage(props: {
     }
   }
 
+  async function refreshUpdateDownloadDir() {
+    try {
+      const r = await window.matrica.update.downloadDirGet();
+      if (r?.ok) {
+        setUpdateDownloadDir(String(r.path ?? '').trim());
+      } else if (r?.error) {
+        setStatus(`Ошибка чтения папки обновлений: ${formatError(r.error)}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка чтения папки обновлений: ${formatError(e)}`);
+    }
+  }
+
+  async function handlePickUpdateDownloadDir() {
+    try {
+      setUpdateDirLoading(true);
+      const r = await window.matrica.update.downloadDirPick();
+      if (r?.ok) {
+        setUpdateDownloadDir(String(r.path ?? '').trim());
+        setStatus('Папка для файла обновления сохранена.');
+        setTimeout(() => setStatus(''), 3000);
+        return;
+      }
+      if (String(r?.error ?? '') !== 'cancelled') {
+        setStatus(`Ошибка выбора папки обновлений: ${formatError(r?.error ?? 'unknown error')}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка выбора папки обновлений: ${formatError(e)}`);
+    } finally {
+      setUpdateDirLoading(false);
+    }
+  }
+
   async function handleResetLocalDb() {
     if (
       !confirm(
@@ -286,6 +321,7 @@ export function SettingsPage(props: {
     void loadSettings();
     void refreshBackups();
     void refreshE2eStatus();
+    void refreshUpdateDownloadDir();
     void loadSyncConnectionSettings();
   }, []);
 
@@ -714,6 +750,26 @@ export function SettingsPage(props: {
           <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
             При проблеме с загрузкой можно очистить кэш обновлений.
           </p>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: 'var(--muted)', marginBottom: 6 }}>Папка для файла обновления:</div>
+            <div
+              style={{
+                padding: '8px 10px',
+                borderRadius: 10,
+                border: '1px solid var(--input-border)',
+                background: 'var(--input-bg)',
+                color: 'var(--text)',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                wordBreak: 'break-all',
+                marginBottom: 8,
+              }}
+            >
+              {updateDownloadDir || '—'}
+            </div>
+            <Button variant="ghost" disabled={updateDirLoading} onClick={() => void handlePickUpdateDownloadDir()}>
+              {updateDirLoading ? 'Открываю Проводник...' : 'Выбрать другую папку'}
+            </Button>
+          </div>
           <Button variant="ghost" disabled={updateResetLoading} onClick={() => void handleResetUpdates()}>
             Сбросить кэш обновлений
           </Button>

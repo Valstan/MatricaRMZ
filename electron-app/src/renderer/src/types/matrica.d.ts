@@ -21,6 +21,8 @@ type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
   tools: any;
   update: MatricaApi['update'] & {
     reset: () => Promise<any>;
+    downloadDirGet: () => Promise<any>;
+    downloadDirPick: () => Promise<any>;
   };
   engines: MatricaApi['engines'] & {
     delete: (id: string) => Promise<any>;

@@ -8,8 +8,8 @@ import { createHash } from 'node:crypto';
 
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
-import { getUpdatesRootDir } from './updatePaths.js';
-import { SettingsKey, settingsGetString } from './settingsStore.js';
+import { getUpdatesRootDir, setConfiguredUpdatesRootDir } from './updatePaths.js';
+import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import {
   getLanServerPort,
   getLocalLanPeers,
@@ -91,7 +91,42 @@ let updateState: UpdateRuntimeState = { state: 'idle', updatedAt: Date.now() };
 
 export function configureUpdateService(opts: { apiBaseUrl?: string; db?: BetterSQLite3Database }) {
   if (opts.apiBaseUrl) updateApiBaseUrl = String(opts.apiBaseUrl).trim();
-  if (opts.db) updateDb = opts.db;
+  if (opts.db) {
+    updateDb = opts.db;
+    void syncConfiguredUpdateDirFromSettings();
+  }
+}
+
+async function syncConfiguredUpdateDirFromSettings(): Promise<void> {
+  if (!updateDb) return;
+  try {
+    const next = String((await settingsGetString(updateDb, SettingsKey.UpdatesDownloadDir)) ?? '').trim();
+    setConfiguredUpdatesRootDir(next || null);
+  } catch {
+    // ignore
+  }
+}
+
+export async function getUpdateDownloadDir(): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  try {
+    await syncConfiguredUpdateDirFromSettings();
+    return { ok: true, path: getUpdatesRootDir() };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function setUpdateDownloadDir(path: string): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  try {
+    const next = String(path ?? '').trim();
+    if (!next) return { ok: false, error: 'path is empty' };
+    if (!updateDb) return { ok: false, error: 'settings db is not ready' };
+    setConfiguredUpdatesRootDir(next);
+    await settingsSetString(updateDb, SettingsKey.UpdatesDownloadDir, next);
+    return { ok: true, path: next };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 async function resolveUpdateApiBaseUrl(): Promise<string> {
@@ -738,6 +773,7 @@ async function cacheInstaller(filePath: string, version?: string) {
 }
 
 export async function recoverStuckUpdateState(): Promise<void> {
+  await syncConfiguredUpdateDirFromSettings();
   if (updateInFlight || backgroundInFlight) return;
   const lock = updateLockPath();
   const lockStat = await stat(lock).catch(() => null);
@@ -763,6 +799,7 @@ export async function recoverStuckUpdateState(): Promise<void> {
 
 export async function resetUpdateCache(reason = 'manual'): Promise<void> {
   try {
+    await syncConfiguredUpdateDirFromSettings();
     updateInFlight = false;
     backgroundInFlight = false;
     await clearPendingUpdate();
@@ -1056,6 +1093,7 @@ async function promptManualUpdateFallback(args: {
 }
 
 export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | null): Promise<boolean> {
+  await syncConfiguredUpdateDirFromSettings();
   const pending = await readPendingUpdate();
   if (!pending?.installerPath) return false;
   const currentVersion = app.getVersion();
@@ -1241,6 +1279,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
   }
 
   async function tick() {
+    await syncConfiguredUpdateDirFromSettings();
     if (updateInFlight || backgroundInFlight) return;
     const pending = await readPendingUpdate();
     if (!app.isPackaged) return;
@@ -1466,6 +1505,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
 export async function runAutoUpdateFlow(
   opts: { reason: 'startup' | 'manual_menu'; parentWindow?: BrowserWindow | null } = { reason: 'startup' },
 ): Promise<UpdateFlowResult> {
+  await syncConfiguredUpdateDirFromSettings();
   if (updateInFlight) return { action: 'error', error: 'update already in progress' };
   updateInFlight = true;
   let lockAcquired = false;

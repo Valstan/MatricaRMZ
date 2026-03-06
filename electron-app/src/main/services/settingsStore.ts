@@ -45,6 +45,7 @@ export const SettingsKey = {
 
   // Remote admin controls
   UpdatesEnabled: 'updates.enabled',
+  UpdatesDownloadDir: 'updates.downloadDir',
   TorrentEnabled: 'torrent.enabled',
 } as const;
 

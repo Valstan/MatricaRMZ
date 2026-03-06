@@ -912,6 +912,9 @@ export type MatricaApi = {
   update: {
     check: () => Promise<UpdateCheckResult>;
     status: () => Promise<{ ok: true; status: UpdateRuntimeState } | { ok: false; error: string }>;
+    reset: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+    downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
   };
   checklists: {
     templatesList: (args?: { stage?: string }) => Promise<

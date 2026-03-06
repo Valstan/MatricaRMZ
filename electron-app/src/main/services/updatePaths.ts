@@ -2,7 +2,8 @@ import { app } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-let cachedRoot: string | null = null;
+let cachedDefaultRoot: string | null = null;
+let configuredRoot: string | null = null;
 
 function ensureDir(path: string) {
   try {
@@ -14,20 +15,29 @@ function ensureDir(path: string) {
 }
 
 export function getUpdatesRootDir() {
-  if (cachedRoot) return cachedRoot;
   const env = String(process.env.MATRICA_UPDATE_CACHE_DIR ?? '').trim();
   if (env) {
-    cachedRoot = env;
-    ensureDir(cachedRoot);
-    return cachedRoot;
+    ensureDir(env);
+    return env;
   }
+  if (configuredRoot) {
+    ensureDir(configuredRoot);
+    return configuredRoot;
+  }
+  if (cachedDefaultRoot) return cachedDefaultRoot;
   const preferred = join(app.getPath('downloads'), 'MatricaRMZ-Updates');
   if (ensureDir(preferred)) {
-    cachedRoot = preferred;
-    return cachedRoot;
+    cachedDefaultRoot = preferred;
+    return cachedDefaultRoot;
   }
   const fallback = join(app.getPath('userData'), 'MatricaRMZ-Updates');
   ensureDir(fallback);
-  cachedRoot = fallback;
-  return cachedRoot;
+  cachedDefaultRoot = fallback;
+  return cachedDefaultRoot;
+}
+
+export function setConfiguredUpdatesRootDir(path: string | null | undefined) {
+  const next = String(path ?? '').trim();
+  configuredRoot = next || null;
+  if (configuredRoot) ensureDir(configuredRoot);
 }

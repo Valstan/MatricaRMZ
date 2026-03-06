@@ -44,6 +44,18 @@ function hasDiffSince(ref, paths) {
   return !!out(`git diff --name-only ${ref}..HEAD -- ${paths.join(' ')}`).trim();
 }
 
+function listSystemdServiceUnits() {
+  try {
+    const raw = out('systemctl list-unit-files --type=service --no-legend --plain');
+    return raw
+      .split('\n')
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 // ── SHA-256 ──────────────────────────────────────────────────────────
 
 async function sha256(filePath) {
@@ -161,7 +173,29 @@ function deployServer() {
   run('pnpm -C shared build');
   run('pnpm -C backend-api build');
   run('pnpm --filter @matricarmz/web-admin build');
-  run('sudo systemctl restart matricarmz-backend.service');
+
+  const units = new Set(listSystemdServiceUnits());
+  const hasPrimary = units.has('matricarmz-backend-primary.service');
+  const hasSecondary = units.has('matricarmz-backend-secondary.service');
+  const hasLegacy = units.has('matricarmz-backend.service');
+
+  if (hasPrimary || hasSecondary) {
+    const restartUnits = [];
+    if (hasPrimary) restartUnits.push('matricarmz-backend-primary.service');
+    if (hasSecondary) restartUnits.push('matricarmz-backend-secondary.service');
+    run(`sudo systemctl restart ${restartUnits.join(' ')}`);
+
+    // Legacy single-instance unit conflicts with primary on 3001.
+    if (hasLegacy) run('sudo systemctl disable --now matricarmz-backend.service');
+    return;
+  }
+
+  if (hasLegacy) {
+    run('sudo systemctl restart matricarmz-backend.service');
+    return;
+  }
+
+  console.log('No known backend systemd unit found; skipping backend restart.');
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
