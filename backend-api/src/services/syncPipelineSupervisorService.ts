@@ -3,6 +3,7 @@ import { listEmployeesAuth } from './employeeAuthService.js';
 import {
   answerTelegramCallbackQuery,
   fetchTelegramUpdates,
+  getCachedChatIdByLogin,
   sendTelegramMessage,
   sendTelegramMessageToChat,
 } from './telegramBotService.js';
@@ -122,8 +123,6 @@ async function getSuperadminTelegram() {
 }
 
 async function sendToSuperadmin(text: string, withKeyboard = false) {
-  const admin = await getSuperadminTelegram();
-  if (!admin) return { ok: false as const, error: 'Логин superadmin Telegram не настроен' };
   const replyMarkup = withKeyboard
     ? {
         inline_keyboard: [
@@ -134,19 +133,34 @@ async function sendToSuperadmin(text: string, withKeyboard = false) {
         ],
       }
     : undefined;
-  if (knownSuperadminChatId) {
-    const byChat = await sendTelegramMessageToChat({
-      chatId: knownSuperadminChatId,
-      text,
-      replyMarkup,
-    });
+
+  const envChatId = String(process.env.MATRICA_TELEGRAM_ALERT_CHAT_ID ?? '').trim();
+  if (envChatId) {
+    const res = await sendTelegramMessageToChat({ chatId: envChatId, text, replyMarkup });
+    if (res.ok) {
+      knownSuperadminChatId = envChatId;
+      return res;
+    }
+  }
+
+  if (knownSuperadminChatId && knownSuperadminChatId !== envChatId) {
+    const byChat = await sendTelegramMessageToChat({ chatId: knownSuperadminChatId, text, replyMarkup });
     if (byChat.ok) return byChat;
   }
-  const byLogin = await sendTelegramMessage({
-    toLogin: admin.telegramLogin,
-    text,
-    replyMarkup,
-  });
+
+  const admin = await getSuperadminTelegram();
+  if (!admin) return { ok: false as const, error: 'Цель Telegram-уведомлений не настроена (MATRICA_TELEGRAM_ALERT_CHAT_ID / superadmin login)' };
+
+  const cachedChatId = getCachedChatIdByLogin(admin.telegramLogin);
+  if (cachedChatId) {
+    const byCache = await sendTelegramMessageToChat({ chatId: cachedChatId, text, replyMarkup });
+    if (byCache.ok) {
+      knownSuperadminChatId = cachedChatId;
+      return byCache;
+    }
+  }
+
+  const byLogin = await sendTelegramMessage({ toLogin: admin.telegramLogin, text, replyMarkup });
   return byLogin;
 }
 
@@ -253,7 +267,10 @@ export function startSyncPipelineSupervisorService() {
       const err = String(updatesRes.error ?? '');
       const changedError = err !== lastBotPollError;
       lastBotPollError = err;
-      const shouldLog = (botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)) || changedError;
+      const isTransient = isTransientBotPollError(err);
+      const shouldLog = isTransient
+        ? botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)
+        : (botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)) || changedError;
       if (shouldLog) {
         logWarn('sync pipeline bot poll failed', {
           error: updatesRes.error,

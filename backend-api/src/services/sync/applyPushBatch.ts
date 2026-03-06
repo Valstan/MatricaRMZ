@@ -17,7 +17,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
-import { logWarn } from '../../utils/logger.js';
+import { logInfo, logWarn } from '../../utils/logger.js';
 import { listEmployeesAuth } from '../employeeAuthService.js';
 import { formatTelegramMessage, sendTelegramMessage } from '../telegramBotService.js';
 import {
@@ -118,7 +118,7 @@ export async function applyPushBatch(
   const actor = safeActor(actorRaw);
   const actorId = isUuid(actor.id) ? actor.id : '';
   if (!actorId && actor.id) {
-    logWarn('sync actor id is not uuid, using anonymous actor id', {
+    logInfo('sync actor id is not uuid, using anonymous actor id', {
       actor_id: actor.id,
       actor: actor.username,
       client_id: req.client_id,
@@ -130,6 +130,8 @@ export async function applyPushBatch(
   const telegramNotifications: TelegramNotification[] = [];
   const skipCounters = new Map<string, number>();
   const skippedRows: SyncSkippedRow[] = [];
+  const isReplayClient = req.client_id === 'ledger-replay';
+  const logSkip = isReplayClient ? logInfo : logWarn;
 
   function addSkipMetric(kind: 'dependency' | 'conflict', table: SyncTableName, count: number, dependency?: string) {
     if (!Number.isFinite(count) || count <= 0) return;
@@ -450,7 +452,7 @@ export async function applyPushBatch(
       if (conflicts > 0) {
         addSkipMetric('conflict', tableName, conflicts);
         if (opts?.allowSyncConflicts || applyOpts.allowSyncConflicts) {
-          logWarn('sync conflict rows skipped', {
+          logSkip('sync conflict rows skipped', {
             table: tableName,
             conflicts,
             client_id: req.client_id,
@@ -631,7 +633,7 @@ export async function applyPushBatch(
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.Entities, missingRows.length, 'entity_type');
           addDependencySkippedRows(SyncTableName.Entities, missingRows as Array<Record<string, unknown>>, 'entity_type', 'type_id');
-          logWarn('sync dependency rows skipped', {
+          logSkip('sync dependency rows skipped', {
             table: SyncTableName.Entities,
             dependency: 'entity_type',
             missing: missingRows.length,
@@ -783,7 +785,54 @@ export async function applyPushBatch(
           .where(inArray(entityTypes.id, rowTypeIds as any))
           .limit(50_000);
         const existingTypeIds = new Set<string>((existingTypes as any[]).map((r) => String(r.id)));
-        const missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
+        let missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
+
+        if (missingRows.length > 0) {
+          const missingTypeIds = Array.from(new Set(missingRows.map((r) => String(r.entity_type_id))));
+          const codesByMissing = new Map<string, string>();
+          for (const r of missingRows) {
+            const key = `${String(r.entity_type_id)}::${String(r.code)}`;
+            if (!codesByMissing.has(String(r.entity_type_id))) {
+              codesByMissing.set(String(r.entity_type_id), String(r.code));
+            }
+          }
+          const uniqueCodes = Array.from(new Set(missingRows.map((r) => String(r.code))));
+          if (uniqueCodes.length > 0) {
+            const existingByCode = await tx
+              .select({ id: attributeDefs.id, entityTypeId: attributeDefs.entityTypeId, code: attributeDefs.code })
+              .from(attributeDefs)
+              .where(inArray(attributeDefs.code, uniqueCodes as any))
+              .limit(50_000);
+            const codeToExistingTypeId = new Map<string, string>();
+            for (const r of existingByCode as any[]) {
+              const c = String(r.code);
+              if (!codeToExistingTypeId.has(c) && existingTypeIds.has(String(r.entityTypeId))) {
+                codeToExistingTypeId.set(c, String(r.entityTypeId));
+              }
+            }
+            let healed = 0;
+            rows = rows.map((r) => {
+              if (!existingTypeIds.has(String(r.entity_type_id))) {
+                const resolvedTypeId = codeToExistingTypeId.get(String(r.code));
+                if (resolvedTypeId) {
+                  entityTypeIdRemap.set(String(r.entity_type_id), resolvedTypeId);
+                  healed += 1;
+                  return { ...r, entity_type_id: resolvedTypeId };
+                }
+              }
+              return r;
+            });
+            if (healed > 0) {
+              logInfo('sync attribute_defs healed by code-based entity_type remap', {
+                healed,
+                client_id: req.client_id,
+                user: actor.username,
+              });
+              missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
+            }
+          }
+        }
+
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.AttributeDefs, missingRows.length, 'entity_type');
           addDependencySkippedRows(
@@ -792,7 +841,7 @@ export async function applyPushBatch(
             'entity_type',
             'entity_type_id',
           );
-          logWarn('sync dependency rows skipped', {
+          logSkip('sync dependency rows skipped', {
             table: SyncTableName.AttributeDefs,
             dependency: 'entity_type',
             missing: missingRows.length,
@@ -886,7 +935,7 @@ export async function applyPushBatch(
             'attribute_def',
             'attribute_def_id',
           );
-          logWarn('sync dependency rows skipped', {
+          logSkip('sync dependency rows skipped', {
             table: SyncTableName.AttributeValues,
             dependency: 'attribute_def',
             missing: missingRows.length,
@@ -909,7 +958,7 @@ export async function applyPushBatch(
         if (missingRows.length > 0) {
           addSkipMetric('dependency', SyncTableName.AttributeValues, missingRows.length, 'entity');
           addDependencySkippedRows(SyncTableName.AttributeValues, missingRows as Array<Record<string, unknown>>, 'entity', 'entity_id');
-          logWarn('sync dependency rows skipped', {
+          logSkip('sync dependency rows skipped', {
             table: SyncTableName.AttributeValues,
             dependency: 'entity',
             missing: missingRows.length,
@@ -1046,7 +1095,7 @@ export async function applyPushBatch(
             'engine_entity',
             'engine_entity_id',
           );
-          logWarn('sync dependency rows skipped', {
+          logSkip('sync dependency rows skipped', {
             table: SyncTableName.Operations,
             dependency: 'engine_entity',
             missing: missingOps.length,
@@ -1271,10 +1320,10 @@ export async function applyPushBatch(
       const raw = grouped.get(SyncTableName.ChatReads) ?? [];
       const parsedAll = parseRows(SyncTableName.ChatReads, raw, chatReadRowSchema);
       if (parsedAll.length > 0 && actorId) {
-        // Never trust user_id from client (read receipts are personal).
+        const isReplay = !!applyOpts.allowSyncConflicts;
         const parsed = parsedAll.map((r) => ({
           ...r,
-          user_id: actorId,
+          user_id: isReplay && r.user_id ? r.user_id : actorId,
         }));
         const rows = await filterStaleBySeqOrUpdatedAt(chatReads, parsed, SyncTableName.ChatReads);
         const messageIds = Array.from(new Set(rows.map((r) => String(r.message_id))));
@@ -1289,7 +1338,24 @@ export async function applyPushBatch(
         const existingMessageIds = new Set(existingMessages.map((m) => String(m.id)));
         // Read receipts are derived data; if the message is missing on server,
         // skip those rows to avoid blocking sync for unrelated data.
-        const allowed: typeof rows = rows.filter((r) => existingMessageIds.has(String(r.message_id)));
+        const filtered: typeof rows = rows.filter((r) => existingMessageIds.has(String(r.message_id)));
+
+        const dedupById = new Map<string, (typeof filtered)[number]>();
+        for (const r of filtered) {
+          const prev = dedupById.get(String(r.id));
+          if (!prev || Number(prev.updated_at ?? 0) < Number(r.updated_at ?? 0)) {
+            dedupById.set(String(r.id), r);
+          }
+        }
+        const dedupByPair = new Map<string, (typeof filtered)[number]>();
+        for (const r of dedupById.values()) {
+          const key = `${String(r.message_id)}:${String(r.user_id)}`;
+          const prev = dedupByPair.get(key);
+          if (!prev || Number(prev.updated_at ?? 0) < Number(r.updated_at ?? 0)) {
+            dedupByPair.set(key, r);
+          }
+        }
+        const allowed = Array.from(dedupByPair.values());
 
         if (allowed.length > 0) {
           await tx

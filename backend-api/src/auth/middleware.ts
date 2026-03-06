@@ -7,6 +7,8 @@ import { getEmployeeAuthById, normalizeRole } from '../services/employeeAuthServ
 
 export type AuthenticatedRequest = Request & { user: AuthUser };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function extractBearerToken(req: Request): string | null {
   const raw = req.header('authorization') ?? req.header('Authorization') ?? '';
   const m = raw.match(/^Bearer\s+(.+)$/i);
@@ -19,6 +21,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const token = extractBearerToken(req);
     if (!token) return res.status(401).json({ ok: false, error: 'missing bearer token' });
     const user = await verifyAccessToken(token);
+    if (!UUID_RE.test(user.id)) return res.status(401).json({ ok: false, error: 'invalid user id in token' });
     const auth = await getEmployeeAuthById(user.id);
     if (!auth?.accessEnabled) {
       return res.status(403).json({ ok: false, error: 'user disabled' });

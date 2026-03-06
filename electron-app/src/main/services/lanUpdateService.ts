@@ -99,7 +99,7 @@ export async function startLanUpdateServer(filePath: string, fileName: string): 
   }
   const safeName = basename(fileName);
   const safePath = join(getUpdatesRootDir(), safeName);
-  const finalPath = filePath && basename(filePath) === safeName ? filePath : safePath;
+  const finalPath = filePath ? String(filePath) : safePath;
 
   if (currentServer) {
     currentServer.filePath = finalPath;

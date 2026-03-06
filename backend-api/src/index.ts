@@ -22,6 +22,11 @@ const app = createApp();
 
 process.on('uncaughtException', (error) => {
   logError('backend uncaught exception', { error: String(error) });
+  const msg = String(error?.message ?? error ?? '');
+  if (msg.includes('EADDRINUSE') || msg.includes('EACCES')) {
+    logError('fatal: port is already in use or inaccessible, exiting', { error: msg });
+    process.exit(1);
+  }
 });
 
 process.on('unhandledRejection', (reason) => {
@@ -75,8 +80,20 @@ async function bootstrap() {
     startCriticalEventsTelegramService();
   }
 
-  app.listen(port, host, () => {
+  const server = app.listen(port, host, () => {
     logInfo(`listening on ${host}:${port}`, { host, port }, { critical: true });
+  });
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      logError(`fatal: port ${port} is already in use on ${host}. Check for duplicate backend processes.`, {
+        host,
+        port,
+        error: String(err),
+      });
+    } else {
+      logError('fatal: server listen error', { host, port, error: String(err) });
+    }
+    process.exit(1);
   });
 }
 

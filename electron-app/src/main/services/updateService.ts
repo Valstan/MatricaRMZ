@@ -49,6 +49,7 @@ export type UpdateHelperArgs = {
 const UPDATE_CHECK_TIMEOUT_MS = 20_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 const UPDATE_DOWNLOAD_NO_PROGRESS_MS = 45_000;
+const FIXED_UPDATE_INSTALLER_NAME = 'matrica_rmz_update.exe';
 
 export function initAutoUpdate() {
   // kept for backward compatibility; no autoUpdater wiring needed
@@ -272,6 +273,7 @@ async function validateInstallerPath(
   expectedName?: string,
   expectedSize?: number | null,
 ): Promise<{ ok: true; isSetup: boolean; size: number; actualName: string } | { ok: false; error: string }> {
+  void expectedName;
   const st = await stat(installerPath).catch(() => null);
   if (!st || !st.isFile()) return { ok: false, error: 'installer file is missing' };
   if (st.size <= 0) return { ok: false, error: 'installer file is empty' };
@@ -279,12 +281,10 @@ async function validateInstallerPath(
     return { ok: false, error: `installer size mismatch: expected ${expectedSize} got ${st.size}` };
   }
   const actualName = basename(installerPath);
-  const expected = expectedName ? basename(expectedName) : '';
-  const expectedRequiresSetup = expected ? isSetupInstallerName(expected) : false;
-  const actualIsSetup = isSetupInstallerName(actualName);
-  if (expectedRequiresSetup && !actualIsSetup) {
-    return { ok: false, error: `installer mismatch: expected setup, got ${actualName}` };
+  if (!actualName.toLowerCase().endsWith('.exe')) {
+    return { ok: false, error: `installer mismatch: expected .exe, got ${actualName}` };
   }
+  const actualIsSetup = isSetupInstallerName(actualName);
   return { ok: true, isSetup: actualIsSetup, size: st.size, actualName };
 }
 
@@ -367,16 +367,21 @@ async function findCachedInstallerForVersion(
   version: string,
   expectedName?: string,
 ): Promise<{ filePath: string; fileName: string } | null> {
-  const dir = join(getUpdatesRootDir(), version);
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  const files = entries.filter((e) => e.isFile()).map((e) => e.name);
-  if (files.length === 0) return null;
-  if (expectedName && files.includes(expectedName)) {
-    return { filePath: join(dir, expectedName), fileName: expectedName };
+  const pending = await readPendingUpdate();
+  if (pending?.version && pending.version === version) {
+    const pendingValidation = await validateInstallerPath(
+      pending.installerPath,
+      expectedName ?? pending.installerPath,
+      pending.expectedSize ?? null,
+    );
+    if (pendingValidation.ok) {
+      return { filePath: pending.installerPath, fileName: basename(pending.installerPath) };
+    }
   }
-  const exe = files.find((f) => f.toLowerCase().endsWith('.exe'));
-  if (!exe) return null;
-  return { filePath: join(dir, exe), fileName: exe };
+  const stablePath = getStableInstallerPath();
+  const stableValidation = await validateInstallerPath(stablePath, expectedName ?? stablePath);
+  if (!stableValidation.ok) return null;
+  return { filePath: stablePath, fileName: basename(stablePath) };
 }
 
 async function validateInstallerIntegrity(
@@ -722,12 +727,13 @@ async function stageUpdate(msg: string, pct?: number, version?: string) {
 }
 
 async function cacheInstaller(filePath: string, version?: string) {
-  const ver = version?.trim() || 'latest';
-  const outDir = join(getUpdatesRootDir(), ver);
+  void version;
+  const outDir = getUpdatesRootDir();
   await mkdir(outDir, { recursive: true });
-  const outPath = join(outDir, basename(filePath));
+  const outPath = getStableInstallerPath();
   if (outPath === filePath) return outPath;
-  await copyFile(filePath, outPath).catch(() => {});
+  await rm(outPath, { force: true });
+  await copyFile(filePath, outPath);
   return outPath;
 }
 
@@ -843,25 +849,15 @@ async function clearPendingUpdate() {
 }
 
 async function findCachedInstaller(): Promise<{ version: string; installerPath: string } | null> {
-  const root = getUpdatesRootDir();
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-  const versions = entries
-    .filter((e) => e.isDirectory() && /^\d+\.\d+\.\d+$/.test(e.name))
-    .map((e) => e.name);
-  if (versions.length === 0) return null;
-  versions.sort((a, b) => compareSemver(b, a));
-  for (const ver of versions) {
-    const dir = join(root, ver);
-    const files = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    const candidates = files.filter((f) => f.isFile() && f.name.toLowerCase().endsWith('.exe')).map((f) => f.name);
-    if (candidates.length === 0) continue;
-    const preferred = candidates.find((n) => isSetupInstallerName(n)) ?? candidates[0];
-    const installerPath = join(dir, preferred ?? '');
-    const validation = await validateInstallerPath(installerPath, preferred);
-    if (!validation.ok) continue;
-    return { version: ver, installerPath };
-  }
-  return null;
+  const pending = await readPendingUpdate();
+  if (!pending?.version || !pending.installerPath) return null;
+  const validation = await validateInstallerPath(
+    pending.installerPath,
+    pending.installerPath,
+    pending.expectedSize ?? null,
+  );
+  if (!validation.ok) return null;
+  return { version: pending.version, installerPath: pending.installerPath };
 }
 
 async function resolveLocalInstaller(currentVersion: string, serverVersion: string | null) {
@@ -981,9 +977,7 @@ async function tryDownloadFromTorrentPeers(
   const uniqCandidates = Array.from(new Set(candidates));
   if (!uniqCandidates.length) return { ok: false as const, error: 'no peer download candidates' };
 
-  const outDir = getUpdateDownloadDir(meta.version, meta.fileName);
-  await mkdir(outDir, { recursive: true });
-  const outPath = join(outDir, meta.fileName);
+  const outPath = await prepareStableInstallerDownloadTarget();
 
   for (const url of uniqCandidates) {
     await logTorrent(`download try url=${url}`);
@@ -2033,16 +2027,20 @@ function extractVersionFromFileName(fileName: string): string | null {
   return m?.[1] ?? null;
 }
 
-function resolveUpdateVersion(version?: string, fileName?: string) {
-  const cleaned = version?.trim();
-  if (cleaned) return cleaned;
-  const fromName = fileName ? extractVersionFromFileName(fileName) : null;
-  return fromName ?? 'latest';
+function getStableInstallerPath() {
+  return join(getUpdatesRootDir(), FIXED_UPDATE_INSTALLER_NAME);
 }
 
-function getUpdateDownloadDir(version?: string, fileName?: string) {
-  const ver = resolveUpdateVersion(version, fileName);
-  return join(getUpdatesRootDir(), ver);
+async function prepareStableInstallerDownloadTarget() {
+  const outDir = getUpdatesRootDir();
+  await mkdir(outDir, { recursive: true });
+  const outPath = getStableInstallerPath();
+  await rm(outPath, { force: true });
+  const alreadyExists = await stat(outPath).catch(() => null);
+  if (alreadyExists?.isFile()) {
+    throw new Error(`failed to replace existing installer: ${outPath}`);
+  }
+  return outPath;
 }
 
 async function tryAdvertiseLan(meta: ServerUpdateMeta): Promise<void> {
@@ -2097,9 +2095,7 @@ async function tryDownloadFromLan(
   await logLan(`download peers=${peers.length} version=${meta.version}`);
   if (!peers.length) return { ok: false as const, error: 'no peers' };
 
-  const outDir = getUpdateDownloadDir(meta.version, meta.fileName);
-  await mkdir(outDir, { recursive: true });
-  const outPath = join(outDir, meta.fileName);
+  const outPath = await prepareStableInstallerDownloadTarget();
 
   for (const peer of peers) {
     const ip = String(peer.ip ?? '').trim();
@@ -2294,9 +2290,7 @@ async function downloadYandexUpdate(
     const filePath = joinPosix(basePath, fileName);
     const href = info.downloadUrl ?? (await getYandexDownloadHref(publicKey, filePath));
     if (!href) return { ok: false as const, error: 'yandex installer not found' };
-    const outDir = getUpdateDownloadDir(info.version, fileName);
-    await mkdir(outDir, { recursive: true });
-    const outPath = join(outDir, fileName);
+    const outPath = await prepareStableInstallerDownloadTarget();
     return await downloadWithResume(href, outPath, {
       attempts: 4,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
@@ -2314,14 +2308,11 @@ async function downloadYandexUpdate(
 
 async function downloadGithubUpdate(
   url: string,
-  version?: string,
+  _version?: string,
   opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
 ) {
   try {
-    const fileName = basename(new URL(url).pathname) || `MatricaRMZ-${version ?? 'update'}.exe`;
-    const outDir = getUpdateDownloadDir(version, fileName);
-    await mkdir(outDir, { recursive: true });
-    const outPath = join(outDir, fileName);
+    const outPath = await prepareStableInstallerDownloadTarget();
     return await downloadWithResume(url, outPath, {
       attempts: 4,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
