@@ -48,7 +48,7 @@ export async function criticalEventsList(
   apiBaseUrl: string,
   args?: { days?: number; limit?: number },
 ): Promise<{ ok: true; events: CriticalEventItem[] } | { ok: false; error: string }> {
-  const days = Math.max(1, Math.min(30, safeNumber(args?.days, 10)));
+  const days = Math.max(1, Math.min(30, safeNumber(args?.days, 3)));
   const limit = Math.max(1, Math.min(1000, safeNumber(args?.limit, 300)));
   const query = `/diagnostics/critical-events?days=${days}&limit=${limit}`;
   const res = await httpAuthed(db, apiBaseUrl, query, { method: 'GET' }, { timeoutMs: 20_000 });
@@ -58,5 +58,32 @@ export async function criticalEventsList(
   const rows = Array.isArray(res.json?.events) ? res.json.events : [];
   const events = rows.map((row: any) => normalizeItem(row)).filter((row: CriticalEventItem | null): row is CriticalEventItem => Boolean(row));
   return { ok: true, events };
+}
+
+export async function criticalEventDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { id: string },
+): Promise<{ ok: true; deleted: boolean } | { ok: false; error: string }> {
+  const id = String(args?.id ?? '').trim();
+  if (!id) return { ok: false, error: 'event id is required' };
+  const query = `/diagnostics/critical-events/${encodeURIComponent(id)}`;
+  const res = await httpAuthed(db, apiBaseUrl, query, { method: 'DELETE' }, { timeoutMs: 20_000 });
+  if (!res.ok) {
+    return { ok: false, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+  }
+  return { ok: true, deleted: res.json?.deleted === true };
+}
+
+export async function criticalEventsClear(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
+  const query = '/diagnostics/critical-events';
+  const res = await httpAuthed(db, apiBaseUrl, query, { method: 'DELETE' }, { timeoutMs: 20_000 });
+  if (!res.ok) {
+    return { ok: false, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+  }
+  return { ok: true, deleted: Number.isFinite(Number(res.json?.deleted)) ? Number(res.json.deleted) : 0 };
 }
 

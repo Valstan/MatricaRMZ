@@ -22,15 +22,6 @@ type QuickStartTile = {
   gradient: string;
 };
 
-type QuickTilesPrefs = {
-  order: string[];
-  hidden: string[];
-};
-
-function quickTilesStorageKey(userId: string) {
-  return `matrica:history:quick-tiles:${userId}`;
-}
-
 function formatDateTime(ms: number) {
   try {
     return formatMoscowDateTime(ms);
@@ -80,14 +71,13 @@ function messagePreview(message: ChatMessageItem) {
 export function HistoryPage(props: {
   meUserId: string;
   recentVisits: RecentVisitEntry[];
+  quickStartRatings?: Array<{ tab: string; score: number; lastAt?: number }>;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onOpenNotes: (noteId?: string | null) => void;
   onOpenChat: () => void;
 }) {
   const [notes, setNotes] = useState<NoteView[]>([]);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
-  const [tilesEditMode, setTilesEditMode] = useState(false);
-  const [dragTileId, setDragTileId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -184,73 +174,48 @@ export function HistoryPage(props: {
         tab: 'reports',
         gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)',
       },
+      {
+        id: 'contracts',
+        icon: '📑',
+        title: 'Контракты',
+        subtitle: 'Договоры и исполнение',
+        tab: 'contracts',
+        gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)',
+      },
+      {
+        id: 'counterparties',
+        icon: '🤝',
+        title: 'Контрагенты',
+        subtitle: 'Партнеры и заказчики',
+        tab: 'counterparties',
+        gradient: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)',
+      },
+      {
+        id: 'tools',
+        icon: '🛠️',
+        title: 'Инструменты',
+        subtitle: 'Учет инструмента',
+        tab: 'tools',
+        gradient: 'linear-gradient(135deg, #0f766e 0%, #22c55e 100%)',
+      },
+      {
+        id: 'employees',
+        icon: '👥',
+        title: 'Сотрудники',
+        subtitle: 'Кадры и доступы',
+        tab: 'employees',
+        gradient: 'linear-gradient(135deg, #7c2d12 0%, #ea580c 100%)',
+      },
+      {
+        id: 'settings',
+        icon: '⚡',
+        title: 'Настройки',
+        subtitle: 'Параметры клиента',
+        tab: 'settings',
+        gradient: 'linear-gradient(135deg, #111827 0%, #4b5563 100%)',
+      },
     ],
     [],
-  );
-
-  const allTileIds = useMemo(() => quickStartTiles.map((tile) => tile.id), [quickStartTiles]);
-
-  const [quickTileOrder, setQuickTileOrder] = useState<string[]>(allTileIds);
-  const [hiddenQuickTiles, setHiddenQuickTiles] = useState<string[]>([]);
-
-  useEffect(() => {
-    const userId = String(props.meUserId ?? '').trim();
-    if (!userId) {
-      setQuickTileOrder(allTileIds);
-      setHiddenQuickTiles([]);
-      return;
-    }
-    try {
-      const raw = window.localStorage.getItem(quickTilesStorageKey(userId));
-      if (!raw) {
-        setQuickTileOrder(allTileIds);
-        setHiddenQuickTiles([]);
-        return;
-      }
-      const parsed = JSON.parse(raw) as QuickTilesPrefs;
-      const nextOrder = Array.isArray(parsed?.order) ? parsed.order.filter((id) => allTileIds.includes(String(id))) : [];
-      for (const id of allTileIds) {
-        if (!nextOrder.includes(id)) nextOrder.push(id);
-      }
-      const nextHidden = Array.isArray(parsed?.hidden)
-        ? parsed.hidden.filter((id) => allTileIds.includes(String(id)) && nextOrder.includes(String(id)))
-        : [];
-      setQuickTileOrder(nextOrder);
-      setHiddenQuickTiles(Array.from(new Set(nextHidden)));
-    } catch {
-      setQuickTileOrder(allTileIds);
-      setHiddenQuickTiles([]);
-    }
-  }, [props.meUserId, allTileIds]);
-
-  useEffect(() => {
-    const userId = String(props.meUserId ?? '').trim();
-    if (!userId) return;
-    const payload: QuickTilesPrefs = {
-      order: quickTileOrder.filter((id) => allTileIds.includes(id)),
-      hidden: hiddenQuickTiles.filter((id) => allTileIds.includes(id)),
-    };
-    try {
-      window.localStorage.setItem(quickTilesStorageKey(userId), JSON.stringify(payload));
-    } catch {
-      // ignore storage issues
-    }
-  }, [props.meUserId, allTileIds, quickTileOrder, hiddenQuickTiles]);
-
-  const quickTilesById = useMemo(() => {
-    const map = new Map<string, QuickStartTile>();
-    for (const tile of quickStartTiles) map.set(tile.id, tile);
-    return map;
-  }, [quickStartTiles]);
-
-  const visibleQuickTiles = useMemo(
-    () => quickTileOrder.map((id) => quickTilesById.get(id)).filter((tile): tile is QuickStartTile => !!tile && !hiddenQuickTiles.includes(tile.id)),
-    [quickTileOrder, quickTilesById, hiddenQuickTiles],
-  );
-
-  const hiddenQuickTilesList = useMemo(
-    () => quickTileOrder.map((id) => quickTilesById.get(id)).filter((tile): tile is QuickStartTile => !!tile && hiddenQuickTiles.includes(tile.id)),
-    [quickTileOrder, quickTilesById, hiddenQuickTiles],
   );
 
   const recentByTab = useMemo(() => {
@@ -261,26 +226,42 @@ export function HistoryPage(props: {
     }
     return out;
   }, [rightColumnVisits]);
+  const ratingByTab = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const row of props.quickStartRatings ?? []) {
+      const tab = String(row?.tab ?? '').trim();
+      if (!tab) continue;
+      const score = Number(row?.score ?? 0);
+      if (!Number.isFinite(score) || score <= 0) continue;
+      out.set(tab, score);
+    }
+    return out;
+  }, [props.quickStartRatings]);
 
-  function moveTileBefore(fromId: string, toId: string) {
-    if (fromId === toId) return;
-    setQuickTileOrder((prev) => {
-      const list = [...prev];
-      const fromIndex = list.indexOf(fromId);
-      const toIndex = list.indexOf(toId);
-      if (fromIndex < 0 || toIndex < 0) return prev;
-      const [item] = list.splice(fromIndex, 1);
-      if (!item) return prev;
-      const insertIndex = toIndex > fromIndex ? toIndex - 1 : toIndex;
-      list.splice(insertIndex, 0, item);
-      return list;
-    });
-  }
+  const visibleQuickTiles = useMemo(() => {
+    const ranked = quickStartTiles.map((tile, index) => ({
+      tile,
+      rating: Number(ratingByTab.get(tile.tab) ?? 0),
+      recent: Number(recentByTab.get(tile.tab) ?? 0),
+      index,
+    }));
+    ranked.sort((a, b) => b.rating - a.rating || b.recent - a.recent || a.index - b.index);
 
-  function resetTilesPrefs() {
-    setQuickTileOrder(allTileIds);
-    setHiddenQuickTiles([]);
-  }
+    const top = ranked
+      .filter((row) => row.rating > 0 || row.recent > 0)
+      .slice(0, 3)
+      .map((row) => row.tile);
+
+    if (top.length >= 3) return top;
+    const seen = new Set(top.map((tile) => tile.id));
+    for (const row of ranked) {
+      if (seen.has(row.tile.id)) continue;
+      top.push(row.tile);
+      seen.add(row.tile.id);
+      if (top.length >= 3) break;
+    }
+    return top;
+  }, [quickStartTiles, ratingByTab, recentByTab]);
 
   return (
     <div
@@ -300,39 +281,8 @@ export function HistoryPage(props: {
         }}
       >
         <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a8a', marginBottom: 8 }}>Быстрый старт</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => setTilesEditMode((prev) => !prev)}
-            style={{
-              border: '1px solid rgba(59, 130, 246, 0.35)',
-              borderRadius: 999,
-              background: tilesEditMode ? '#1d4ed8' : '#eff6ff',
-              color: tilesEditMode ? '#ffffff' : '#1e3a8a',
-              fontWeight: 700,
-              cursor: 'pointer',
-              padding: '4px 10px',
-            }}
-          >
-            {tilesEditMode ? 'Готово' : 'Настроить'}
-          </button>
-          {tilesEditMode && (
-            <button
-              type="button"
-              onClick={resetTilesPrefs}
-              style={{
-                border: '1px solid rgba(100, 116, 139, 0.3)',
-                borderRadius: 999,
-                background: '#ffffff',
-                color: '#0f172a',
-                fontWeight: 600,
-                cursor: 'pointer',
-                padding: '4px 10px',
-              }}
-            >
-              Сброс
-            </button>
-          )}
+        <div style={{ fontSize: 13, color: '#475569', marginBottom: 10 }}>
+          Показаны 3 самых часто используемых раздела для вашего пользователя.
         </div>
         <div
           style={{
@@ -343,24 +293,12 @@ export function HistoryPage(props: {
         >
           {visibleQuickTiles.map((tile) => {
             const recentCount = Number(recentByTab.get(tile.tab) ?? 0);
+            const rating = Number(ratingByTab.get(tile.tab) ?? 0);
             return (
               <button
                 key={tile.id}
                 type="button"
-                draggable={tilesEditMode}
-                onDragStart={() => setDragTileId(tile.id)}
-                onDragEnd={() => setDragTileId(null)}
-                onDragOver={(event) => {
-                  if (!tilesEditMode) return;
-                  event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  if (!tilesEditMode) return;
-                  event.preventDefault();
-                  if (dragTileId) moveTileBefore(dragTileId, tile.id);
-                }}
                 onClick={() => {
-                  if (tilesEditMode) return;
                   props.onNavigate({
                     kind: 'app_link',
                     tab: tile.tab,
@@ -377,14 +315,25 @@ export function HistoryPage(props: {
                   background: tile.gradient,
                   boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
                   minHeight: 86,
-                  opacity: dragTileId && dragTileId !== tile.id ? 0.94 : 1,
-                  outline: dragTileId === tile.id ? '2px dashed rgba(255,255,255,0.8)' : 'none',
                 }}
                 title={tile.title}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ fontSize: 22, lineHeight: 1 }}>{tile.icon}</span>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {rating > 0 ? (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          borderRadius: 999,
+                          padding: '2px 7px',
+                          background: 'rgba(255,255,255,0.24)',
+                          fontWeight: 700,
+                        }}
+                      >
+                        рейтинг {rating}
+                      </span>
+                    ) : null}
                     {recentCount > 0 ? (
                       <span
                         style={{
@@ -398,80 +347,14 @@ export function HistoryPage(props: {
                         {recentCount} недавн.
                       </span>
                     ) : null}
-                    {tilesEditMode && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          borderRadius: 999,
-                          padding: '2px 7px',
-                          background: 'rgba(15,23,42,0.25)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        Перетащить
-                      </span>
-                    )}
                   </div>
                 </div>
                 <div style={{ marginTop: 7, fontSize: 15, fontWeight: 800 }}>{tile.title}</div>
                 <div style={{ marginTop: 3, fontSize: 12, opacity: 0.95 }}>{tile.subtitle}</div>
-                {tilesEditMode && (
-                  <div style={{ marginTop: 8 }}>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setHiddenQuickTiles((prev) => Array.from(new Set([...prev, tile.id])));
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setHiddenQuickTiles((prev) => Array.from(new Set([...prev, tile.id])));
-                        }
-                      }}
-                      style={{
-                        fontSize: 12,
-                        borderRadius: 999,
-                        padding: '2px 8px',
-                        background: 'rgba(15,23,42,0.25)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Скрыть
-                    </span>
-                  </div>
-                )}
               </button>
             );
           })}
         </div>
-        {tilesEditMode && hiddenQuickTilesList.length > 0 && (
-          <div style={{ marginTop: 10, borderTop: '1px dashed rgba(148,163,184,0.45)', paddingTop: 10 }}>
-            <div style={{ fontWeight: 700, color: '#334155', marginBottom: 7 }}>Скрытые плитки</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {hiddenQuickTilesList.map((tile) => (
-                <button
-                  key={`hidden-${tile.id}`}
-                  type="button"
-                  onClick={() => setHiddenQuickTiles((prev) => prev.filter((id) => id !== tile.id))}
-                  style={{
-                    border: '1px solid rgba(100, 116, 139, 0.4)',
-                    borderRadius: 999,
-                    padding: '5px 10px',
-                    background: '#ffffff',
-                    color: '#0f172a',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  {tile.icon} {tile.title} + Показать
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       <div

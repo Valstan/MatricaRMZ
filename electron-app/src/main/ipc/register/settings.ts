@@ -1,6 +1,7 @@
-import { ipcMain, net } from 'electron';
+import { app, ipcMain, net } from 'electron';
 import type { UiControlSettings } from '@matricarmz/shared';
 import {
+  CURRENT_RELEASE_WELCOME,
   DEFAULT_UI_CONTROL_SETTINGS,
   UI_DEFAULTS_VERSION,
   sanitizeUiControlSettings,
@@ -9,7 +10,7 @@ import {
 import type { IpcContext } from '../ipcContext.js';
 import { getSession } from '../../services/authService.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from '../../services/settingsStore.js';
-import { criticalEventsList } from '../../services/criticalEventsService.js';
+import { criticalEventDelete, criticalEventsClear, criticalEventsList } from '../../services/criticalEventsService.js';
 
 const THEMES = new Set(['auto', 'light', 'dark']);
 const CHAT_SIDES = new Set(['left', 'right']);
@@ -198,15 +199,92 @@ export function registerSettingsIpc(ctx: IpcContext) {
 
   // ui:control:setUser removed — user-managed UI settings are disabled.
 
+  ipcMain.handle('ui:releaseWelcome:get', async () => {
+    try {
+      const currentVersion = String(app.getVersion() ?? '').trim();
+      const previouslySeenVersion = String(
+        (await settingsGetString(ctx.sysDb, SettingsKey.ReleaseWelcomeSeenVersion)) ?? '',
+      ).trim();
+
+      if (!currentVersion) {
+        return { ok: false as const, error: 'current version is empty' };
+      }
+
+      if (!previouslySeenVersion) {
+        await settingsSetString(ctx.sysDb, SettingsKey.ReleaseWelcomeSeenVersion, currentVersion);
+        return {
+          ok: true as const,
+          shouldShow: false,
+          currentVersion,
+          previouslySeenVersion: null,
+        };
+      }
+
+      if (previouslySeenVersion === currentVersion) {
+        return {
+          ok: true as const,
+          shouldShow: false,
+          currentVersion,
+          previouslySeenVersion,
+        };
+      }
+
+      return {
+        ok: true as const,
+        shouldShow: true,
+        currentVersion,
+        previouslySeenVersion,
+        welcome: CURRENT_RELEASE_WELCOME,
+      };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('ui:releaseWelcome:acknowledge', async () => {
+    try {
+      const currentVersion = String(app.getVersion() ?? '').trim();
+      if (!currentVersion) return { ok: false as const, error: 'current version is empty' };
+      await settingsSetString(ctx.sysDb, SettingsKey.ReleaseWelcomeSeenVersion, currentVersion);
+      return { ok: true as const, version: currentVersion };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
   ipcMain.handle('diagnostics:criticalEvents:list', async (_e, args?: { days?: number; limit?: number }) => {
     try {
       const session = await getSession(ctx.sysDb).catch(() => null);
       const role = String(session?.user?.role ?? '').trim().toLowerCase();
       if (role !== 'superadmin') return { ok: false as const, error: 'permission denied: superadmin only' };
       return await criticalEventsList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
-        days: Number(args?.days ?? 10),
+        days: Number(args?.days ?? 3),
         limit: Number(args?.limit ?? 300),
       });
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('diagnostics:criticalEvents:delete', async (_e, args?: { id?: string }) => {
+    try {
+      const session = await getSession(ctx.sysDb).catch(() => null);
+      const role = String(session?.user?.role ?? '').trim().toLowerCase();
+      if (role !== 'superadmin') return { ok: false as const, error: 'permission denied: superadmin only' };
+      const id = String(args?.id ?? '').trim();
+      if (!id) return { ok: false as const, error: 'event id is required' };
+      return await criticalEventDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { id });
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('diagnostics:criticalEvents:clear', async () => {
+    try {
+      const session = await getSession(ctx.sysDb).catch(() => null);
+      const role = String(session?.user?.role ?? '').trim().toLowerCase();
+      if (role !== 'superadmin') return { ok: false as const, error: 'permission denied: superadmin only' };
+      return await criticalEventsClear(ctx.sysDb, ctx.mgr.getApiBaseUrl());
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

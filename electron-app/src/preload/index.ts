@@ -90,6 +90,8 @@ const matricaApi = {
   },
   diagnostics: {
     criticalEventsList: async (args?: { days?: number; limit?: number }) => ipcRenderer.invoke('diagnostics:criticalEvents:list', args),
+    criticalEventsDelete: async (args: { id: string }) => ipcRenderer.invoke('diagnostics:criticalEvents:delete', args),
+    criticalEventsClear: async () => ipcRenderer.invoke('diagnostics:criticalEvents:clear'),
   },
   reports: {
     presetList: async () => ipcRenderer.invoke('reports:presetList'),
@@ -452,6 +454,8 @@ const matricaApi = {
       ipcRenderer.invoke('ui:prefs:set', args),
     uiControlGet: async () => ipcRenderer.invoke('ui:control:get'),
     uiControlSetGlobal: async (args: { uiSettings: unknown; bumpVersion?: boolean }) => ipcRenderer.invoke('ui:control:setGlobal', args),
+    releaseWelcomeGet: async () => ipcRenderer.invoke('ui:releaseWelcome:get'),
+    releaseWelcomeAcknowledge: async () => ipcRenderer.invoke('ui:releaseWelcome:acknowledge'),
   },
   e2eKeys: {
     status: async () => ipcRenderer.invoke('e2e:keys:status'),

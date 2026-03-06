@@ -24,7 +24,7 @@ export type CriticalEventRecord = {
 };
 
 const CRITICAL_EVENTS_FILE = 'critical-events.ndjson';
-const RETENTION_DAYS = 10;
+const RETENTION_DAYS = 3;
 const MAX_EVENTS = 10_000;
 const DEDUP_WINDOW_MS = 60_000;
 
@@ -371,6 +371,8 @@ export function ingestServerLogForCriticalEvent(args: {
 }
 
 export function listCriticalEvents(args?: { days?: number; limit?: number }): CriticalEventRecord[] {
+  // Ensure retention is enforced even on read-only periods (no new events appended).
+  maybePrune(Date.now());
   const days = Math.max(1, Math.min(30, Number(args?.days ?? RETENTION_DAYS)));
   const limit = Math.max(1, Math.min(1_000, Number(args?.limit ?? 300)));
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -378,5 +380,23 @@ export function listCriticalEvents(args?: { days?: number; limit?: number }): Cr
     .filter((row) => Number(row.createdAt) >= cutoff)
     .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
   return rows.slice(0, limit);
+}
+
+export function deleteCriticalEventById(eventId: string): { deleted: boolean } {
+  const id = String(eventId ?? '').trim();
+  if (!id) return { deleted: false };
+  const rows = readEvents();
+  if (rows.length === 0) return { deleted: false };
+  const next = rows.filter((row) => String(row.id) !== id);
+  if (next.length === rows.length) return { deleted: false };
+  writeEvents(next);
+  return { deleted: true };
+}
+
+export function deleteAllCriticalEvents(): { deleted: number } {
+  const rows = readEvents();
+  const deleted = rows.length;
+  if (deleted > 0) writeEvents([]);
+  return { deleted };
 }
 

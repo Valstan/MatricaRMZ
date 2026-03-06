@@ -6,6 +6,7 @@ import { logInfo, logWarn } from '../utils/logger.js';
 const DEFAULT_POLL_MS = 15_000;
 const DEFAULT_TZ = 'Europe/Moscow';
 const MAX_EVENTS_PER_TICK = 50;
+const LOOKBACK_DAYS = 3;
 const SUPERADMIN_LOGIN_FALLBACK = 'valstan';
 const DEFAULT_ALERT_ERROR_CATEGORIES = ['sync', 'network', 'database'];
 const DEFAULT_RATE_WINDOW_MS = 10 * 60_000;
@@ -129,13 +130,13 @@ export function startCriticalEventsTelegramService() {
   const globalSentAt: number[] = [];
   const codeSentAt = new Map<string, number[]>();
 
-  for (const event of listCriticalEvents({ days: 10, limit: 1000 })) {
+  for (const event of listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })) {
     if (shouldAlertEvent(event, { errorEnabled, errorCategories })) seen.add(event.id);
   }
 
   const tick = async () => {
     try {
-      const events = listCriticalEvents({ days: 10, limit: 1000 })
+      const events = listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })
         .filter((event) => shouldAlertEvent(event, { errorEnabled, errorCategories }) && !seen.has(event.id))
         .sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
       if (events.length === 0) return;
@@ -188,7 +189,7 @@ export function startCriticalEventsTelegramService() {
 
       if (seen.size > 5000) {
         seen.clear();
-        for (const event of listCriticalEvents({ days: 10, limit: 1000 })) {
+        for (const event of listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })) {
           if (shouldAlertEvent(event, { errorEnabled, errorCategories })) seen.add(event.id);
         }
       }

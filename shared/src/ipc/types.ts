@@ -232,9 +232,35 @@ export type UpdateResult = { ok: boolean; error?: string };
 
 export type AppVersionResult = { ok: true; version: string } | { ok: false; error: string };
 
+export type ReleaseWelcomeGetResult =
+  | {
+      ok: true;
+      shouldShow: boolean;
+      currentVersion: string;
+      previouslySeenVersion: string | null;
+      welcome?: ReleaseWelcomeContent;
+    }
+  | { ok: false; error: string };
+
+export type ReleaseWelcomeAcknowledgeResult =
+  | { ok: true; version: string }
+  | { ok: false; error: string };
+
 export type ServerHealthResult =
   | { ok: true; url: string; serverOk: boolean; version: string | null; buildDate: string | null }
   | { ok: false; url: string; error: string };
+
+export type DiagnosticsCriticalEventsListResult =
+  | { ok: true; events: Array<Record<string, unknown>> }
+  | { ok: false; error: string };
+
+export type DiagnosticsCriticalEventDeleteResult =
+  | { ok: true; deleted: boolean }
+  | { ok: false; error: string };
+
+export type DiagnosticsCriticalEventsClearResult =
+  | { ok: true; deleted: number }
+  | { ok: false; error: string };
 
 export type IncomingLinkInfo = {
   fromEntityId: string;
@@ -489,6 +515,7 @@ import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
 import type { UiControlSettings } from '../domain/uiControl.js';
+import type { ReleaseWelcomeContent } from '../domain/releaseWelcome.js';
 import type {
   ReportPresetCsvResult,
   ReportPresetListResult,
@@ -589,6 +616,8 @@ export type MatricaApi = {
       | { ok: true; uiDefaultsVersion: number; globalDefaults: UiControlSettings }
       | { ok: false; error: string }
     >;
+    releaseWelcomeGet: () => Promise<ReleaseWelcomeGetResult>;
+    releaseWelcomeAcknowledge: () => Promise<ReleaseWelcomeAcknowledgeResult>;
   };
   e2eKeys: {
     status: () => Promise<{ ok: true; enabled: boolean; primaryPresent: boolean; previousCount: number; updatedAt: number } | { ok: false; error: string }>;
@@ -658,6 +687,11 @@ export type MatricaApi = {
   };
   server: {
     health: () => Promise<ServerHealthResult>;
+  };
+  diagnostics: {
+    criticalEventsList: (args?: { days?: number; limit?: number }) => Promise<DiagnosticsCriticalEventsListResult>;
+    criticalEventsDelete: (args: { id: string }) => Promise<DiagnosticsCriticalEventDeleteResult>;
+    criticalEventsClear: () => Promise<DiagnosticsCriticalEventsClearResult>;
   };
   reports: {
     presetList: () => Promise<ReportPresetListResult>;

@@ -9,7 +9,7 @@ import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
 import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
-import { listCriticalEvents } from '../services/criticalEventsService.js';
+import { deleteAllCriticalEvents, deleteCriticalEventById, listCriticalEvents } from '../services/criticalEventsService.js';
 
 export const diagnosticsRouter = Router();
 
@@ -162,10 +162,44 @@ diagnosticsRouter.get('/critical-events', requirePermission(PermissionCode.Clien
     .safeParse(req.query ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   try {
-    const days = Number(parsed.data.days ?? 10);
+    const days = Number(parsed.data.days ?? 3);
     const limit = Number(parsed.data.limit ?? 300);
     const events = listCriticalEvents({ days, limit });
     return res.json({ ok: true, days, limit, events });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.delete('/critical-events/:id', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const role = String(actor?.role ?? '').trim().toLowerCase();
+  if (role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для superadmin' });
+  }
+  const parsed = z
+    .object({
+      id: z.string().uuid(),
+    })
+    .safeParse(req.params ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const result = deleteCriticalEventById(parsed.data.id);
+    return res.json({ ok: true, deleted: result.deleted });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.delete('/critical-events', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const role = String(actor?.role ?? '').trim().toLowerCase();
+  if (role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для superadmin' });
+  }
+  try {
+    const result = deleteAllCriticalEvents();
+    return res.json({ ok: true, deleted: result.deleted });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

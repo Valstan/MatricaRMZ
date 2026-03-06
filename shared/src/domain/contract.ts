@@ -40,6 +40,7 @@ export const STATUS_CODES = [
   'status_repair_started',
   'status_repaired',
   'status_customer_sent',
+  'status_customer_accepted',
   'status_storage_received',
   'status_rejected',
 ] as const;
@@ -52,6 +53,7 @@ export const STATUS_DATE_CODES: Record<StatusCode, `${StatusCode}_date`> = {
   status_repair_started: 'status_repair_started_date',
   status_repaired: 'status_repaired_date',
   status_customer_sent: 'status_customer_sent_date',
+  status_customer_accepted: 'status_customer_accepted_date',
   status_rejected: 'status_rejected_date',
 };
 
@@ -65,6 +67,7 @@ export const STATUS_LABELS: Record<StatusCode, string> = {
   status_repair_started: 'Начат ремонт',
   status_repaired: 'Отремонтирован',
   status_customer_sent: 'Отправлен заказчику',
+  status_customer_accepted: 'Принято заказчиком',
   status_rejected: 'Забракован',
 };
 
@@ -73,6 +76,7 @@ export function statusProgressPct(code: StatusCode | null | undefined): number {
   switch (code) {
     case 'status_customer_sent':
     case 'status_rejected':
+    case 'status_customer_accepted':
       return 100;
     case 'status_repaired':
       return 70;
@@ -140,7 +144,7 @@ export function aggregateProgressWithPlan(
 ): ProgressAggregate {
   let shippedCount = 0;
   for (const item of items) {
-    if (item.statusFlags?.status_customer_sent) shippedCount += 1;
+    if (item.statusFlags?.status_customer_accepted) shippedCount += 1;
   }
 
   const hasPlannedTotal = Number.isFinite(plannedTotalCount) && Number(plannedTotalCount) > 0;

@@ -54,6 +54,13 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
 }
 
+function isLikelyDebugClientId(value: string) {
+  const v = String(value || '').trim();
+  // Typical ad-hoc/debug ids used in local probes (e.g. "c1", "u1").
+  // Real workstation ids are much longer (hostname + uuid) and should keep warn-level visibility.
+  return /^[a-z]\d{1,4}$/i.test(v);
+}
+
 function normalizeOpFromRow(row: { deleted_at?: number | null | undefined }): 'upsert' | 'delete' {
   return row.deleted_at ? 'delete' : 'upsert';
 }
@@ -131,7 +138,8 @@ export async function applyPushBatch(
   const skipCounters = new Map<string, number>();
   const skippedRows: SyncSkippedRow[] = [];
   const isReplayClient = req.client_id === 'ledger-replay';
-  const logSkip = isReplayClient ? logInfo : logWarn;
+  const isDebugClient = isLikelyDebugClientId(req.client_id);
+  const logSkip = isReplayClient || isDebugClient ? logInfo : logWarn;
 
   function addSkipMetric(kind: 'dependency' | 'conflict', table: SyncTableName, count: number, dependency?: string) {
     if (!Number.isFinite(count) || count <= 0) return;
@@ -788,14 +796,6 @@ export async function applyPushBatch(
         let missingRows = rows.filter((r) => !existingTypeIds.has(String(r.entity_type_id)));
 
         if (missingRows.length > 0) {
-          const missingTypeIds = Array.from(new Set(missingRows.map((r) => String(r.entity_type_id))));
-          const codesByMissing = new Map<string, string>();
-          for (const r of missingRows) {
-            const key = `${String(r.entity_type_id)}::${String(r.code)}`;
-            if (!codesByMissing.has(String(r.entity_type_id))) {
-              codesByMissing.set(String(r.entity_type_id), String(r.code));
-            }
-          }
           const uniqueCodes = Array.from(new Set(missingRows.map((r) => String(r.code))));
           if (uniqueCodes.length > 0) {
             const existingByCode = await tx

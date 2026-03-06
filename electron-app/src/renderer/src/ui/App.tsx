@@ -11,6 +11,7 @@ import type {
   AiAgentEvent,
   UiControlSettings,
   UiDisplayPrefs,
+  ReleaseWelcomeContent,
 } from '@matricarmz/shared';
 import {
   DEFAULT_UI_CONTROL_SETTINGS,
@@ -90,8 +91,21 @@ type AppNavigationStep = {
   link: ChatDeepLinkPayload;
 };
 
+type QuickStartScoreEntry = {
+  daily: Record<string, number>;
+  lastAt: number;
+};
+
+const QUICK_START_DAY_MS = 24 * 60 * 60 * 1000;
+const QUICK_START_RATING_WINDOW_DAYS = 10;
+const QUICK_START_RATING_WINDOW_MS = QUICK_START_DAY_MS * QUICK_START_RATING_WINDOW_DAYS;
+
 function recentVisitsStorageKey(userId: string) {
   return `matrica:recent-visits:${userId}`;
+}
+
+function quickStartRatingsStorageKey(userId: string) {
+  return `matrica:history:quick-start-ratings:${userId}`;
 }
 
 function appLinkSignature(link: ChatDeepLinkPayload) {
@@ -111,6 +125,85 @@ function appLinkSignature(link: ChatDeepLinkPayload) {
     nomenclatureId: link.nomenclatureId ?? null,
     stockDocumentId: link.stockDocumentId ?? null,
   });
+}
+
+function normalizeQuickStartTab(tab: string): TabId | null {
+  const source = String(tab ?? '').trim();
+  if (!source || source === 'auth' || source === 'history') return null;
+  const direct = source as TabId;
+  const parent = CARD_PARENT_TAB[direct];
+  return parent ?? direct;
+}
+
+function toQuickStartDayBucket(ts: number) {
+  return Math.floor(ts / QUICK_START_DAY_MS);
+}
+
+function normalizeQuickStartScores(raw: unknown, now = Date.now()): Record<string, QuickStartScoreEntry> {
+  if (!raw || typeof raw !== 'object') return {};
+  const minBucket = toQuickStartDayBucket(now - QUICK_START_RATING_WINDOW_MS);
+  const out: Record<string, QuickStartScoreEntry> = {};
+  for (const [tab, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!tab) continue;
+    const entry = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+    const legacyScore = Number(entry.score ?? 0);
+    const lastAtRaw = Number(entry.lastAt ?? 0);
+    const fallbackLastAt = Number.isFinite(lastAtRaw) && lastAtRaw > 0 ? Math.floor(lastAtRaw) : now;
+    const rawDaily =
+      entry.daily && typeof entry.daily === 'object'
+        ? (entry.daily as Record<string, unknown>)
+        : legacyScore > 0
+          ? { [String(toQuickStartDayBucket(fallbackLastAt))]: legacyScore }
+          : {};
+    const daily: Record<string, number> = {};
+    for (const [bucketKey, countRaw] of Object.entries(rawDaily)) {
+      const bucket = Number(bucketKey);
+      const count = Number(countRaw);
+      if (!Number.isFinite(bucket) || !Number.isFinite(count)) continue;
+      if (bucket < minBucket) continue;
+      const safeCount = Math.max(0, Math.floor(count));
+      if (safeCount <= 0) continue;
+      const key = String(Math.floor(bucket));
+      daily[key] = Number(daily[key] ?? 0) + safeCount;
+    }
+    if (Object.keys(daily).length === 0) continue;
+    out[tab] = {
+      daily,
+      lastAt: fallbackLastAt,
+    };
+  }
+  return out;
+}
+
+function addQuickStartVisit(
+  prev: Record<string, QuickStartScoreEntry>,
+  tab: string,
+  at = Date.now(),
+): Record<string, QuickStartScoreEntry> {
+  const normalized = normalizeQuickStartScores(prev, at);
+  const bucketKey = String(toQuickStartDayBucket(at));
+  const current = normalized[tab] ?? { daily: {}, lastAt: at };
+  const nextDaily = { ...current.daily, [bucketKey]: Number(current.daily[bucketKey] ?? 0) + 1 };
+  const next = {
+    ...normalized,
+    [tab]: {
+      daily: nextDaily,
+      lastAt: at,
+    },
+  };
+  return normalizeQuickStartScores(next, at);
+}
+
+function projectQuickStartRatings(scores: Record<string, QuickStartScoreEntry>, now = Date.now()) {
+  const normalized = normalizeQuickStartScores(scores, now);
+  return Object.entries(normalized)
+    .map(([tab, info]) => ({
+      tab,
+      score: Object.values(info.daily).reduce((sum, value) => sum + Number(value ?? 0), 0),
+      lastAt: Number(info.lastAt ?? 0),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || b.lastAt - a.lastAt);
 }
 
 const CHAT_NEW_MESSAGE_SOUND_FILE = './oh-oh-icq-sound.ogg';
@@ -242,11 +335,25 @@ export function App() {
     history?: Array<{ at: number; text: string }>;
   } | null>(null);
   const fullSyncCloseTimer = useRef<number | null>(null);
+  const [releaseWelcomeUi, setReleaseWelcomeUi] = useState<{
+    open: boolean;
+    content: ReleaseWelcomeContent | null;
+    currentVersion: string;
+    previousVersion: string | null;
+    closing: boolean;
+  }>({
+    open: false,
+    content: null,
+    currentVersion: '',
+    previousVersion: null,
+    closing: false,
+  });
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
   const [tab, setTabState] = useState<TabId>('history');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
   const [recentVisits, setRecentVisits] = useState<RecentVisitEntry[]>([]);
+  const [quickStartScores, setQuickStartScores] = useState<Record<string, QuickStartScoreEntry>>({});
   const [navigationHistory, setNavigationHistory] = useState<AppNavigationStep[]>([]);
   const [navigationIndex, setNavigationIndex] = useState<number>(-1);
   const lastRecordedVisitSigRef = useRef<string>('');
@@ -596,6 +703,27 @@ export function App() {
   }, [applyEffectiveUiSettings]);
 
   useEffect(() => {
+    let alive = true;
+    void window.matrica.settings
+      .releaseWelcomeGet()
+      .then((r) => {
+        if (!alive) return;
+        if (!r?.ok || r.shouldShow !== true || !r.welcome) return;
+        setReleaseWelcomeUi({
+          open: true,
+          content: r.welcome,
+          currentVersion: String(r.currentVersion ?? ''),
+          previousVersion: r.previouslySeenVersion ? String(r.previouslySeenVersion) : null,
+          closing: false,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!authStatus.loggedIn) return;
     void window.matrica.settings.uiControlGet().then((r: any) => {
       if (r?.ok && r?.effective) applyEffectiveUiSettings(r.effective as UiControlSettings);
@@ -780,6 +908,7 @@ export function App() {
     const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
     if (!userId) {
       setRecentVisits([]);
+      setQuickStartScores({});
       lastRecordedVisitSigRef.current = '';
       return;
     }
@@ -788,6 +917,18 @@ export function App() {
       setRecentVisits(parseRecentVisits(window.localStorage.getItem(key)));
     } catch {
       setRecentVisits([]);
+    }
+    try {
+      const key = quickStartRatingsStorageKey(userId);
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        setQuickStartScores({});
+      } else {
+        const parsed = JSON.parse(raw) as unknown;
+        setQuickStartScores(normalizeQuickStartScores(parsed));
+      }
+    } catch {
+      setQuickStartScores({});
     }
     lastRecordedVisitSigRef.current = '';
   }, [authStatus.loggedIn, authStatus.user?.id]);
@@ -802,6 +943,17 @@ export function App() {
       // ignore localStorage issues
     }
   }, [authStatus.loggedIn, authStatus.user?.id, recentVisits]);
+
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) return;
+    try {
+      const key = quickStartRatingsStorageKey(userId);
+      window.localStorage.setItem(key, JSON.stringify(normalizeQuickStartScores(quickStartScores)));
+    } catch {
+      // ignore localStorage issues
+    }
+  }, [authStatus.loggedIn, authStatus.user?.id, quickStartScores]);
 
   useEffect(() => {
     let alive = true;
@@ -1889,6 +2041,10 @@ export function App() {
     const breadcrumbs = Array.isArray(link.breadcrumbs) ? link.breadcrumbs.filter(Boolean) : [];
     const title = (breadcrumbs.length > 0 ? breadcrumbs.join(' / ') : appTabTitle(String(link.tab))).trim();
     if (!title) return;
+    const tabForRating = normalizeQuickStartTab(String(link.tab));
+    if (tabForRating) {
+      setQuickStartScores((prev) => addQuickStartVisit(prev, String(tabForRating), Date.now()));
+    }
     setRecentVisits((prev) =>
       upsertRecentVisit(prev, {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -2330,6 +2486,72 @@ export function App() {
     );
   }
 
+  async function closeReleaseWelcome() {
+    setReleaseWelcomeUi((prev) => ({ ...prev, closing: true }));
+    try {
+      await window.matrica.settings.releaseWelcomeAcknowledge();
+    } catch {
+      // ignore and still close locally
+    } finally {
+      setReleaseWelcomeUi((prev) => ({ ...prev, open: false, closing: false }));
+    }
+  }
+
+  function renderReleaseWelcomeModal() {
+    if (!releaseWelcomeUi.open || !releaseWelcomeUi.content) return null;
+    const c = releaseWelcomeUi.content;
+    const stars = Array.from({ length: 24 }, (_v, idx) => idx);
+    return (
+      <div className="release-welcome-overlay">
+        <div className="release-welcome-aurora release-welcome-aurora--one" />
+        <div className="release-welcome-aurora release-welcome-aurora--two" />
+        <div className="release-welcome-aurora release-welcome-aurora--three" />
+        <div className="release-welcome-stars" aria-hidden="true">
+          {stars.map((i) => (
+            <span key={i} className={`release-welcome-star release-welcome-star--${(i % 6) + 1}`} />
+          ))}
+        </div>
+        <div className="release-welcome-card">
+          <div className="release-welcome-badge">Обновление {c.releaseLabel || releaseWelcomeUi.currentVersion || 'MatricaRMZ'}</div>
+          <h2 className="release-welcome-title">{c.title}</h2>
+          <div className="release-welcome-intro">{c.intro}</div>
+          <div className="release-welcome-list-wrap">
+            {c.highlights.map((item, idx) => (
+              <div key={`${idx}-${item}`} className="release-welcome-list-item">
+                <span className="release-welcome-list-dot">✦</span>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+          <div className="release-welcome-outro">{c.outro}</div>
+          <div className="release-welcome-meta">
+            {releaseWelcomeUi.previousVersion
+              ? `Предыдущая версия на этом рабочем месте: ${releaseWelcomeUi.previousVersion}`
+              : 'Добро пожаловать в MatricaRMZ!'}
+          </div>
+          <div className="release-welcome-actions">
+            <Button
+              size="lg"
+              onClick={() => void closeReleaseWelcome()}
+              disabled={releaseWelcomeUi.closing}
+              style={{
+                minHeight: 56,
+                minWidth: 260,
+                fontSize: 20,
+                padding: '12px 24px',
+                fontWeight: 800,
+                letterSpacing: 0.2,
+                boxShadow: '0 14px 32px rgba(37, 99, 235, 0.42)',
+              }}
+            >
+              {releaseWelcomeUi.closing ? 'Закрываю...' : 'Закрыть'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderCardCloseModal() {
     if (!cardCloseModalOpen) return null;
     return (
@@ -2498,6 +2720,10 @@ export function App() {
     fontSize: 14,
     lineHeight: '14px',
   };
+  const quickStartRatings = useMemo(
+    () => projectQuickStartRatings(quickStartScores),
+    [quickStartScores],
+  );
 
   return (
     <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
@@ -2644,6 +2870,7 @@ export function App() {
         </div>
         }
       >
+        {renderReleaseWelcomeModal()}
         {renderFullSyncModal()}
         {renderFatalModal()}
         {renderCardCloseModal()}
@@ -2738,6 +2965,7 @@ export function App() {
           <HistoryPage
             meUserId={authStatus.user?.id ?? ''}
             recentVisits={recentVisits}
+            quickStartRatings={quickStartRatings}
             onNavigate={(link) => {
               void navigateDeepLink(link);
             }}

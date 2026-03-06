@@ -29,6 +29,8 @@ type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
   };
   diagnostics: {
     criticalEventsList: (args?: { days?: number; limit?: number }) => Promise<any>;
+    criticalEventsDelete: (args: { id: string }) => Promise<any>;
+    criticalEventsClear: () => Promise<any>;
   };
 };
 

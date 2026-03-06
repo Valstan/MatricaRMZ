@@ -21,6 +21,7 @@ export * from './domain/erp.js';
 export * from './domain/warehouse.js';
 export * from './domain/uiControl.js';
 export * from './domain/reports.js';
+export * from './domain/releaseWelcome.js';
 export * from './ipc/types.js';
 // keep exports sorted manually
 

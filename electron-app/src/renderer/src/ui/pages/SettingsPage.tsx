@@ -69,6 +69,8 @@ export function SettingsPage(props: {
   const [serverStatus, setServerStatus] = useState<string>('');
   const [criticalEvents, setCriticalEvents] = useState<CriticalEventItem[]>([]);
   const [criticalLoading, setCriticalLoading] = useState<boolean>(false);
+  const [criticalDeletingId, setCriticalDeletingId] = useState<string>('');
+  const [criticalClearingAll, setCriticalClearingAll] = useState<boolean>(false);
   const [criticalStatus, setCriticalStatus] = useState<string>('');
 
   function formatError(e: unknown): string {
@@ -113,7 +115,7 @@ export function SettingsPage(props: {
         setCriticalStatus('');
         return;
       }
-      const r = await window.matrica.diagnostics.criticalEventsList({ days: 10, limit: 300 });
+      const r = await window.matrica.diagnostics.criticalEventsList({ days: 3, limit: 300 });
       if (r?.ok) {
         setCriticalEvents(Array.isArray(r.events) ? (r.events as CriticalEventItem[]) : []);
         setCriticalStatus('');
@@ -124,6 +126,48 @@ export function SettingsPage(props: {
       setCriticalStatus(`Ошибка загрузки критичных событий: ${formatError(e)}`);
     } finally {
       setCriticalLoading(false);
+    }
+  }
+
+  async function handleDeleteCriticalEvent(eventId: string) {
+    const id = String(eventId ?? '').trim();
+    if (!id) return;
+    if (!confirm('Удалить это критическое событие из истории?')) return;
+    try {
+      setCriticalDeletingId(id);
+      const r = await window.matrica.diagnostics.criticalEventsDelete({ id });
+      if (r?.ok) {
+        setCriticalEvents((prev) => prev.filter((ev) => String(ev.id) !== id));
+        setCriticalStatus(r.deleted === true ? 'Событие удалено из истории.' : 'Событие уже было удалено ранее.');
+        setTimeout(() => setCriticalStatus(''), 3000);
+      } else {
+        setCriticalStatus(`Ошибка удаления события: ${formatError(r?.error ?? 'unknown error')}`);
+      }
+    } catch (e) {
+      setCriticalStatus(`Ошибка удаления события: ${formatError(e)}`);
+    } finally {
+      setCriticalDeletingId('');
+    }
+  }
+
+  async function handleClearAllCriticalEvents() {
+    if (criticalEvents.length === 0) return;
+    if (!confirm('Удалить ВСЕ критические события из истории? Действие необратимо.')) return;
+    try {
+      setCriticalClearingAll(true);
+      const r = await window.matrica.diagnostics.criticalEventsClear();
+      if (r?.ok) {
+        setCriticalEvents([]);
+        const deleted = Number(r.deleted ?? 0);
+        setCriticalStatus(deleted > 0 ? `Удалено событий: ${deleted}.` : 'Список уже был пуст.');
+        setTimeout(() => setCriticalStatus(''), 3000);
+      } else {
+        setCriticalStatus(`Ошибка очистки списка событий: ${formatError(r?.error ?? 'unknown error')}`);
+      }
+    } catch (e) {
+      setCriticalStatus(`Ошибка очистки списка событий: ${formatError(e)}`);
+    } finally {
+      setCriticalClearingAll(false);
     }
   }
 
@@ -904,18 +948,18 @@ export function SettingsPage(props: {
 
         {isSuperadmin && (
           <div style={{ ...sectionBaseStyle, background: 'rgba(185, 28, 28, 0.1)', gridColumn: '1 / -1' }}>
-            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Критические события приложения (последние 10 дней)</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Критические события приложения (последние 3 дня)</h3>
             <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
               Автомониторинг: здесь копятся серьезные ошибки синхронизации и других важных частей системы. Блок доступен только superadmin.
             </p>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-              <Button variant="ghost" disabled={criticalLoading} onClick={() => void refreshCriticalEvents()}>
+              <Button variant="ghost" disabled={criticalLoading || criticalClearingAll} onClick={() => void refreshCriticalEvents()}>
                 {criticalLoading ? 'Загрузка...' : 'Обновить список'}
               </Button>
               <Button
                 variant="ghost"
-                disabled={criticalEvents.length === 0}
+                disabled={criticalEvents.length === 0 || criticalClearingAll}
                 onClick={() =>
                   void copyText(
                     criticalEvents
@@ -932,11 +976,19 @@ export function SettingsPage(props: {
               >
                 Копировать всё для разработчика
               </Button>
+              <Button
+                variant="ghost"
+                tone="danger"
+                disabled={criticalEvents.length === 0 || criticalLoading || criticalClearingAll || Boolean(criticalDeletingId)}
+                onClick={() => void handleClearAllCriticalEvents()}
+              >
+                {criticalClearingAll ? 'Очистка...' : 'Очистить всё'}
+              </Button>
               {criticalStatus && <span style={{ color: 'var(--muted)', fontSize: 12 }}>{criticalStatus}</span>}
             </div>
 
             {criticalEvents.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontSize: 13 }}>За последние 10 дней критичных событий не найдено.</div>
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>За последние 3 дня критичных событий не найдено.</div>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {criticalEvents.map((ev) => (
@@ -971,6 +1023,14 @@ export function SettingsPage(props: {
                         }
                       >
                         Копировать событие
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        tone="danger"
+                        disabled={criticalClearingAll || criticalDeletingId === ev.id}
+                        onClick={() => void handleDeleteCriticalEvent(ev.id)}
+                      >
+                        {criticalDeletingId === ev.id ? 'Удаление...' : 'Удалить'}
                       </Button>
                     </div>
                     <details style={{ marginTop: 8 }}>
