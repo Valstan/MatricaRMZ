@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import {
+  cancelWarehouseDocument,
   createWarehouseDocument,
   deleteWarehouseNomenclature,
   getWarehouseDocument,
+  listWarehouseLookups,
   listWarehouseDocuments,
   listWarehouseMovements,
   listWarehouseNomenclature,
@@ -17,6 +19,12 @@ import {
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
+
+warehouseRouter.get('/lookups', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await listWarehouseLookups();
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
 
 warehouseRouter.get('/nomenclature', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const schema = z.object({
@@ -105,6 +113,8 @@ warehouseRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsV
     status: z.string().optional(),
     fromDate: z.coerce.number().int().optional(),
     toDate: z.coerce.number().int().optional(),
+    search: z.string().optional(),
+    warehouseId: z.string().optional(),
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -113,6 +123,8 @@ warehouseRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsV
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
     ...(parsed.data.fromDate !== undefined ? { fromDate: parsed.data.fromDate } : {}),
     ...(parsed.data.toDate !== undefined ? { toDate: parsed.data.toDate } : {}),
+    ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
+    ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
@@ -134,6 +146,13 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
     docDate: z.coerce.number().int().optional(),
     departmentId: z.string().nullable().optional(),
     authorId: z.string().uuid().nullable().optional(),
+    header: z
+      .object({
+        warehouseId: z.string().nullable().optional(),
+        reason: z.string().nullable().optional(),
+        counterpartyId: z.string().uuid().nullable().optional(),
+      })
+      .optional(),
     payloadJson: z.string().nullable().optional(),
     lines: z
       .array(
@@ -142,6 +161,13 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
           price: z.coerce.number().int().nullable().optional(),
           partCardId: z.string().uuid().nullable().optional(),
           nomenclatureId: z.string().uuid().nullable().optional(),
+          warehouseId: z.string().nullable().optional(),
+          fromWarehouseId: z.string().nullable().optional(),
+          toWarehouseId: z.string().nullable().optional(),
+          adjustmentQty: z.coerce.number().int().nullable().optional(),
+          bookQty: z.coerce.number().int().nullable().optional(),
+          actualQty: z.coerce.number().int().nullable().optional(),
+          reason: z.string().nullable().optional(),
           payloadJson: z.string().nullable().optional(),
         }),
       )
@@ -159,11 +185,27 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
       ...(line.price !== undefined ? { price: line.price } : {}),
       ...(line.partCardId !== undefined ? { partCardId: line.partCardId } : {}),
       ...(line.nomenclatureId !== undefined ? { nomenclatureId: line.nomenclatureId } : {}),
+      ...(line.warehouseId !== undefined ? { warehouseId: line.warehouseId } : {}),
+      ...(line.fromWarehouseId !== undefined ? { fromWarehouseId: line.fromWarehouseId } : {}),
+      ...(line.toWarehouseId !== undefined ? { toWarehouseId: line.toWarehouseId } : {}),
+      ...(line.adjustmentQty !== undefined ? { adjustmentQty: line.adjustmentQty } : {}),
+      ...(line.bookQty !== undefined ? { bookQty: line.bookQty } : {}),
+      ...(line.actualQty !== undefined ? { actualQty: line.actualQty } : {}),
+      ...(line.reason !== undefined ? { reason: line.reason } : {}),
       ...(line.payloadJson !== undefined ? { payloadJson: line.payloadJson } : {}),
     })),
     ...(parsed.data.docDate !== undefined ? { docDate: parsed.data.docDate } : {}),
     ...(parsed.data.departmentId !== undefined ? { departmentId: parsed.data.departmentId } : {}),
     ...(parsed.data.authorId !== undefined ? { authorId: parsed.data.authorId } : {}),
+    ...(parsed.data.header !== undefined
+      ? {
+          header: {
+            ...(parsed.data.header.warehouseId !== undefined ? { warehouseId: parsed.data.header.warehouseId } : {}),
+            ...(parsed.data.header.reason !== undefined ? { reason: parsed.data.header.reason } : {}),
+            ...(parsed.data.header.counterpartyId !== undefined ? { counterpartyId: parsed.data.header.counterpartyId } : {}),
+          },
+        }
+      : {}),
     ...(parsed.data.payloadJson !== undefined ? { payloadJson: parsed.data.payloadJson } : {}),
     actor: {
       id: String(user?.id ?? ''),
@@ -180,6 +222,22 @@ warehouseRouter.post('/documents/:id/post', requirePermission(PermissionCode.Erp
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
   const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
   const result = await postWarehouseDocument({
+    documentId: id,
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/documents/:id/cancel', requirePermission(PermissionCode.ErpDocumentsEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await cancelWarehouseDocument({
     documentId: id,
     actor: {
       id: String(user?.id ?? ''),

@@ -1,4 +1,5 @@
 export const ErpSyncTableName = {
+  Nomenclature: 'erp_nomenclature',
   PartTemplates: 'erp_part_templates',
   PartCards: 'erp_part_cards',
   ToolTemplates: 'erp_tool_templates',
@@ -9,6 +10,7 @@ export const ErpSyncTableName = {
   DocumentHeaders: 'erp_document_headers',
   DocumentLines: 'erp_document_lines',
   RegisterStockBalance: 'erp_reg_stock_balance',
+  RegisterStockMovements: 'erp_reg_stock_movements',
   RegisterPartUsage: 'erp_reg_part_usage',
   RegisterContractSettlement: 'erp_reg_contract_settlement',
   RegisterEmployeeAccess: 'erp_reg_employee_access',

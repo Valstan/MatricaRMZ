@@ -66,6 +66,7 @@ import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
+import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
@@ -1190,7 +1191,9 @@ export function App() {
     ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
-    ...(caps.canViewMasterData ? (['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'] as const) : []),
+    ...(caps.canViewMasterData
+      ? (['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'] as const)
+      : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
@@ -3228,7 +3231,12 @@ export function App() {
           />
         )}
 
-        {tab === 'stock_balances' && <StockBalancesPage />}
+        {tab === 'stock_balances' && (
+          <StockBalancesPage
+            onOpenDocument={(id) => void openStockDocument(id, 'stock_documents')}
+            onOpenNomenclature={openNomenclature}
+          />
+        )}
 
         {tab === 'stock_inventory' && (
           <StockInventoryPage
@@ -3613,6 +3621,7 @@ export function App() {
           )}
         </>
       )}
+      <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
     </Page>
     </ErrorBoundary>
   );

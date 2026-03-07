@@ -15,6 +15,7 @@
 - systemd сервис: `matricarmz-backend.service`
 - Роуты: `backend-api/src/routes/*`
 - Ledger: `backend-api/ledger/`
+- Складской backend-контур: `backend-api/src/routes/warehouse.ts`, `backend-api/src/services/warehouseService.ts`
 
 ### Electron клиент
 - Main: `electron-app/src/main`
@@ -22,6 +23,7 @@
 - Renderer UI: `electron-app/src/renderer/src/ui`
 - Sync/Update сервисы: `electron-app/src/main/services/syncService.ts`, `electron-app/src/main/services/updateService.ts`
 - NSIS настройка установщика: `electron-app/installer/installer.nsh`
+- Складские экраны: `electron-app/src/renderer/src/ui/pages/Stock*.tsx`, `Nomenclature*.tsx`
 
 ### Shared
 - Доменные модели/типы: `shared/src/domain/*`
@@ -84,11 +86,12 @@ pnpm --filter @matricarmz/electron-app dev
 ## 7) Что смотреть в первую очередь при новой сессии
 1. `docs/README.md`
 2. `docs/OPERATIONS.md` (этот файл)
-3. В зависимости от задачи: `RELEASE.md`, `REPORTS.md`, `BLOCKCHAIN.md`, `TROUBLESHOOTING.md`
+3. В зависимости от задачи: `WAREHOUSE.md`, `RELEASE.md`, `REPORTS.md`, `BLOCKCHAIN.md`, `TROUBLESHOOTING.md`
 4. Политика поддержки документации: `docs/DOCUMENTATION_POLICY.md`
 
 ## 8) Базовый срез актуальности
-Документация синхронизирована по изменениям последних релизов до `v1.8.26` включительно, в том числе:
+Документация синхронизирована по изменениям актуального рабочего контура, в том числе:
 - усиленный update-flow (торрент/LAN/Yandex/GitHub + ручной fallback),
 - проверка целостности установщика с докачкой/перезакачкой,
-- обновленные пресеты и фильтры отчетов для контрактов/бухгалтерии.
+- обновленные пресеты и фильтры отчетов для контрактов/бухгалтерии,
+- выделенный складской контур с lookup API, типизированными warehouse DTO и сценарными экранами документов/остатков/инвентаризации.

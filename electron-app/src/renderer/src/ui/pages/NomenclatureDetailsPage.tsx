@@ -1,64 +1,47 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import type { WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
-
-const ITEM_TYPES = [
-  { id: 'material', label: 'Материал' },
-  { id: 'component', label: 'Комплектующая' },
-  { id: 'product', label: 'Изделие' },
-  { id: 'semi_product', label: 'Полуфабрикат' },
-  { id: 'waste', label: 'Отходы' },
-  { id: 'tool_consumable', label: 'Расходник' },
-];
-
-type NomenclatureRow = {
-  id: string;
-  code?: string | null;
-  name?: string | null;
-  itemType?: string | null;
-  barcode?: string | null;
-  minStock?: number | null;
-  maxStock?: number | null;
-  defaultWarehouseId?: string | null;
-  specJson?: string | null;
-  isActive?: boolean;
-};
-
-type StockRow = {
-  id: string;
-  warehouseId?: string | null;
-  qty?: number;
-  reservedQty?: number;
-};
+import { SearchSelect } from '../components/SearchSelect.js';
+import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS, warehouseDocTypeLabel } from '../utils/warehouseUi.js';
 
 export function NomenclatureDetailsPage(props: {
   id: string;
   canEdit: boolean;
   onClose: () => void;
 }) {
+  const { lookups, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
-  const [row, setRow] = useState<NomenclatureRow | null>(null);
-  const [balances, setBalances] = useState<StockRow[]>([]);
+  const [row, setRow] = useState<WarehouseNomenclatureListItem | null>(null);
+  const [balances, setBalances] = useState<WarehouseStockListItem[]>([]);
+  const [movements, setMovements] = useState<WarehouseMovementListItem[]>([]);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [itemType, setItemType] = useState('material');
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [unitId, setUnitId] = useState<string | null>(null);
   const [barcode, setBarcode] = useState('');
   const [minStock, setMinStock] = useState('');
   const [maxStock, setMaxStock] = useState('');
-  const [defaultWarehouseId, setDefaultWarehouseId] = useState('');
+  const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
   const [specJson, setSpecJson] = useState('');
   const [isActive, setIsActive] = useState(true);
 
   const load = useCallback(async () => {
     try {
       setStatus('Загрузка...');
-      const list = await window.matrica.warehouse.nomenclatureList();
+      const [list, stock, movementRes] = await Promise.all([
+        window.matrica.warehouse.nomenclatureList(),
+        window.matrica.warehouse.stockList({ nomenclatureId: props.id }),
+        window.matrica.warehouse.movementsList({ nomenclatureId: props.id, limit: 20 }),
+      ]);
       if (!list?.ok) {
         setStatus(`Ошибка: ${String(list?.error ?? 'unknown')}`);
         return;
       }
-      const found = ((list.rows ?? []) as NomenclatureRow[]).find((x) => String(x.id) === props.id) ?? null;
+      const found = (list.rows ?? []).find((x) => String(x.id) === props.id) ?? null;
       if (!found) {
         setStatus('Позиция не найдена');
         return;
@@ -67,19 +50,20 @@ export function NomenclatureDetailsPage(props: {
       setCode(String(found.code ?? ''));
       setName(String(found.name ?? ''));
       setItemType(String(found.itemType ?? 'material'));
+      setGroupId(found.groupId ?? null);
+      setUnitId(found.unitId ?? null);
       setBarcode(String(found.barcode ?? ''));
       setMinStock(found.minStock == null ? '' : String(found.minStock));
       setMaxStock(found.maxStock == null ? '' : String(found.maxStock));
-      setDefaultWarehouseId(String(found.defaultWarehouseId ?? ''));
+      setDefaultWarehouseId(found.defaultWarehouseId ?? null);
       setSpecJson(String(found.specJson ?? ''));
       setIsActive(found.isActive !== false);
-
-      const stock = await window.matrica.warehouse.stockList({ nomenclatureId: props.id });
       if (stock?.ok) {
-        setBalances((stock.rows ?? []) as StockRow[]);
+        setBalances(stock.rows ?? []);
       } else {
         setBalances([]);
       }
+      setMovements(movementRes?.ok ? movementRes.rows ?? [] : []);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -103,10 +87,12 @@ export function NomenclatureDetailsPage(props: {
                 code: code.trim(),
                 name: name.trim(),
                 itemType,
+                groupId,
+                unitId,
                 barcode: barcode.trim() || null,
                 minStock: minStock.trim() ? Number(minStock) : null,
                 maxStock: maxStock.trim() ? Number(maxStock) : null,
-                defaultWarehouseId: defaultWarehouseId.trim() || null,
+                defaultWarehouseId,
                 specJson: specJson.trim() || null,
                 isActive,
               });
@@ -143,6 +129,7 @@ export function NomenclatureDetailsPage(props: {
         </Button>
       </div>
 
+      {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 10 }}>
@@ -153,12 +140,28 @@ export function NomenclatureDetailsPage(props: {
           <Input value={name} disabled={!props.canEdit} onChange={(e) => setName(e.target.value)} />
           <div>Тип</div>
           <select value={itemType} disabled={!props.canEdit} onChange={(e) => setItemType(e.target.value)} style={{ padding: '8px 10px' }}>
-            {ITEM_TYPES.map((item) => (
+            {WAREHOUSE_ITEM_TYPE_OPTIONS.filter((item) => item.id).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
               </option>
             ))}
           </select>
+          <div>Группа</div>
+          <SearchSelect
+            value={groupId}
+            disabled={!props.canEdit}
+            options={lookupToSelectOptions(lookups.nomenclatureGroups)}
+            placeholder="Группа номенклатуры"
+            onChange={setGroupId}
+          />
+          <div>Единица измерения</div>
+          <SearchSelect
+            value={unitId}
+            disabled={!props.canEdit}
+            options={lookupToSelectOptions(lookups.units)}
+            placeholder="Единица измерения"
+            onChange={setUnitId}
+          />
           <div>Штрихкод</div>
           <Input value={barcode} disabled={!props.canEdit} onChange={(e) => setBarcode(e.target.value)} />
           <div>Мин. остаток</div>
@@ -166,7 +169,13 @@ export function NomenclatureDetailsPage(props: {
           <div>Макс. остаток</div>
           <Input value={maxStock} type="number" disabled={!props.canEdit} onChange={(e) => setMaxStock(e.target.value)} />
           <div>Склад по умолчанию</div>
-          <Input value={defaultWarehouseId} disabled={!props.canEdit} onChange={(e) => setDefaultWarehouseId(e.target.value)} />
+          <SearchSelect
+            value={defaultWarehouseId}
+            disabled={!props.canEdit}
+            options={lookupToSelectOptions(lookups.warehouses)}
+            placeholder="Склад по умолчанию"
+            onChange={setDefaultWarehouseId}
+          />
           <div>Активность</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={isActive} disabled={!props.canEdit} onChange={(e) => setIsActive(e.target.checked)} />
@@ -183,6 +192,7 @@ export function NomenclatureDetailsPage(props: {
           <thead>
             <tr>
               <th style={{ textAlign: 'left' }}>Склад</th>
+              <th style={{ textAlign: 'left' }}>Доступно</th>
               <th style={{ textAlign: 'left' }}>Остаток</th>
               <th style={{ textAlign: 'left' }}>Резерв</th>
             </tr>
@@ -190,14 +200,15 @@ export function NomenclatureDetailsPage(props: {
           <tbody>
             {balances.length === 0 ? (
               <tr>
-                <td colSpan={3} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
+                <td colSpan={4} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
                   Нет остатков
                 </td>
               </tr>
             ) : (
               balances.map((balance) => (
                 <tr key={balance.id}>
-                  <td>{balance.warehouseId || 'default'}</td>
+                  <td>{balance.warehouseName || balance.warehouseId || 'default'}</td>
+                  <td>{Number(balance.availableQty ?? 0)}</td>
                   <td>{Number(balance.qty ?? 0)}</td>
                   <td>{Number(balance.reservedQty ?? 0)}</td>
                 </tr>
@@ -207,7 +218,52 @@ export function NomenclatureDetailsPage(props: {
         </table>
       </div>
 
-      {row ? <div style={{ color: 'var(--subtle)', fontSize: 12 }}>ID: {row.id}</div> : null}
+      <div style={{ border: '1px solid var(--border)', padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Последние движения</div>
+        <table className="list-table">
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Дата</th>
+              <th style={{ textAlign: 'left' }}>Склад</th>
+              <th style={{ textAlign: 'left' }}>Документ</th>
+              <th style={{ textAlign: 'left' }}>Тип</th>
+              <th style={{ textAlign: 'left' }}>Операция</th>
+              <th style={{ textAlign: 'left' }}>Кол-во</th>
+              <th style={{ textAlign: 'left' }}>Основание</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movements.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
+                  Нет движений
+                </td>
+              </tr>
+            ) : (
+              movements.map((movement) => (
+                <tr key={movement.id}>
+                  <td>{movement.performedAt ? new Date(Number(movement.performedAt)).toLocaleString('ru-RU') : '—'}</td>
+                  <td>{movement.warehouseName || movement.warehouseId || '—'}</td>
+                  <td>{movement.documentDocNo || '—'}</td>
+                  <td>{warehouseDocTypeLabel(movement.documentDocType)}</td>
+                  <td>{movement.movementType}</td>
+                  <td>{Number(movement.qty ?? 0)}</td>
+                  <td>{movement.reasonLabel || movement.reason || movement.counterpartyName || '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {row ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--subtle)', fontSize: 12 }}>
+          <span>ID: {row.id}</span>
+          <Button variant="ghost" onClick={() => void refreshRefs()}>
+            Обновить справочники
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

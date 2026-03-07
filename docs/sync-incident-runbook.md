@@ -4,7 +4,7 @@
 
 - Проверить свежие критические события:
   - `cd /home/valstan/MatricaRMZ/backend-api`
-  - `tail -n 120 logs/critical-events.ndjson | grep -E 'client.sync.pull_gateway_error|server.sync.pipeline_poll_failed|server.sync.error|server.general.error'`
+  - `tail -n 120 logs/critical-events.ndjson | grep -E 'client.sync.pull_gateway_error|server.sync.pipeline_poll_failed|server.sync.pipeline_health.(critical|warn)|server.sync.error|server.general.error'`
 - Считать инцидент каскадным, если один и тот же код повторяется очень часто в коротком интервале (например, >5 раз за 1–2 минуты).
 - Если каскад есть, сразу перейти к шагу 2 и не закрывать инцидент как «одноразовый шум».
 
@@ -14,6 +14,8 @@
   - `client.sync.pull_gateway_error`
   - `server.sync.error`
   - `server.sync.pipeline_poll_failed`
+  - `server.sync.pipeline_health.critical`
+  - `server.sync.pipeline_health.warn`
 - Зафиксировать `clientId`, `username`, IP и момент времени ошибки для корреляции с сервером.
 
 ## 3) Проверить инфраструктуру и прокси
@@ -46,5 +48,5 @@
   - Лучше в последовательности: primary -> дождаться health -> secondary.
 - Проверить:
   - `ss -ltnp | grep -E ':3001|:3002'`
-  - `tail -n 40 logs/critical-events.ndjson` — отсутствие новых `client.sync.pull_gateway_error` и резкого потока `server.sync.pipeline_poll_failed`.
+  - `tail -n 40 logs/critical-events.ndjson` — отсутствие новых `client.sync.pull_gateway_error`, `server.sync.pipeline_health.critical` и резкого потока `server.sync.pipeline_poll_failed`.
 - Если через 10–15 минут каскад не повторяется, инцидент считается локализованным.

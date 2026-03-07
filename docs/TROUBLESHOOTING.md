@@ -338,6 +338,14 @@ curl -sS "http://127.0.0.1:3001/diagnostics/sync-pipeline-health" \
 - `seq.ledgerToIndexLag`
 - `seq.indexToProjectionLag`
 
+Примечание по drift-метрике:
+- По умолчанию (`MATRICA_SYNC_HEALTH_DRIFT_SOURCE=pg_snapshot`) сервис здоровья считает drift от PG snapshot
+  (источник истины для sync-v2), чтобы не ловить ложный drift из старого in-memory `ledger-state`.
+- В этом режиме `indexToProjectionLag` для sync-v2 считается неактуальным и в health приравнивается к `0`,
+  потому что `ledger_tx_index` и sync snapshot обслуживают разные контуры данных.
+- Для глубокой forensic-проверки старого пути можно временно включить
+  `MATRICA_SYNC_HEALTH_DRIFT_SOURCE=ledger_state`.
+
 ### Когда что запускать
 - `ledgerToIndexLag > 0` стабильно (не уменьшается) -> пересобрать индекс:
   ```bash
@@ -363,6 +371,7 @@ curl -sS "http://127.0.0.1:3001/diagnostics/sync-pipeline-health" \
 ### Что считать нормальным
 - кратковременный lag в несколько десятков/сотен seq при высокой нагрузке;
 - единичные warning-расхождения без роста лага и без повторяемости.
+- редкие `skipped dependency rows 24h` в малом количестве (десятки и меньше) после replay/технических прогонов сами по себе не считаются инцидентом.
 
 ---
 

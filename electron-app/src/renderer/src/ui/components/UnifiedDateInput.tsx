@@ -205,11 +205,15 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
       onFocus={(e) => {
         setFocused(true);
         setOpen(true);
-        try {
-          (e.currentTarget as HTMLInputElement).setSelectionRange(0, 0);
-        } catch {
-          // ignore selection errors for non-text implementations
-        }
+        const input = e.currentTarget as HTMLInputElement;
+        window.requestAnimationFrame(() => {
+          if (document.activeElement !== input) return;
+          try {
+            input.select();
+          } catch {
+            // Ignore selection errors for browser-native picker implementations.
+          }
+        });
         props.onFocus?.(e as unknown as React.FocusEvent<HTMLInputElement>);
       }}
       onBlur={(e) => {
@@ -222,7 +226,7 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
         props.onKeyDown?.(e as unknown as React.KeyboardEvent<HTMLInputElement>);
       }}
       autoComplete="off"
-      customInput={<input ref={ref} style={inputStyle} data-autogrow="off" />}
+      customInput={<input ref={ref} style={inputStyle} data-autogrow="off" data-input-assist="component-suggestions" />}
       {...optionalPickerProps}
     />
   );

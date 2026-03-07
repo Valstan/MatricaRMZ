@@ -12,6 +12,7 @@
 ## Профильные документы
 - Безопасность и секреты: [`SECURITY.md`](SECURITY.md)
 - UI-стандарты renderer: [`UI_VISUAL_STANDARDS.md`](UI_VISUAL_STANDARDS.md)
+- Складской модуль: [`WAREHOUSE.md`](WAREHOUSE.md)
 - AI/Ollama профили: [`AI_PERFORMANCE_PROFILES.md`](AI_PERFORMANCE_PROFILES.md)
 
 ## Правило поддержки актуальности docs

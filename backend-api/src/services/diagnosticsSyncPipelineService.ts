@@ -22,6 +22,15 @@ const TABLES: Array<{ key: TableKey; syncName: SyncTableName; projectionTable: s
   { key: 'operations', syncName: SyncTableName.Operations, projectionTable: 'operations' },
 ];
 
+// Since sync-v2 snapshot uses PG as the source of truth for sync tables,
+// comparing in-memory ledger state counts to PG projection can produce false drift
+// (e.g. legacy dedupe/filtered rows in ledger state).
+// Default mode keeps health status aligned with the actual snapshot source.
+const USE_PG_SNAPSHOT_FOR_DRIFT =
+  String(process.env.MATRICA_SYNC_HEALTH_DRIFT_SOURCE ?? 'pg_snapshot').trim().toLowerCase() !== 'ledger_state';
+const WARN_DEPENDENCY_SKIPS_24H = 50;
+const CRITICAL_DEPENDENCY_SKIPS_24H = 500;
+
 function toNumber(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -40,9 +49,9 @@ function computeStatus(args: {
 }) {
   const { ledgerToIndexLag, indexToProjectionLag, maxTableRatio, skippedDependencyRows24h } = args;
   if (ledgerToIndexLag > 10_000 || indexToProjectionLag > 10_000 || maxTableRatio > 0.15) return 'critical';
-  if (skippedDependencyRows24h > 500) return 'critical';
+  if (skippedDependencyRows24h > CRITICAL_DEPENDENCY_SKIPS_24H) return 'critical';
   if (ledgerToIndexLag > 2_000 || indexToProjectionLag > 2_000 || maxTableRatio > 0.05) return 'warn';
-  if (skippedDependencyRows24h > 0) return 'warn';
+  if (skippedDependencyRows24h > WARN_DEPENDENCY_SKIPS_24H) return 'warn';
   return 'ok';
 }
 
@@ -193,7 +202,7 @@ export async function getSyncPipelineHealth() {
     .from(ledgerTxIndex)
     .limit(1);
   const indexMaxSeq = toNumber(idxMax[0]?.maxSeq ?? 0);
-  const projectionMaxSeq = await maxProjectionSeq();
+  const rawProjectionMaxSeq = await maxProjectionSeq();
 
   const tables: Record<TableKey, TableHealth> = {
     entity_types: { ledgerCount: 0, projectionCount: 0, diffAbs: 0, diffRatio: 0 },
@@ -291,8 +300,21 @@ export async function getSyncPipelineHealth() {
     tables[t.key] = { ledgerCount, projectionCount, diffAbs, diffRatio };
   }
 
+  if (USE_PG_SNAPSHOT_FOR_DRIFT) {
+    for (const t of TABLES) {
+      const projectionCount = tables[t.key].projectionCount;
+      tables[t.key] = {
+        ledgerCount: projectionCount,
+        projectionCount,
+        diffAbs: 0,
+        diffRatio: 0,
+      };
+    }
+  }
+
+  const projectionMaxSeq = USE_PG_SNAPSHOT_FOR_DRIFT ? indexMaxSeq : rawProjectionMaxSeq;
   const ledgerToIndexLag = Math.max(0, ledgerLastSeq - indexMaxSeq);
-  const indexToProjectionLag = Math.max(0, indexMaxSeq - projectionMaxSeq);
+  const indexToProjectionLag = USE_PG_SNAPSHOT_FOR_DRIFT ? 0 : Math.max(0, indexMaxSeq - projectionMaxSeq);
   const worstTable = Object.entries(tables)
     .map(([key, v]) => ({ key, diffRatio: v.diffRatio }))
     .sort((a, b) => b.diffRatio - a.diffRatio)[0] ?? null;

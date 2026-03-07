@@ -44,14 +44,15 @@ export function SearchSelect(props: {
     const input = searchInputRef.current;
     if (!input) return;
     input.focus();
+    if (input.value.trim()) input.select();
   }, [dropdown.open]);
 
   useEffect(() => {
-    if (dropdown.open) {
-      dropdown.setQuery('');
+    if (!dropdown.open) {
+      dropdown.setQuery(selected?.label ?? '');
       return;
     }
-    dropdown.setQuery(selected?.label ?? '');
+    dropdown.setQuery((prev) => (String(prev ?? '').trim() ? prev : selected?.label ?? ''));
   }, [dropdown.open, selected?.label]);
 
   async function submitCreate() {
@@ -76,6 +77,7 @@ export function SearchSelect(props: {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', minWidth: 0 }}>
         <input
           ref={searchInputRef}
+          data-input-assist="component-suggestions"
           value={dropdown.query}
           placeholder={props.placeholder ?? '(не выбрано)'}
           disabled={disabled}

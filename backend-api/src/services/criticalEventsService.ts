@@ -370,6 +370,62 @@ export function ingestServerLogForCriticalEvent(args: {
   });
 }
 
+export function ingestServerCriticalEvent(args: {
+  eventCode: string;
+  title: string;
+  humanMessage: string;
+  category?: CriticalCategory;
+  severity?: CriticalSeverity;
+  aiDetails?: string | Record<string, unknown>;
+  clientId?: string | null;
+  dedupMessage?: string;
+}) {
+  const eventCode = safeText(args.eventCode, 200);
+  const title = safeText(args.title, 300);
+  const humanMessage = safeText(args.humanMessage, 2_000);
+  if (!eventCode || !title || !humanMessage) return;
+  const categoryRaw = String(args.category ?? 'other').trim().toLowerCase();
+  const severityRaw = String(args.severity ?? 'error').trim().toLowerCase();
+  const category: CriticalCategory =
+    categoryRaw === 'sync' ||
+    categoryRaw === 'network' ||
+    categoryRaw === 'database' ||
+    categoryRaw === 'auth' ||
+    categoryRaw === 'storage' ||
+    categoryRaw === 'backend'
+      ? categoryRaw
+      : 'other';
+  const severity: CriticalSeverity =
+    severityRaw === 'fatal' ? 'fatal' : severityRaw === 'warn' ? 'warn' : 'error';
+  const clientId = normalizeClientId(args.clientId);
+  const aiDetails =
+    typeof args.aiDetails === 'string'
+      ? safeText(args.aiDetails, 16_000)
+      : makeAiDetails({
+          source: 'server',
+          eventCode,
+          title,
+          humanMessage,
+          ...(args.aiDetails && typeof args.aiDetails === 'object' ? args.aiDetails : {}),
+          timestamp: Date.now(),
+        });
+  const fingerprintMessage = safeText(args.dedupMessage ?? humanMessage, 4_000);
+  appendEvent({
+    id: randomUUID(),
+    createdAt: Date.now(),
+    source: 'server',
+    severity,
+    category,
+    eventCode,
+    title,
+    humanMessage,
+    aiDetails,
+    username: null,
+    clientId,
+    fingerprint: eventFingerprint('server', null, clientId, eventCode, fingerprintMessage || humanMessage),
+  });
+}
+
 export function listCriticalEvents(args?: { days?: number; limit?: number }): CriticalEventRecord[] {
   // Ensure retention is enforced even on read-only periods (no new events appended).
   maybePrune(Date.now());

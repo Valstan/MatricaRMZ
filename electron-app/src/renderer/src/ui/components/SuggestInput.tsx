@@ -62,6 +62,7 @@ export function SuggestInput(props: {
     const input = inputRef.current;
     if (!input) return;
     input.focus();
+    if (input.value.trim()) input.select();
   }, [dropdown.open]);
 
   function pick(value: string) {
@@ -85,6 +86,7 @@ export function SuggestInput(props: {
     <div ref={dropdown.rootRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <input
         ref={inputRef}
+        data-input-assist="component-suggestions"
         value={props.value}
         placeholder={props.placeholder}
         disabled={disabled}

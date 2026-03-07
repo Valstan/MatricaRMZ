@@ -367,17 +367,19 @@ const matricaApi = {
     documentsPost: async (documentId: string) => ipcRenderer.invoke('erp:documents:post', documentId),
   },
   warehouse: {
+    lookupsGet: async () => ipcRenderer.invoke('warehouse:lookups:get'),
     nomenclatureList: async (args?: { search?: string; itemType?: string; groupId?: string; isActive?: boolean }) =>
       ipcRenderer.invoke('warehouse:nomenclature:list', args),
     nomenclatureUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:nomenclature:upsert', args),
     nomenclatureDelete: async (id: string) => ipcRenderer.invoke('warehouse:nomenclature:delete', id),
     stockList: async (args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean }) =>
       ipcRenderer.invoke('warehouse:stock:list', args),
-    documentsList: async (args?: { status?: string; docType?: string; fromDate?: number; toDate?: number }) =>
+    documentsList: async (args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string }) =>
       ipcRenderer.invoke('warehouse:documents:list', args),
     documentGet: async (id: string) => ipcRenderer.invoke('warehouse:documents:get', id),
     documentCreate: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:documents:create', args),
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
+    documentCancel: async (id: string) => ipcRenderer.invoke('warehouse:documents:cancel', id),
     movementsList: async (args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number }) =>
       ipcRenderer.invoke('warehouse:movements:list', args),
   },

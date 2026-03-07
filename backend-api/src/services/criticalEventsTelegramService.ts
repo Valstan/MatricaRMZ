@@ -12,6 +12,7 @@ const DEFAULT_ALERT_ERROR_CATEGORIES = ['sync', 'network', 'database'];
 const DEFAULT_RATE_WINDOW_MS = 10 * 60_000;
 const DEFAULT_MAX_PER_WINDOW = 12;
 const DEFAULT_MAX_PER_CODE_WINDOW = 3;
+const SUPPRESSED_ALERT_EVENT_CODES = new Set(['server.sync.pipeline_health.critical', 'server.sync.pipeline_health.warn']);
 
 let started = false;
 
@@ -71,6 +72,7 @@ async function resolveAlertTarget(): Promise<{ kind: 'chat'; value: string } | {
 }
 
 function shouldAlertEvent(event: CriticalEventRecord, opts: { errorEnabled: boolean; errorCategories: Set<string> }) {
+  if (SUPPRESSED_ALERT_EVENT_CODES.has(String(event.eventCode ?? '').trim().toLowerCase())) return false;
   if (event.severity === 'fatal') return true;
   if (!opts.errorEnabled) return false;
   if (event.severity !== 'error') return false;

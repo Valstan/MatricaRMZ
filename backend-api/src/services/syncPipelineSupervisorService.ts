@@ -7,6 +7,7 @@ import {
   sendTelegramMessage,
   sendTelegramMessageToChat,
 } from './telegramBotService.js';
+import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
 const DEFAULT_TZ = 'Europe/Moscow';
@@ -110,6 +111,27 @@ function formatPipelineMessage(health: Awaited<ReturnType<typeof getSyncPipeline
   return lines.join('\n');
 }
 
+function mirrorPipelineAlertToCriticalEvents(health: Awaited<ReturnType<typeof getSyncPipelineHealth>>, source: 'nightly' | 'manual') {
+  if (health.status === 'ok') return;
+  const severity = health.status === 'critical' ? 'fatal' : 'warn';
+  const title = health.status === 'critical' ? 'Критический сбой sync pipeline' : 'Предупреждение sync pipeline';
+  const humanMessage = formatPipelineMessage(health, source);
+  ingestServerCriticalEvent({
+    eventCode: `server.sync.pipeline_health.${health.status}`,
+    title,
+    humanMessage,
+    category: 'sync',
+    severity,
+    dedupMessage: `${health.status}|${health.reasons.join(';')}|${health.seq.indexToProjectionLag}|${health.tables.operations.diffRatio.toFixed(4)}`,
+    aiDetails: {
+      component: 'sync',
+      source: 'sync_pipeline_supervisor',
+      trigger: source,
+      health,
+    },
+  });
+}
+
 async function getSuperadminTelegram() {
   const list = await listEmployeesAuth().catch(() => null);
   if (!list || !list.ok) return null;
@@ -183,6 +205,7 @@ export function startSyncPipelineSupervisorService() {
 
   const runNightlyCheck = async () => {
     const health = await getSyncPipelineHealth();
+    mirrorPipelineAlertToCriticalEvents(health, 'nightly');
     const shouldSend = health.status !== 'ok' || sendOkSummary;
     if (!shouldSend) return;
     const text = formatPipelineMessage(health, 'nightly');
@@ -226,6 +249,7 @@ export function startSyncPipelineSupervisorService() {
     }
     if (cmd === '/sync_status') {
       const health = await getSyncPipelineHealth();
+      mirrorPipelineAlertToCriticalEvents(health, 'manual');
       await sendTelegramMessageToChat({
         chatId,
         text: formatPipelineMessage(health, 'manual'),
@@ -306,6 +330,7 @@ export function startSyncPipelineSupervisorService() {
         const data = String(cb?.data ?? '');
         if (data === 'sync:check_now') {
           const health = await getSyncPipelineHealth();
+          mirrorPipelineAlertToCriticalEvents(health, 'manual');
           await sendTelegramMessageToChat({ chatId, text: formatPipelineMessage(health, 'manual') });
           await answerTelegramCallbackQuery({ callbackQueryId: String(cb.id), text: 'Готово' });
           continue;

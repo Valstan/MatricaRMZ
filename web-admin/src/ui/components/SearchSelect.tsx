@@ -148,6 +148,7 @@ export function SearchSelect(props: {
 
   useEffect(() => {
     if (!open || isCreating) return;
+    setQuery((prev) => (String(prev ?? '').trim() ? prev : selected?.label ?? ''));
     const input = searchInputRef.current;
     if (!input) return;
     input.focus();
@@ -263,6 +264,7 @@ export function SearchSelect(props: {
               <div style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
                 <input
                   ref={searchInputRef}
+                  data-input-assist="component-suggestions"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {

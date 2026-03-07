@@ -20,6 +20,7 @@ import { NotesPage } from './NotesPage.js';
 import { listNotes } from '../api/notes.js';
 import { Button } from './components/Button.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
+import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { Input } from './components/Input.js';
 import { Tabs } from './components/Tabs.js';
 import { UserSettingsPage, type UiPrefs } from './UserSettingsPage.js';
@@ -629,6 +630,7 @@ export function App() {
         )}
         </div>
       </div>
+      <GlobalInputAssist storageKey="matrica_webadmin_input_assist_history_v1" />
     </div>
   );
 }

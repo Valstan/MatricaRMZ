@@ -119,3 +119,176 @@ export type WarehouseDocumentsFilter = {
   toDate?: number;
 };
 
+export const WarehouseDocumentType = {
+  StockReceipt: 'stock_receipt',
+  StockIssue: 'stock_issue',
+  StockTransfer: 'stock_transfer',
+  StockWriteoff: 'stock_writeoff',
+  StockInventory: 'stock_inventory',
+} as const;
+
+export type WarehouseDocumentType = (typeof WarehouseDocumentType)[keyof typeof WarehouseDocumentType];
+
+export const WarehouseDocumentTypeLabels: Record<WarehouseDocumentType, string> = {
+  [WarehouseDocumentType.StockReceipt]: 'Приход',
+  [WarehouseDocumentType.StockIssue]: 'Расход',
+  [WarehouseDocumentType.StockTransfer]: 'Перемещение',
+  [WarehouseDocumentType.StockWriteoff]: 'Списание',
+  [WarehouseDocumentType.StockInventory]: 'Инвентаризация',
+};
+
+export const WarehouseLookupKind = {
+  Warehouses: 'warehouses',
+  NomenclatureGroups: 'nomenclature_groups',
+  Units: 'units',
+  WriteoffReasons: 'writeoff_reasons',
+  Counterparties: 'counterparties',
+  Employees: 'employees',
+} as const;
+
+export type WarehouseLookupKind = (typeof WarehouseLookupKind)[keyof typeof WarehouseLookupKind];
+
+export type WarehouseLookupOption = {
+  id: string;
+  label: string;
+  code: string | null;
+  isActive?: boolean;
+  meta?: Record<string, unknown>;
+};
+
+export type WarehouseLookups = {
+  warehouses: WarehouseLookupOption[];
+  nomenclatureGroups: WarehouseLookupOption[];
+  units: WarehouseLookupOption[];
+  writeoffReasons: WarehouseLookupOption[];
+  counterparties: WarehouseLookupOption[];
+  employees: WarehouseLookupOption[];
+};
+
+export type WarehouseDocumentHeaderPayload = {
+  warehouseId: string | null;
+  reason: string | null;
+  counterpartyId: string | null;
+};
+
+export type WarehouseDocumentLinePayload = {
+  nomenclatureId: string | null;
+  warehouseId: string | null;
+  fromWarehouseId: string | null;
+  toWarehouseId: string | null;
+  adjustmentQty: number | null;
+  bookQty: number | null;
+  actualQty: number | null;
+  reason: string | null;
+};
+
+export type WarehouseNomenclatureListItem = NomenclatureItem & {
+  groupName: string | null;
+  unitName: string | null;
+  defaultWarehouseName: string | null;
+};
+
+export type WarehouseStockListItem = StockBalance & {
+  warehouseName: string | null;
+  nomenclatureCode: string | null;
+  nomenclatureName: string | null;
+  itemType: NomenclatureItemType | null;
+  minStock: number | null;
+  maxStock: number | null;
+  groupId: string | null;
+  groupName: string | null;
+  unitId: string | null;
+  unitName: string | null;
+  defaultWarehouseId: string | null;
+  defaultWarehouseName: string | null;
+  availableQty: number;
+};
+
+export type WarehouseDocumentLineDto = {
+  id: string;
+  lineNo: number;
+  qty: number;
+  price: number | null;
+  partCardId: string | null;
+  nomenclatureId: string | null;
+  nomenclatureCode: string | null;
+  nomenclatureName: string | null;
+  warehouseId: string | null;
+  warehouseName: string | null;
+  fromWarehouseId: string | null;
+  fromWarehouseName: string | null;
+  toWarehouseId: string | null;
+  toWarehouseName: string | null;
+  adjustmentQty: number | null;
+  bookQty: number | null;
+  actualQty: number | null;
+  reason: string | null;
+  reasonLabel?: string | null;
+  payloadJson: string | null;
+};
+
+export type WarehouseDocumentListItem = {
+  id: string;
+  docType: WarehouseDocumentType;
+  docNo: string;
+  docDate: number;
+  status: ErpDocumentStatus;
+  authorId: string | null;
+  authorName: string | null;
+  departmentId: string | null;
+  payloadJson: string | null;
+  warehouseId: string | null;
+  warehouseName: string | null;
+  reason: string | null;
+  reasonLabel?: string | null;
+  counterpartyId: string | null;
+  counterpartyName: string | null;
+  createdAt: number;
+  updatedAt: number;
+  postedAt: number | null;
+  deletedAt: number | null;
+  linesCount: number;
+  totalQty: number;
+};
+
+export type WarehouseDocumentDetails = {
+  header: WarehouseDocumentListItem;
+  lines: WarehouseDocumentLineDto[];
+};
+
+export type WarehouseMovementListItem = StockMovement & {
+  warehouseName: string | null;
+  nomenclatureCode: string | null;
+  nomenclatureName: string | null;
+  documentDocNo: string | null;
+  documentDocType: WarehouseDocumentType | null;
+  counterpartyName: string | null;
+  reasonLabel?: string | null;
+};
+
+export type WarehouseDocumentLineInput = {
+  qty: number;
+  price?: number | null;
+  partCardId?: string | null;
+  nomenclatureId?: string | null;
+  warehouseId?: string | null;
+  fromWarehouseId?: string | null;
+  toWarehouseId?: string | null;
+  adjustmentQty?: number | null;
+  bookQty?: number | null;
+  actualQty?: number | null;
+  reason?: string | null;
+  payloadJson?: string | null;
+};
+
+export type WarehouseDocumentUpsertInput = {
+  id?: string;
+  docType: WarehouseDocumentType;
+  docNo: string;
+  docDate?: number;
+  departmentId?: string | null;
+  authorId?: string | null;
+  payloadJson?: string | null;
+  lines: WarehouseDocumentLineInput[];
+};
+

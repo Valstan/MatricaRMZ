@@ -4,8 +4,14 @@ import { LedgerTableName } from '@matricarmz/ledger';
 
 import { db } from '../database/db.js';
 import {
+  attributeDefs,
+  attributeValues,
+  entities,
+  entityTypes,
+  erpCounterparties,
   erpDocumentHeaders,
   erpDocumentLines,
+  erpEmployeeCards,
   erpJournalDocuments,
   erpNomenclature,
   erpRegStockBalance,
@@ -27,7 +33,27 @@ type DocLineInput = {
   price?: number | null;
   partCardId?: string | null;
   nomenclatureId?: string | null;
+  warehouseId?: string | null;
+  fromWarehouseId?: string | null;
+  toWarehouseId?: string | null;
+  adjustmentQty?: number | null;
+  bookQty?: number | null;
+  actualQty?: number | null;
+  reason?: string | null;
   payloadJson?: string | null;
+};
+
+type HeaderPayloadInput = {
+  warehouseId?: string | null;
+  reason?: string | null;
+  counterpartyId?: string | null;
+};
+
+type LookupOption = {
+  id: string;
+  label: string;
+  code: string | null;
+  meta?: Record<string, unknown>;
 };
 
 type PlannedMovement = {
@@ -73,6 +99,225 @@ function numField(payload: Record<string, unknown>, key: string): number | undef
   return Number.isFinite(asNum) ? asNum : undefined;
 }
 
+function parseJsonScalar(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(String(raw)) as unknown;
+    if (parsed == null) return null;
+    if (typeof parsed === 'string') {
+      const trimmed = parsed.trim();
+      return trimmed ? trimmed : null;
+    }
+    if (typeof parsed === 'number' || typeof parsed === 'boolean') return String(parsed);
+    return null;
+  } catch {
+    const trimmed = String(raw).trim();
+    return trimmed ? trimmed : null;
+  }
+}
+
+function buildLookupMap(rows: LookupOption[]) {
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+function readLookupLabel(rows: Map<string, LookupOption>, id: string | null | undefined): string | null {
+  const safeId = String(id ?? '').trim();
+  if (!safeId) return null;
+  return rows.get(safeId)?.label ?? null;
+}
+
+async function listMasterdataLookup(typeCode: string): Promise<LookupOption[]> {
+  const typeRows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, typeCode), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  const typeId = typeRows[0]?.id ? String(typeRows[0].id) : '';
+  if (!typeId) return [];
+
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)))
+    .orderBy(asc(attributeDefs.sortOrder), asc(attributeDefs.code));
+  const defById = new Map(defs.map((def) => [String(def.id), String(def.code)]));
+  const knownCodes = new Set(defs.map((def) => String(def.code)));
+
+  const rows = await db
+    .select({ id: entities.id, updatedAt: entities.updatedAt })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
+    .orderBy(asc(entities.updatedAt));
+  if (!rows.length) return [];
+
+  const entityIds = rows.map((row) => String(row.id));
+  const defIds = defs.map((def) => String(def.id));
+  const values =
+    defIds.length > 0
+      ? await db
+          .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(
+            and(
+              inArray(attributeValues.entityId, entityIds as any),
+              inArray(attributeValues.attributeDefId, defIds as any),
+              isNull(attributeValues.deletedAt),
+            ),
+          )
+      : [];
+
+  const attrsByEntity = new Map<string, Record<string, string | null>>();
+  for (const row of values) {
+    const entityId = String(row.entityId);
+    const attrCode = defById.get(String(row.attributeDefId));
+    if (!attrCode) continue;
+    const current = attrsByEntity.get(entityId) ?? {};
+    current[attrCode] = parseJsonScalar(row.valueJson);
+    attrsByEntity.set(entityId, current);
+  }
+
+  const labelCode = ['name', 'title', 'label'].find((code) => knownCodes.has(code)) ?? (knownCodes.has('code') ? 'code' : null);
+  return rows
+    .map((row) => {
+      const entityId = String(row.id);
+      const attrs = attrsByEntity.get(entityId) ?? {};
+      const label = String((labelCode ? attrs[labelCode] : null) ?? attrs.code ?? entityId).trim();
+      const code = attrs.code ?? null;
+      const meta = Object.fromEntries(
+        Object.entries({
+          address: attrs.address ?? null,
+          description: attrs.description ?? null,
+        }).filter((entry) => entry[1] != null),
+      );
+      return {
+        id: entityId,
+        label,
+        code,
+        ...(Object.keys(meta).length ? { meta } : {}),
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+}
+
+function ensureDefaultWarehouse(rows: LookupOption[]): LookupOption[] {
+  if (rows.some((row) => row.id === 'default')) return rows;
+  return [{ id: 'default', label: 'Основной склад', code: 'default' }, ...rows];
+}
+
+async function listWarehouseReferenceData() {
+  const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows] = await Promise.all([
+    listMasterdataLookup('warehouse_ref'),
+    listMasterdataLookup('nomenclature_group'),
+    listMasterdataLookup('unit'),
+    listMasterdataLookup('stock_write_off_reason'),
+    db.select().from(erpCounterparties).where(isNull(erpCounterparties.deletedAt)).orderBy(asc(erpCounterparties.name)),
+    db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).orderBy(asc(erpEmployeeCards.fullName)),
+  ]);
+
+  const warehouses = ensureDefaultWarehouse(warehousesRaw);
+  const counterparties: LookupOption[] = counterpartiesRows.map((row) => ({
+    id: String(row.id),
+    label: String(row.name),
+    code: row.code == null ? null : String(row.code),
+  }));
+  const employees: LookupOption[] = employeesRows.map((row) => ({
+    id: String(row.id),
+    label: String(row.fullName),
+    code: row.personnelNo == null ? null : String(row.personnelNo),
+  }));
+
+  return {
+    warehouses,
+    nomenclatureGroups,
+    units,
+    writeoffReasons,
+    counterparties,
+    employees,
+    warehouseById: buildLookupMap(warehouses),
+    groupById: buildLookupMap(nomenclatureGroups),
+    unitById: buildLookupMap(units),
+    writeoffReasonById: buildLookupMap(writeoffReasons),
+    counterpartyById: buildLookupMap(counterparties),
+    employeeById: buildLookupMap(employees),
+  };
+}
+
+function parseWarehouseHeaderPayload(raw: string | null | undefined) {
+  const payload = parseJsonObject(raw);
+  return {
+    warehouseId: strField(payload, 'warehouseId') ?? null,
+    reason: strField(payload, 'reason') ?? null,
+    counterpartyId: strField(payload, 'counterpartyId') ?? null,
+  };
+}
+
+function parseWarehouseLinePayload(raw: string | null | undefined) {
+  const payload = parseJsonObject(raw);
+  return {
+    nomenclatureId: strField(payload, 'nomenclatureId') ?? null,
+    warehouseId: strField(payload, 'warehouseId') ?? null,
+    fromWarehouseId: strField(payload, 'fromWarehouseId') ?? null,
+    toWarehouseId: strField(payload, 'toWarehouseId') ?? null,
+    adjustmentQty: numField(payload, 'adjustmentQty') ?? null,
+    bookQty: numField(payload, 'bookQty') ?? null,
+    actualQty: numField(payload, 'actualQty') ?? null,
+    reason: strField(payload, 'reason') ?? null,
+  };
+}
+
+function mergeHeaderPayloadJson(raw: string | null | undefined, input?: HeaderPayloadInput | null) {
+  const payload = parseJsonObject(raw);
+  if (input?.warehouseId !== undefined) payload.warehouseId = input.warehouseId;
+  if (input?.reason !== undefined) payload.reason = input.reason;
+  if (input?.counterpartyId !== undefined) payload.counterpartyId = input.counterpartyId;
+  const compact = Object.fromEntries(Object.entries(payload).filter((entry) => entry[1] != null && entry[1] !== ''));
+  return Object.keys(compact).length > 0 ? JSON.stringify(compact) : null;
+}
+
+function mergeLinePayloadJson(raw: string | null | undefined, input: DocLineInput) {
+  const payload = parseJsonObject(raw);
+  if (input.nomenclatureId !== undefined) payload.nomenclatureId = input.nomenclatureId;
+  if (input.warehouseId !== undefined) payload.warehouseId = input.warehouseId;
+  if (input.fromWarehouseId !== undefined) payload.fromWarehouseId = input.fromWarehouseId;
+  if (input.toWarehouseId !== undefined) payload.toWarehouseId = input.toWarehouseId;
+  if (input.adjustmentQty !== undefined) payload.adjustmentQty = input.adjustmentQty;
+  if (input.bookQty !== undefined) payload.bookQty = input.bookQty;
+  if (input.actualQty !== undefined) payload.actualQty = input.actualQty;
+  if (input.reason !== undefined) payload.reason = input.reason;
+  const compact = Object.fromEntries(Object.entries(payload).filter((entry) => entry[1] != null && entry[1] !== ''));
+  return Object.keys(compact).length > 0 ? JSON.stringify(compact) : null;
+}
+
+export async function listWarehouseLookups(): Promise<
+  Result<{
+    lookups: {
+      warehouses: LookupOption[];
+      nomenclatureGroups: LookupOption[];
+      units: LookupOption[];
+      writeoffReasons: LookupOption[];
+      counterparties: LookupOption[];
+      employees: LookupOption[];
+    };
+  }>
+> {
+  try {
+    const refs = await listWarehouseReferenceData();
+    return {
+      ok: true,
+      lookups: {
+        warehouses: refs.warehouses,
+        nomenclatureGroups: refs.nomenclatureGroups,
+        units: refs.units,
+        writeoffReasons: refs.writeoffReasons,
+        counterparties: refs.counterparties,
+        employees: refs.employees,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function listWarehouseNomenclature(args?: {
   search?: string;
   itemType?: string;
@@ -80,6 +325,7 @@ export async function listWarehouseNomenclature(args?: {
   isActive?: boolean;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
+    const refs = await listWarehouseReferenceData();
     const search = String(args?.search ?? '').trim().toLowerCase();
     const rows = await db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt)).orderBy(asc(erpNomenclature.name));
     const filtered = rows.filter((row) => {
@@ -90,7 +336,15 @@ export async function listWarehouseNomenclature(args?: {
       const hay = `${String(row.code ?? '')} ${String(row.name ?? '')} ${String(row.barcode ?? '')}`.toLowerCase();
       return hay.includes(search);
     });
-    return { ok: true, rows: filtered as Array<Record<string, unknown>> };
+    return {
+      ok: true,
+      rows: filtered.map((row) => ({
+        ...row,
+        groupName: readLookupLabel(refs.groupById, row.groupId == null ? null : String(row.groupId)),
+        unitName: readLookupLabel(refs.unitById, row.unitId == null ? null : String(row.unitId)),
+        defaultWarehouseName: readLookupLabel(refs.warehouseById, row.defaultWarehouseId == null ? null : String(row.defaultWarehouseId)),
+      })) as Array<Record<string, unknown>>,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -213,6 +467,7 @@ export async function listWarehouseStock(args?: {
   lowStockOnly?: boolean;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
+    const refs = await listWarehouseReferenceData();
     const rows = await db.select().from(erpRegStockBalance).orderBy(asc(erpRegStockBalance.warehouseId));
     const nomenclatureIds = Array.from(new Set(rows.map((row) => row.nomenclatureId).filter((v): v is string => typeof v === 'string' && v.length > 0)));
     const nomenclatureRows =
@@ -239,13 +494,24 @@ export async function listWarehouseStock(args?: {
       })
       .map((row) => {
         const n = row.nomenclatureId ? nomenclatureById.get(String(row.nomenclatureId)) : undefined;
+        const reservedQty = Number(row.reservedQty ?? 0);
+        const qty = Number(row.qty ?? 0);
         return {
           ...row,
+          warehouseName: readLookupLabel(refs.warehouseById, String(row.warehouseId)),
           nomenclatureCode: n?.code ?? null,
           nomenclatureName: n?.name ?? null,
           itemType: n?.itemType ?? null,
           minStock: n?.minStock ?? null,
           maxStock: n?.maxStock ?? null,
+          groupId: n?.groupId ?? null,
+          groupName: readLookupLabel(refs.groupById, n?.groupId == null ? null : String(n.groupId)),
+          unitId: n?.unitId ?? null,
+          unitName: readLookupLabel(refs.unitById, n?.unitId == null ? null : String(n.unitId)),
+          defaultWarehouseId: n?.defaultWarehouseId ?? null,
+          defaultWarehouseName: readLookupLabel(refs.warehouseById, n?.defaultWarehouseId == null ? null : String(n.defaultWarehouseId)),
+          reservedQty,
+          availableQty: qty - reservedQty,
         };
       });
     return { ok: true, rows: filtered as Array<Record<string, unknown>> };
@@ -259,22 +525,76 @@ export async function listWarehouseDocuments(args?: {
   status?: string;
   fromDate?: number;
   toDate?: number;
+  search?: string;
+  warehouseId?: string;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
+    const refs = await listWarehouseReferenceData();
     const rows = await db
       .select()
       .from(erpDocumentHeaders)
       .where(isNull(erpDocumentHeaders.deletedAt))
       .orderBy(desc(erpDocumentHeaders.docDate), desc(erpDocumentHeaders.createdAt));
+    const headerIds = rows.filter((row) => isStockDocType(String(row.docType))).map((row) => String(row.id));
+    const lineRows =
+      headerIds.length > 0
+        ? await db
+            .select()
+            .from(erpDocumentLines)
+            .where(and(inArray(erpDocumentLines.headerId, headerIds as any), isNull(erpDocumentLines.deletedAt)))
+            .orderBy(asc(erpDocumentLines.lineNo))
+        : [];
+    const linesByHeaderId = new Map<string, typeof lineRows>();
+    for (const line of lineRows) {
+      const key = String(line.headerId);
+      const list = linesByHeaderId.get(key) ?? [];
+      list.push(line);
+      linesByHeaderId.set(key, list);
+    }
+    const search = String(args?.search ?? '').trim().toLowerCase();
     const filtered = rows.filter((row) => {
       if (!isStockDocType(String(row.docType))) return false;
       if (args?.docType && String(row.docType) !== String(args.docType)) return false;
       if (args?.status && String(row.status) !== String(args.status)) return false;
       if (args?.fromDate !== undefined && Number(row.docDate) < Number(args.fromDate)) return false;
       if (args?.toDate !== undefined && Number(row.docDate) > Number(args.toDate)) return false;
+      const headerPayload = parseWarehouseHeaderPayload(row.payloadJson);
+      if (args?.warehouseId && String(headerPayload.warehouseId ?? '') !== String(args.warehouseId)) return false;
+      if (search) {
+        const hay = [
+          String(row.docNo ?? ''),
+          String(row.docType ?? ''),
+          String(headerPayload.reason ?? ''),
+          String(headerPayload.warehouseId ?? ''),
+          String(readLookupLabel(refs.warehouseById, headerPayload.warehouseId) ?? ''),
+          String(readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId) ?? ''),
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
       return true;
     });
-    return { ok: true, rows: filtered as Array<Record<string, unknown>> };
+    return {
+      ok: true,
+      rows: filtered.map((row) => {
+        const headerPayload = parseWarehouseHeaderPayload(row.payloadJson);
+        const docLines = linesByHeaderId.get(String(row.id)) ?? [];
+        const reasonLabel = readLookupLabel(refs.writeoffReasonById, headerPayload.reason) ?? headerPayload.reason;
+        return {
+          ...row,
+          warehouseId: headerPayload.warehouseId,
+          warehouseName: readLookupLabel(refs.warehouseById, headerPayload.warehouseId),
+          reason: headerPayload.reason,
+          reasonLabel,
+          counterpartyId: headerPayload.counterpartyId,
+          counterpartyName: readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId),
+          authorName: readLookupLabel(refs.employeeById, row.authorId == null ? null : String(row.authorId)),
+          linesCount: docLines.length,
+          totalQty: docLines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
+        };
+      }) as Array<Record<string, unknown>>,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -282,8 +602,9 @@ export async function listWarehouseDocuments(args?: {
 
 export async function getWarehouseDocument(args: {
   id: string;
-}): Promise<Result<{ header: Record<string, unknown>; lines: Array<Record<string, unknown>> }>> {
+}): Promise<Result<{ document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } }>> {
   try {
+    const refs = await listWarehouseReferenceData();
     const headerRows = await db
       .select()
       .from(erpDocumentHeaders)
@@ -297,7 +618,57 @@ export async function getWarehouseDocument(args: {
       .from(erpDocumentLines)
       .where(and(eq(erpDocumentLines.headerId, args.id), isNull(erpDocumentLines.deletedAt)))
       .orderBy(asc(erpDocumentLines.lineNo));
-    return { ok: true, header: header as Record<string, unknown>, lines: lines as Array<Record<string, unknown>> };
+    const headerPayload = parseWarehouseHeaderPayload(header.payloadJson);
+    const nomenclatureIds = Array.from(
+      new Set(
+        lines
+          .map((line) => parseWarehouseLinePayload(line.payloadJson).nomenclatureId)
+          .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      ),
+    );
+    const nomenclatureRows =
+      nomenclatureIds.length > 0
+        ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
+        : [];
+    const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+    return {
+      ok: true,
+      document: {
+        header: {
+          ...header,
+          warehouseId: headerPayload.warehouseId,
+          warehouseName: readLookupLabel(refs.warehouseById, headerPayload.warehouseId),
+          reason: headerPayload.reason,
+          reasonLabel: readLookupLabel(refs.writeoffReasonById, headerPayload.reason) ?? headerPayload.reason,
+          counterpartyId: headerPayload.counterpartyId,
+          counterpartyName: readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId),
+          authorName: readLookupLabel(refs.employeeById, header.authorId == null ? null : String(header.authorId)),
+          linesCount: lines.length,
+          totalQty: lines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
+        },
+        lines: lines.map((line) => {
+          const payload = parseWarehouseLinePayload(line.payloadJson);
+          const nomenclature = payload.nomenclatureId ? nomenclatureById.get(payload.nomenclatureId) : null;
+          return {
+            ...line,
+            nomenclatureId: payload.nomenclatureId,
+            nomenclatureCode: nomenclature?.code ?? null,
+            nomenclatureName: nomenclature?.name ?? null,
+            warehouseId: payload.warehouseId,
+            warehouseName: readLookupLabel(refs.warehouseById, payload.warehouseId),
+            fromWarehouseId: payload.fromWarehouseId,
+            fromWarehouseName: readLookupLabel(refs.warehouseById, payload.fromWarehouseId),
+            toWarehouseId: payload.toWarehouseId,
+            toWarehouseName: readLookupLabel(refs.warehouseById, payload.toWarehouseId),
+            adjustmentQty: payload.adjustmentQty,
+            bookQty: payload.bookQty,
+            actualQty: payload.actualQty,
+            reason: payload.reason,
+            reasonLabel: readLookupLabel(refs.writeoffReasonById, payload.reason) ?? payload.reason,
+          };
+        }),
+      },
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -310,6 +681,7 @@ export async function createWarehouseDocument(args: {
   docDate?: number;
   departmentId?: string | null;
   authorId?: string | null;
+  header?: HeaderPayloadInput | null;
   payloadJson?: string | null;
   lines: DocLineInput[];
   actor: Actor;
@@ -326,7 +698,7 @@ export async function createWarehouseDocument(args: {
         .where(and(eq(erpDocumentHeaders.id, id), isNull(erpDocumentHeaders.deletedAt)))
         .limit(1);
       if (!existing[0]) return { ok: false, error: 'Документ для обновления не найден' };
-      if (String(existing[0].status) === 'posted') return { ok: false, error: 'Нельзя редактировать проведенный документ' };
+      if (String(existing[0].status) !== 'draft') return { ok: false, error: 'Можно редактировать только документ в статусе черновика' };
       await db
         .update(erpDocumentHeaders)
         .set({
@@ -335,7 +707,7 @@ export async function createWarehouseDocument(args: {
           docDate,
           authorId: args.authorId ?? null,
           departmentId: args.departmentId ?? null,
-          payloadJson: args.payloadJson ?? null,
+          payloadJson: mergeHeaderPayloadJson(args.payloadJson, args.header),
           updatedAt: ts,
         })
         .where(eq(erpDocumentHeaders.id, id));
@@ -349,7 +721,7 @@ export async function createWarehouseDocument(args: {
         status: 'draft',
         authorId: args.authorId ?? null,
         departmentId: args.departmentId ?? null,
-        payloadJson: args.payloadJson ?? null,
+        payloadJson: mergeHeaderPayloadJson(args.payloadJson, args.header),
         createdAt: ts,
         updatedAt: ts,
         postedAt: null,
@@ -357,11 +729,6 @@ export async function createWarehouseDocument(args: {
       });
     }
     const lines = args.lines.map((line, idx) => {
-      const base = parseJsonObject(line.payloadJson ?? null);
-      const payload = {
-        ...base,
-        ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
-      };
       return {
         id: randomUUID(),
         headerId: id,
@@ -369,7 +736,7 @@ export async function createWarehouseDocument(args: {
         partCardId: line.partCardId ?? null,
         qty: Math.max(0, Math.trunc(Number(line.qty))),
         price: line.price == null ? null : Math.trunc(Number(line.price)),
-        payloadJson: Object.keys(payload).length > 0 ? JSON.stringify(payload) : null,
+        payloadJson: mergeLinePayloadJson(line.payloadJson, line),
         createdAt: ts,
         updatedAt: ts,
         deletedAt: null,
@@ -384,6 +751,38 @@ export async function createWarehouseDocument(args: {
       eventAt: ts,
     });
     return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function cancelWarehouseDocument(args: {
+  documentId: string;
+  actor: Actor;
+}): Promise<Result<{ id: string; status: 'cancelled' }>> {
+  try {
+    const ts = nowMs();
+    const headerRows = await db
+      .select()
+      .from(erpDocumentHeaders)
+      .where(and(eq(erpDocumentHeaders.id, args.documentId), isNull(erpDocumentHeaders.deletedAt)))
+      .limit(1);
+    const header = headerRows[0];
+    if (!header) return { ok: false, error: 'Документ не найден' };
+    if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
+    if (String(header.status) === 'posted') return { ok: false, error: 'Проведенный документ нельзя отменить без сторнирующей операции' };
+    if (String(header.status) === 'cancelled') return { ok: true, id: args.documentId, status: 'cancelled' };
+
+    await db.update(erpDocumentHeaders).set({ status: 'cancelled', updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
+    await db.insert(erpJournalDocuments).values({
+      id: randomUUID(),
+      documentHeaderId: args.documentId,
+      eventType: 'cancelled',
+      eventPayloadJson: JSON.stringify({ by: args.actor.username }),
+      eventAt: ts,
+    });
+
+    return { ok: true, id: args.documentId, status: 'cancelled' };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -415,7 +814,6 @@ export async function postWarehouseDocument(args: {
 
     for (const line of lines) {
       const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
-      if (qty <= 0) continue;
       const payload = parseJsonObject(line.payloadJson ?? null);
       const nomenclatureId = strField(payload, 'nomenclatureId');
       if (!nomenclatureId) return { ok: false, error: `В строке ${line.lineNo} не задана номенклатура` };
@@ -423,18 +821,23 @@ export async function postWarehouseDocument(args: {
       const counterpartyId = strField(headerPayload, 'counterpartyId') ?? null;
 
       if (String(header.docType) === 'stock_receipt') {
+        if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
         planned.push({ nomenclatureId, warehouseId, movementType: 'receipt', direction: 'in', qty, delta: qty, reason, counterpartyId });
       } else if (String(header.docType) === 'stock_issue') {
+        if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
         planned.push({ nomenclatureId, warehouseId, movementType: 'issue', direction: 'out', qty, delta: -qty, reason, counterpartyId });
       } else if (String(header.docType) === 'stock_writeoff') {
+        if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
         planned.push({ nomenclatureId, warehouseId, movementType: 'writeoff', direction: 'out', qty, delta: -qty, reason, counterpartyId });
       } else if (String(header.docType) === 'stock_transfer') {
+        if (qty <= 0) continue;
         const fromWarehouseId = strField(payload, 'fromWarehouseId') ?? strField(headerPayload, 'fromWarehouseId');
         const toWarehouseId = strField(payload, 'toWarehouseId') ?? strField(headerPayload, 'toWarehouseId');
         if (!fromWarehouseId || !toWarehouseId) return { ok: false, error: `В строке ${line.lineNo} не заполнены склады перемещения` };
+        if (fromWarehouseId === toWarehouseId) return { ok: false, error: `В строке ${line.lineNo} склады перемещения совпадают` };
         planned.push({ nomenclatureId, warehouseId: fromWarehouseId, movementType: 'transfer_out', direction: 'out', qty, delta: -qty, reason, counterpartyId });
         planned.push({ nomenclatureId, warehouseId: toWarehouseId, movementType: 'transfer_in', direction: 'in', qty, delta: qty, reason, counterpartyId });
       } else if (String(header.docType) === 'stock_inventory') {
@@ -455,6 +858,10 @@ export async function postWarehouseDocument(args: {
           counterpartyId,
         });
       }
+    }
+
+    if (planned.length === 0) {
+      return { ok: false, error: 'В документе нет строк с движением по складу' };
     }
 
     const nomenclatureIds = Array.from(new Set(planned.map((item) => item.nomenclatureId)));
@@ -605,6 +1012,7 @@ export async function listWarehouseMovements(args?: {
   limit?: number;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
+    const refs = await listWarehouseReferenceData();
     const rows = await db.select().from(erpRegStockMovements).orderBy(desc(erpRegStockMovements.performedAt));
     const filtered = rows.filter((row) => {
       if (args?.nomenclatureId && String(row.nomenclatureId) !== String(args.nomenclatureId)) return false;
@@ -615,7 +1023,36 @@ export async function listWarehouseMovements(args?: {
       return true;
     });
     const limit = Math.max(1, Math.min(2000, Number(args?.limit ?? 500)));
-    return { ok: true, rows: filtered.slice(0, limit) as Array<Record<string, unknown>> };
+    const limited = filtered.slice(0, limit);
+    const nomenclatureIds = Array.from(new Set(limited.map((row) => String(row.nomenclatureId)).filter(Boolean)));
+    const headerIds = Array.from(new Set(limited.map((row) => String(row.documentHeaderId ?? '')).filter(Boolean)));
+    const nomenclatureRows =
+      nomenclatureIds.length > 0
+        ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
+        : [];
+    const headerRows =
+      headerIds.length > 0
+        ? await db.select().from(erpDocumentHeaders).where(and(inArray(erpDocumentHeaders.id, headerIds as any), isNull(erpDocumentHeaders.deletedAt)))
+        : [];
+    const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+    const headerById = new Map(headerRows.map((row) => [String(row.id), row]));
+    return {
+      ok: true,
+      rows: limited.map((row) => {
+        const nomenclature = nomenclatureById.get(String(row.nomenclatureId));
+        const header = row.documentHeaderId ? headerById.get(String(row.documentHeaderId)) : null;
+        return {
+          ...row,
+          warehouseName: readLookupLabel(refs.warehouseById, String(row.warehouseId)),
+          nomenclatureCode: nomenclature?.code ?? null,
+          nomenclatureName: nomenclature?.name ?? null,
+          documentDocNo: header?.docNo ?? null,
+          documentDocType: header?.docType ?? null,
+          counterpartyName: readLookupLabel(refs.counterpartyById, row.counterpartyId == null ? null : String(row.counterpartyId)),
+          reasonLabel: readLookupLabel(refs.writeoffReasonById, row.reason == null ? null : String(row.reason)) ?? row.reason ?? null,
+        };
+      }) as Array<Record<string, unknown>>,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

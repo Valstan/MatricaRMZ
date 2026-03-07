@@ -275,6 +275,21 @@ export async function warehouseNomenclatureList(
   }
 }
 
+export async function warehouseLookupsGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+) {
+  const path = '/warehouse/lookups';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; lookups: Record<string, unknown> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseNomenclatureUpsert(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -335,7 +350,7 @@ export async function warehouseStockList(
 export async function warehouseDocumentsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { status?: string; docType?: string; fromDate?: number; toDate?: number },
+  args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string },
 ) {
   try {
     const qp = new URLSearchParams();
@@ -343,6 +358,8 @@ export async function warehouseDocumentsList(
     if (args?.docType) qp.set('docType', args.docType);
     if (args?.fromDate !== undefined) qp.set('fromDate', String(Math.trunc(args.fromDate)));
     if (args?.toDate !== undefined) qp.set('toDate', String(Math.trunc(args.toDate)));
+    if (args?.search) qp.set('search', args.search);
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
     const path = `/warehouse/documents${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
@@ -363,7 +380,7 @@ export async function warehouseDocumentGet(
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; header: Record<string, unknown>; lines: Array<Record<string, unknown>> };
+    return r.json as { ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
@@ -400,6 +417,22 @@ export async function warehouseDocumentPost(
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
     return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDocumentCancel(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/cancel`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id), status: String(r.json.status ?? 'cancelled') };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }

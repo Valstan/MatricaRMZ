@@ -11,7 +11,9 @@ import {
   erpDocumentsList,
   erpDocumentsPost,
   warehouseDocumentCreate,
+  warehouseDocumentCancel,
   warehouseDocumentGet,
+  warehouseLookupsGet,
   warehouseDocumentPost,
   warehouseDocumentsList,
   warehouseMovementsList,
@@ -121,6 +123,13 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseNomenclatureList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
+  ipcMain.handle('warehouse:lookups:get', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse lookups are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseLookupsGet(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+  });
+
   ipcMain.handle('warehouse:nomenclature:upsert', async (_e, args: Record<string, unknown>) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
@@ -147,7 +156,7 @@ export function registerErpIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'warehouse:documents:list',
-    async (_e, args?: { status?: string; docType?: string; fromDate?: number; toDate?: number }) => {
+    async (_e, args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string }) => {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
       const gate = await requirePermOrResult(ctx, 'erp.documents.view');
       if (!gate.ok) return gate as any;
@@ -174,6 +183,13 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.documents.post');
     if (!gate.ok) return gate as any;
     return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:documents:cancel', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
   ipcMain.handle(

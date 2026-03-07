@@ -43,17 +43,50 @@ export const erpDocumentLineRowSchema = z.object({
   header_id: z.string().uuid(),
   line_no: z.number().int().nonnegative(),
   part_card_id: z.string().uuid().nullable().optional(),
+  nomenclature_id: z.string().uuid().nullable().optional(),
   qty: z.number().int(),
   price: z.number().int().nullable().optional(),
   payload_json: z.string().nullable().optional(),
 });
 
+export const erpNomenclatureRowSchema = z.object({
+  ...baseErpFields,
+  code: z.string().min(1),
+  name: z.string().min(1),
+  item_type: z.string().min(1),
+  group_id: z.string().uuid().nullable().optional(),
+  unit_id: z.string().uuid().nullable().optional(),
+  barcode: z.string().nullable().optional(),
+  min_stock: z.number().int().nullable().optional(),
+  max_stock: z.number().int().nullable().optional(),
+  default_warehouse_id: z.string().nullable().optional(),
+  spec_json: z.string().nullable().optional(),
+  is_active: z.boolean(),
+});
+
 export const erpRegisterStockBalanceRowSchema = z.object({
   id: z.string().uuid(),
-  part_card_id: z.string().uuid(),
+  nomenclature_id: z.string().uuid().nullable().optional(),
+  part_card_id: z.string().uuid().nullable().optional(),
   warehouse_id: z.string().min(1),
   qty: z.number().int(),
+  reserved_qty: z.number().int().nullable().optional(),
   updated_at: z.number().int(),
+});
+
+export const erpRegisterStockMovementRowSchema = z.object({
+  id: z.string().uuid(),
+  nomenclature_id: z.string().uuid(),
+  warehouse_id: z.string().min(1),
+  document_header_id: z.string().uuid().nullable().optional(),
+  movement_type: z.string().min(1),
+  qty: z.number().int(),
+  direction: z.string().min(1),
+  counterparty_id: z.string().uuid().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  performed_at: z.number().int(),
+  performed_by: z.string().nullable().optional(),
+  created_at: z.number().int(),
 });
 
 export const erpJournalDocumentRowSchema = z.object({
@@ -65,6 +98,7 @@ export const erpJournalDocumentRowSchema = z.object({
 });
 
 export const erpSyncRowSchemaByTable = {
+  [ErpSyncTableName.Nomenclature]: erpNomenclatureRowSchema,
   [ErpSyncTableName.PartTemplates]: erpPartTemplateRowSchema,
   [ErpSyncTableName.PartCards]: erpPartCardRowSchema,
   [ErpSyncTableName.ToolTemplates]: erpPartTemplateRowSchema,
@@ -75,6 +109,7 @@ export const erpSyncRowSchemaByTable = {
   [ErpSyncTableName.DocumentHeaders]: erpDocumentHeaderRowSchema,
   [ErpSyncTableName.DocumentLines]: erpDocumentLineRowSchema,
   [ErpSyncTableName.RegisterStockBalance]: erpRegisterStockBalanceRowSchema,
+  [ErpSyncTableName.RegisterStockMovements]: erpRegisterStockMovementRowSchema,
   [ErpSyncTableName.RegisterPartUsage]: erpJournalDocumentRowSchema,
   [ErpSyncTableName.RegisterContractSettlement]: erpJournalDocumentRowSchema,
   [ErpSyncTableName.RegisterEmployeeAccess]: erpJournalDocumentRowSchema,

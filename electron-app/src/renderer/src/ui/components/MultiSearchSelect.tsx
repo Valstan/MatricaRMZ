@@ -47,6 +47,7 @@ export function MultiSearchSelect(props: {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
           ref={searchInputRef}
+          data-input-assist="component-suggestions"
           value={dropdown.query}
           placeholder={props.placeholder ?? (selected.length ? selected.map((s) => s.label).join(', ') : '(не выбрано)')}
           disabled={disabled}

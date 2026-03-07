@@ -532,6 +532,17 @@ import type {
   AiAgentOllamaHealthRequest,
   AiAgentOllamaHealthResponse,
 } from '../domain/aiAgent.js';
+import type {
+  NomenclatureItemType,
+  WarehouseDocumentDetails,
+  WarehouseDocumentListItem,
+  WarehouseDocumentType,
+  WarehouseDocumentUpsertInput,
+  WarehouseLookups,
+  WarehouseMovementListItem,
+  WarehouseNomenclatureListItem,
+  WarehouseStockListItem,
+} from '../domain/warehouse.js';
 
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
@@ -1139,6 +1150,56 @@ export type MatricaApi = {
       lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
     }) => Promise<ErpUpsertResult>;
     documentsPost: (documentId: string) => Promise<ErpUpsertResult>;
+  };
+  warehouse: {
+    lookupsGet: () => Promise<{ ok: true; lookups: WarehouseLookups } | { ok: false; error: string }>;
+    nomenclatureList: (args?: {
+      search?: string;
+      itemType?: NomenclatureItemType;
+      groupId?: string;
+      isActive?: boolean;
+    }) => Promise<{ ok: true; rows: WarehouseNomenclatureListItem[] } | { ok: false; error: string }>;
+    nomenclatureUpsert: (args: {
+      id?: string;
+      code: string;
+      name: string;
+      itemType?: NomenclatureItemType;
+      groupId?: string | null;
+      unitId?: string | null;
+      barcode?: string | null;
+      minStock?: number | null;
+      maxStock?: number | null;
+      defaultWarehouseId?: string | null;
+      specJson?: string | null;
+      isActive?: boolean;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclatureDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    stockList: (args?: {
+      warehouseId?: string;
+      nomenclatureId?: string;
+      search?: string;
+      lowStockOnly?: boolean;
+    }) => Promise<{ ok: true; rows: WarehouseStockListItem[] } | { ok: false; error: string }>;
+    documentsList: (args?: {
+      status?: string;
+      docType?: WarehouseDocumentType;
+      fromDate?: number;
+      toDate?: number;
+      search?: string;
+      warehouseId?: string;
+    }) => Promise<{ ok: true; rows: WarehouseDocumentListItem[] } | { ok: false; error: string }>;
+    documentGet: (id: string) => Promise<{ ok: true; document: WarehouseDocumentDetails } | { ok: false; error: string }>;
+    documentCreate: (args: WarehouseDocumentUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    documentPost: (id: string) => Promise<{ ok: true; id: string; posted?: boolean } | { ok: false; error: string }>;
+    documentCancel: (id: string) => Promise<{ ok: true; id: string; status: 'cancelled' } | { ok: false; error: string }>;
+    movementsList: (args?: {
+      nomenclatureId?: string;
+      warehouseId?: string;
+      documentHeaderId?: string;
+      fromDate?: number;
+      toDate?: number;
+      limit?: number;
+    }) => Promise<{ ok: true; rows: WarehouseMovementListItem[] } | { ok: false; error: string }>;
   };
 
   files: {
