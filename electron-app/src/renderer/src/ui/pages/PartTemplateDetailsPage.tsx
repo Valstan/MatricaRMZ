@@ -38,7 +38,7 @@ export function PartTemplateDetailsPage(props: {
   const [linkedParts, setLinkedParts] = useState<LinkedPartRow[]>([]);
   const dirtyRef = useRef(false);
 
-  const title = useMemo(() => (name.trim() ? `Шаблон детали: ${name.trim()}` : 'Шаблон детали'), [name]);
+  const title = useMemo(() => (name.trim() ? `Деталь (справочник): ${name.trim()}` : 'Деталь (справочник)'), [name]);
 
   async function load() {
     try {
@@ -115,13 +115,13 @@ export function PartTemplateDetailsPage(props: {
 
   async function saveAllAndClose() {
     const ok = await saveCore();
-    if (!ok) throw new Error('Не удалось сохранить шаблон детали');
+    if (!ok) throw new Error('Не удалось сохранить деталь');
     return true;
   }
 
   async function handleDelete() {
     if (!props.canDelete) return;
-    if (!confirm('Удалить шаблон детали?')) return;
+    if (!confirm('Удалить деталь из справочника?')) return;
     try {
       setStatus('Удаление…');
       const deleted = await window.matrica.parts.templates.delete(props.templateId);
@@ -218,7 +218,7 @@ export function PartTemplateDetailsPage(props: {
       <SectionCard title="Реальные детали" style={{ borderRadius: 0, padding: 16 }}>
         <div style={{ display: 'grid', gap: 8 }}>
           {linkedParts.length === 0 ? (
-            <div style={{ color: 'var(--subtle)', fontSize: 13 }}>По этому шаблону пока не создано реальных деталей.</div>
+            <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Пока не создано реальных деталей на основе этой записи.</div>
           ) : (
             linkedParts.map((row) => (
               <div

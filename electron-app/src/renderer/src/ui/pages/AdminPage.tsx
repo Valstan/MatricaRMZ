@@ -128,6 +128,7 @@ const TECHNICAL_HIDDEN_CODES = new Set<string>([
 export function MasterdataPage(props: {
   canViewMasterData: boolean;
   canEditMasterData: boolean;
+  userRole: string;
 }) {
 
   const [types, setTypes] = useState<EntityTypeRow[]>([]);
@@ -218,6 +219,35 @@ export function MasterdataPage(props: {
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) ?? null, [types, selectedTypeId]);
   const selectedEntity = useMemo(() => entities.find((e) => e.id === selectedEntityId) ?? null, [entities, selectedEntityId]);
   const canUseDangerActions = props.canEditMasterData && advancedMode;
+  const canForceDelete = props.userRole === 'admin' || props.userRole === 'superadmin';
+
+  const addEntityLabel = useMemo(() => {
+    if (!selectedType) return 'Добавить запись';
+    const nameMap: Record<string, string> = {
+      engine_brand: 'Добавить марку двигателя',
+      part: 'Добавить деталь',
+      service: 'Добавить услугу',
+      tool: 'Добавить инструмент',
+      product: 'Добавить товар',
+      customer: 'Добавить заказчика',
+      contract: 'Добавить контракт',
+      employee: 'Добавить сотрудника',
+      unit: 'Добавить ед. измерения',
+      department: 'Добавить подразделение',
+      nomenclature_group: 'Добавить группу номенклатуры',
+      supplier_ref: 'Добавить поставщика',
+      warehouse_ref: 'Добавить склад',
+      position_ref: 'Добавить должность',
+      section: 'Добавить участок',
+      tool_catalog: 'Добавить каталог инструментов',
+      tool_property: 'Добавить свойство инструмента',
+      machine_operation: 'Добавить операцию',
+      workshop_ref: 'Добавить цех',
+      payroll_item: 'Добавить статью начисления',
+      cost_center: 'Добавить центр затрат',
+    };
+    return nameMap[selectedType.code] ?? `Добавить ${selectedType.name.toLowerCase()}`;
+  }, [selectedType]);
 
   const sortedNonTechnicalTypes = useMemo(() => {
     return types
@@ -873,156 +903,117 @@ export function MasterdataPage(props: {
   }, [selectedTypeId, visibleDefs, types]);
 
   return (
-    <div>
-      <h2 style={{ margin: '8px 0' }}>Справочники</h2>
-      <div style={{ color: '#6b7280', marginBottom: 12 }}>
-        {props.canViewMasterData
-          ? 'Здесь можно настраивать номенклатуру и свойства (для расширения системы без миграций).'
-          : 'У вас нет доступа к мастер-данным.'}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {!props.canViewMasterData && (
+        <div style={{ padding: 16, color: '#6b7280' }}>У вас нет доступа к мастер-данным.</div>
+      )}
 
       {props.canViewMasterData && (
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <strong>Справочники</strong>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          {/* === LEFT PANEL — sections === */}
+          <div style={{ borderRight: '1px solid var(--border, #e5e7eb)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border, #e5e7eb)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 14 }}>Разделы</strong>
               <span style={{ flex: 1 }} />
               {props.canEditMasterData && (
                 <Button
                   variant="ghost"
+                  size="sm"
                   onClick={() => setAdvancedMode((v) => !v)}
-                  style={
-                    advancedMode
-                      ? { border: '1px solid #b91c1c', color: '#b91c1c', background: '#fef2f2' }
-                      : undefined
-                  }
+                  style={advancedMode ? { border: '1px solid #b91c1c', color: '#b91c1c', background: '#fef2f2' } : undefined}
                 >
-                  {advancedMode ? 'Расширенный режим: вкл' : 'Расширенный режим'}
+                  {advancedMode ? 'Расш.' : 'Расш.'}
                 </Button>
               )}
-              <Button variant="ghost" onClick={() => void resyncAllMasterdata()}>
-                Подгрузить все
-              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void resyncAllMasterdata()}>Синхр.</Button>
+              <Button variant="ghost" size="sm" onClick={() => void refreshTypes()}>Обн.</Button>
               {props.canEditMasterData && (
                 <Button
                   variant="ghost"
+                  size="sm"
                   onClick={() =>
                     void (async () => {
                       try {
                         setStatus('Применяем классический шаблон справочников...');
                         const r = await applyClassicMasterdataPreset((m) => setStatus(m));
-                        if (!r.ok) {
-                          setStatus('Ошибка применения шаблона');
-                          return;
-                        }
+                        if (!r.ok) { setStatus('Ошибка применения шаблона'); return; }
                         await refreshTypes();
-                        if (selectedTypeId) {
-                          await refreshDefs(selectedTypeId);
-                          await refreshEntities(selectedTypeId);
-                        }
-                      } catch (e) {
-                        setStatus(`Ошибка: ${String(e)}`);
-                      }
+                        if (selectedTypeId) { await refreshDefs(selectedTypeId); await refreshEntities(selectedTypeId); }
+                      } catch (e) { setStatus(`Ошибка: ${String(e)}`); }
                     })()
                   }
                 >
-                  Классический шаблон
-                </Button>
-              )}
-              <Button variant="ghost" disabled={!selectedTypeId} onClick={() => void resyncSelectedType(selectedTypeId)}>
-                Подгрузить с сервера
-              </Button>
-              <Button variant="ghost" onClick={() => void refreshTypes()}>
-                Обновить
-              </Button>
-              {canUseDangerActions && (
-                <Button
-                  variant="ghost"
-                  disabled={!selectedTypeId}
-                  onClick={() => {
-                    if (!selectedTypeId) return;
-                    void openTypeDeleteDialog(selectedTypeId);
-                  }}
-                  style={{ color: '#b91c1c' }}
-                >
-                  Удалить раздел
+                  Шаблон
                 </Button>
               )}
             </div>
-            {!advancedMode && props.canEditMasterData && (
-              <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-                Безопасный режим: удаление разделов/свойств/записей скрыто.
-              </div>
-            )}
 
-            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-              {masterdataTreeGroups.map((group) => {
-                const expanded = expandedTreeGroups[group.key] !== false;
-                return (
-                  <div key={group.key} style={{ border: '1px solid #f3f4f6', borderRadius: 10, padding: 10, background: group.tint }}>
-                    <button
-                      type="button"
-                      onClick={() => setExpandedTreeGroups((prev) => ({ ...prev, [group.key]: !expanded }))}
-                      style={{
-                        width: '100%',
-                        border: 'none',
-                        background: 'transparent',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: 0,
-                        color: group.color,
-                        fontSize: 12,
-                        textAlign: 'left',
-                      }}
-                    >
-                      <span style={{ width: 12 }}>{expanded ? '▾' : '▸'}</span>
-                      <span>{group.icon}</span>
-                      <span style={{ fontWeight: 700 }}>{group.title}</span>
-                      <span style={{ marginLeft: 'auto', color: '#64748b' }}>{group.items.length}</span>
-                    </button>
-                    <div style={{ marginTop: 2, marginLeft: 20, fontSize: 11, color: '#64748b' }}>{group.subtitle}</div>
-                    {expanded && (
-                      <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                        {group.items.map((t) => {
-                          const active = t.id === selectedTypeId;
-                          return (
-                            <button
-                              key={t.id}
-                              type="button"
-                              onClick={() => setSelectedTypeId(t.id)}
-                              style={{
-                                borderRadius: 8,
-                                border: active ? '1px solid #1e40af' : '1px solid #dbeafe',
-                                background: active ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)' : '#fff',
-                                color: active ? '#fff' : '#0f172a',
-                                cursor: 'pointer',
-                                padding: '8px 10px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 8,
-                                textAlign: 'left',
-                              }}
-                            >
-                              <span style={{ fontWeight: 600 }}>{t.name}</span>
-                              <span style={{ fontSize: 11, opacity: active ? 0.9 : 0.7 }}>{t.code}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {visibleTypes.length === 0 && <div style={{ color: '#6b7280' }}>(справочники не настроены)</div>}
+            <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {masterdataTreeGroups.map((group) => {
+                  const expanded = expandedTreeGroups[group.key] !== false;
+                  return (
+                    <div key={group.key} style={{ border: '1px solid #f3f4f6', borderRadius: 8, padding: 8, background: group.tint }}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTreeGroups((prev) => ({ ...prev, [group.key]: !expanded }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: 0, color: group.color, fontSize: 12, textAlign: 'left' }}
+                      >
+                        <span style={{ width: 12 }}>{expanded ? '▾' : '▸'}</span>
+                        <span>{group.icon}</span>
+                        <span style={{ fontWeight: 700 }}>{group.title}</span>
+                        <span style={{ marginLeft: 'auto', color: '#64748b' }}>{group.items.length}</span>
+                      </button>
+                      {expanded && (
+                        <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
+                          {group.items.map((t) => {
+                            const active = t.id === selectedTypeId;
+                            return (
+                              <div
+                                key={t.id}
+                                style={{
+                                  borderRadius: 6,
+                                  border: active ? '1px solid #1e40af' : '1px solid #dbeafe',
+                                  background: active ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 70%)' : '#fff',
+                                  color: active ? '#fff' : '#0f172a',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedTypeId(t.id)}
+                                  style={{ flex: 1, border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', padding: '6px 8px', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}
+                                >
+                                  <span style={{ fontWeight: 600, fontSize: 13 }}>{t.name}</span>
+                                  <span style={{ fontSize: 10, opacity: active ? 0.9 : 0.6 }}>{t.code}</span>
+                                </button>
+                                {props.canEditMasterData && (
+                                  <button
+                                    type="button"
+                                    title="Удалить раздел"
+                                    onClick={(ev) => { ev.stopPropagation(); void openTypeDeleteDialog(t.id); }}
+                                    style={{ border: 'none', background: 'transparent', color: active ? 'rgba(255,255,255,0.7)' : '#b91c1c', cursor: 'pointer', padding: '4px 6px', fontSize: 12, lineHeight: 1, borderRadius: 4, flexShrink: 0 }}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {visibleTypes.length === 0 && <div style={{ color: '#6b7280', fontSize: 13 }}>(справочники не настроены)</div>}
+              </div>
             </div>
 
             {props.canEditMasterData && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Добавить раздел</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+              <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border, #e5e7eb)' }}>
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Добавить раздел справочника</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
                   <NewEntityTypeForm
                     existingCodes={types.map((t) => t.code)}
                     onSubmit={async (code, name) => {
@@ -1038,378 +1029,258 @@ export function MasterdataPage(props: {
             )}
           </div>
 
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 8, alignItems: 'center' }}>
-              <select
-                value={entityFilter}
-                onChange={(e) => setEntityFilter(e.target.value as any)}
-                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                <option value="all">Все записи</option>
-                <option value="named">Только с названием</option>
-                <option value="empty">Без названия</option>
-              </select>
-              <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск по всем данным записи…" />
-              <Button variant="ghost" disabled={!selectedTypeId} onClick={() => setShowDefsPanel(true)}>
-                Свойства справочника
-              </Button>
-            </div>
-          </div>
-
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <strong>{selectedType ? `Список ${selectedType.name}` : 'Список'}</strong>
-              <span style={{ flex: 1 }} />
-              {props.canEditMasterData && selectedTypeId && (
-                <Button
-                  onClick={async () => {
-                    setStatus('Создание записи...');
-                    const r = await window.matrica.admin.entities.create(selectedTypeId);
-                    if (!r.ok) {
-                      setStatus(`Ошибка: ${r.error}`);
-                      return;
-                    }
-                    setStatus('Запись создана');
-                    await refreshEntities(selectedTypeId);
-                    setSelectedEntityId(r.id);
-                  }}
+          {/* === RIGHT PANEL — entity list + editor === */}
+          <div style={{ display: 'grid', gridTemplateRows: '1fr 1fr', minHeight: 0, overflow: 'hidden' }}>
+            {/* --- RIGHT TOP — entity list --- */}
+            <div style={{ borderBottom: '1px solid var(--border, #e5e7eb)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border, #e5e7eb)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 14 }}>{selectedType ? selectedType.name : 'Список'}</strong>
+                <span style={{ flex: 1 }} />
+                <select
+                  value={entityFilter}
+                  onChange={(e) => setEntityFilter(e.target.value as any)}
+                  style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
                 >
-                  Добавить запись
-                </Button>
-              )}
-            </div>
-
-            {!selectedTypeId ? (
-              <div style={{ marginTop: 12, color: '#6b7280' }}>Выберите справочник</div>
-            ) : (
-              <div className="list-panel list-panel--catalog" style={{ marginTop: 10, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                  {filteredEntities.map((e) => {
-                    const active = e.id === selectedEntityId;
-                    const label = e.displayName?.trim() ? e.displayName : 'Без названия';
-                    return (
-                      <div
-                        key={e.id}
-                        onClick={() => setSelectedEntityId(e.id)}
-                        className="list-row"
-                        style={{
-                          cursor: 'pointer',
-                          borderLeft: active ? '3px solid #22c55e' : '3px solid transparent',
-                          background: active ? 'var(--list-row-green-hover)' : undefined,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>{label}</div>
-                          <div style={{ marginTop: 2, fontSize: 12, color: '#6b7280' }}>{e.id.slice(0, 8)}</div>
-                        </div>
-                        <span style={{ flex: 1 }} />
-                        {canUseDangerActions && (
-                          <Button
-                            variant="ghost"
-                            style={{ color: '#b91c1c' }}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void openDeleteDialog(e.id);
-                            }}
-                          >
-                            Удалить
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {filteredEntities.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {selectedEntity ? (
-            <div className="card-panel" style={{ borderRadius: 12, padding: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <div style={{ fontWeight: 800, color: 'var(--text)' }}>Карточка записи</div>
-                <div style={{ color: '#64748b', fontSize: 12 }}>
-                  {selectedType?.name ? `Справочник: ${selectedType.name}` : ''}
-                </div>
-              </div>
-              <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
-                {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
-              </div>
-
-              {selectedType?.code === 'engine_brand' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
-                  <div style={{ color: '#6b7280' }}>Марка двигателя</div>
-                  <Input
-                    value={engineBrandName}
-                    disabled={!props.canEditMasterData}
-                    onChange={(e) => setEngineBrandName(e.target.value)}
-                    onBlur={async () => {
-                      const next = engineBrandName.trim();
-                      const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', next || null);
-                      if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                      else setStatus('Сохранено');
+                  <option value="all">Все</option>
+                  <option value="named">С названием</option>
+                  <option value="empty">Без названия</option>
+                </select>
+                <Button variant="ghost" size="sm" disabled={!selectedTypeId} onClick={() => setShowDefsPanel(true)}>Свойства</Button>
+                <Button variant="ghost" size="sm" disabled={!selectedTypeId} onClick={() => void resyncSelectedType(selectedTypeId)}>Синхр.</Button>
+                {props.canEditMasterData && selectedTypeId && (
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      setStatus('Создание записи...');
+                      const r = await window.matrica.admin.entities.create(selectedTypeId);
+                      if (!r.ok) { setStatus(`Ошибка: ${r.error}`); return; }
+                      setStatus('Запись создана');
                       await refreshEntities(selectedTypeId);
+                      setSelectedEntityId(r.id);
                     }}
-                  />
-
-                  <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Детали</div>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <Button variant="ghost" onClick={() => void loadPartsOptions()}>
-                        Обновить список
-                      </Button>
-                      <span style={{ color: '#6b7280', fontSize: 12 }}>Выбрано: {engineBrandPartIds.length}</span>
-                    </div>
-                    <MultiSearchSelect
-                      values={engineBrandPartIds}
-                      options={partsOptions}
-                      disabled={!props.canEditMasterData}
-                      placeholder="Выберите детали для этой марки"
-                      onChange={(next) => {
-                        const labelById = new Map(partsOptions.map((o) => [o.id, o.label]));
-                        const sorted = [...next].sort((a, b) =>
-                          String(labelById.get(a) ?? a).localeCompare(String(labelById.get(b) ?? b), 'ru'),
-                        );
-                        setEngineBrandPartIds(sorted);
-                        if (props.canEditMasterData) void updateBrandParts(sorted);
-                      }}
-                    />
-                    {partsStatus && (
-                      <div style={{ color: partsStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{partsStatus}</div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
-                    {visibleDefs.map((d) => {
-                      const lookupMeta = lookupMetaByAttrCode.current[d.code] ?? null;
+                  >
+                    {addEntityLabel}
+                  </Button>
+                )}
+              </div>
+              <div style={{ padding: '4px 12px' }}>
+                <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск…" />
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                {!selectedTypeId ? (
+                  <div style={{ padding: 16, color: '#6b7280' }}>Выберите раздел справочника</div>
+                ) : (
+                  <>
+                    {filteredEntities.map((e) => {
+                      const active = e.id === selectedEntityId;
+                      const label = e.displayName?.trim() ? e.displayName : 'Без названия';
                       return (
-                        <React.Fragment key={d.id}>
-                          <div style={{ color: '#6b7280' }}>{d.name}</div>
-                          <FieldEditor
-                            def={d}
-                            canEdit={props.canEditMasterData}
-                            value={entityAttrs[d.code]}
-                            linkOptions={linkOptions[d.code] ?? []}
-                            {...(lookupMeta ? { lookupOptions: lookupOptionsByCode[d.code] ?? [] } : {})}
-                            {...(lookupMeta ? { lookupStoreAs: lookupMeta.storeAs } : {})}
-                            {...(lookupMeta ? { lookupCreate: async (label: string) => await createLookupEntity(d.code, label) } : {})}
-                            onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
-                            onSave={async (v) => {
-                              const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
-                              if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                              else setStatus('Сохранено');
-                              await refreshEntities(selectedTypeId);
-                            }}
-                          />
-                        </React.Fragment>
+                        <div
+                          key={e.id}
+                          onClick={() => setSelectedEntityId(e.id)}
+                          className="list-row"
+                          style={{ cursor: 'pointer', borderLeft: active ? '3px solid #22c55e' : '3px solid transparent', background: active ? 'var(--list-row-green-hover)' : undefined, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px' }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontWeight: 700, color: '#111827', lineHeight: 1.2, fontSize: 13 }}>{label}</div>
+                            <div style={{ marginTop: 1, fontSize: 11, color: '#6b7280' }}>{e.id.slice(0, 8)}</div>
+                          </div>
+                          {props.canEditMasterData && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              style={{ color: '#b91c1c', flexShrink: 0 }}
+                              onClick={(event) => { event.stopPropagation(); void openDeleteDialog(e.id); }}
+                            >
+                              Удалить
+                            </Button>
+                          )}
+                        </div>
                       );
                     })}
+                    {filteredEntities.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* --- RIGHT BOTTOM — entity editor --- */}
+            <div style={{ overflow: 'auto', padding: 12 }}>
+              {selectedEntity ? (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <div style={{ fontWeight: 800, color: 'var(--text)' }}>Карточка записи</div>
+                    <div style={{ color: '#64748b', fontSize: 12 }}>
+                      {selectedType?.name ? `Справочник: ${selectedType.name}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
+                    {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
                   </div>
 
-                  <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <strong>Связи</strong>
-                      <span style={{ flex: 1 }} />
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          if (selectedEntityId) void refreshIncomingLinks(selectedEntityId);
+                  {selectedType?.code === 'engine_brand' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                      <div style={{ color: '#6b7280' }}>Марка двигателя</div>
+                      <Input
+                        value={engineBrandName}
+                        disabled={!props.canEditMasterData}
+                        onChange={(e) => setEngineBrandName(e.target.value)}
+                        onBlur={async () => {
+                          const next = engineBrandName.trim();
+                          const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', next || null);
+                          if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                          else setStatus('Сохранено');
+                          await refreshEntities(selectedTypeId);
                         }}
-                      >
-                        Обновить
-                      </Button>
-                    </div>
-
-                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
-                      <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
-                        {outgoingLinks.length === 0 ? (
-                          <div style={{ color: '#6b7280' }}>В этом разделе нет связанных полей.</div>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                            {outgoingLinks.map((l) => (
-                              <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
-                                  <div style={{ fontSize: 12, color: '#6b7280' }}>
-                                    → {l.targetTypeName}
-                                    {l.targetEntityId ? (
-                                      <>
-                                        {' '}
-                                        | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>
-                                        {l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}
-                                      </>
-                                    ) : (
-                                      ' | (не выбрано)'
-                                    )}
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  disabled={!l.targetTypeId || !l.targetEntityId}
-                                  onClick={() => {
-                                    if (!l.targetTypeId || !l.targetEntityId) return;
-                                    void jumpToEntity(l.targetTypeId, l.targetEntityId);
-                                  }}
-                                >
-                                  Перейти
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
-                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Входящие</div>
-                        {incomingLinks.loading ? (
-                          <div style={{ color: '#6b7280' }}>Загрузка…</div>
-                        ) : incomingLinks.error ? (
-                          <div style={{ color: '#b91c1c' }}>Ошибка: {incomingLinks.error}</div>
-                        ) : incomingLinks.links.length === 0 ? (
-                          <div style={{ color: '#6b7280' }}>Никто не ссылается на эту запись.</div>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                            {incomingLinks.links.map((l, idx) => (
-                              <div key={`${l.fromEntityId}:${l.attributeDefId}:${idx}`} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: 700, color: '#111827' }}>
-                                    {l.fromEntityTypeName}: {l.fromEntityDisplayName ?? l.fromEntityId.slice(0, 8)}
-                                  </div>
-                                  <div style={{ fontSize: 12, color: '#6b7280' }}>
-                                    по свойству “{l.attributeName}” |{' '}
-                                    <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.fromEntityId.slice(0, 8)}</span>
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => {
-                                    void jumpToEntity(l.fromEntityTypeId, l.fromEntityId);
-                                  }}
-                                >
-                                  Перейти
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                      />
+                      <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Детали</div>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <Button variant="ghost" onClick={() => void loadPartsOptions()}>Обновить список</Button>
+                          <span style={{ color: '#6b7280', fontSize: 12 }}>Выбрано: {engineBrandPartIds.length}</span>
+                        </div>
+                        <MultiSearchSelect
+                          values={engineBrandPartIds}
+                          options={partsOptions}
+                          disabled={!props.canEditMasterData}
+                          placeholder="Выберите детали для этой марки"
+                          onChange={(next) => {
+                            const labelById = new Map(partsOptions.map((o) => [o.id, o.label]));
+                            const sorted = [...next].sort((a, b) => String(labelById.get(a) ?? a).localeCompare(String(labelById.get(b) ?? b), 'ru'));
+                            setEngineBrandPartIds(sorted);
+                            if (props.canEditMasterData) void updateBrandParts(sorted);
+                          }}
+                        />
+                        {partsStatus && <div style={{ color: partsStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{partsStatus}</div>}
                       </div>
                     </div>
-                  </div>
-                </>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, alignItems: 'center' }}>
+                        {visibleDefs.map((d) => {
+                          const lookupMeta = lookupMetaByAttrCode.current[d.code] ?? null;
+                          return (
+                            <React.Fragment key={d.id}>
+                              <div style={{ color: '#6b7280' }}>{d.name}</div>
+                              <FieldEditor
+                                def={d}
+                                canEdit={props.canEditMasterData}
+                                value={entityAttrs[d.code]}
+                                linkOptions={linkOptions[d.code] ?? []}
+                                {...(lookupMeta ? { lookupOptions: lookupOptionsByCode[d.code] ?? [] } : {})}
+                                {...(lookupMeta ? { lookupStoreAs: lookupMeta.storeAs } : {})}
+                                {...(lookupMeta ? { lookupCreate: async (label: string) => await createLookupEntity(d.code, label) } : {})}
+                                onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
+                                onSave={async (v) => {
+                                  const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
+                                  if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+                                  else setStatus('Сохранено');
+                                  await refreshEntities(selectedTypeId);
+                                }}
+                              />
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <strong>Связи</strong>
+                          <span style={{ flex: 1 }} />
+                          <Button variant="ghost" onClick={() => { if (selectedEntityId) void refreshIncomingLinks(selectedEntityId); }}>Обновить</Button>
+                        </div>
+                        <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+                          <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                            <div style={{ fontWeight: 800, marginBottom: 8 }}>Исходящие</div>
+                            {outgoingLinks.length === 0 ? (
+                              <div style={{ color: '#6b7280' }}>Нет связанных полей.</div>
+                            ) : (
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                {outgoingLinks.map((l) => (
+                                  <div key={l.defId} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ color: '#111827', fontWeight: 700 }}>{l.attributeName}</div>
+                                      <div style={{ fontSize: 12, color: '#6b7280' }}>
+                                        → {l.targetTypeName}
+                                        {l.targetEntityId ? (
+                                          <>{' '}| <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.targetEntityId.slice(0, 8)}</span>{l.targetEntityLabel ? ` — ${l.targetEntityLabel}` : ''}</>
+                                        ) : ' | (не выбрано)'}
+                                      </div>
+                                    </div>
+                                    <Button variant="ghost" disabled={!l.targetTypeId || !l.targetEntityId} onClick={() => { if (l.targetTypeId && l.targetEntityId) void jumpToEntity(l.targetTypeId, l.targetEntityId); }}>Перейти</Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
+                            <div style={{ fontWeight: 800, marginBottom: 8 }}>Входящие</div>
+                            {incomingLinks.loading ? (
+                              <div style={{ color: '#6b7280' }}>Загрузка…</div>
+                            ) : incomingLinks.error ? (
+                              <div style={{ color: '#b91c1c' }}>Ошибка: {incomingLinks.error}</div>
+                            ) : incomingLinks.links.length === 0 ? (
+                              <div style={{ color: '#6b7280' }}>Никто не ссылается на эту запись.</div>
+                            ) : (
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                {incomingLinks.links.map((l, idx) => (
+                                  <div key={`${l.fromEntityId}:${l.attributeDefId}:${idx}`} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontWeight: 700, color: '#111827' }}>{l.fromEntityTypeName}: {l.fromEntityDisplayName ?? l.fromEntityId.slice(0, 8)}</div>
+                                      <div style={{ fontSize: 12, color: '#6b7280' }}>по свойству "{l.attributeName}" | <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.fromEntityId.slice(0, 8)}</span></div>
+                                    </div>
+                                    <Button variant="ghost" onClick={() => { void jumpToEntity(l.fromEntityTypeId, l.fromEntityId); }}>Перейти</Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div style={{ color: '#6b7280', padding: 16 }}>Выберите запись справочника.</div>
               )}
             </div>
-          ) : (
-            <div style={{ color: '#6b7280' }}>Выберите запись справочника.</div>
-          )}
+          </div>
         </div>
       )}
 
+      {status && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid var(--border, #e5e7eb)', fontSize: 12, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>
+          {status}
+        </div>
+      )}
       {typeDeleteDialog.open && (
-        <div
-          onClick={() => {
-            if (!typeDeleteDialog.loading) closeTypeDeleteDialog();
-          }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            zIndex: 9998,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 720,
-              maxWidth: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              background: '#fff',
-              borderRadius: 16,
-              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
-              padding: 16,
-            }}
-          >
+        <div onClick={() => { if (!typeDeleteDialog.loading) closeTypeDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9998 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить раздел номенклатуры</div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить раздел справочника</div>
               <span style={{ flex: 1 }} />
-              <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>
-                Закрыть
-              </Button>
+              <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>Закрыть</Button>
             </div>
-
-            <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
-              Раздел: <span style={{ fontWeight: 800, color: '#111827' }}>{typeDeleteDialog.typeName || '—'}</span>
-            </div>
-
+            <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Раздел: <span style={{ fontWeight: 800, color: '#111827' }}>{typeDeleteDialog.typeName || '—'}</span></div>
             {typeDeleteDialog.loading ? (
               <div style={{ marginTop: 12, color: '#6b7280' }}>Проверяем содержимое…</div>
             ) : (
               <>
                 <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                   <div style={{ display: 'flex', gap: 16, color: '#111827' }}>
-                    <div>
-                      <div style={{ fontSize: 12, color: '#6b7280' }}>Записей</div>
-                      <div style={{ fontWeight: 900, fontSize: 18 }}>{typeDeleteDialog.counts?.entities ?? 0}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 12, color: '#6b7280' }}>Свойств</div>
-                      <div style={{ fontWeight: 900, fontSize: 18 }}>{typeDeleteDialog.counts?.defs ?? 0}</div>
-                    </div>
+                    <div><div style={{ fontSize: 12, color: '#6b7280' }}>Записей</div><div style={{ fontWeight: 900, fontSize: 18 }}>{typeDeleteDialog.counts?.entities ?? 0}</div></div>
+                    <div><div style={{ fontSize: 12, color: '#6b7280' }}>Свойств</div><div style={{ fontWeight: 900, fontSize: 18 }}>{typeDeleteDialog.counts?.defs ?? 0}</div></div>
                   </div>
-
-                  <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
-                    Если удалить только раздел, а записи/свойства не удалять — они будут «в архиве» (скрыты из интерфейса), но останутся в базе.
-                  </div>
+                  <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Если удалить только раздел, а записи/свойства не удалять — они будут «в архиве» (скрыты из интерфейса), но останутся в базе.</div>
                 </div>
-
                 <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
-                    <input
-                      type="checkbox"
-                      checked={typeDeleteDialog.deleteEntities}
-                      disabled={typeDeleteDialog.loading}
-                      onChange={(e) => setTypeDeleteDialog((p) => (p.open ? { ...p, deleteEntities: e.target.checked } : p))}
-                    />
-                    Удалить записи этого раздела (умно: с отвязкой входящих связей)
-                  </label>
-                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
-                    <input
-                      type="checkbox"
-                      checked={typeDeleteDialog.deleteDefs}
-                      disabled={typeDeleteDialog.loading}
-                      onChange={(e) => setTypeDeleteDialog((p) => (p.open ? { ...p, deleteDefs: e.target.checked } : p))}
-                    />
-                    Удалить свойства этого раздела
-                  </label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}><input type="checkbox" checked={typeDeleteDialog.deleteEntities} disabled={typeDeleteDialog.loading} onChange={(e) => setTypeDeleteDialog((p) => (p.open ? { ...p, deleteEntities: e.target.checked } : p))} />Удалить записи этого раздела (умно: с отвязкой входящих связей)</label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}><input type="checkbox" checked={typeDeleteDialog.deleteDefs} disabled={typeDeleteDialog.loading} onChange={(e) => setTypeDeleteDialog((p) => (p.open ? { ...p, deleteDefs: e.target.checked } : p))} />Удалить свойства этого раздела</label>
                 </div>
-
-                {typeDeleteDialog.error && (
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>
-                    Ошибка: {typeDeleteDialog.error}
-                  </div>
-                )}
-
+                {typeDeleteDialog.error && <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>Ошибка: {typeDeleteDialog.error}</div>}
                 <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>
-                    Отмена
-                  </Button>
-                  <Button
-                    onClick={() => void doDeleteType()}
-                    disabled={typeDeleteDialog.loading}
-                    style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
-                  >
-                    Удалить раздел
-                  </Button>
+                  <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>Отмена</Button>
+                  <Button onClick={() => void doDeleteType()} disabled={typeDeleteDialog.loading} style={{ background: '#b91c1c', border: '1px solid #991b1b' }}>Удалить раздел</Button>
                 </div>
               </>
             )}
@@ -1418,48 +1289,17 @@ export function MasterdataPage(props: {
       )}
 
       {deleteDialog.open && (
-        <div
-          onClick={() => {
-            if (!deleteDialog.loading) closeDeleteDialog();
-          }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            zIndex: 9999,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 760,
-              maxWidth: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              background: '#fff',
-              borderRadius: 16,
-              border: '1px solid rgba(255,255,255,0.25)',
-              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
-              padding: 16,
-            }}
-          >
+        <div onClick={() => { if (!deleteDialog.loading) closeDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9999 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 760, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить запись</div>
               <span style={{ flex: 1 }} />
-              <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>
-                Закрыть
-              </Button>
+              <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>Закрыть</Button>
             </div>
-
             <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
               Запись: <span style={{ fontWeight: 700, color: '#111827' }}>{deleteDialog.entityLabel}</span>{' '}
               <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>({deleteDialog.entityId.slice(0, 8)})</span>
             </div>
-
             {deleteDialog.loading ? (
               <div style={{ marginTop: 12, color: '#6b7280' }}>Проверяем связи…</div>
             ) : (
@@ -1467,9 +1307,10 @@ export function MasterdataPage(props: {
                 {deleteDialog.links && deleteDialog.links.length > 0 ? (
                   <>
                     <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fff7ed', color: '#9a3412' }}>
-                      Нельзя удалить без действий: запись связана с другими. Можно <strong>отвязать связи</strong> и удалить.
+                      {canForceDelete
+                        ? <>Запись связана с другими ({deleteDialog.links.length}). Можно <strong>отвязать связи</strong> и удалить.</>
+                        : <>Запись связана с другими ({deleteDialog.links.length}). Удаление доступно только администратору. Вы можете перейти к зависимым записям и изменить их.</>}
                     </div>
-
                     <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                       <table className="list-table list-table--catalog">
                         <thead>
@@ -1477,57 +1318,42 @@ export function MasterdataPage(props: {
                             <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Тип</th>
                             <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Запись</th>
                             <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }}>Свойство</th>
+                            <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)', width: 80 }}></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {deleteDialog.links.map((l, idx) => (
+                          {deleteDialog.links.slice(0, 10).map((l, idx) => (
                             <tr key={`${l.fromEntityId}:${l.attributeDefId}:${idx}`}>
                               <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{l.fromEntityTypeName}</td>
                               <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
                                 <div style={{ fontWeight: 700, color: '#111827' }}>{l.fromEntityDisplayName ?? l.fromEntityId.slice(0, 8)}</div>
-                                <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                                  {l.fromEntityId.slice(0, 8)}
-                                </div>
+                                <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{l.fromEntityId.slice(0, 8)}</div>
                               </td>
                               <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{l.attributeName}</td>
+                              <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
+                                <Button variant="ghost" size="sm" onClick={() => { closeDeleteDialog(); void jumpToEntity(l.fromEntityTypeId, l.fromEntityId); }}>Перейти</Button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                      {deleteDialog.links.length > 10 && (
+                        <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: 12, borderTop: '1px solid #f3f4f6' }}>…и ещё {deleteDialog.links.length - 10} зависимых записей</div>
+                      )}
                     </div>
                   </>
                 ) : (
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>
-                    Связей не найдено. Можно удалить запись.
-                  </div>
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#ecfeff', color: '#155e75' }}>Связей не найдено. Можно удалить запись.</div>
                 )}
-
-                {deleteDialog.error && (
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>
-                    Ошибка: {deleteDialog.error}
-                  </div>
-                )}
-
+                {deleteDialog.error && <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>Ошибка: {deleteDialog.error}</div>}
                 <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>
-                    Отмена
-                  </Button>
+                  <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>Отмена</Button>
                   {deleteDialog.links && deleteDialog.links.length > 0 ? (
-                    <Button
-                      onClick={() => void doDetachAndDelete(deleteDialog.entityId)}
-                      disabled={deleteDialog.loading}
-                      style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
-                    >
-                      Отвязать и удалить
-                    </Button>
+                    canForceDelete ? (
+                      <Button onClick={() => void doDetachAndDelete(deleteDialog.entityId)} disabled={deleteDialog.loading} style={{ background: '#b91c1c', border: '1px solid #991b1b' }}>Отвязать и удалить</Button>
+                    ) : null
                   ) : (
-                    <Button
-                      onClick={() => void doSoftDelete(deleteDialog.entityId)}
-                      disabled={deleteDialog.loading}
-                      style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
-                    >
-                      Удалить
-                    </Button>
+                    <Button onClick={() => void doSoftDelete(deleteDialog.entityId)} disabled={deleteDialog.loading} style={{ background: '#b91c1c', border: '1px solid #991b1b' }}>Удалить</Button>
                   )}
                 </div>
               </>
@@ -1535,44 +1361,14 @@ export function MasterdataPage(props: {
           </div>
         </div>
       )}
-
       {showDefsPanel && (
-        <div
-          onClick={() => setShowDefsPanel(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            zIndex: 9996,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 920,
-              maxWidth: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              background: '#fff',
-              borderRadius: 16,
-              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
-              padding: 16,
-            }}
-          >
+        <div onClick={() => setShowDefsPanel(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9996 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 920, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
-                {selectedType ? `Свойства справочника: ${selectedType.name}` : 'Свойства справочника'}
-              </div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>{selectedType ? `Свойства справочника: ${selectedType.name}` : 'Свойства справочника'}</div>
               <span style={{ flex: 1 }} />
-              <Button variant="ghost" onClick={() => setShowDefsPanel(false)}>
-                Закрыть
-              </Button>
+              <Button variant="ghost" onClick={() => setShowDefsPanel(false)}>Закрыть</Button>
             </div>
-
             <div style={{ marginTop: 12 }}>
               {selectedTypeId ? (
                 <>
@@ -1581,9 +1377,7 @@ export function MasterdataPage(props: {
                       entityTypeId={selectedTypeId}
                       types={types}
                       linkRules={linkRules}
-                      onStandardLink={async (fieldName, targetTypeCode) => {
-                        await upsertLinkRule(fieldName, targetTypeCode);
-                      }}
+                      onStandardLink={async (fieldName, targetTypeCode) => { await upsertLinkRule(fieldName, targetTypeCode); }}
                       onSubmit={async (payload) => {
                         setStatus('Сохранение свойства...');
                         const r = await window.matrica.admin.attributeDefs.upsert(payload);
@@ -1600,11 +1394,7 @@ export function MasterdataPage(props: {
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Название</th>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Тип</th>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Обяз.</th>
-                          {canUseDangerActions && (
-                            <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>
-                              Действия
-                            </th>
-                          )}
+                          {canUseDangerActions && <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>Действия</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -1616,26 +1406,12 @@ export function MasterdataPage(props: {
                             <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>{d.isRequired ? 'да' : 'нет'}</td>
                             {canUseDangerActions && (
                               <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }} onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  variant="ghost"
-                                  style={{ color: '#b91c1c' }}
-                                  onClick={() => {
-                                    void openDefDeleteDialog(d);
-                                  }}
-                                >
-                                  Удалить
-                                </Button>
+                                <Button variant="ghost" style={{ color: '#b91c1c' }} onClick={() => { void openDefDeleteDialog(d); }}>Удалить</Button>
                               </td>
                             )}
                           </tr>
                         ))}
-                        {visibleDefs.length === 0 && (
-                          <tr>
-                            <td style={{ padding: 12, color: '#6b7280' }} colSpan={canUseDangerActions ? 5 : 4}>
-                              Свойств нет
-                            </td>
-                          </tr>
-                        )}
+                        {visibleDefs.length === 0 && <tr><td style={{ padding: 12, color: '#6b7280' }} colSpan={canUseDangerActions ? 5 : 4}>Свойств нет</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -1649,49 +1425,15 @@ export function MasterdataPage(props: {
       )}
 
       {defDeleteDialog.open && (
-        <div
-          onClick={() => {
-            if (!defDeleteDialog.loading) closeDefDeleteDialog();
-          }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            zIndex: 9997,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 720,
-              maxWidth: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              background: '#fff',
-              borderRadius: 16,
-              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
-              padding: 16,
-            }}
-          >
+        <div onClick={() => { if (!defDeleteDialog.loading) closeDefDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9997 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить свойство</div>
               <span style={{ flex: 1 }} />
-              <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>
-                Закрыть
-              </Button>
+              <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>Закрыть</Button>
             </div>
-
-            <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>
-              Свойство: <span style={{ fontWeight: 800, color: '#111827' }}>{defDeleteDialog.defName}</span>
-            </div>
-            {defDeleteDialog.defDataType && (
-              <div style={{ marginTop: 4, color: '#6b7280', fontSize: 12 }}>Тип: {defDeleteDialog.defDataType}</div>
-            )}
-
+            <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Свойство: <span style={{ fontWeight: 800, color: '#111827' }}>{defDeleteDialog.defName}</span></div>
+            {defDeleteDialog.defDataType && <div style={{ marginTop: 4, color: '#6b7280', fontSize: 12 }}>Тип: {defDeleteDialog.defDataType}</div>}
             {defDeleteDialog.loading ? (
               <div style={{ marginTop: 12, color: '#6b7280' }}>Проверяем использование…</div>
             ) : (
@@ -1699,48 +1441,24 @@ export function MasterdataPage(props: {
                 <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
                   <div style={{ fontSize: 12, color: '#6b7280' }}>Значений у этого свойства</div>
                   <div style={{ fontWeight: 900, fontSize: 18, color: '#111827' }}>{defDeleteDialog.counts?.values ?? 0}</div>
-                  <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
-                    Можно удалить только свойство (значения останутся в базе, но будут скрыты), либо удалить и значения.
-                  </div>
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>Можно удалить только свойство (значения останутся в базе, но будут скрыты), либо удалить и значения.</div>
                 </div>
-
                 <div style={{ marginTop: 12 }}>
                   <label style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#111827' }}>
-                    <input
-                      type="checkbox"
-                      checked={defDeleteDialog.deleteValues}
-                      disabled={defDeleteDialog.loading || (defDeleteDialog.counts?.values ?? 0) === 0}
-                      onChange={(e) => setDefDeleteDialog((p) => (p.open ? { ...p, deleteValues: e.target.checked } : p))}
-                    />
+                    <input type="checkbox" checked={defDeleteDialog.deleteValues} disabled={defDeleteDialog.loading || (defDeleteDialog.counts?.values ?? 0) === 0} onChange={(e) => setDefDeleteDialog((p) => (p.open ? { ...p, deleteValues: e.target.checked } : p))} />
                     Удалить также значения этого свойства
                   </label>
                 </div>
-
-                {defDeleteDialog.error && (
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>
-                    Ошибка: {defDeleteDialog.error}
-                  </div>
-                )}
-
+                {defDeleteDialog.error && <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>Ошибка: {defDeleteDialog.error}</div>}
                 <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>
-                    Отмена
-                  </Button>
-                  <Button
-                    onClick={() => void doDeleteDef()}
-                    disabled={defDeleteDialog.loading}
-                    style={{ background: '#b91c1c', border: '1px solid #991b1b' }}
-                  >
-                    Удалить свойство
-                  </Button>
+                  <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>Отмена</Button>
+                  <Button onClick={() => void doDeleteDef()} disabled={defDeleteDialog.loading} style={{ background: '#b91c1c', border: '1px solid #991b1b' }}>Удалить свойство</Button>
                 </div>
               </>
             )}
           </div>
         </div>
       )}
-
-      {status && <div style={{ marginTop: 12, color: '#6b7280' }}>{status}</div>}
     </div>
   );
 }

@@ -267,9 +267,9 @@ function appTabTitle(tab: string): string {
     work_orders: 'Наряды',
     work_order: 'Карточка наряда',
     parts: 'Детали',
-    part_templates: 'Шаблоны деталей',
+    part_templates: 'Справочник деталей',
     part: 'Карточка детали',
-    part_template: 'Карточка шаблона детали',
+    part_template: 'Карточка детали (справочник)',
     tools: 'Инструменты',
     tool: 'Карточка инструмента',
     tool_properties: 'Свойства инструмента',
@@ -1258,7 +1258,7 @@ export function App() {
     requests: 'Заявки',
     work_orders: 'Наряды',
     parts: 'Детали',
-    part_templates: 'Шаблоны деталей',
+    part_templates: 'Справочник деталей',
     tools: 'Инструменты',
     products: 'Товары',
     services: 'Услуги',
@@ -1785,9 +1785,9 @@ export function App() {
       work_orders: 'Наряды',
       work_order: 'Карточка наряда',
       parts: 'Детали',
-      part_templates: 'Шаблоны деталей',
+      part_templates: 'Справочник деталей',
       part: 'Карточка детали',
-      part_template: 'Карточка шаблона детали',
+      part_template: 'Карточка детали (справочник)',
       tools: 'Инструменты',
       tool: 'Карточка инструмента',
       tool_properties: 'Свойства инструментов',
@@ -1819,7 +1819,7 @@ export function App() {
       request: 'Закупка деталей',
       work_order: 'Наряды',
       part: 'Детали',
-      part_template: 'Шаблоны деталей',
+      part_template: 'Справочник деталей',
       tool: 'Инструменты',
       tool_property: 'Свойства инструментов',
       contract: 'Контракты',
@@ -2283,11 +2283,11 @@ export function App() {
           : tab === 'parts'
             ? 'Матрица РМЗ — Детали'
             : tab === 'part_templates'
-              ? 'Матрица РМЗ — Шаблоны деталей'
+              ? 'Матрица РМЗ — Справочник деталей'
             : tab === 'part'
               ? 'Матрица РМЗ — Карточка детали'
               : tab === 'part_template'
-                ? 'Матрица РМЗ — Карточка шаблона детали'
+                ? 'Матрица РМЗ — Карточка детали (справочник)'
           : tab === 'contracts'
             ? 'Матрица РМЗ — Контракты'
             : tab === 'contract'
@@ -3208,10 +3208,7 @@ export function App() {
 
         {tab === 'part_templates' && (
           <PartTemplatesPage
-            onOpen={async (id) => {
-              setSelectedPartTemplateId(id);
-              setTab('part_template');
-            }}
+            onOpen={openPartTemplate}
             canCreate={caps.canCreateParts}
           />
         )}
@@ -3536,6 +3533,7 @@ export function App() {
           <MasterdataPage
             canViewMasterData={caps.canViewMasterData}
             canEditMasterData={caps.canEditMasterData}
+            userRole={userRole}
           />
         )}
 
@@ -3578,7 +3576,7 @@ export function App() {
         )}
 
         {tab === 'part_template' && !selectedPartTemplateId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите шаблон детали из списка.</div>
+          <div style={{ color: 'var(--muted)' }}>Выберите деталь из списка.</div>
         )}
 
         {tab === 'employee' && !selectedEmployeeId && (

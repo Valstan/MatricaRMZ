@@ -70,13 +70,13 @@ export function PartTemplatesPage(props: {
         {props.canCreate ? (
           <Button
             onClick={async () => {
-              const name = prompt('Название шаблона детали')?.trim() ?? '';
+              const name = prompt('Название детали')?.trim() ?? '';
               if (!name) return;
               try {
-                setStatus('Создание шаблона детали...');
+                setStatus('Создание детали...');
                 const created = await window.matrica.parts.templates.create({ attributes: { name } });
                 if (!created.ok || !created.template?.id) {
-                  setStatus(`Ошибка: ${created.error ?? 'Не удалось создать шаблон детали'}`);
+                  setStatus(`Ошибка: ${created.error ?? 'Не удалось создать деталь'}`);
                   return;
                 }
                 setStatus('');
@@ -87,11 +87,11 @@ export function PartTemplatesPage(props: {
               }
             }}
           >
-            Создать шаблон
+            Создать деталь
           </Button>
         ) : null}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по шаблонам деталей…" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по справочнику деталей…" />
         </div>
       </div>
 
@@ -110,7 +110,7 @@ export function PartTemplatesPage(props: {
             {sorted.length === 0 ? (
               <tr>
                 <td colSpan={3} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
-                  {rows.length === 0 ? 'Нет шаблонов деталей' : 'Не найдено'}
+                  {rows.length === 0 ? 'Справочник деталей пуст' : 'Не найдено'}
                 </td>
               </tr>
             ) : null}
