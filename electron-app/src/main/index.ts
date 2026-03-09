@@ -208,8 +208,9 @@ app.whenReady().then(() => {
   void (async () => {
     try {
       const { loadRuntimeInitDeps } = await import('./bootstrap/runtimeInitDeps.js');
-      const { alignSchemaWithServer } = await import('./services/syncService.js');
       const {
+        alignSchemaWithServer,
+        getSqliteHandle,
         openSqlite,
         migrateSqlite,
         seedIfNeeded,
@@ -248,7 +249,6 @@ app.whenReady().then(() => {
         logToFile(`sqlite init failed, attempting self-heal: ${String(initError)}`);
 
         try {
-          const { getSqliteHandle } = await import('./database/db.js');
           const broken = getSqliteHandle();
           if (broken) {
             try {

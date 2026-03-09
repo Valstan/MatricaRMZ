@@ -12,11 +12,11 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
-  aggregateProgressWithPlan,
-  contractPlannedItemsCount,
+  aggregateContractExecutionProgress,
   effectiveContractDueAt,
   type ContractSections,
   type ProgressLinkedItem,
+  parseContractExecutionParts,
   parseContractSections,
 } from '@matricarmz/shared';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
@@ -30,8 +30,6 @@ import {
   resolveMenuRows,
 } from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
-import { listAllParts } from '../utils/partsPagination.js';
-
 type Row = {
   id: string;
   number: string;
@@ -245,23 +243,8 @@ export function ContractsPage(props: {
       }
 
       const engines = await window.matrica.engines.list();
-      const partsRes = await listAllParts();
-      const linkedItems: ProgressLinkedItem[] = [];
-      const linkedEngineItems = Array.isArray(engines) ? engines : [];
-      for (const e of linkedEngineItems) {
-        linkedItems.push({
-          contractId: e.contractId || null,
-          statusFlags: e.statusFlags ?? null,
-        });
-      }
-      if (partsRes?.ok && Array.isArray(partsRes.parts)) {
-        for (const p of partsRes.parts) {
-          linkedItems.push({ contractId: p.contractId || null, statusFlags: p.statusFlags ?? null });
-        }
-      }
-
       const linkedItemsByContractId = new Map<string, Array<Pick<ProgressLinkedItem, 'statusFlags'>>>();
-      for (const item of linkedItems) {
+      for (const item of Array.isArray(engines) ? engines : []) {
         const contractId = String(item.contractId ?? '');
         if (!contractId) continue;
         const bucket = linkedItemsByContractId.get(contractId) ?? [];
@@ -287,6 +270,7 @@ export function ContractsPage(props: {
             const attrs = (d as any).attributes ?? {};
             const attachmentPreviews = collectAttachmentPreviews(attrs);
             const sections = parseContractSections(attrs);
+            const executionParts = parseContractExecutionParts(attrs);
             const numberRaw = (sections.primary.number || attrs.number) ?? row.displayName ?? '';
             const internalRaw = (sections.primary.internalNumber || attrs.internal_number) ?? '';
             const dateMs = sections.primary.signedAt ?? (typeof attrs.date === 'number' ? Number(attrs.date) : null);
@@ -311,8 +295,11 @@ export function ContractsPage(props: {
               const bucket = linkedItemsByContractId.get(relatedId);
               if (bucket?.length) relatedItems.push(...bucket);
             }
-            const plannedCount = contractPlannedItemsCount(sections);
-            const progress = aggregateProgressWithPlan(relatedItems, plannedCount);
+            const progress = aggregateContractExecutionProgress({
+              sections,
+              engineItems: relatedItems,
+              executionParts,
+            });
             const progressPct = progress?.progressPct ?? null;
             const isFullyExecuted = Boolean(progressPct != null && progressPct >= 100);
 

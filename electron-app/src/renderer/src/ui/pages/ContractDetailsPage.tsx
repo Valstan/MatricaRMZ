@@ -15,16 +15,21 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import {
   parseContractSections,
+  parseContractExecutionParts,
+  normalizeContractExecutionParts,
   contractSectionsToLegacy,
   effectiveContractDueAt,
-  aggregateProgressWithPlan,
-  contractPlannedItemsCount,
-  type ProgressLinkedItem,
+  aggregateContractExecutionProgress,
+  CONTRACT_EXECUTION_PARTS_ATTR_CODE,
+  STATUS_LABELS,
+  type ContractExecutionProgressAggregate,
   type ContractSections,
   type ContractPrimarySection,
   type ContractAddonSection,
   type ContractEngineBrandRow,
   type ContractPartRow,
+  type ContractExecutionPartRow,
+  type EngineListItem,
 } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime, formatRuMoney, formatRuNumber } from '../utils/dateUtils.js';
@@ -74,6 +79,7 @@ const EMPTY_ACCOUNTING_FORM: ContractAccountingForm = {
 
 const CONTRACT_ACCOUNTING_FIELDS: Array<{ code: string; name: string; dataType: string; sortOrder: number; metaJson?: string | null }> = [
   { code: 'contract_sections', name: 'Секции контракта', dataType: 'json', sortOrder: 5 },
+  { code: CONTRACT_EXECUTION_PARTS_ATTR_CODE, name: 'Детали исполнения контракта', dataType: 'json', sortOrder: 6 },
   { code: 'goz_name', name: 'Наименование (ГОЗ)', dataType: 'text', sortOrder: 10 },
   { code: 'number', name: 'Номер контракта', dataType: 'text', sortOrder: 20 },
   { code: 'goz_igk', name: 'ИГК', dataType: 'text', sortOrder: 30 },
@@ -241,6 +247,36 @@ function collectProgressContractNumbers(sections: ContractSections | null): Set<
     if (addonNumber) out.add(addonNumber);
   }
   return out;
+}
+
+function toggleExpanded(prev: Record<string, boolean>, key: string): Record<string, boolean> {
+  return { ...prev, [key]: prev[key] === false };
+}
+
+function engineOptionLabel(engine: EngineListItem): string {
+  const parts = [engine.engineNumber, engine.engineBrand].filter((value) => typeof value === 'string' && value.trim());
+  return parts.length > 0 ? parts.join(' — ') : engine.id.slice(0, 8);
+}
+
+function currentEngineStatusLabel(engine: EngineListItem): string {
+  const flags = engine.statusFlags ?? {};
+  if (flags.status_rejected) return STATUS_LABELS.status_rejected;
+  if (flags.status_customer_accepted) return STATUS_LABELS.status_customer_accepted;
+  if (flags.status_customer_sent) return STATUS_LABELS.status_customer_sent;
+  if (flags.status_repaired) return STATUS_LABELS.status_repaired;
+  if (flags.status_repair_started) return STATUS_LABELS.status_repair_started;
+  if (flags.status_storage_received || engine.arrivalDate) return 'Приход на завод';
+  if (flags.status_rework_sent) return STATUS_LABELS.status_rework_sent;
+  return '—';
+}
+
+function renderCompactTableHtml(headers: string[], rows: string[][]) {
+  if (rows.length === 0) return '<div class="muted">Нет данных</div>';
+  const head = headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('');
+  const body = rows
+    .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell || '—')}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function SectionBlock(props: {
@@ -620,6 +656,7 @@ export function ContractDetailsPage(props: {
   canUploadFiles: boolean;
   onClose: () => void;
   onOpenCounterparty: (counterpartyId: string) => void;
+  onOpenEngine?: (engineId: string) => void | Promise<void>;
   onOpenPart?: (partId: string) => void;
   onOpenEngineBrand?: (engineBrandId: string) => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
@@ -632,10 +669,22 @@ export function ContractDetailsPage(props: {
   const [engineBrandOptions, setEngineBrandOptions] = useState<LinkOpt[]>([]);
   const [customerOptions, setCustomerOptions] = useState<LinkOpt[]>([]);
   const [partOptions, setPartOptions] = useState<LinkOpt[]>([]);
+  const [allEngineOptions, setAllEngineOptions] = useState<LinkOpt[]>([]);
+  const [relatedEngines, setRelatedEngines] = useState<EngineListItem[]>([]);
+  const [executionParts, setExecutionParts] = useState<ContractExecutionPartRow[]>([]);
   const [defs, setDefs] = useState<AttributeDef[]>([]);
-  const [contractProgress, setContractProgress] = useState<number | null>(null);
+  const [contractProgress, setContractProgress] = useState<ContractExecutionProgressAggregate | null>(null);
   const [accountingForm, setAccountingForm] = useState<ContractAccountingForm>(EMPTY_ACCOUNTING_FORM);
+  const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({
+    attachedEngines: true,
+    contractParts: true,
+  });
+  const [addEngineOpen, setAddEngineOpen] = useState(false);
+  const [addPartOpen, setAddPartOpen] = useState(false);
+  const [engineAttachStatus, setEngineAttachStatus] = useState('');
+  const [partsExecutionStatus, setPartsExecutionStatus] = useState('');
   const dirtyRef = useRef(false);
+  const skipNextEngineAttachIdRef = useRef('');
 
   async function loadContract() {
     try {
@@ -652,6 +701,7 @@ export function ContractDetailsPage(props: {
       const d = (await window.matrica.admin.entities.get(props.contractId)) as ContractEntity;
       setContract(d);
       setSections(parseContractSections(d.attributes ?? {}));
+      setExecutionParts(parseContractExecutionParts(d.attributes ?? {}));
       let defsList = (await window.matrica.admin.attributeDefs.listByEntityType(contractType.id)) as AttributeDef[];
       defsList = (await ensureAttributeDefs(contractType.id, CONTRACT_ACCOUNTING_FIELDS, defsList as AttributeDefRow[])) as AttributeDef[];
       setDefs(defsList);
@@ -712,37 +762,53 @@ export function ContractDetailsPage(props: {
     }
   }
 
+  async function resolveRelatedContractIds(currentSections: ContractSections | null): Promise<Set<string>> {
+    const relatedContractIds = new Set<string>([String(props.contractId)]);
+    const relatedNumbers = collectProgressContractNumbers(currentSections);
+    const contractTypeId = entityTypes.find((t) => String(t.code) === 'contract')?.id ?? '';
+    if (relatedNumbers.size === 0 || !contractTypeId) return relatedContractIds;
+
+    const contractRows = await window.matrica.admin.entities.listByEntityType(contractTypeId).catch(() => []);
+    if (!Array.isArray(contractRows)) return relatedContractIds;
+
+    for (const row of contractRows as Array<{ id?: string; displayName?: string }>) {
+      const id = row?.id ? String(row.id) : '';
+      if (!id) continue;
+      const numberKey = normalizeContractNumber(row?.displayName ?? '');
+      if (numberKey && relatedNumbers.has(numberKey)) relatedContractIds.add(id);
+    }
+    return relatedContractIds;
+  }
+
   async function loadProgress() {
     try {
-      const relatedContractIds = new Set<string>([String(props.contractId)]);
-      const relatedNumbers = collectProgressContractNumbers(sections);
-      const contractTypeId = entityTypes.find((t) => String(t.code) === 'contract')?.id ?? '';
-      if (relatedNumbers.size > 0 && contractTypeId) {
-        const contractRows = await window.matrica.admin.entities.listByEntityType(contractTypeId).catch(() => []);
-        if (Array.isArray(contractRows)) {
-          for (const row of contractRows as Array<{ id?: string; displayName?: string }>) {
-            const id = row?.id ? String(row.id) : '';
-            if (!id) continue;
-            const numberKey = normalizeContractNumber(row?.displayName ?? '');
-            if (numberKey && relatedNumbers.has(numberKey)) relatedContractIds.add(id);
-          }
-        }
-      }
+      const relatedContractIds = await resolveRelatedContractIds(sections);
       const engines = await window.matrica.engines.list();
-      const byContract: ProgressLinkedItem[] = Array.isArray(engines)
+      const engineItems = Array.isArray(engines)
         ? engines.filter((e) => relatedContractIds.has(String(e.contractId ?? '')))
         : [];
-      const partsRes = await listAllParts();
-      const parts: ProgressLinkedItem[] = partsRes?.ok && partsRes.parts ? partsRes.parts : [];
-      const partStatusMap = parts.filter((p) => relatedContractIds.has(String(p.contractId ?? '')));
-      const plannedCount = contractPlannedItemsCount(sections);
-      const aggregate = aggregateProgressWithPlan([
-        ...byContract,
-        ...partStatusMap,
-      ], plannedCount);
-      setContractProgress(aggregate.progressPct);
+      const sortedEngineItems = [...engineItems].sort((a, b) => {
+        const byNumber = String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
+        if (byNumber !== 0) return byNumber;
+        return b.updatedAt - a.updatedAt;
+      });
+      setRelatedEngines(sortedEngineItems);
+      const engineOpts = (Array.isArray(engines) ? engines : []).map((engine) => ({
+        id: engine.id,
+        label: engineOptionLabel(engine),
+      }));
+      engineOpts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setAllEngineOptions(engineOpts);
+      const aggregate = aggregateContractExecutionProgress({
+        sections,
+        engineItems: sortedEngineItems,
+        executionParts,
+      });
+      setContractProgress(aggregate);
     } catch {
       setContractProgress(null);
+      setRelatedEngines([]);
+      setAllEngineOptions([]);
     }
   }
 
@@ -759,7 +825,7 @@ export function ContractDetailsPage(props: {
 
   useEffect(() => {
     if (contract) void loadProgress();
-  }, [contract?.id, contract?.updatedAt, sections, entityTypes.length]);
+  }, [contract?.id, contract?.updatedAt, sections, executionParts, entityTypes.length]);
 
   useEffect(() => {
     if (!contract) {
@@ -799,25 +865,30 @@ export function ContractDetailsPage(props: {
         const created = await window.matrica.admin.entities.create(contractTypeId);
         if (created?.ok && 'id' in created && sections) {
           await window.matrica.admin.entities.setAttr(created.id, 'contract_sections', { ...sections, primary: { ...sections.primary, number: (sections.primary.number ?? '') + ' (копия)' } });
+          await window.matrica.admin.entities.setAttr(created.id, CONTRACT_EXECUTION_PARTS_ATTR_CODE, normalizeContractExecutionParts(executionParts));
         }
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [sections, entityTypes, props.registerCardCloseActions]);
+  }, [sections, executionParts, entityTypes, props.registerCardCloseActions]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
     if (typeCode === 'part') {
       const created = await window.matrica.parts.create({ attributes: { name: label } });
-      if (!created?.ok || !created?.part?.id) return null;
+      if (!created?.ok || !created?.part?.id) {
+        throw new Error(created?.error ?? 'Не удалось создать деталь');
+      }
       invalidateListAllPartsCache();
       await loadParts();
       return created.part.id;
     }
     const typeId = entityTypes.find((t) => String(t.code) === typeCode)?.id ?? null;
-    if (!typeId) return null;
+    if (!typeId) throw new Error(`Не найден справочник ${typeCode}`);
     const created = await window.matrica.admin.entities.create(typeId);
-    if (!created?.ok || !created?.id) return null;
+    if (!created?.ok || !created?.id) {
+      throw new Error(created?.error ?? 'Не удалось создать элемент');
+    }
     const attrByType: Record<string, string> = { engine_brand: 'name', customer: 'name' };
     const attr = attrByType[typeCode] ?? 'name';
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
@@ -835,6 +906,7 @@ export function ContractDetailsPage(props: {
         addons: sections.addons.map((addon) => ({ ...addon, number: sections.primary.number })),
       };
       await window.matrica.admin.entities.setAttr(props.contractId, 'contract_sections', normalizedSections);
+      await window.matrica.admin.entities.setAttr(props.contractId, CONTRACT_EXECUTION_PARTS_ATTR_CODE, normalizeContractExecutionParts(executionParts));
       const legacy = contractSectionsToLegacy(normalizedSections);
       await window.matrica.admin.entities.setAttr(props.contractId, 'number', legacy.number);
       await window.matrica.admin.entities.setAttr(props.contractId, 'internal_number', legacy.internal_number);
@@ -846,6 +918,73 @@ export function ContractDetailsPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
+  }
+
+  async function attachEngineToContract(engineId: string) {
+    const normalizedId = String(engineId ?? '').trim();
+    if (!normalizedId) return;
+    if (relatedEngines.some((engine) => engine.id === normalizedId)) {
+      setEngineAttachStatus('Этот двигатель уже прикреплен к контракту.');
+      setAddEngineOpen(false);
+      return;
+    }
+    try {
+      setEngineAttachStatus('Прикрепление двигателя…');
+      await window.matrica.engines.setAttr(normalizedId, 'contract_id', props.contractId);
+      await loadProgress();
+      setAddEngineOpen(false);
+      setEngineAttachStatus('Двигатель добавлен.');
+      setTimeout(() => setEngineAttachStatus(''), 1500);
+    } catch (e) {
+      setEngineAttachStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function createAndOpenEngine(label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const nextLabel = String(label ?? '').trim();
+    try {
+      setEngineAttachStatus('Создание двигателя…');
+      const created = await window.matrica.engines.create();
+      if (!created?.id) return null;
+      await window.matrica.engines.setAttr(created.id, 'contract_id', props.contractId);
+      if (nextLabel) await window.matrica.engines.setAttr(created.id, 'engine_number', nextLabel);
+      await loadProgress();
+      setAddEngineOpen(false);
+      setEngineAttachStatus('Двигатель создан.');
+      setTimeout(() => setEngineAttachStatus(''), 1500);
+      skipNextEngineAttachIdRef.current = created.id;
+      if (props.onOpenEngine) await props.onOpenEngine(created.id);
+      return created.id;
+    } catch (e) {
+      setEngineAttachStatus(`Ошибка: ${String(e)}`);
+      return null;
+    }
+  }
+
+  function updateExecutionPart(idx: number, patch: Partial<ContractExecutionPartRow>) {
+    dirtyRef.current = true;
+    setExecutionParts((current) => current.map((row, rowIdx) => (rowIdx === idx ? { ...row, ...patch } : row)));
+  }
+
+  function removeExecutionPart(idx: number) {
+    dirtyRef.current = true;
+    setExecutionParts((current) => current.filter((_, rowIdx) => rowIdx !== idx));
+  }
+
+  function addExecutionPartRow(partId: string) {
+    const normalizedId = String(partId ?? '').trim();
+    if (!normalizedId) return;
+    if (executionParts.some((row) => row.partId === normalizedId)) {
+      setPartsExecutionStatus('Эта деталь уже есть в списке исполнения.');
+      setAddPartOpen(false);
+      return;
+    }
+    dirtyRef.current = true;
+    setExecutionParts((current) => [...current, { partId: normalizedId, plannedQty: 1, completedQty: 0 }]);
+    setAddPartOpen(false);
+    setPartsExecutionStatus('Деталь добавлена.');
+    setTimeout(() => setPartsExecutionStatus(''), 1500);
   }
 
   function buildSeparateAccountRaw(form: ContractAccountingForm): string {
@@ -939,9 +1078,19 @@ export function ContractDetailsPage(props: {
 
   const headerTitle = sections?.primary.number?.trim() ? `Контракт: ${sections.primary.number.trim()}` : 'Карточка контракта';
   const { totalQty, totalSum, dueAt } = useMemo(() => (sections ? computeSectionTotals(sections) : { totalQty: 0, totalSum: 0, dueAt: null }), [sections]);
+  const relatedEngineIds = useMemo(() => new Set(relatedEngines.map((engine) => engine.id)), [relatedEngines]);
+  const executionPartIds = useMemo(() => new Set(executionParts.map((row) => row.partId)), [executionParts]);
+  const availableEngineOptions = useMemo(
+    () => allEngineOptions.filter((option) => !relatedEngineIds.has(option.id)),
+    [allEngineOptions, relatedEngineIds],
+  );
+  const availablePartOptions = useMemo(
+    () => partOptions.filter((option) => !executionPartIds.has(option.id)),
+    [partOptions, executionPartIds],
+  );
   const daysLeft = dueAt != null ? Math.ceil((dueAt - Date.now()) / (24 * 60 * 60 * 1000)) : null;
-  const progressPct = contractProgress != null ? contractProgress : 0;
-  const executionState = getExecutionState(progressPct);
+  const progressPct = contractProgress?.progressPct ?? 0;
+  const executionState = getExecutionState(contractProgress?.progressPct ?? null);
 
   function printContractCard() {
     if (!contract || !sections) return;
@@ -959,9 +1108,34 @@ export function ContractDetailsPage(props: {
       ['Отдельный счет (номер)', accounting.separateAccountNumber || '—'],
       ['Отдельный счет (банк)', accounting.separateAccountBank || '—'],
       ['Комментарий', accounting.comment || '—'],
+    ];
+    const summaryRows: Array<[string, string]> = [
       ['Кол-во (всего)', String(totalQty)],
       ['Сумма контракта', formatRuMoney(totalSum)],
+      ['Двигателей по плану', String(contractProgress?.enginePlannedCount ?? 0)],
+      ['Двигателей принято заказчиком', String(contractProgress?.engineAcceptedCount ?? 0)],
+      ['Деталей по плану', String(contractProgress?.partPlannedCount ?? 0)],
+      ['Деталей исполнено', String(contractProgress?.rawPartCompletedCount ?? 0)],
+      ['Прогресс исполнения', contractProgress?.progressPct != null ? `${Math.round(contractProgress.progressPct)}%` : '—'],
     ];
+    const addonRows = sections.addons.map((addon, idx) => [
+      String(idx + 1),
+      addon.number || sections.primary.number || '—',
+      toInputDate(addon.signedAt) || '—',
+      toInputDate(addon.dueAt) || '—',
+      String(addon.engineBrands.length),
+      String(addon.parts.length),
+    ]);
+    const engineRows = relatedEngines.map((engine) => [
+      String(engine.engineNumber ?? '—'),
+      String(engine.engineBrand ?? '—'),
+      currentEngineStatusLabel(engine),
+    ]);
+    const partRows = executionParts.map((row) => [
+      partOptions.find((option) => option.id === row.partId)?.label ?? row.partId,
+      formatRuNumber(row.plannedQty),
+      formatRuNumber(row.completedQty),
+    ]);
     const fileDefs = defs.filter((d) => d.dataType === 'json' && parseMetaJson(d.metaJson)?.ui === 'files');
     const filesHtml =
       `<div><strong>Вложения</strong>${fileListHtml((attrs as Record<string, unknown>).attachments)}</div>` +
@@ -973,11 +1147,31 @@ export function ContractDetailsPage(props: {
       title: 'Карточка контракта',
       ...(sections.primary.number ? { subtitle: `Номер: ${sections.primary.number}` } : {}),
       sections: [
-        { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
+        { id: 'main', title: 'Карточка контракта', html: keyValueTable(mainRows) },
+        {
+          id: 'addons',
+          title: 'Дополнительные соглашения',
+          html: renderCompactTableHtml(
+            ['ДС', 'Номер', 'Дата заключения', 'Дата исполнения', 'Строк двигателей', 'Строк деталей'],
+            addonRows,
+          ),
+        },
+        { id: 'summary', title: 'Сводка исполнения', html: keyValueTable(summaryRows) },
+        {
+          id: 'engines',
+          title: 'Список двигателей',
+          html: renderCompactTableHtml(['Номер двигателя', 'Марка двигателя', 'Статус'], engineRows),
+        },
+        {
+          id: 'parts',
+          title: 'Список деталей',
+          html: renderCompactTableHtml(['Деталь', 'План', 'Исполнено'], partRows),
+        },
         { id: 'files', title: 'Файлы', html: filesHtml },
         {
           id: 'meta',
           title: 'Карточка',
+          checked: false,
           html: keyValueTable([
             ['ID', contract.id],
             ['Создано', formatMoscowDateTime(contract.createdAt)],
@@ -1008,6 +1202,7 @@ export function ContractDetailsPage(props: {
               const created = await window.matrica.admin.entities.create(contractTypeId);
               if (created?.ok && 'id' in created && sections) {
                 await window.matrica.admin.entities.setAttr(created.id, 'contract_sections', { ...sections, primary: { ...sections.primary, number: (sections.primary.number ?? '') + ' (копия)' } });
+                await window.matrica.admin.entities.setAttr(created.id, CONTRACT_EXECUTION_PARTS_ATTR_CODE, normalizeContractExecutionParts(executionParts));
               }
             })();
           }}
@@ -1079,6 +1274,232 @@ export function ContractDetailsPage(props: {
               </Button>
             </SectionCard>
           )}
+
+          <SectionCard className="entity-card-span-full" title="Прикрепленные двигатели" style={{ borderRadius: 0, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                Всего двигателей: {relatedEngines.length}
+              </div>
+              <Button
+                variant="ghost"
+                tone="neutral"
+                size="sm"
+                onClick={() => setExpandedBlocks((prev) => toggleExpanded(prev, 'attachedEngines'))}
+              >
+                {expandedBlocks.attachedEngines === false ? 'Развернуть' : 'Свернуть'}
+              </Button>
+            </div>
+            {engineAttachStatus ? (
+              <div style={{ marginTop: 10, color: engineAttachStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>
+                {engineAttachStatus}
+              </div>
+            ) : null}
+            {expandedBlocks.attachedEngines !== false && (
+              <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+                <DataTable className="list-table">
+                  <colgroup>
+                    <col style={{ width: '35%' }} />
+                    <col style={{ width: '35%' }} />
+                    <col />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Номер двигателя</th>
+                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Марка двигателя</th>
+                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {relatedEngines.map((engine) => (
+                      <tr key={engine.id}>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+                          {props.onOpenEngine ? (
+                            <button
+                              type="button"
+                              onClick={() => void props.onOpenEngine?.(engine.id)}
+                              style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                            >
+                              {engine.engineNumber || '—'}
+                            </button>
+                          ) : (
+                            engine.engineNumber || '—'
+                          )}
+                        </td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{engine.engineBrand || '—'}</td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{currentEngineStatusLabel(engine)}</td>
+                      </tr>
+                    ))}
+                    {relatedEngines.length === 0 && (
+                      <tr>
+                        <td colSpan={3} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
+                          Нет прикрепленных двигателей
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </DataTable>
+
+                {props.canEdit && (
+                  addEngineOpen ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <SearchSelectWithCreate
+                        value={null}
+                        options={availableEngineOptions}
+                        createLabel="Новый двигатель"
+                        placeholder="Найти двигатель по номеру или марке"
+                        onChange={(next) => {
+                          const id = String(next ?? '').trim();
+                          if (!id) return;
+                          if (skipNextEngineAttachIdRef.current && skipNextEngineAttachIdRef.current === id) {
+                            skipNextEngineAttachIdRef.current = '';
+                            return;
+                          }
+                          void attachEngineToContract(id);
+                        }}
+                        onCreate={createAndOpenEngine}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button variant="ghost" tone="neutral" size="sm" onClick={() => setAddEngineOpen(false)}>
+                          Отмена
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button variant="outline" tone="neutral" onClick={() => setAddEngineOpen(true)}>
+                        Добавить двигатель
+                      </Button>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard className="entity-card-span-full" title="Детали" style={{ borderRadius: 0, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                План: {contractProgress?.partPlannedCount ?? 0} · Исполнено: {contractProgress?.rawPartCompletedCount ?? 0}
+              </div>
+              <Button
+                variant="ghost"
+                tone="neutral"
+                size="sm"
+                onClick={() => setExpandedBlocks((prev) => toggleExpanded(prev, 'contractParts'))}
+              >
+                {expandedBlocks.contractParts === false ? 'Развернуть' : 'Свернуть'}
+              </Button>
+            </div>
+            {partsExecutionStatus ? (
+              <div style={{ marginTop: 10, color: partsExecutionStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>
+                {partsExecutionStatus}
+              </div>
+            ) : null}
+            {expandedBlocks.contractParts !== false && (
+              <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+                <DataTable className="list-table">
+                  <colgroup>
+                    <col />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 140 }} />
+                    {props.canEdit && <col style={{ width: 44 }} />}
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Деталь</th>
+                      <th className="num">План</th>
+                      <th className="num">Исполнено</th>
+                      {props.canEdit && <th style={{ width: 40 }} />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executionParts.map((row, idx) => {
+                      const label = partOptions.find((option) => option.id === row.partId)?.label ?? row.partId;
+                      return (
+                        <tr key={row.partId}>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+                            {row.partId && props.onOpenPart ? (
+                              <button
+                                type="button"
+                                onClick={() => props.onOpenPart?.(row.partId)}
+                                style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                              >
+                                {label}
+                              </button>
+                            ) : (
+                              label
+                            )}
+                          </td>
+                          <td className="num">
+                            <NumericField
+                              min={0}
+                              value={row.plannedQty}
+                              disabled={!props.canEdit}
+                              onChange={(next) => updateExecutionPart(idx, { plannedQty: next })}
+                              width={100}
+                            />
+                          </td>
+                          <td className="num">
+                            <NumericField
+                              min={0}
+                              value={row.completedQty}
+                              disabled={!props.canEdit}
+                              onChange={(next) => updateExecutionPart(idx, { completedQty: next })}
+                              width={120}
+                            />
+                          </td>
+                          {props.canEdit && (
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+                              <Button variant="ghost" tone="danger" size="sm" onClick={() => removeExecutionPart(idx)}>
+                                ×
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                    {executionParts.length === 0 && (
+                      <tr>
+                        <td colSpan={props.canEdit ? 4 : 3} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
+                          Нет деталей исполнения
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </DataTable>
+
+                {props.canEdit && (
+                  addPartOpen ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <SearchSelectWithCreate
+                        value={null}
+                        options={availablePartOptions}
+                        createLabel="Новая деталь"
+                        placeholder="Найти или создать деталь"
+                        onChange={(next) => {
+                          const id = String(next ?? '').trim();
+                          if (!id) return;
+                          addExecutionPartRow(id);
+                        }}
+                        onCreate={(label) => createMasterDataItem('part', label)}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button variant="ghost" tone="neutral" size="sm" onClick={() => setAddPartOpen(false)}>
+                          Отмена
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button variant="outline" tone="neutral" onClick={() => setAddPartOpen(true)}>
+                        Добавить деталь
+                      </Button>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </SectionCard>
 
           <SectionCard className="entity-card-span-full" title="Реквизиты ГОЗ (бухгалтерия)" style={{ borderRadius: 0, padding: 16 }}>
             <FormGrid columns="repeat(2, minmax(240px, 1fr))" gap={10}>

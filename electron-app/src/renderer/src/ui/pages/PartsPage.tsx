@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useListSelection } from '../hooks/useListSelection.js';
@@ -32,6 +33,7 @@ type Row = {
   createdAt: number;
 };
 type SortKey = 'name' | 'article' | 'updatedAt';
+type TemplateOption = { id: string; label: string };
 
 export function PartsPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -49,6 +51,9 @@ export function PartsPage(props: {
   const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
+  const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([]);
+  const [createPanelOpen, setCreatePanelOpen] = useState(false);
+  const [createTemplateId, setCreateTemplateId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const width = useWindowWidth();
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
@@ -74,6 +79,23 @@ export function PartsPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!props.canCreate) return;
+    void (async () => {
+      const r = await window.matrica.parts.templates.list({ limit: 5000 }).catch((e) => ({ ok: false as const, error: String(e) }));
+      if (!r.ok) {
+        setTemplateOptions([]);
+        return;
+      }
+      const opts = r.templates.map((row) => ({
+        id: String(row.id),
+        label: String(row.name ?? row.description ?? row.id),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setTemplateOptions(opts);
+    })();
+  }, [props.canCreate]);
 
   useEffect(() => {
     if (queryTimer.current) {
@@ -159,6 +181,50 @@ export function PartsPage(props: {
     await refresh();
   }
 
+  async function createPartFromTemplate(templateId: string) {
+    const cleanTemplateId = String(templateId || '').trim();
+    if (!cleanTemplateId) return;
+    try {
+      setStatus('Создание детали...');
+      const r = await window.matrica.parts.createFromTemplate({ templateId: cleanTemplateId });
+      if (!r.ok || !r.part?.id) {
+        setStatus(`Ошибка: ${r.error ?? 'Не удалось создать деталь'}`);
+        return;
+      }
+      invalidateListAllPartsCache();
+      await refresh({ silent: true });
+      setCreateTemplateId(null);
+      setCreatePanelOpen(false);
+      setStatus('');
+      await props.onOpen(r.part.id);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function createTemplateAndPart(label: string) {
+    const name = label.trim();
+    if (!name) return null;
+    try {
+      setStatus('Создание шаблона детали...');
+      const createdTemplate = await window.matrica.parts.templates.create({ attributes: { name } });
+      if (!createdTemplate.ok || !createdTemplate.template?.id) {
+        setStatus(`Ошибка: ${createdTemplate.error ?? 'Не удалось создать шаблон детали'}`);
+        return null;
+      }
+      const nextTemplate = { id: String(createdTemplate.template.id), label: name };
+      setTemplateOptions((prev) => {
+        if (prev.some((item) => item.id === nextTemplate.id)) return prev;
+        return [...prev, nextTemplate].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      });
+      await createPartFromTemplate(nextTemplate.id);
+      return nextTemplate.id;
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+      return null;
+    }
+  }
+
   const tableHeader = (
     <thead>
       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
@@ -238,24 +304,9 @@ export function PartsPage(props: {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && (
           <Button
-            onClick={async () => {
-              try {
-                setStatus('Создание детали...');
-                const r = await window.matrica.parts.create();
-                if (!r.ok) {
-                  setStatus(`Ошибка: ${r.error}`);
-                  return;
-                }
-                invalidateListAllPartsCache();
-                // Проверка уже выполнена в partsService
-                setStatus('');
-                await props.onOpen(r.part.id);
-              } catch (e) {
-                setStatus(`Ошибка: ${String(e)}`);
-              }
-            }}
+            onClick={() => setCreatePanelOpen((prev) => !prev)}
           >
-            Создать деталь
+            {createPanelOpen ? 'Закрыть создание' : 'Создать деталь из шаблона'}
           </Button>
         )}
         <div style={{ flex: 1 }}>
@@ -268,6 +319,26 @@ export function PartsPage(props: {
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+
+      {props.canCreate && createPanelOpen ? (
+        <div style={{ marginTop: 8, border: '1px solid #e5e7eb', padding: 12 }}>
+          <SearchSelectWithCreate
+            value={createTemplateId}
+            options={templateOptions}
+            placeholder="Выберите шаблон детали"
+            onChange={(id) => {
+              setCreateTemplateId(id);
+              if (id) void createPartFromTemplate(id);
+            }}
+            canCreate
+            createLabel="Новый шаблон детали"
+            onCreate={createTemplateAndPart}
+          />
+          <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
+            Сначала выбирается шаблон детали. Если подходящего шаблона нет, создайте его здесь и система сразу откроет новую реальную деталь.
+          </div>
+        </div>
+      ) : null}
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />

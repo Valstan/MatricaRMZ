@@ -27,7 +27,7 @@ export type UpdateCheckResult =
       ok: true;
       updateAvailable: boolean;
       version?: string;
-      source?: 'github' | 'yandex' | 'lan' | 'torrent';
+      source?: 'github' | 'yandex' | 'lan' | 'torrent' | 'server';
       downloadUrl?: string;
       expectedSize?: number | null;
     }
@@ -36,7 +36,7 @@ export type UpdateCheckResult =
 export type UpdateFlowResult =
   | { action: 'no_update' }
   | { action: 'update_started' }
-  | { action: 'update_downloaded'; version?: string; source?: 'github' | 'yandex' | 'lan' | 'torrent' }
+  | { action: 'update_downloaded'; version?: string; source?: 'github' | 'yandex' | 'lan' | 'torrent' | 'server' }
   | { action: 'error'; error: string };
 
 export type UpdateHelperArgs = {
@@ -80,7 +80,7 @@ let updateDb: BetterSQLite3Database | null = null;
 
 type UpdateRuntimeState = {
   state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
-  source?: 'github' | 'yandex' | 'lan' | 'torrent';
+  source?: 'github' | 'yandex' | 'lan' | 'torrent' | 'server';
   version?: string;
   progress?: number;
   message?: string;
@@ -330,6 +330,14 @@ type ServerUpdateMeta = {
   sha256?: string;
 };
 
+type ServerTorrentMeta = {
+  version: string;
+  fileName: string;
+  size: number;
+  infoHash: string;
+  sha256?: string;
+};
+
 function joinUrl(base: string, path: string) {
   const b = String(base ?? '').trim().replace(/\/+$/, '');
   const p = String(path ?? '').trim().replace(/^\/+/, '');
@@ -396,6 +404,38 @@ async function fetchLatestUpdateMetaFromServer(): Promise<ServerUpdateMeta | nul
   } catch {
     return null;
   }
+}
+
+async function resolvePublishedServerUpdate(
+  currentVersion: string,
+  existingServerMeta?: ServerUpdateMeta | null,
+): Promise<{ serverMeta: ServerUpdateMeta; torrentMeta: ServerTorrentMeta | null } | null> {
+  const serverMeta = existingServerMeta ?? (await fetchLatestUpdateMetaFromServer());
+  if (!serverMeta) return null;
+  if (compareSemver(serverMeta.version, currentVersion) <= 0) {
+    void tryAdvertiseLan(serverMeta).catch(() => {});
+    return null;
+  }
+
+  const torrentLatest = await fetchLatestTorrentFromServer();
+  const torrentMeta =
+    torrentLatest.ok &&
+    torrentLatest.updateAvailable &&
+    torrentLatest.version === serverMeta.version &&
+    torrentLatest.fileName === serverMeta.fileName &&
+    torrentLatest.infoHash &&
+    Number.isFinite(Number(torrentLatest.size ?? 0)) &&
+    Number(torrentLatest.size ?? 0) > 0
+      ? {
+          version: torrentLatest.version,
+          fileName: torrentLatest.fileName,
+          size: Number(torrentLatest.size),
+          infoHash: torrentLatest.infoHash,
+          ...(serverMeta.sha256 ? { sha256: serverMeta.sha256 } : {}),
+        }
+      : null;
+
+  return { serverMeta, torrentMeta };
 }
 
 async function findCachedInstallerForVersion(
@@ -921,12 +961,8 @@ async function resolveLocalInstaller(currentVersion: string, serverVersion: stri
 
 async function getServerVersion(): Promise<string | null> {
   try {
-    const t = await fetchLatestTorrentFromServer();
-    if (t.ok && t.version) return t.version;
-    const y = await checkYandexForUpdates();
-    if (y.ok && y.version) return y.version;
-    const gh = await checkGithubReleaseForUpdates();
-    if (gh.ok && gh.version) return gh.version;
+    const meta = await fetchLatestUpdateMetaFromServer();
+    if (meta?.version) return meta.version;
   } catch {
     // ignore
   }
@@ -1048,48 +1084,97 @@ async function promptManualUpdateFallback(args: {
   version?: string;
   yandexUrl?: string | null;
   reason?: string;
-}): Promise<'close' | 'run'> {
+}): Promise<'run'> {
   const yandexUrl = args.yandexUrl ? String(args.yandexUrl).trim() : '';
-  const message = yandexUrl
-    ? 'Автообновление не удалось. Установите обновление вручную по ссылке Яндекс.Диска.'
-    : 'Автообновление не удалось. Установите обновление вручную из источника обновлений.';
+  const instruction =
+    'Нажмите на ссылку, чтобы скачать обновление самостоятельно. После скачивания файла, запустите его, программа установится сама. Нажмите ОК чтобы открыть программу для работы, пока скачивается обновление.';
   const details = [
     args.version ? `Версия: ${args.version}` : '',
     args.reason ? `Причина: ${args.reason}` : '',
-    yandexUrl ? `Ссылка: ${yandexUrl}` : '',
+    yandexUrl ? `Ссылка Яндекс.Диска: ${yandexUrl}` : '',
     '',
-    'Что делать:',
-    '1) Откройте ссылку и скачайте установщик .exe.',
-    '2) Запустите установщик и завершите установку.',
-    '3) После этого выберите действие ниже.',
+    instruction,
   ]
     .filter(Boolean)
     .join('\n');
 
-  await stageUpdate(message, 100, args.version);
+  await stageUpdate(instruction, 100, args.version);
   lockUpdateUi(false);
-  const response = updateUiWindow
-    ? await dialog.showMessageBox(updateUiWindow, {
-        type: 'warning',
-        title: 'Ручное обновление',
-        message,
-        detail: details,
-        buttons: ['Закрыть программу', 'Запустить программу'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-      })
-    : await dialog.showMessageBox({
-        type: 'warning',
-        title: 'Ручное обновление',
-        message,
-        detail: details,
-        buttons: ['Закрыть программу', 'Запустить программу'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-      });
-  return response.response === 0 ? 'close' : 'run';
+  if (yandexUrl) {
+    const response = updateUiWindow
+      ? await dialog.showMessageBox(updateUiWindow, {
+          type: 'warning',
+          title: 'Ручное обновление',
+          message: 'Открыть ссылку на обновление в браузере?',
+          detail: details,
+          buttons: ['Открыть ссылку', 'ОК'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        })
+      : await dialog.showMessageBox({
+          type: 'warning',
+          title: 'Ручное обновление',
+          message: 'Открыть ссылку на обновление в браузере?',
+          detail: details,
+          buttons: ['Открыть ссылку', 'ОК'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        });
+    if (response.response === 0) {
+      await shell.openExternal(yandexUrl).catch((e) => writeUpdaterLog(`manual update openExternal failed: ${String(e)}`));
+      if (updateUiWindow && !updateUiWindow.isDestroyed()) {
+        await dialog.showMessageBox(updateUiWindow, {
+          type: 'info',
+          title: 'Ручное обновление',
+          message: instruction,
+          detail: details,
+          buttons: ['ОК'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+      } else {
+        await dialog.showMessageBox({
+          type: 'info',
+          title: 'Ручное обновление',
+          message: instruction,
+          detail: details,
+          buttons: ['ОК'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+      }
+    }
+    return 'run';
+  }
+
+  if (updateUiWindow && !updateUiWindow.isDestroyed()) {
+    await dialog.showMessageBox(updateUiWindow, {
+      type: 'info',
+      title: 'Ручное обновление',
+      message: instruction,
+      detail: details,
+      buttons: ['ОК'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+  } else {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'Ручное обновление',
+      message: instruction,
+      detail: details,
+      buttons: ['ОК'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+  }
+  return 'run';
 }
 
 export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | null): Promise<boolean> {
@@ -1293,7 +1378,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
     try {
       const netState = getNetworkState();
       if (!netState.online) {
-        setUpdateState({ state: 'error', source: 'yandex', message: 'Нет сети, повторим позже.' });
+        setUpdateState({ state: 'error', message: 'Нет сети, повторим позже.' });
         return;
       }
       const current = app.getVersion();
@@ -1303,7 +1388,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       if (pending?.version && compareSemver(pending.version, current) > 0) {
         setUpdateState({
           state: 'downloaded',
-          source: 'yandex',
+          source: 'server',
           version: pending.version,
           progress: 100,
           message: 'Обновление скачано. Установится после перезапуска.',
@@ -1311,34 +1396,16 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         return;
       }
 
-      const serverMeta = await fetchLatestUpdateMetaFromServer();
-      const torrentLatest = await fetchLatestTorrentFromServer();
-      const torrentMeta =
-        torrentLatest.ok &&
-        torrentLatest.updateAvailable &&
-        torrentLatest.version &&
-        torrentLatest.fileName &&
-        torrentLatest.infoHash &&
-        Number.isFinite(Number(torrentLatest.size ?? 0)) &&
-        Number(torrentLatest.size ?? 0) > 0
-          ? {
-              version: torrentLatest.version,
-              fileName: torrentLatest.fileName,
-              size: Number(torrentLatest.size),
-              infoHash: torrentLatest.infoHash,
-              ...(serverMeta && serverMeta.version === torrentLatest.version && serverMeta.fileName === torrentLatest.fileName && serverMeta.sha256
-                ? { sha256: serverMeta.sha256 }
-                : {}),
-            }
-          : null;
-
-      if (serverMeta && compareSemver(serverMeta.version, current) <= 0) {
-        void tryAdvertiseLan(serverMeta).catch(() => {});
+      const publishedUpdate = await resolvePublishedServerUpdate(current);
+      if (!publishedUpdate) {
+        setUpdateState({ state: 'idle' });
+        return;
       }
+      const { serverMeta, torrentMeta } = publishedUpdate;
+      candidateVersion = serverMeta.version;
 
       // 1) Торрент-пиры локальные (из /updates/peers)
-      if (torrentMeta && compareSemver(torrentMeta.version, current) > 0) {
-        candidateVersion = torrentMeta.version;
+      if (torrentMeta) {
         candidateReason = 'torrent local peers failed';
         setUpdateState({
           state: 'downloading',
@@ -1369,59 +1436,58 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       }
 
       // 2) Локальная LAN-раздача (HTTP peers /updates/lan/peers)
-      if (serverMeta && compareSemver(serverMeta.version, current) > 0) {
-        candidateVersion = candidateVersion ?? serverMeta.version;
-        candidateReason = candidateReason ?? 'lan peers failed';
-        setUpdateState({
-          state: 'downloading',
-          source: 'lan',
-          version: serverMeta.version,
-          progress: 0,
-          message: 'Скачиваем обновление (Локальная сеть)…',
-        });
-        const lan = await tryDownloadFromLan(serverMeta, {
-          onProgress: (pct) => {
-            setUpdateState({
-              state: 'downloading',
-              source: 'lan',
-              version: serverMeta.version,
-              progress: Math.max(0, Math.min(100, pct)),
-              message: 'Скачиваем обновление (Локальная сеть)…',
-            });
-          },
-        });
-        if (lan.ok) {
-          const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
-          const queued = await queuePendingUpdate({
+      candidateReason = candidateReason ?? 'lan peers failed';
+      setUpdateState({
+        state: 'downloading',
+        source: 'lan',
+        version: serverMeta.version,
+        progress: 0,
+        message: 'Скачиваем обновление (Локальная сеть)…',
+      });
+      const lan = await tryDownloadFromLan(serverMeta, {
+        onProgress: (pct) => {
+          setUpdateState({
+            state: 'downloading',
+            source: 'lan',
             version: serverMeta.version,
-            installerPath: cachedPath,
-            expectedName: serverMeta.fileName,
-            expectedSize: serverMeta.size,
-            downloadUrl: `lan://${serverMeta.fileName}`,
+            progress: Math.max(0, Math.min(100, pct)),
+            message: 'Скачиваем обновление (Локальная сеть)…',
           });
-          if (!queued.ok) {
-            setUpdateState({ state: 'error', source: 'lan', version: serverMeta.version, message: queued.error });
-          } else {
-            setUpdateState({
-              state: 'downloaded',
-              source: 'lan',
-              version: serverMeta.version,
-              progress: 100,
-              message: 'Обновление скачано из локальной сети. Запускаем установку…',
-            });
-            await releaseUpdateLock();
-            lockReleased = true;
-            backgroundInFlight = false;
-            showUpdateWindow(null);
-            await installNow({ installerPath: cachedPath, version: serverMeta.version });
-            return;
-          }
+        },
+      });
+      if (lan.ok) {
+        const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
+        const queued = await queuePendingUpdate({
+          version: serverMeta.version,
+          installerPath: cachedPath,
+          expectedName: serverMeta.fileName,
+          expectedSize: serverMeta.size,
+          downloadUrl: `lan://${serverMeta.fileName}`,
+        });
+        if (!queued.ok) {
+          setUpdateState({ state: 'error', source: 'lan', version: serverMeta.version, message: queued.error });
+        } else {
+          setUpdateState({
+            state: 'downloaded',
+            source: 'lan',
+            version: serverMeta.version,
+            progress: 100,
+            message: 'Обновление скачано из локальной сети. Запускаем установку…',
+          });
+          void tryAdvertiseLan(serverMeta).catch(() => {});
+          await releaseUpdateLock();
+          lockReleased = true;
+          backgroundInFlight = false;
+          showUpdateWindow(null);
+          await installNow({ installerPath: cachedPath, version: serverMeta.version });
+          return;
         }
       }
 
       // 3) Yandex
       const y = await tryYandexDownload();
       if (y?.ok) {
+        void tryAdvertiseLan(serverMeta).catch(() => {});
         await releaseUpdateLock();
         lockReleased = true;
         backgroundInFlight = false;
@@ -1437,6 +1503,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       // 4) GitHub
       const gh = await tryGithubDownload();
       if (gh?.ok) {
+        void tryAdvertiseLan(serverMeta).catch(() => {});
         await releaseUpdateLock();
         lockReleased = true;
         backgroundInFlight = false;
@@ -1450,8 +1517,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       }
 
       // 5) Любые торрент-пиры + webseed с сервера (/updates/file/:name)
-      if (torrentMeta && compareSemver(torrentMeta.version, current) > 0) {
-        candidateVersion = candidateVersion ?? torrentMeta.version;
+      if (torrentMeta) {
         candidateReason = candidateReason ?? 'torrent peers failed';
         const tAny = await tryDownloadFromTorrentPeers(torrentMeta, { localOnly: false, includeServerWebSeed: true });
         if (tAny.ok) {
@@ -1464,6 +1530,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
             downloadUrl: tAny.downloadUrl,
           });
           if (queued.ok) {
+            void tryAdvertiseLan(serverMeta).catch(() => {});
             await releaseUpdateLock();
             lockReleased = true;
             backgroundInFlight = false;
@@ -1474,25 +1541,64 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         }
       }
 
-      // 6) Ручной fallback через ссылку Яндекс.Диска + выбор пользователя.
+      // 6) Прямая загрузка с сервера.
+      candidateReason = candidateReason ?? 'server download failed';
+      setUpdateState({
+        state: 'downloading',
+        source: 'server',
+        version: serverMeta.version,
+        progress: 0,
+        message: 'Скачиваем обновление с сервера…',
+      });
+      const direct = await downloadUpdateFromServer(serverMeta, {
+        onProgress: (pct) => {
+          setUpdateState({
+            state: 'downloading',
+            source: 'server',
+            version: serverMeta.version,
+            progress: Math.max(0, Math.min(100, pct)),
+            message: 'Скачиваем обновление с сервера…',
+          });
+        },
+      });
+      if (direct.ok) {
+        const cachedPath = await cacheInstaller(direct.filePath, serverMeta.version);
+        const queued = await queuePendingUpdate({
+          version: serverMeta.version,
+          installerPath: cachedPath,
+          expectedName: serverMeta.fileName,
+          expectedSize: serverMeta.size,
+          downloadUrl: direct.downloadUrl,
+        });
+        if (queued.ok) {
+          void tryAdvertiseLan(serverMeta).catch(() => {});
+          await releaseUpdateLock();
+          lockReleased = true;
+          backgroundInFlight = false;
+          showUpdateWindow(null);
+          await installNow({ installerPath: cachedPath, version: serverMeta.version });
+          return;
+        }
+        candidateReason = queued.error;
+      }
+
+      // 7) Если все источники исчерпаны, предлагаем ручное скачивание и продолжаем работу.
       if (candidateVersion && Date.now() - lastManualUpdatePromptAt >= MANUAL_UPDATE_PROMPT_COOLDOWN_MS) {
         lastManualUpdatePromptAt = Date.now();
         const yCfg = await getYandexConfig().catch(() => null);
         showUpdateWindow(null);
-        const choice = await promptManualUpdateFallback({
+        await promptManualUpdateFallback({
           version: candidateVersion,
           ...(yCfg?.publicKey ? { yandexUrl: yCfg.publicKey } : {}),
           ...(candidateReason ? { reason: candidateReason } : {}),
         });
-        if (choice === 'close') {
-          quitMainAppSoon(200);
-          return;
-        }
+        setUpdateState({ state: 'idle' });
+        return;
       }
 
       setUpdateState({ state: 'idle' });
     } catch (e) {
-      setUpdateState({ state: 'error', source: 'yandex', message: String(e) });
+      setUpdateState({ state: 'error', message: String(e) });
     } finally {
       if (!lockReleased) {
         backgroundInFlight = false;
@@ -1504,6 +1610,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
 
 export async function runAutoUpdateFlow(
   opts: { reason: 'startup' | 'manual_menu'; parentWindow?: BrowserWindow | null } = { reason: 'startup' },
+  attemptNo = 1,
 ): Promise<UpdateFlowResult> {
   await syncConfiguredUpdateDirFromSettings();
   if (updateInFlight) return { action: 'error', error: 'update already in progress' };
@@ -1525,37 +1632,13 @@ export async function runAutoUpdateFlow(
       return { action: 'error', error: 'update lock exists' };
     }
 
-    await stageUpdate('Проверяем локальные обновления…', 2);
+    await stageUpdate('Проверяем обновления на сервере…', 2);
     const current = app.getVersion();
-    const serverMeta = await fetchLatestUpdateMetaFromServer();
-    const torrentLatest = await fetchLatestTorrentFromServer();
-    const serverVersion = await getServerVersion();
+    const startupServerMeta = await fetchLatestUpdateMetaFromServer();
+    const serverVersion = startupServerMeta?.version ?? null;
 
     let candidateVersion: string | undefined;
     let candidateReason: string | undefined;
-
-    const torrentMeta =
-      torrentLatest.ok &&
-      torrentLatest.updateAvailable &&
-      torrentLatest.version &&
-      torrentLatest.fileName &&
-      torrentLatest.infoHash &&
-      Number.isFinite(Number(torrentLatest.size ?? 0)) &&
-      Number(torrentLatest.size ?? 0) > 0
-        ? {
-            version: torrentLatest.version,
-            fileName: torrentLatest.fileName,
-            size: Number(torrentLatest.size),
-            infoHash: torrentLatest.infoHash,
-            ...(serverMeta && serverMeta.version === torrentLatest.version && serverMeta.fileName === torrentLatest.fileName && serverMeta.sha256
-              ? { sha256: serverMeta.sha256 }
-              : {}),
-          }
-        : null;
-
-    if (serverMeta && compareSemver(serverMeta.version, current) <= 0) {
-      void tryAdvertiseLan(serverMeta).catch(() => {});
-    }
 
     const local = await resolveLocalInstaller(current, serverVersion);
     if (local.action === 'install') {
@@ -1563,9 +1646,17 @@ export async function runAutoUpdateFlow(
       return { action: 'update_started' };
     }
 
+    const publishedUpdate = await resolvePublishedServerUpdate(current, startupServerMeta);
+    if (!publishedUpdate) {
+      await stageUpdate('Обновлений нет. Запускаем приложение…', 100);
+      closeUpdateWindowSoon(300);
+      return { action: 'no_update' };
+    }
+    const { serverMeta, torrentMeta } = publishedUpdate;
+    candidateVersion = serverMeta.version;
+
     // 1) Сначала торрент-пиры локальные.
-    if (torrentMeta && compareSemver(torrentMeta.version, current) > 0) {
-      candidateVersion = torrentMeta.version;
+    if (torrentMeta) {
       candidateReason = 'torrent local peers failed';
       await stageUpdate('Проверяем торрент-пиры в локальной сети…', 15, torrentMeta.version);
       const tLocal = await tryDownloadFromTorrentPeers(torrentMeta, {
@@ -1593,6 +1684,7 @@ export async function runAutoUpdateFlow(
           await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, torrentMeta.version);
           candidateReason = queued.error;
         } else {
+          void tryAdvertiseLan(serverMeta).catch(() => {});
           await installNow({ installerPath: cachedPath, version: torrentMeta.version });
           return { action: 'update_started' };
         }
@@ -1600,78 +1692,76 @@ export async function runAutoUpdateFlow(
     }
 
     // 2) Локальная LAN-раздача.
-    if (serverMeta && compareSemver(serverMeta.version, current) > 0) {
-      candidateVersion = candidateVersion ?? serverMeta.version;
-      candidateReason = candidateReason ?? 'lan peers failed';
-      await stageUpdate('Проверяем обновления в локальной сети…', 20);
-      await stageUpdate('Скачиваем (локальная сеть)…', 5, serverMeta.version);
-      setUpdateState({
-        state: 'downloading',
-        source: 'lan',
-        version: serverMeta.version,
-        progress: 0,
-        message: 'Скачиваем обновление (Локальная сеть)…',
-      });
-      let lastLanUiAt = 0;
-      const lan = await tryDownloadFromLan(serverMeta, {
-        onProgress: (pct, transferred, total) => {
-          const now = Date.now();
-          if (now - lastLanUiAt < 250 && pct < 100) return;
-          lastLanUiAt = now;
-          const safePct = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
-          const transferredMb = Math.max(0, transferred) / (1024 * 1024);
-          const totalMb = total && total > 0 ? total / (1024 * 1024) : null;
-          const detail = totalMb
-            ? `${transferredMb.toFixed(1)} / ${totalMb.toFixed(1)} MB`
-            : `${transferredMb.toFixed(1)} MB`;
-          void setUpdateUi(`Скачиваем (Локальная сеть)… ${detail}`, Math.max(5, safePct), serverMeta.version);
-          setUpdateState({
-            state: 'downloading',
-            source: 'lan',
-            version: serverMeta.version,
-            progress: safePct,
-            message: 'Скачиваем обновление (Локальная сеть)…',
-          });
-        },
-      });
-      if (lan.ok) {
-        const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
-        const queued = await queuePendingUpdate({
+    candidateReason = candidateReason ?? 'lan peers failed';
+    await stageUpdate('Проверяем обновления в локальной сети…', 20);
+    await stageUpdate('Скачиваем (локальная сеть)…', 5, serverMeta.version);
+    setUpdateState({
+      state: 'downloading',
+      source: 'lan',
+      version: serverMeta.version,
+      progress: 0,
+      message: 'Скачиваем обновление (Локальная сеть)…',
+    });
+    let lastLanUiAt = 0;
+    const lan = await tryDownloadFromLan(serverMeta, {
+      onProgress: (pct, transferred, total) => {
+        const now = Date.now();
+        if (now - lastLanUiAt < 250 && pct < 100) return;
+        lastLanUiAt = now;
+        const safePct = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+        const transferredMb = Math.max(0, transferred) / (1024 * 1024);
+        const totalMb = total && total > 0 ? total / (1024 * 1024) : null;
+        const detail = totalMb
+          ? `${transferredMb.toFixed(1)} / ${totalMb.toFixed(1)} MB`
+          : `${transferredMb.toFixed(1)} MB`;
+        void setUpdateUi(`Скачиваем (Локальная сеть)… ${detail}`, Math.max(5, safePct), serverMeta.version);
+        setUpdateState({
+          state: 'downloading',
+          source: 'lan',
           version: serverMeta.version,
-          installerPath: cachedPath,
-          expectedName: serverMeta.fileName,
-          expectedSize: serverMeta.size,
-          downloadUrl: `lan://${serverMeta.fileName}`,
+          progress: safePct,
+          message: 'Скачиваем обновление (Локальная сеть)…',
         });
-        if (!queued.ok) {
-          await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, serverMeta.version);
-          setUpdateState({
-            state: 'error',
-            source: 'lan',
-            version: serverMeta.version,
-            message: queued.error,
-          });
-          candidateReason = queued.error;
-        } else {
-          setUpdateState({
-            state: 'downloaded',
-            source: 'lan',
-            version: serverMeta.version,
-            progress: 100,
-            message: 'Обновление скачано из локальной сети. Запускаем установку…',
-          });
-          await installNow({ installerPath: cachedPath, version: serverMeta.version });
-          return { action: 'update_started' };
-        }
+      },
+    });
+    if (lan.ok) {
+      const cachedPath = await cacheInstaller(lan.filePath, serverMeta.version);
+      const queued = await queuePendingUpdate({
+        version: serverMeta.version,
+        installerPath: cachedPath,
+        expectedName: serverMeta.fileName,
+        expectedSize: serverMeta.size,
+        downloadUrl: `lan://${serverMeta.fileName}`,
+      });
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, serverMeta.version);
+        setUpdateState({
+          state: 'error',
+          source: 'lan',
+          version: serverMeta.version,
+          message: queued.error,
+        });
+        candidateReason = queued.error;
+      } else {
+        setUpdateState({
+          state: 'downloaded',
+          source: 'lan',
+          version: serverMeta.version,
+          progress: 100,
+          message: 'Обновление скачано из локальной сети. Запускаем установку…',
+        });
+        void tryAdvertiseLan(serverMeta).catch(() => {});
+        await installNow({ installerPath: cachedPath, version: serverMeta.version });
+        return { action: 'update_started' };
       }
     }
 
-    // 3) Яндекс.Диск.
-    await stageUpdate('Проверяем Яндекс.Диск…', 20);
+    // 3) Яндекс-диск.
+    await stageUpdate('Проверяем Яндекс.Диск…', 30);
     const y = await checkYandexForUpdates();
     if (y.ok && y.updateAvailable && y.version) {
       candidateVersion = candidateVersion ?? y.version;
-      await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 5, y.version);
+      await stageUpdate(`Найдена новая версия (Yandex). Скачиваем…`, 35, y.version);
       await cleanupUpdateCache(y.version ?? 'latest');
       const yPath = 'path' in y ? y.path : undefined;
       const ydl = await downloadYandexUpdate(
@@ -1681,9 +1771,9 @@ export async function runAutoUpdateFlow(
           ...(y.downloadUrl ? { downloadUrl: y.downloadUrl } : {}),
         },
         {
-        onProgress: (pct) => {
-          void setUpdateUi(`Скачиваем (Yandex)…`, pct, y.version);
-        },
+          onProgress: (pct) => {
+            void setUpdateUi(`Скачиваем (Yandex)…`, pct, y.version);
+          },
         },
       );
       if (!ydl.ok || !ydl.filePath) {
@@ -1701,18 +1791,19 @@ export async function runAutoUpdateFlow(
           await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, y.version);
           candidateReason = queued.error;
         } else {
+          void tryAdvertiseLan(serverMeta).catch(() => {});
           await installNow({ installerPath: cachedPath, version: y.version });
           return { action: 'update_started' };
         }
       }
     }
 
-    // 4) GitHub Releases.
-    await stageUpdate('Проверяем обновления через GitHub…', 30);
+    // 4) GitHub.
+    await stageUpdate('Проверяем обновления через GitHub…', 45);
     const gh = await checkGithubReleaseForUpdates();
     if (gh.ok && gh.updateAvailable && gh.downloadUrl && gh.version) {
       candidateVersion = candidateVersion ?? gh.version;
-      await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 5, gh.version);
+      await stageUpdate(`Найдена новая версия (GitHub). Скачиваем…`, 50, gh.version);
       await cleanupUpdateCache(gh.version ?? 'latest');
       const gdl = await downloadGithubUpdate(gh.downloadUrl, gh.version, {
         onProgress: (pct) => {
@@ -1733,6 +1824,7 @@ export async function runAutoUpdateFlow(
           await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, gh.version);
           candidateReason = queued.error;
         } else {
+          void tryAdvertiseLan(serverMeta).catch(() => {});
           await installNow({ installerPath: cachedPath, version: gh.version });
           return { action: 'update_started' };
         }
@@ -1740,10 +1832,9 @@ export async function runAutoUpdateFlow(
     }
 
     // 5) Любые торрент-пиры + раздача с сервера (/updates/file/:name).
-    if (torrentMeta && compareSemver(torrentMeta.version, current) > 0) {
-      candidateVersion = candidateVersion ?? torrentMeta.version;
+    if (torrentMeta) {
       candidateReason = candidateReason ?? 'torrent peers failed';
-      await stageUpdate('Пробуем скачать через любые торрент-пиры и сервер…', 40, torrentMeta.version);
+      await stageUpdate('Пробуем скачать через любые торрент-пиры и сервер…', 60, torrentMeta.version);
       const tAny = await tryDownloadFromTorrentPeers(torrentMeta, {
         localOnly: false,
         includeServerWebSeed: true,
@@ -1761,6 +1852,7 @@ export async function runAutoUpdateFlow(
           downloadUrl: tAny.downloadUrl,
         });
         if (queued.ok) {
+          void tryAdvertiseLan(serverMeta).catch(() => {});
           await installNow({ installerPath: cachedPath, version: torrentMeta.version });
           return { action: 'update_started' };
         }
@@ -1768,19 +1860,58 @@ export async function runAutoUpdateFlow(
       }
     }
 
-    // 6) Ручной fallback: ссылка на Яндекс.Диск + выбор пользователя.
+    // 6) Прямая загрузка с сервера.
+    candidateReason = candidateReason ?? 'server download failed';
+    await stageUpdate('Скачиваем обновление с сервера…', 75, serverMeta.version);
+    const direct = await downloadUpdateFromServer(serverMeta, {
+      onProgress: (pct, transferred, total) => {
+        const safePct = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+        const transferredMb = Math.max(0, transferred) / (1024 * 1024);
+        const totalMb = total && total > 0 ? total / (1024 * 1024) : null;
+        const detail = totalMb
+          ? `${transferredMb.toFixed(1)} / ${totalMb.toFixed(1)} MB`
+          : `${transferredMb.toFixed(1)} MB`;
+        void setUpdateUi(`Скачиваем с сервера… ${detail}`, Math.max(5, safePct), serverMeta.version);
+      },
+    });
+    if (direct.ok) {
+      const cachedPath = await cacheInstaller(direct.filePath, serverMeta.version);
+      const queued = await queuePendingUpdate({
+        version: serverMeta.version,
+        installerPath: cachedPath,
+        expectedName: serverMeta.fileName,
+        expectedSize: serverMeta.size,
+        downloadUrl: direct.downloadUrl,
+      });
+      if (!queued.ok) {
+        await setUpdateUi(`Ошибка целостности: ${queued.error}`, 100, serverMeta.version);
+        candidateReason = queued.error;
+      } else {
+        void tryAdvertiseLan(serverMeta).catch(() => {});
+        await installNow({ installerPath: cachedPath, version: serverMeta.version });
+        return { action: 'update_started' };
+      }
+    }
+
+    // 7) Если все источники исчерпаны, предлагаем ручное скачивание и запускаем программу.
     if (candidateVersion) {
+      if (attemptNo < 2) {
+        await stageUpdate('Не удалось скачать обновление. Повторяем полный цикл ещё раз…', 0, candidateVersion);
+        await writeUpdaterLog(`update flow retry requested attempt=${attemptNo + 1} version=${candidateVersion}`);
+        if (lockAcquired) {
+          await releaseUpdateLock();
+          lockAcquired = false;
+        }
+        updateInFlight = false;
+        return await runAutoUpdateFlow(opts, attemptNo + 1);
+      }
       const yCfg = await getYandexConfig().catch(() => null);
-      const choice = await promptManualUpdateFallback({
+      await promptManualUpdateFallback({
         version: candidateVersion,
         ...(yCfg?.publicKey ? { yandexUrl: yCfg.publicKey } : {}),
         ...(candidateReason ? { reason: candidateReason } : {}),
       });
-      if (choice === 'close') {
-        quitMainAppSoon(200);
-        return { action: 'update_started' };
-      }
-      await stageUpdate('Продолжаем запуск приложения без автообновления.', 100);
+      await stageUpdate('Автообновление не удалось. Запускаем приложение без обновления.', 100, candidateVersion);
       closeUpdateWindowSoon(500);
       return { action: 'no_update' };
     }
@@ -1802,33 +1933,19 @@ export async function runAutoUpdateFlow(
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     if (!app.isPackaged) return { ok: true, updateAvailable: false };
-    const torrent = await fetchLatestTorrentFromServer();
-    if (torrent.ok && torrent.updateAvailable && torrent.version) {
-      return {
-        ok: true,
-        updateAvailable: true,
-        version: torrent.version,
-        source: 'torrent',
-        expectedSize: torrent.size != null ? Number(torrent.size) : null,
-      };
-    }
     const serverMeta = await fetchLatestUpdateMetaFromServer();
-    if (serverMeta) {
-      const current = app.getVersion();
-      const updateAvailable = compareSemver(serverMeta.version, current) > 0;
-      if (!updateAvailable) void tryAdvertiseLan(serverMeta).catch(() => {});
-      return { ok: true, updateAvailable, version: serverMeta.version, source: 'lan' };
-    }
-    const y = await checkYandexForUpdates();
-    if (y.ok && y.updateAvailable) return y;
-    const gh = await checkGithubReleaseForUpdates();
-    if (gh.ok && gh.updateAvailable) return gh;
-    return { ok: true, updateAvailable: false };
+    if (!serverMeta) return { ok: true, updateAvailable: false };
+    const current = app.getVersion();
+    const updateAvailable = compareSemver(serverMeta.version, current) > 0;
+    if (!updateAvailable) void tryAdvertiseLan(serverMeta).catch(() => {});
+    return {
+      ok: true,
+      updateAvailable,
+      version: serverMeta.version,
+      source: 'server',
+      expectedSize: serverMeta.size,
+    };
   } catch (e) {
-    const y = await checkYandexForUpdates().catch(() => null);
-    if (y) return y;
-    const gh = await checkGithubReleaseForUpdates().catch(() => null);
-    if (gh) return gh;
     return { ok: false, error: String(e) };
   }
 }
@@ -2167,6 +2284,35 @@ async function tryDownloadFromLan(
     return { ok: true as const, filePath: outPath };
   }
   return { ok: false as const, error: 'lan download failed' };
+}
+
+async function downloadUpdateFromServer(
+  meta: ServerUpdateMeta,
+  opts?: { onProgress?: (pct: number, transferred: number, total: number | null) => void },
+): Promise<{ ok: true; filePath: string; downloadUrl: string } | { ok: false; error: string }> {
+  const apiBaseUrl = await resolveUpdateApiBaseUrl();
+  if (!apiBaseUrl) return { ok: false as const, error: 'apiBaseUrl missing' };
+
+  const downloadUrl = joinUrl(apiBaseUrl, `/updates/file/${encodeURIComponent(meta.fileName)}`);
+  const outPath = await prepareStableInstallerDownloadTarget();
+  const dl = await downloadWithResume(downloadUrl, outPath, {
+    attempts: 3,
+    timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
+    noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+    useBitsOnWindows: false,
+    backoffMs: 800,
+    maxBackoffMs: 6000,
+    jitterMs: 300,
+    ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
+  });
+  if (!dl.ok || !dl.filePath) return { ok: false as const, error: dl.error ?? 'server download failed' };
+
+  const integrity = await validateInstallerIntegrity(outPath, meta.fileName, meta.size, meta.sha256);
+  if (!integrity.ok) {
+    await rm(outPath, { force: true }).catch(() => {});
+    return { ok: false as const, error: integrity.error };
+  }
+  return { ok: true as const, filePath: outPath, downloadUrl };
 }
 
 function pickNewestInstaller(items: Array<{ name: string; size?: number | null }>): { name: string; size?: number | null } | null {

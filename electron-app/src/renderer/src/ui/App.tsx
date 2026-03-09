@@ -25,43 +25,6 @@ import {
 
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
-import { EnginesPage } from './pages/EnginesPage.js';
-import { EngineDetailsPage } from './pages/EngineDetailsPage.js';
-import { EngineBrandsPage } from './pages/EngineBrandsPage.js';
-import { EngineBrandDetailsPage } from './pages/EngineBrandDetailsPage.js';
-import { ChangesPage } from './pages/ChangesPage.js';
-import { ReportsPage } from './pages/ReportsPage.js';
-import { MasterdataPage } from './pages/AdminPage.js';
-import { CounterpartiesPage } from './pages/CounterpartiesPage.js';
-import { CounterpartyDetailsPage } from './pages/CounterpartyDetailsPage.js';
-import { ContractsPage } from './pages/ContractsPage.js';
-import { ContractDetailsPage } from './pages/ContractDetailsPage.js';
-import { AuthPage } from './pages/AuthPage.js';
-import { SupplyRequestsPage } from './pages/SupplyRequestsPage.js';
-import { SupplyRequestDetailsPage } from './pages/SupplyRequestDetailsPage.js';
-import { WorkOrdersPage } from './pages/WorkOrdersPage.js';
-import { WorkOrderDetailsPage } from './pages/WorkOrderDetailsPage.js';
-import { PartsPage } from './pages/PartsPage.js';
-import { PartDetailsPage } from './pages/PartDetailsPage.js';
-import { ToolsPage } from './pages/ToolsPage.js';
-import { ToolDetailsPage } from './pages/ToolDetailsPage.js';
-import { ToolPropertiesPage } from './pages/ToolPropertiesPage.js';
-import { ToolPropertyDetailsPage } from './pages/ToolPropertyDetailsPage.js';
-import { EmployeesPage } from './pages/EmployeesPage.js';
-import { EmployeeDetailsPage } from './pages/EmployeeDetailsPage.js';
-import { ProductsPage } from './pages/ProductsPage.js';
-import { ServicesPage } from './pages/ServicesPage.js';
-import { NomenclaturePage } from './pages/NomenclaturePage.js';
-import { NomenclatureDetailsPage } from './pages/NomenclatureDetailsPage.js';
-import { StockBalancesPage } from './pages/StockBalancesPage.js';
-import { StockDocumentsPage } from './pages/StockDocumentsPage.js';
-import { StockDocumentDetailsPage } from './pages/StockDocumentDetailsPage.js';
-import { StockInventoryPage } from './pages/StockInventoryPage.js';
-import { SimpleMasterdataDetailsPage } from './pages/SimpleMasterdataDetailsPage.js';
-import { SettingsPage } from './pages/SettingsPage.js';
-import { NotesPage } from './pages/NotesPage.js';
-import { HistoryPage } from './pages/HistoryPage.js';
-import { SuperadminAuditPage } from './pages/SuperadminAuditPage.js';
 import { deriveUiCaps } from './auth/permissions.js';
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
@@ -100,6 +63,59 @@ type QuickStartScoreEntry = {
 const QUICK_START_DAY_MS = 24 * 60 * 60 * 1000;
 const QUICK_START_RATING_WINDOW_DAYS = 10;
 const QUICK_START_RATING_WINDOW_MS = QUICK_START_DAY_MS * QUICK_START_RATING_WINDOW_DAYS;
+
+const pageModules = import.meta.glob('./pages/*.tsx');
+
+function lazyPage(modulePath: keyof typeof pageModules, exportName: string) {
+  return React.lazy(async () => {
+    const loader = pageModules[modulePath];
+    if (!loader) throw new Error(`Page module not found: ${String(modulePath)}`);
+    const module = (await loader()) as Record<string, unknown>;
+    const component = module[exportName];
+    if (!component) throw new Error(`Page export "${exportName}" not found: ${String(modulePath)}`);
+    return { default: component as React.ComponentType<any> };
+  });
+}
+
+const EnginesPage = lazyPage('./pages/EnginesPage.tsx', 'EnginesPage');
+const EngineDetailsPage = lazyPage('./pages/EngineDetailsPage.tsx', 'EngineDetailsPage');
+const EngineBrandsPage = lazyPage('./pages/EngineBrandsPage.tsx', 'EngineBrandsPage');
+const EngineBrandDetailsPage = lazyPage('./pages/EngineBrandDetailsPage.tsx', 'EngineBrandDetailsPage');
+const ChangesPage = lazyPage('./pages/ChangesPage.tsx', 'ChangesPage');
+const ReportsPage = lazyPage('./pages/ReportsPage.tsx', 'ReportsPage');
+const MasterdataPage = lazyPage('./pages/AdminPage.tsx', 'MasterdataPage');
+const CounterpartiesPage = lazyPage('./pages/CounterpartiesPage.tsx', 'CounterpartiesPage');
+const CounterpartyDetailsPage = lazyPage('./pages/CounterpartyDetailsPage.tsx', 'CounterpartyDetailsPage');
+const ContractsPage = lazyPage('./pages/ContractsPage.tsx', 'ContractsPage');
+const ContractDetailsPage = lazyPage('./pages/ContractDetailsPage.tsx', 'ContractDetailsPage');
+const AuthPage = lazyPage('./pages/AuthPage.tsx', 'AuthPage');
+const SupplyRequestsPage = lazyPage('./pages/SupplyRequestsPage.tsx', 'SupplyRequestsPage');
+const SupplyRequestDetailsPage = lazyPage('./pages/SupplyRequestDetailsPage.tsx', 'SupplyRequestDetailsPage');
+const WorkOrdersPage = lazyPage('./pages/WorkOrdersPage.tsx', 'WorkOrdersPage');
+const WorkOrderDetailsPage = lazyPage('./pages/WorkOrderDetailsPage.tsx', 'WorkOrderDetailsPage');
+const PartsPage = lazyPage('./pages/PartsPage.tsx', 'PartsPage');
+const PartDetailsPage = lazyPage('./pages/PartDetailsPage.tsx', 'PartDetailsPage');
+const PartTemplateDetailsPage = lazyPage('./pages/PartTemplateDetailsPage.tsx', 'PartTemplateDetailsPage');
+const PartTemplatesPage = lazyPage('./pages/PartTemplatesPage.tsx', 'PartTemplatesPage');
+const ToolsPage = lazyPage('./pages/ToolsPage.tsx', 'ToolsPage');
+const ToolDetailsPage = lazyPage('./pages/ToolDetailsPage.tsx', 'ToolDetailsPage');
+const ToolPropertiesPage = lazyPage('./pages/ToolPropertiesPage.tsx', 'ToolPropertiesPage');
+const ToolPropertyDetailsPage = lazyPage('./pages/ToolPropertyDetailsPage.tsx', 'ToolPropertyDetailsPage');
+const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
+const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
+const ProductsPage = lazyPage('./pages/ProductsPage.tsx', 'ProductsPage');
+const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
+const NomenclaturePage = lazyPage('./pages/NomenclaturePage.tsx', 'NomenclaturePage');
+const NomenclatureDetailsPage = lazyPage('./pages/NomenclatureDetailsPage.tsx', 'NomenclatureDetailsPage');
+const StockBalancesPage = lazyPage('./pages/StockBalancesPage.tsx', 'StockBalancesPage');
+const StockDocumentsPage = lazyPage('./pages/StockDocumentsPage.tsx', 'StockDocumentsPage');
+const StockDocumentDetailsPage = lazyPage('./pages/StockDocumentDetailsPage.tsx', 'StockDocumentDetailsPage');
+const StockInventoryPage = lazyPage('./pages/StockInventoryPage.tsx', 'StockInventoryPage');
+const SimpleMasterdataDetailsPage = lazyPage('./pages/SimpleMasterdataDetailsPage.tsx', 'SimpleMasterdataDetailsPage');
+const SettingsPage = lazyPage('./pages/SettingsPage.tsx', 'SettingsPage');
+const NotesPage = lazyPage('./pages/NotesPage.tsx', 'NotesPage');
+const HistoryPage = lazyPage('./pages/HistoryPage.tsx', 'HistoryPage');
+const SuperadminAuditPage = lazyPage('./pages/SuperadminAuditPage.tsx', 'SuperadminAuditPage');
 
 function recentVisitsStorageKey(userId: string) {
   return `matrica:recent-visits:${userId}`;
@@ -251,7 +267,9 @@ function appTabTitle(tab: string): string {
     work_orders: 'Наряды',
     work_order: 'Карточка наряда',
     parts: 'Детали',
+    part_templates: 'Шаблоны деталей',
     part: 'Карточка детали',
+    part_template: 'Карточка шаблона детали',
     tools: 'Инструменты',
     tool: 'Карточка инструмента',
     tool_properties: 'Свойства инструмента',
@@ -286,6 +304,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   request: 'requests',
   work_order: 'work_orders',
   part: 'parts',
+  part_template: 'part_templates',
   tool: 'tools',
   tool_property: 'tool_properties',
   employee: 'employees',
@@ -303,6 +322,7 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'request',
   'work_order',
   'part',
+  'part_template',
   'tool',
   'tool_property',
   'employee',
@@ -379,6 +399,7 @@ export function App() {
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>(null);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [selectedPartTemplateId, setSelectedPartTemplateId] = useState<string | null>(null);
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const [selectedToolPropertyId, setSelectedToolPropertyId] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -989,6 +1010,7 @@ export function App() {
     setSelectedWorkOrderId(null);
     setSelectedEngineBrandId(null);
     setSelectedPartId(null);
+    setSelectedPartTemplateId(null);
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
@@ -1037,6 +1059,7 @@ export function App() {
     setSelectedRequestId(null);
     setSelectedWorkOrderId(null);
     setSelectedPartId(null);
+    setSelectedPartTemplateId(null);
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
@@ -1188,6 +1211,7 @@ export function App() {
     ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
     ...(caps.canViewWorkOrders ? (['work_orders'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
+    ...(caps.canViewParts ? (['part_templates'] as const) : []),
     ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
@@ -1209,6 +1233,7 @@ export function App() {
     | 'request'
     | 'work_order'
     | 'part'
+    | 'part_template'
     | 'tool'
     | 'tool_properties'
     | 'tool_property'
@@ -1233,6 +1258,7 @@ export function App() {
     requests: 'Заявки',
     work_orders: 'Наряды',
     parts: 'Детали',
+    part_templates: 'Шаблоны деталей',
     tools: 'Инструменты',
     products: 'Товары',
     services: 'Услуги',
@@ -1583,6 +1609,11 @@ export function App() {
     setTab('part');
   }
 
+  async function openPartTemplate(id: string) {
+    setSelectedPartTemplateId(id);
+    setTab('part_template');
+  }
+
   async function openTool(id: string) {
     setSelectedToolId(id);
     setTab('tool');
@@ -1629,6 +1660,7 @@ export function App() {
     counterparty: openCounterparty,
     contract: openContract,
     part: openPart,
+    work_order: openWorkOrder,
     engine_brand: openEngineBrand,
     engineBrand: openEngineBrand,
     service: openService,
@@ -1753,7 +1785,9 @@ export function App() {
       work_orders: 'Наряды',
       work_order: 'Карточка наряда',
       parts: 'Детали',
+      part_templates: 'Шаблоны деталей',
       part: 'Карточка детали',
+      part_template: 'Карточка шаблона детали',
       tools: 'Инструменты',
       tool: 'Карточка инструмента',
       tool_properties: 'Свойства инструментов',
@@ -1785,6 +1819,7 @@ export function App() {
       request: 'Закупка деталей',
       work_order: 'Наряды',
       part: 'Детали',
+      part_template: 'Шаблоны деталей',
       tool: 'Инструменты',
       tool_property: 'Свойства инструментов',
       contract: 'Контракты',
@@ -1811,6 +1846,7 @@ export function App() {
     if (tab === 'request' && selectedRequestId) crumbs.push(`ID ${shortId(selectedRequestId)}`);
     if (tab === 'work_order' && selectedWorkOrderId) crumbs.push(`ID ${shortId(selectedWorkOrderId)}`);
     if (tab === 'part' && selectedPartId) crumbs.push(`ID ${shortId(selectedPartId)}`);
+    if (tab === 'part_template' && selectedPartTemplateId) crumbs.push(`ID ${shortId(selectedPartTemplateId)}`);
     if (tab === 'tool' && selectedToolId) crumbs.push(`ID ${shortId(selectedToolId)}`);
     if (tab === 'tool_property' && selectedToolPropertyId) crumbs.push(`ID ${shortId(selectedToolPropertyId)}`);
     if (tab === 'contract' && selectedContractId) crumbs.push(`ID ${shortId(selectedContractId)}`);
@@ -1891,6 +1927,7 @@ export function App() {
       selectedEngineBrandId,
       selectedRequestId,
       selectedPartId,
+      selectedPartTemplateId,
       selectedToolId,
       selectedToolPropertyId,
       selectedContractId,
@@ -1938,6 +1975,7 @@ export function App() {
       selectedEngineBrandId,
       selectedRequestId,
       selectedPartId,
+      selectedPartTemplateId,
       selectedToolId,
       selectedToolPropertyId,
       selectedContractId,
@@ -2244,8 +2282,12 @@ export function App() {
               ? 'Матрица РМЗ — Карточка наряда'
           : tab === 'parts'
             ? 'Матрица РМЗ — Детали'
+            : tab === 'part_templates'
+              ? 'Матрица РМЗ — Шаблоны деталей'
             : tab === 'part'
               ? 'Матрица РМЗ — Карточка детали'
+              : tab === 'part_template'
+                ? 'Матрица РМЗ — Карточка шаблона детали'
           : tab === 'contracts'
             ? 'Матрица РМЗ — Контракты'
             : tab === 'contract'
@@ -2275,6 +2317,7 @@ export function App() {
     if (src === 'github') return 'GitHub';
     if (src === 'torrent') return 'Торрент';
     if (src === 'lan') return 'Локальная сеть';
+    if (src === 'server') return 'Сервер';
     return '';
   })();
   const updateBannerText = (() => {
@@ -2964,6 +3007,13 @@ export function App() {
               <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
             )}
 
+            <React.Suspense
+              fallback={
+                <div style={{ padding: 16, color: 'var(--muted)' }}>
+                  Загрузка раздела...
+                </div>
+              }
+            >
         {tab === 'history' && authStatus.loggedIn && (
           <HistoryPage
             meUserId={authStatus.user?.id ?? ''}
@@ -3156,6 +3206,16 @@ export function App() {
           />
         )}
 
+        {tab === 'part_templates' && (
+          <PartTemplatesPage
+            onOpen={async (id) => {
+              setSelectedPartTemplateId(id);
+              setTab('part_template');
+            }}
+            canCreate={caps.canCreateParts}
+          />
+        )}
+
         {tab === 'tools' && (
           <ToolsPage
             onOpen={openTool}
@@ -3266,6 +3326,22 @@ export function App() {
           />
         )}
 
+        {tab === 'part_template' && selectedPartTemplateId && (
+          <PartTemplateDetailsPage
+            key={selectedPartTemplateId}
+            templateId={selectedPartTemplateId}
+            canEdit={caps.canEditParts}
+            canDelete={caps.canDeleteParts}
+            onOpenPart={openPart}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onClose={() => {
+              setSelectedPartTemplateId(null);
+              setTabState('part_templates');
+            }}
+          />
+        )}
+
         {tab === 'tool' && selectedToolId && (
           <ToolDetailsPage
             key={selectedToolId}
@@ -3314,6 +3390,7 @@ export function App() {
               setTabState('contracts');
             }}
             onOpenCounterparty={openCounterparty}
+            onOpenEngine={openEngine}
             onOpenPart={openPart}
             onOpenEngineBrand={openEngineBrand}
           />
@@ -3500,6 +3577,10 @@ export function App() {
           <div style={{ color: 'var(--muted)' }}>Выберите деталь из списка.</div>
         )}
 
+        {tab === 'part_template' && !selectedPartTemplateId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите шаблон детали из списка.</div>
+        )}
+
         {tab === 'employee' && !selectedEmployeeId && (
           <div style={{ color: 'var(--muted)' }}>Выберите сотрудника из списка.</div>
         )}
@@ -3519,6 +3600,7 @@ export function App() {
         {tab === 'stock_document' && !selectedStockDocumentId && (
           <div style={{ color: 'var(--muted)' }}>Выберите складской документ из списка.</div>
         )}
+            </React.Suspense>
           </div>
         </div>
 

@@ -33,7 +33,9 @@ export type TabId =
   | 'work_orders'
   | 'work_order'
   | 'parts'
+  | 'part_templates'
   | 'part'
+  | 'part_template'
   | 'tools'
   | 'tool'
   | 'tool_properties'
@@ -55,6 +57,7 @@ export type MenuTabId = Exclude<
   | 'request'
   | 'work_order'
   | 'part'
+  | 'part_template'
   | 'employee'
   | 'contract'
   | 'engine_brand'
@@ -102,7 +105,7 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
 const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
-  production: ['engines', 'engine_brands', 'parts'],
+  production: ['engines', 'engine_brands', 'parts', 'part_templates'],
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
   warehouse: ['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
@@ -119,7 +122,7 @@ const GROUP_VISUALS: Record<MenuGroupId, GroupVisualMeta> = {
   },
   production: {
     icon: '⚙️',
-    subtitle: 'Двигатели, марки и детали',
+    subtitle: 'Двигатели, марки и каталоги деталей',
     gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)',
   },
   supply: {

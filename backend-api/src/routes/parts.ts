@@ -2,14 +2,20 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import {
+  createPartFromTemplate,
   createPart,
   createPartAttributeDef,
+  createPartTemplate,
   deletePart,
   deletePartBrandLink,
+  deletePartTemplate,
   getPart,
+  getPartTemplate,
   listPartBrandLinks,
   listParts,
+  listPartTemplates,
   upsertPartBrandLink,
+  updatePartTemplateAttribute,
   updatePartAttribute,
 } from '../services/partsService.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
@@ -32,6 +38,7 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
       limit: z.coerce.number().int().positive().max(50000).optional(),
       offset: z.coerce.number().int().nonnegative().optional(),
       engineBrandId: z.string().optional(),
+      templateId: z.string().optional(),
     });
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -43,7 +50,144 @@ partsRouter.get('/', requirePermission(PermissionCode.PartsView), async (req, re
       ...(parsed.data.limit !== undefined && { limit: parsed.data.limit }),
       ...(parsed.data.offset !== undefined && { offset: parsed.data.offset }),
       ...(parsed.data.engineBrandId !== undefined && { engineBrandId: parsed.data.engineBrandId }),
+      ...(parsed.data.templateId !== undefined && { templateId: parsed.data.templateId }),
     });
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.get('/templates', requirePermission(PermissionCode.PartsView), async (req, res) => {
+  try {
+    const querySchema = z.object({
+      q: z.string().optional(),
+      limit: z.coerce.number().int().positive().max(50000).optional(),
+      offset: z.coerce.number().int().nonnegative().optional(),
+    });
+    const parsed = querySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const result = await listPartTemplates({
+      ...(parsed.data.q !== undefined && { q: parsed.data.q }),
+      ...(parsed.data.limit !== undefined && { limit: parsed.data.limit }),
+      ...(parsed.data.offset !== undefined && { offset: parsed.data.offset }),
+    });
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.post('/templates', requirePermission(PermissionCode.PartsCreate), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: создание шаблонов деталей доступно только через /erp API' });
+  }
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const schema = z.object({
+      attributes: z.record(z.unknown()).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const result = await createPartTemplate({ actor, ...(parsed.data.attributes ? { attributes: parsed.data.attributes } : {}) });
+    if (!result.ok) {
+      const status = result.error.includes('duplicate template exists') ? 409 : 500;
+      return res.status(status).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.get('/templates/:id', requirePermission(PermissionCode.PartsView), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+    const result = await getPartTemplate({ templateId: id });
+    if (!result.ok) {
+      return res.status(result.error === 'шаблон детали не найден' ? 404 : 500).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.put('/templates/:id/attributes/:code', requirePermission(PermissionCode.PartsEdit), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: редактирование шаблонов деталей доступно только через /erp API' });
+  }
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    const code = String(req.params.code || '');
+    if (!id || !code) return res.status(400).json({ ok: false, error: 'не указаны id или code' });
+    const schema = z.object({ value: z.unknown() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const result = await updatePartTemplateAttribute({
+      templateId: id,
+      attributeCode: code,
+      value: parsed.data.value,
+      actor,
+    });
+    if (!result.ok) {
+      const status =
+        result.error === 'шаблон детали не найден'
+          ? 404
+          : result.error === 'атрибут не найден' || result.error.includes('duplicate template exists')
+            ? 409
+            : 500;
+      return res.status(status).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.delete('/templates/:id', requirePermission(PermissionCode.PartsDelete), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: удаление шаблонов деталей доступно только через /erp API' });
+  }
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+    const result = await deletePartTemplate({ templateId: id, actor });
+    if (!result.ok) {
+      return res.status(result.error === 'шаблон детали не найден' ? 404 : 500).json(result);
+    }
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+partsRouter.post('/templates/:id/create-part', requirePermission(PermissionCode.PartsCreate), async (req, res) => {
+  if (isErpStrictMode()) {
+    return res.status(409).json({ ok: false, error: 'Режим ERP strict: создание деталей из шаблона доступно только через /erp API' });
+  }
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+    const schema = z.object({
+      attributes: z.record(z.unknown()).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const result = await createPartFromTemplate({ templateId: id, actor, ...(parsed.data.attributes ? { attributes: parsed.data.attributes } : {}) });
+    if (!result.ok) {
+      const status =
+        result.error === 'шаблон детали не найден'
+          ? 404
+          : result.error.startsWith('duplicate part exists')
+            ? 409
+            : 500;
+      return res.status(status).json(result);
+    }
     return res.json(result);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });

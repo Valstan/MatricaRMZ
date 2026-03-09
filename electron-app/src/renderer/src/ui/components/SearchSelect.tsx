@@ -4,6 +4,21 @@ import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 
 export type SearchSelectOption = { id: string; label: string };
 
+function normalizeLookupText(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replaceAll(/["'`.,;:!?()[\]{}<>/\\|+-]+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+}
+
+function formatCreateError(error: unknown): string {
+  const raw = String(error ?? '').trim();
+  if (!raw) return 'Не удалось создать элемент';
+  return raw.replace(/^Error:\s*/i, '').trim() || 'Не удалось создать элемент';
+}
+
 export function SearchSelect(props: {
   value: string | null;
   options: SearchSelectOption[];
@@ -23,6 +38,15 @@ export function SearchSelect(props: {
     if (!props.value) return null;
     return props.options.find((o) => o.id === props.value) ?? null;
   }, [props.options, props.value]);
+  const normalizedQuery = useMemo(() => normalizeLookupText(dropdown.query), [dropdown.query]);
+  const similarMatches = useMemo(() => {
+    if (!normalizedQuery) return [];
+    return props.options.filter((option) => normalizeLookupText(option.label).includes(normalizedQuery)).slice(0, 5);
+  }, [normalizedQuery, props.options]);
+  const exactMatch = useMemo(
+    () => props.options.find((option) => normalizeLookupText(option.label) === normalizedQuery) ?? null,
+    [normalizedQuery, props.options],
+  );
 
   function close() {
     dropdown.closeDropdown();
@@ -59,12 +83,22 @@ export function SearchSelect(props: {
     if (!props.onCreate || createBusy) return;
     const label = dropdown.query.trim();
     if (!label) return;
+    if (exactMatch) {
+      setCreateError(`Похожий элемент уже существует: ${exactMatch.label}`);
+      return;
+    }
     setCreateBusy(true);
     setCreateError('');
-    const id = await props.onCreate(label).catch(() => null);
+    let id: string | null = null;
+    let errorText = '';
+    try {
+      id = await props.onCreate(label);
+    } catch (error) {
+      errorText = formatCreateError(error);
+    }
     setCreateBusy(false);
     if (!id) {
-      setCreateError('Не удалось создать элемент');
+      setCreateError(errorText || 'Не удалось создать элемент');
       return;
     }
     props.onChange(id);
@@ -213,7 +247,7 @@ export function SearchSelect(props: {
                     <button
                       type="button"
                       onClick={() => void submitCreate()}
-                      disabled={createBusy || !dropdown.query.trim()}
+                      disabled={createBusy || !dropdown.query.trim() || !!exactMatch}
                       style={{
                         width: '100%',
                         textAlign: 'left',
@@ -227,6 +261,16 @@ export function SearchSelect(props: {
                     >
                       {createBusy ? 'Создание…' : '+Создать и Вставить (Ctrl+Enter)'}
                     </button>
+                    {exactMatch ? (
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--warning, #b45309)' }}>
+                        Похожий элемент уже найден: {exactMatch.label}
+                      </div>
+                    ) : null}
+                    {!exactMatch && similarMatches.length > 0 ? (
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+                        Похожие варианты: {similarMatches.map((option) => option.label).join(' • ')}
+                      </div>
+                    ) : null}
                     {createError ? <div style={{ marginTop: 6, fontSize: 12, color: 'var(--danger)' }}>{createError}</div> : null}
                     {props.createLabel && <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>{props.createLabel}</div>}
                   </div>

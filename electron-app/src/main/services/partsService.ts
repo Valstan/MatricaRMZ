@@ -20,7 +20,7 @@ function formatHttpError(r: { status: number; json?: any; text?: string }): stri
 export async function partsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string },
+  args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string; templateId?: string },
 ): Promise<
   | {
       ok: true;
@@ -28,6 +28,9 @@ export async function partsList(
         id: string;
         name?: string;
         article?: string;
+        templateId?: string;
+        templateName?: string;
+        dimensions?: Array<{ id: string; name: string; value: string }>;
         assemblyUnitNumber?: string;
         engineBrandQtyMap?: Record<string, number>;
         engineBrandQty?: number;
@@ -50,6 +53,7 @@ export async function partsList(
       queryParams.set('offset', String(Math.max(0, Math.trunc(normalizedOffset))));
     }
     if (args?.engineBrandId) queryParams.set('engineBrandId', String(args.engineBrandId));
+    if (args?.templateId) queryParams.set('templateId', String(args.templateId));
 
     // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
     const url = `/parts/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
@@ -154,6 +158,177 @@ export async function partsUpdateAttribute(
     });
     if (!r.ok) return { ok: false, error: `update ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad update response' };
+    return r.json as any;
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partTemplatesList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { q?: string; limit?: number; offset?: number },
+): Promise<
+  | {
+      ok: true;
+      templates: Array<{
+        id: string;
+        name?: string;
+        description?: string;
+        updatedAt: number;
+        createdAt: number;
+      }>;
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const queryParams = new URLSearchParams();
+    if (args?.q) queryParams.set('q', args.q);
+    const normalizedLimit = args?.limit == null ? null : Number(args.limit);
+    if (Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
+      queryParams.set('limit', String(Math.min(Math.trunc(normalizedLimit), MAX_PARTS_LIST_LIMIT)));
+    }
+    const normalizedOffset = args?.offset == null ? null : Number(args.offset);
+    if (Number.isFinite(normalizedOffset) && normalizedOffset > 0) {
+      queryParams.set('offset', String(Math.max(0, Math.trunc(normalizedOffset))));
+    }
+    const url = `/parts/templates${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const r = await httpAuthed(db, apiBaseUrl, url, { method: 'GET' });
+    if (!r.ok) return { ok: false, error: `template list ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad template list response' };
+    return r.json as any;
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partTemplatesGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { templateId: string },
+): Promise<
+  | {
+      ok: true;
+      template: {
+        id: string;
+        createdAt: number;
+        updatedAt: number;
+        attributes: Array<{
+          id: string;
+          code: string;
+          name: string;
+          dataType: string;
+          value: unknown;
+          isRequired: boolean;
+          sortOrder: number;
+          metaJson?: unknown;
+        }>;
+      };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const templateId = String(args.templateId || '');
+    if (!templateId) return { ok: false, error: 'templateId is empty' };
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/templates/${encodeURIComponent(templateId)}`, { method: 'GET' });
+    if (!r.ok) return { ok: false, error: `template get ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad template get response' };
+    return r.json as any;
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partTemplatesCreate(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { attributes?: Record<string, unknown> },
+): Promise<
+  | {
+      ok: true;
+      template: { id: string; createdAt: number; updatedAt: number };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const r = await httpAuthed(db, apiBaseUrl, '/parts/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attributes: args?.attributes }),
+    });
+    if (!r.ok) return { ok: false, error: `template create ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: r.json?.error ? String(r.json.error) : 'bad template create response' };
+    return r.json as any;
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partTemplatesUpdateAttribute(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { templateId: string; attributeCode: string; value: unknown },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const templateId = String(args.templateId || '');
+    const attributeCode = String(args.attributeCode || '');
+    if (!templateId || !attributeCode) return { ok: false, error: 'templateId or attributeCode is empty' };
+    const r = await httpAuthed(
+      db,
+      apiBaseUrl,
+      `/parts/templates/${encodeURIComponent(templateId)}/attributes/${encodeURIComponent(attributeCode)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: args.value }),
+      },
+    );
+    if (!r.ok) return { ok: false, error: `template update ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad template update response' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partTemplatesDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { templateId: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const templateId = String(args.templateId || '');
+    if (!templateId) return { ok: false, error: 'templateId is empty' };
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/templates/${encodeURIComponent(templateId)}`, { method: 'DELETE' });
+    if (!r.ok) return { ok: false, error: `template delete ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: 'bad template delete response' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function partsCreateFromTemplate(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { templateId: string; attributes?: Record<string, unknown> },
+): Promise<
+  | {
+      ok: true;
+      part: { id: string; createdAt: number; updatedAt: number };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const templateId = String(args.templateId || '');
+    if (!templateId) return { ok: false, error: 'templateId is empty' };
+    const r = await httpAuthed(db, apiBaseUrl, `/parts/templates/${encodeURIComponent(templateId)}/create-part`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attributes: args.attributes }),
+    });
+    if (!r.ok) return { ok: false, error: `createFromTemplate ${formatHttpError(r)}` };
+    if (!r.json?.ok) return { ok: false, error: r.json?.error ? String(r.json.error) : 'bad createFromTemplate response' };
     return r.json as any;
   } catch (e) {
     return { ok: false, error: String(e) };

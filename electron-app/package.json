@@ -43,6 +43,7 @@
   "build": {
     "appId": "ru.matricarmz.app",
     "productName": "MatricaRMZ",
+    "executableName": "MatricaRMZ",
     "directories": {
       "output": "release"
     },

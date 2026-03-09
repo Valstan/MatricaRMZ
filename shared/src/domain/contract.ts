@@ -12,6 +12,12 @@ export type ContractPartRow = {
   unitPrice: number;
 };
 
+export type ContractExecutionPartRow = {
+  partId: string;
+  plannedQty: number;
+  completedQty: number;
+};
+
 export type ContractPrimarySection = {
   number: string;
   signedAt: number | null;
@@ -34,6 +40,8 @@ export type ContractSections = {
   primary: ContractPrimarySection;
   addons: ContractAddonSection[];
 };
+
+export const CONTRACT_EXECUTION_PARTS_ATTR_CODE = 'contract_execution_parts';
 
 export const STATUS_CODES = [
   'status_rework_sent',
@@ -109,12 +117,21 @@ export type ProgressLinkedItem = {
 
 export type ProgressAggregate = {
   shippedCount: number;
+  completedCount: number;
   totalCount: number;
   progress01: number | null;
   progressPct: number | null;
 };
 
-function normalizePlannedQty(value: unknown): number {
+export type ContractExecutionProgressAggregate = ProgressAggregate & {
+  engineAcceptedCount: number;
+  enginePlannedCount: number;
+  partCompletedCount: number;
+  rawPartCompletedCount: number;
+  partPlannedCount: number;
+};
+
+function normalizeQty(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return n;
@@ -125,7 +142,7 @@ export function contractPlannedItemsCount(sections: ContractSections | null | un
 
   let total = 0;
   const addRows = (rows: Array<{ qty: number }>) => {
-    for (const row of rows) total += normalizePlannedQty(row?.qty);
+    for (const row of rows) total += normalizeQty(row?.qty);
   };
 
   addRows(sections.primary.engineBrands);
@@ -135,6 +152,78 @@ export function contractPlannedItemsCount(sections: ContractSections | null | un
     addRows(addon.parts);
   }
 
+  return total;
+}
+
+export function contractPlannedEngineItemsCount(sections: ContractSections | null | undefined): number {
+  if (!sections) return 0;
+
+  let total = 0;
+  const addRows = (rows: Array<{ qty: number }>) => {
+    for (const row of rows) total += normalizeQty(row?.qty);
+  };
+
+  addRows(sections.primary.engineBrands);
+  for (const addon of sections.addons) addRows(addon.engineBrands);
+
+  return total;
+}
+
+export function contractPlannedLegacyPartItemsCount(sections: ContractSections | null | undefined): number {
+  if (!sections) return 0;
+
+  let total = 0;
+  const addRows = (rows: Array<{ qty: number }>) => {
+    for (const row of rows) total += normalizeQty(row?.qty);
+  };
+
+  addRows(sections.primary.parts);
+  for (const addon of sections.addons) addRows(addon.parts);
+
+  return total;
+}
+
+export function normalizeContractExecutionParts(rows: unknown): ContractExecutionPartRow[] {
+  if (!Array.isArray(rows)) return [];
+
+  const out: ContractExecutionPartRow[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const item = row as Record<string, unknown>;
+    const partId = typeof item.partId === 'string' ? item.partId.trim() : '';
+    if (!partId) continue;
+    out.push({
+      partId,
+      plannedQty: normalizeQty(item.plannedQty),
+      completedQty: normalizeQty(item.completedQty),
+    });
+  }
+  return out;
+}
+
+export function parseContractExecutionParts(attrs: Record<string, unknown>): ContractExecutionPartRow[] {
+  return normalizeContractExecutionParts(attrs[CONTRACT_EXECUTION_PARTS_ATTR_CODE]);
+}
+
+export function contractExecutionPartsPlannedCount(rows: ContractExecutionPartRow[] | null | undefined): number {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  let total = 0;
+  for (const row of rows) total += normalizeQty(row?.plannedQty);
+  return total;
+}
+
+export function contractExecutionPartsCompletedCount(
+  rows: ContractExecutionPartRow[] | null | undefined,
+  opts?: { capByPlan?: boolean },
+): number {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  const capByPlan = opts?.capByPlan !== false;
+  let total = 0;
+  for (const row of rows) {
+    const plannedQty = normalizeQty(row?.plannedQty);
+    const completedQty = normalizeQty(row?.completedQty);
+    total += capByPlan ? Math.min(plannedQty, completedQty) : completedQty;
+  }
   return total;
 }
 
@@ -152,6 +241,7 @@ export function aggregateProgressWithPlan(
 
   return {
     shippedCount,
+    completedCount: shippedCount,
     totalCount: denominator,
     progress01: denominator > 0 ? Math.min(1, shippedCount / denominator) : null,
     progressPct: denominator > 0 ? Math.min(100, (shippedCount / denominator) * 100) : null,
@@ -176,6 +266,50 @@ export function aggregateProgressByContract(items: ProgressLinkedItem[]): Record
     out[contractId] = aggregateProgress(group);
   }
   return out;
+}
+
+export function aggregateContractExecutionProgress(args: {
+  sections: ContractSections | null | undefined;
+  engineItems: Array<Pick<ProgressLinkedItem, 'statusFlags'>>;
+  executionParts: ContractExecutionPartRow[] | null | undefined;
+}): ContractExecutionProgressAggregate {
+  const engineAcceptedCount = aggregateProgress(args.engineItems).completedCount;
+  const enginePlannedCount = contractPlannedEngineItemsCount(args.sections);
+  const partPlannedCount = contractExecutionPartsPlannedCount(args.executionParts);
+  const rawPartCompletedCount = contractExecutionPartsCompletedCount(args.executionParts, { capByPlan: false });
+  const partCompletedCount = contractExecutionPartsCompletedCount(args.executionParts, { capByPlan: true });
+  const plannedTotalCount = enginePlannedCount + partPlannedCount;
+
+  if (plannedTotalCount > 0) {
+    const completedCount = engineAcceptedCount + (partPlannedCount > 0 ? partCompletedCount : 0);
+    return {
+      shippedCount: completedCount,
+      completedCount,
+      totalCount: plannedTotalCount,
+      progress01: Math.min(1, completedCount / plannedTotalCount),
+      progressPct: Math.min(100, (completedCount / plannedTotalCount) * 100),
+      engineAcceptedCount,
+      enginePlannedCount,
+      partCompletedCount,
+      rawPartCompletedCount,
+      partPlannedCount,
+    };
+  }
+
+  const fallbackTotalCount = args.engineItems.length + rawPartCompletedCount;
+  const completedCount = engineAcceptedCount + rawPartCompletedCount;
+  return {
+    shippedCount: completedCount,
+    completedCount,
+    totalCount: fallbackTotalCount,
+    progress01: fallbackTotalCount > 0 ? Math.min(1, completedCount / fallbackTotalCount) : null,
+    progressPct: fallbackTotalCount > 0 ? Math.min(100, (completedCount / fallbackTotalCount) * 100) : null,
+    engineAcceptedCount,
+    enginePlannedCount,
+    partCompletedCount,
+    rawPartCompletedCount,
+    partPlannedCount,
+  };
 }
 
 const defaultPrimary: ContractPrimarySection = {

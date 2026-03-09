@@ -296,7 +296,7 @@ const matricaApi = {
     }) => ipcRenderer.invoke('tools:report', args),
   },
   parts: {
-    list: async (args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string }) =>
+    list: async (args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string; templateId?: string }) =>
       ipcRenderer.invoke('parts:list', args),
     get: async (partId: string) => ipcRenderer.invoke('parts:get', partId),
     create: async (args?: { attributes?: Record<string, unknown> }) => ipcRenderer.invoke('parts:create', args),
@@ -310,6 +310,16 @@ const matricaApi = {
     }) => ipcRenderer.invoke('parts:attributeDefCreate', args),
     updateAttribute: async (args: { partId: string; attributeCode: string; value: unknown }) =>
       ipcRenderer.invoke('parts:updateAttribute', args),
+    templates: {
+      list: async (args?: { q?: string; limit?: number; offset?: number }) => ipcRenderer.invoke('parts:templates:list', args),
+      get: async (templateId: string) => ipcRenderer.invoke('parts:templates:get', templateId),
+      create: async (args?: { attributes?: Record<string, unknown> }) => ipcRenderer.invoke('parts:templates:create', args),
+      updateAttribute: async (args: { templateId: string; attributeCode: string; value: unknown }) =>
+        ipcRenderer.invoke('parts:templates:updateAttribute', args),
+      delete: async (templateId: string) => ipcRenderer.invoke('parts:templates:delete', templateId),
+    },
+    createFromTemplate: async (args: { templateId: string; attributes?: Record<string, unknown> }) =>
+      ipcRenderer.invoke('parts:createFromTemplate', args),
     partBrandLinks: {
       list: async (args: { partId?: string; engineBrandId?: string }) => ipcRenderer.invoke('parts:partBrandLinks:list', args),
       upsert: async (args: {

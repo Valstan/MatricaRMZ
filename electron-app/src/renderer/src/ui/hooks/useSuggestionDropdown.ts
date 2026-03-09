@@ -3,7 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 type SuggestOption = { id: string; label: string };
 
 function norm(s: string): string {
-  return String(s || '').trim().toLowerCase();
+  return String(s || '')
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replaceAll(/["'`.,;:!?()[\]{}<>/\\|+-]+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
 }
 
 export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {

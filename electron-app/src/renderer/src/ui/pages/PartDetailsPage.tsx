@@ -10,7 +10,18 @@ import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
+import {
+  buildLinkTypeOptions,
+  normalizeForMatch,
+  parseContractExecutionParts,
+  parseContractSections,
+  PART_DIMENSIONS_ATTR_CODE,
+  PART_TEMPLATE_ID_ATTR_CODE,
+  suggestLinkTargetCodeWithRules,
+  type LinkRule,
+  type PartDimension,
+  type WorkOrderPayload,
+} from '@matricarmz/shared';
 import { STATUS_CODES, STATUS_LABELS, statusDateCode, type StatusCode } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -47,6 +58,15 @@ type PartBrandLink = {
 
 type EntityTypeRow = { id: string; code: string; name: string };
 
+type UsageItem = {
+  key: string;
+  kind: 'contract' | 'engine_brand' | 'work_order' | 'service' | 'link';
+  entityId: string;
+  label: string;
+  description?: string;
+  targetTypeCode?: string | null;
+};
+
 type Part = {
   id: string;
   createdAt: number;
@@ -78,6 +98,25 @@ function normalizeDateInput(value: unknown): number | null {
   if (value == null) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeDimensionsValue(value: unknown): PartDimension[] {
+  if (!Array.isArray(value)) return [];
+  const result: PartDimension[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const row = value[index];
+    if (!row || typeof row !== 'object') continue;
+    const entry = row as Record<string, unknown>;
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    const rowValue = typeof entry.value === 'string' ? entry.value.trim() : '';
+    if (!name && !rowValue) continue;
+    result.push({
+      id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : `dim-${index + 1}`,
+      name,
+      value: rowValue,
+    });
+  }
+  return result;
 }
 
 function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -174,6 +213,12 @@ export function PartDetailsPage(props: {
   const [purchaseDate, setPurchaseDate] = useState<string>(''); // yyyy-mm-dd
   const [supplier, setSupplier] = useState<string>('');
   const [supplierId, setSupplierId] = useState<string>('');
+  const [templateId, setTemplateId] = useState<string>('');
+  const [templateOptions, setTemplateOptions] = useState<LinkOpt[]>([]);
+  const [templateStatus, setTemplateStatus] = useState<string>('');
+  const [dimensions, setDimensions] = useState<PartDimension[]>([]);
+  const [usageItems, setUsageItems] = useState<UsageItem[]>([]);
+  const [usageStatus, setUsageStatus] = useState<string>('');
   const [customerOptions, setCustomerOptions] = useState<LinkOpt[]>([]);
   const [customerStatus, setCustomerStatus] = useState<string>('');
 
@@ -389,6 +434,7 @@ export function PartDetailsPage(props: {
 
   function setDraft(linkId: string, patch: Partial<{ engineBrandId: string; assemblyUnitNumber: string; quantity: number }>) {
     const current = getDraft(linkId, brandLinks.find((b) => b.id === linkId) ?? ({} as PartBrandLink));
+    dirtyRef.current = true;
     setBrandLinkDrafts((prev) => ({
       ...prev,
       [linkId]: {
@@ -572,6 +618,28 @@ export function PartDetailsPage(props: {
     }
   }
 
+  async function loadTemplates() {
+    try {
+      setTemplateStatus('Загрузка шаблонов…');
+      const r = await window.matrica.parts.templates.list({ limit: 5000 });
+      if (!r.ok) {
+        setTemplateOptions([]);
+        setTemplateStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      const opts = r.templates.map((row) => ({
+        id: String(row.id),
+        label: String(row.name ?? row.description ?? row.id),
+      }));
+      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setTemplateOptions(opts);
+      setTemplateStatus('');
+    } catch (e) {
+      setTemplateOptions([]);
+      setTemplateStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   async function createMasterDataEntity(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEdit) return null;
     const clean = String(label ?? '').trim();
@@ -592,6 +660,19 @@ export function PartDetailsPage(props: {
     if (typeCode === 'customer') await loadCustomers();
     if (typeCode === 'contract') await loadContracts();
     return created.id;
+  }
+
+  async function createPartTemplate(label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const clean = String(label ?? '').trim();
+    if (!clean) return null;
+    const created = await window.matrica.parts.templates.create({ attributes: { name: clean } });
+    if (!created?.ok || !created.template?.id) {
+      setTemplateStatus(`Ошибка: ${created?.error ?? 'Не удалось создать шаблон детали'}`);
+      return null;
+    }
+    await loadTemplates();
+    return String(created.template.id);
   }
 
   async function loadLinkRules() {
@@ -713,6 +794,142 @@ export function PartDetailsPage(props: {
     }
   }
 
+  async function loadUsage(partValue?: Part | null) {
+    const currentPart = partValue ?? part;
+    if (!currentPart) return;
+    try {
+      setUsageStatus('Загрузка связей…');
+      const items = new Map<string, UsageItem>();
+      const addItem = (item: UsageItem) => {
+        if (!item.entityId || !item.label) return;
+        items.set(item.key, item);
+      };
+
+      for (const link of brandLinks) {
+        const label = engineBrandOptions.find((row) => row.id === link.engineBrandId)?.label ?? link.engineBrandId;
+        addItem({
+          key: `engine_brand:${link.engineBrandId}`,
+          kind: 'engine_brand',
+          entityId: link.engineBrandId,
+          label,
+          description: link.assemblyUnitNumber ? `Сборочная единица: ${link.assemblyUnitNumber}` : undefined,
+          targetTypeCode: 'engine_brand',
+        });
+      }
+
+      const byCode = new Map(currentPart.attributes.map((attr) => [attr.code, attr] as const));
+      const directContractId = typeof byCode.get('contract_id')?.value === 'string' ? String(byCode.get('contract_id')?.value || '').trim() : '';
+      if (directContractId) {
+        addItem({
+          key: `contract:${directContractId}`,
+          kind: 'contract',
+          entityId: directContractId,
+          label: contractOptions.find((row) => row.id === directContractId)?.label ?? directContractId,
+          description: 'Прямая историческая привязка детали',
+          targetTypeCode: 'contract',
+        });
+      }
+
+      for (const attr of currentPart.attributes) {
+        if (attr.dataType !== 'link' || attr.code === PART_TEMPLATE_ID_ATTR_CODE || attr.code === 'contract_id') continue;
+        const entityId = typeof attr.value === 'string' ? attr.value.trim() : '';
+        if (!entityId) continue;
+        const targetTypeCode = getLinkTargetTypeCode(attr);
+        const options = linkOptionsByCode[attr.code] ?? [];
+        const label = options.find((row) => row.id === entityId)?.label ?? entityId;
+        addItem({
+          key: `link:${attr.code}:${entityId}`,
+          kind: 'link',
+          entityId,
+          label,
+          description: attr.name || attr.code,
+          targetTypeCode,
+        });
+      }
+
+      const contractType = entityTypes.find((row) => row.code === 'contract');
+      if (contractType?.id) {
+        const contracts = await window.matrica.admin.entities.listByEntityType(contractType.id);
+        for (const row of contracts as any[]) {
+          const id = String(row.id ?? '').trim();
+          if (!id || id === directContractId) continue;
+          const details = await window.matrica.admin.entities.get(id);
+          const attrs = details?.attributes ?? {};
+          const sections = parseContractSections(attrs.contract_sections);
+          const hasPartInSections =
+            sections.primary.parts.some((partRow) => partRow.partId === currentPart.id) ||
+            sections.addons.some((addon) => addon.parts.some((partRow) => partRow.partId === currentPart.id));
+          const executionParts = parseContractExecutionParts(attrs.contract_execution_parts);
+          const hasPartInExecution = executionParts.some((partRow) => partRow.partId === currentPart.id);
+          if (!hasPartInSections && !hasPartInExecution) continue;
+          addItem({
+            key: `contract:${id}`,
+            kind: 'contract',
+            entityId: id,
+            label: String(row.displayName ?? id),
+            description: hasPartInExecution ? 'Деталь есть в исполнении контракта' : 'Деталь есть в списке деталей контракта',
+            targetTypeCode: 'contract',
+          });
+        }
+      }
+
+      const serviceType = entityTypes.find((row) => row.code === 'service');
+      if (serviceType?.id) {
+        const services = await window.matrica.admin.entities.listByEntityType(serviceType.id);
+        for (const row of services as any[]) {
+          const id = String(row.id ?? '').trim();
+          if (!id) continue;
+          const details = await window.matrica.admin.entities.get(id);
+          const partIds = Array.isArray(details?.attributes?.part_ids) ? details.attributes.part_ids.map((value: unknown) => String(value || '').trim()) : [];
+          if (!partIds.includes(currentPart.id)) continue;
+          addItem({
+            key: `service:${id}`,
+            kind: 'service',
+            entityId: id,
+            label: String(row.displayName ?? id),
+            description: 'Деталь включена в услугу',
+            targetTypeCode: 'service',
+          });
+        }
+      }
+
+      const workOrders = await window.matrica.workOrders.list().catch(() => ({ ok: false as const, rows: [] as unknown[] }));
+      if (workOrders.ok) {
+        for (const row of workOrders.rows as any[]) {
+          const id = String(row?.id ?? '').trim();
+          if (!id) continue;
+          const details = await window.matrica.workOrders.get(id).catch(() => null);
+          if (!details?.ok || !details.payload) continue;
+          const payload = details.payload as WorkOrderPayload;
+          const groups = Array.isArray(payload.workGroups) ? payload.workGroups : [];
+          const hasPart =
+            groups.some((group) => String(group?.partId ?? '') === currentPart.id) ||
+            String(payload.partId ?? '') === currentPart.id;
+          if (!hasPart) continue;
+          addItem({
+            key: `work_order:${id}`,
+            kind: 'work_order',
+            entityId: id,
+            label: `Наряд №${String(payload.workOrderNumber ?? id)}`,
+            description: 'Деталь используется в наряде',
+            targetTypeCode: 'work_order',
+          });
+        }
+      }
+
+      const nextItems = Array.from(items.values()).sort((a, b) => {
+        const kindCmp = a.kind.localeCompare(b.kind, 'ru');
+        if (kindCmp !== 0) return kindCmp;
+        return a.label.localeCompare(b.label, 'ru');
+      });
+      setUsageItems(nextItems);
+      setUsageStatus(nextItems.length === 0 ? 'Связи не найдены.' : '');
+    } catch (e) {
+      setUsageItems([]);
+      setUsageStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   useEffect(() => {
     void load();
   }, [props.partId]);
@@ -724,6 +941,7 @@ export function PartDetailsPage(props: {
   useEffect(() => {
     void loadCustomers();
     void loadContracts();
+    void loadTemplates();
     void loadLinkRules();
   }, []);
 
@@ -734,6 +952,7 @@ export function PartDetailsPage(props: {
       await loadEngineBrands();
       await loadCustomers();
       await loadContracts();
+      await loadTemplates();
     },
     { intervalMs: 20000 },
   );
@@ -742,7 +961,15 @@ export function PartDetailsPage(props: {
     if (!props.canEdit || !partTypeId || partDefs.length === 0 || coreDefsReady) return;
     const desired = [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
-      { code: 'article', name: 'Артикул / обозначение', dataType: 'text', sortOrder: 20 },
+      {
+        code: PART_TEMPLATE_ID_ATTR_CODE,
+        name: 'Шаблон детали',
+        dataType: 'link',
+        sortOrder: 15,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'part_template' }),
+      },
+      { code: 'article', name: 'Сборочный номер / артикул', dataType: 'text', sortOrder: 20 },
+      { code: PART_DIMENSIONS_ATTR_CODE, name: 'Размеры', dataType: 'json', sortOrder: 25 },
       { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 30 },
       { code: 'purchase_date', name: 'Дата покупки', dataType: 'date', sortOrder: 40 },
       {
@@ -783,7 +1010,9 @@ export function PartDetailsPage(props: {
     const vPurchase = byCode.purchase_date?.value;
     const vSupplier = byCode.supplier?.value;
     const vSupplierId = byCode.supplier_id?.value;
+    const vTemplateId = byCode[PART_TEMPLATE_ID_ATTR_CODE]?.value;
     const vContractId = byCode.contract_id?.value;
+    const vDimensions = byCode[PART_DIMENSIONS_ATTR_CODE]?.value;
 
     setName(typeof vName === 'string' ? vName : vName == null ? '' : String(vName));
     setArticle(typeof vArticle === 'string' ? vArticle : vArticle == null ? '' : String(vArticle));
@@ -791,7 +1020,9 @@ export function PartDetailsPage(props: {
     setPurchaseDate(typeof vPurchase === 'number' ? toInputDate(vPurchase) : '');
     setSupplier(typeof vSupplier === 'string' ? vSupplier : vSupplier == null ? '' : String(vSupplier));
     setSupplierId(typeof vSupplierId === 'string' ? vSupplierId : vSupplierId == null ? '' : String(vSupplierId));
+    setTemplateId(typeof vTemplateId === 'string' ? vTemplateId : vTemplateId == null ? '' : String(vTemplateId));
     setContractId(typeof vContractId === 'string' ? vContractId : vContractId == null ? '' : String(vContractId));
+    setDimensions(normalizeDimensionsValue(vDimensions));
     const linked = normalizeBrandLinksFromPart(part);
     if (linked.length > 0) {
       setBrandLinks(sortBrandLinks(linked));
@@ -819,6 +1050,11 @@ export function PartDetailsPage(props: {
     if (!match) return;
     setSupplierId(match.id);
   }, [part?.id, supplierId, supplier, customerOptions]);
+
+  useEffect(() => {
+    if (!part) return;
+    void loadUsage(part);
+  }, [part?.id, part?.updatedAt, brandLinks, engineBrandOptions, contractOptions, entityTypes, linkOptionsByCode]);
 
   function getLinkTargetTypeCode(attr: Attribute): string | null {
     const meta = attr.metaJson;
@@ -1108,6 +1344,7 @@ export function PartDetailsPage(props: {
 
   function queueFieldOrderOperation(orderedCodes: string[], options?: { startAt?: number }): Promise<FieldOrderSaveResult> {
     const result = new Promise<FieldOrderSaveResult>((resolve) => {
+      dirtyRef.current = true;
       pendingFieldOrderCodesRef.current = {
         orderedCodes: [...orderedCodes],
         startAt: options?.startAt ?? FIELD_ORDER_START_AT_DEFAULT,
@@ -1208,6 +1445,7 @@ export function PartDetailsPage(props: {
 
   async function queueBrandLinkOperation(op: QueuedBrandLinkOperation): Promise<BrandLinkSaveResult> {
     const result = await new Promise<BrandLinkSaveResult>((resolve) => {
+      dirtyRef.current = true;
       pendingBrandLinkOperationsRef.current.push(op);
       pendingBrandLinkOperationResolversRef.current.push((payload) => {
         resolve(payload);
@@ -1287,6 +1525,7 @@ export function PartDetailsPage(props: {
 
   async function queueFieldOperation(op: QueuedFieldOperation): Promise<FieldOperationResult> {
     const result = await new Promise<FieldOperationResult>((resolve) => {
+      dirtyRef.current = true;
       pendingFieldOperationsRef.current.push(op);
       pendingFieldOperationResolversRef.current.push((payload) => {
         resolve(payload);
@@ -1362,6 +1601,7 @@ export function PartDetailsPage(props: {
     }
 
     pendingAttributeSaveValuesRef.current.set(code, normalizeCoreFieldValue(value));
+    dirtyRef.current = true;
 
     const result = await new Promise<SaveAttributeResult>((resolve) => {
       pendingAttributeSaveResolversRef.current.push((payload) => {
@@ -1412,9 +1652,50 @@ export function PartDetailsPage(props: {
     }
   }
 
-  async function saveCore() {
-    if (!props.canEdit) return;
-    if (!part || isSavingCoreRef.current) return;
+  async function drainAttributeQueue(): Promise<SaveAttributeResult> {
+    if (!pendingAttributeSaveValuesRef.current.size && !isSavingAttributeQueueRef.current) return { ok: true };
+    return new Promise<SaveAttributeResult>((resolve) => {
+      pendingAttributeSaveResolversRef.current.push(resolve);
+      if (!isSavingAttributeQueueRef.current) {
+        void flushAttributeSaveQueue();
+      }
+    });
+  }
+
+  async function drainBrandLinkQueue(): Promise<BrandLinkSaveResult> {
+    if (!pendingBrandLinkOperationsRef.current.length && !isSavingBrandLinkQueueRef.current) return { ok: true };
+    return new Promise<BrandLinkSaveResult>((resolve) => {
+      pendingBrandLinkOperationResolversRef.current.push(resolve);
+      if (!isSavingBrandLinkQueueRef.current) {
+        void flushBrandLinkQueue();
+      }
+    });
+  }
+
+  async function drainFieldQueue(): Promise<FieldOperationResult> {
+    if (!pendingFieldOperationsRef.current.length && !isSavingFieldQueueRef.current) return { ok: true };
+    return new Promise<FieldOperationResult>((resolve) => {
+      pendingFieldOperationResolversRef.current.push(resolve);
+      if (!isSavingFieldQueueRef.current) {
+        void flushFieldQueue();
+      }
+    });
+  }
+
+  async function drainFieldOrderQueue(): Promise<FieldOrderSaveResult> {
+    if (!pendingFieldOrderCodesRef.current && !isSavingFieldOrderQueueRef.current) return { ok: true };
+    return new Promise<FieldOrderSaveResult>((resolve) => {
+      pendingFieldOrderResolversRef.current.push(resolve);
+      if (!isSavingFieldOrderQueueRef.current) {
+        void flushFieldOrderQueue();
+      }
+    });
+  }
+
+  async function saveCore(): Promise<boolean> {
+    if (!props.canEdit) return true;
+    if (!part) return false;
+    if (isSavingCoreRef.current) return false;
     isSavingCoreRef.current = true;
     const suppressReloadAndStatus = { suppressReload: true, suppressStatus: true };
     try {
@@ -1425,10 +1706,11 @@ export function PartDetailsPage(props: {
         ['name', name],
         ['article', article],
         ['description', description],
+        [PART_TEMPLATE_ID_ATTR_CODE, templateId || null],
+        [PART_DIMENSIONS_ATTR_CODE, dimensions],
         ['purchase_date', fromInputDate(purchaseDate)],
         ['supplier_id', supplierId || null],
         ['supplier', supplierLabel || supplier],
-        ['contract_id', contractId || null],
         ...STATUS_CODES.flatMap((code) => [[code, statusFlags[code] ?? false], [statusDateCode(code), statusDates[code] ?? null]] as const),
       ];
 
@@ -1440,7 +1722,7 @@ export function PartDetailsPage(props: {
       if (updates.length === 0) {
         setStatus('Нет изменений');
         setTimeout(() => setStatus(''), 1000);
-        return;
+        return true;
       }
 
       setStatus('Сохранение…');
@@ -1449,7 +1731,7 @@ export function PartDetailsPage(props: {
         const r = await saveAttributeCore(code, value, suppressReloadAndStatus);
         if (!r.ok) {
           setStatus(`Ошибка: ${r.error}`);
-          return;
+          return false;
         }
         if ((r as any).queued) hasQueued = true;
       }
@@ -1457,16 +1739,40 @@ export function PartDetailsPage(props: {
       await load();
       setStatus(hasQueued ? 'Отправлено на утверждение (см. «Изменения»)' : 'Сохранено');
       setTimeout(() => setStatus(''), 2000);
+      dirtyRef.current = false;
+      return true;
     } finally {
       isSavingCoreRef.current = false;
     }
   }
 
-  async function saveAllAndClose() {
-    if (props.canEdit) {
-      await saveCore();
+  async function saveAllAndClose(): Promise<boolean> {
+    if (!props.canEdit) {
+      dirtyRef.current = false;
+      return true;
+    }
+    const attributeResult = await drainAttributeQueue();
+    if (!attributeResult.ok) {
+      throw new Error(attributeResult.error ?? 'Не удалось сохранить изменения атрибутов');
+    }
+    const brandLinkResult = await drainBrandLinkQueue();
+    if (!brandLinkResult.ok) {
+      throw new Error(brandLinkResult.error ?? 'Не удалось сохранить связи марки двигателя');
+    }
+    const fieldResult = await drainFieldQueue();
+    if (!fieldResult.ok) {
+      throw new Error(fieldResult.error ?? 'Не удалось сохранить новые поля');
+    }
+    const fieldOrderResult = await drainFieldOrderQueue();
+    if (!fieldOrderResult.ok) {
+      throw new Error(fieldOrderResult.error ?? 'Не удалось сохранить порядок полей');
+    }
+    const saved = await saveCore();
+    if (!saved) {
+      throw new Error('Не удалось сохранить карточку детали');
     }
     dirtyRef.current = false;
+    return true;
   }
 
   async function handleDelete() {
@@ -1497,17 +1803,26 @@ export function PartDetailsPage(props: {
   const sortedAttrs = [...part.attributes].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
   const coreCodes = new Set([
     'name',
+    PART_TEMPLATE_ID_ATTR_CODE,
     'article',
     'description',
+    PART_DIMENSIONS_ATTR_CODE,
     'purchase_date',
     'supplier',
     'supplier_id',
-    'contract_id',
     ...STATUS_CODES,
     ...STATUS_CODES.map((code) => statusDateCode(code)),
   ]);
   // Эти поля имеют отдельные UI-блоки (связи/вложения) и не должны отображаться как "сырой JSON".
-  const hiddenFromExtra = new Set(['assembly_unit_number', 'engine_brand_ids', 'engine_brand_qty_map', 'drawings', 'tech_docs', 'attachments']);
+  const hiddenFromExtra = new Set([
+    'assembly_unit_number',
+    'engine_brand_ids',
+    'engine_brand_qty_map',
+    'drawings',
+    'tech_docs',
+    'attachments',
+    'contract_id',
+  ]);
   const extraAttrs = sortedAttrs.filter((a) => !coreCodes.has(a.code) && !hiddenFromExtra.has(a.code));
 
   const attrByCode = new Map<string, Attribute>();
@@ -1535,9 +1850,41 @@ export function PartDetailsPage(props: {
         ),
       },
       {
+        code: PART_TEMPLATE_ID_ATTR_CODE,
+        defaultOrder: 15,
+        label: 'Шаблон детали',
+        value: templateOptions.find((row) => row.id === templateId)?.label ?? (templateId || ''),
+        render: (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+            <SearchSelectWithCreate
+              value={templateId || null}
+              options={templateOptions}
+              placeholder="Выберите шаблон детали"
+              disabled={!props.canEdit}
+              canCreate={props.canEdit}
+              createLabel="Новый шаблон"
+              onChange={(next) => {
+                dirtyRef.current = true;
+                setTemplateId(next ?? '');
+              }}
+              onCreate={async (label) => {
+                const id = await createPartTemplate(label);
+                if (!id) return null;
+                dirtyRef.current = true;
+                setTemplateId(id);
+                return id;
+              }}
+            />
+            {templateStatus && (
+              <span style={{ color: templateStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{templateStatus}</span>
+            )}
+          </div>
+        ),
+      },
+      {
         code: 'article',
         defaultOrder: 20,
-        label: 'Артикул / обозначение',
+        label: 'Сборочный номер / артикул',
         value: article,
         render: (
           <Input
@@ -1626,45 +1973,6 @@ export function PartDetailsPage(props: {
             {customerStatus && (
               <span style={{ color: customerStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{customerStatus}</span>
             )}
-          </div>
-        ),
-      },
-      {
-        code: 'contract_id',
-        defaultOrder: 65,
-        label: 'Контракт',
-        value: contractOptions.find((c) => c.id === contractId)?.label ?? (contractId || ''),
-        render: (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-            <SearchSelectWithCreate
-              value={contractId || null}
-              options={contractOptions}
-              placeholder="Выберите контракт"
-              disabled={!props.canEdit}
-              canCreate={props.canEdit}
-              createLabel="Новый контракт"
-              onChange={(next) => {
-                dirtyRef.current = true;
-                setContractId(next ?? '');
-              }}
-              onCreate={async (label) => {
-                const id = await createMasterDataEntity('contract', label);
-                if (!id) return null;
-                dirtyRef.current = true;
-                setContractId(id);
-                return id;
-              }}
-            />
-            {contractId && props.onOpenContract ? (
-              <Button
-                variant="outline"
-                tone="neutral"
-                size="sm"
-                onClick={() => props.onOpenContract?.(contractId)}
-              >
-                Открыть
-              </Button>
-            ) : null}
           </div>
         ),
       },
@@ -1908,6 +2216,19 @@ export function PartDetailsPage(props: {
     });
   }
 
+  function openUsageItem(item: UsageItem) {
+    if (item.kind === 'contract') {
+      props.onOpenContract?.(item.entityId);
+      return;
+    }
+    if (item.kind === 'engine_brand') {
+      props.onOpenEngineBrand?.(item.entityId);
+      return;
+    }
+    const byCodeHandler = item.targetTypeCode ? props.onOpenByCode?.[item.targetTypeCode] : undefined;
+    byCodeHandler?.(item.entityId);
+  }
+
 
   const headerTitle = name.trim() ? `Деталь: ${name.trim()}` : 'Карточка детали';
 
@@ -1934,7 +2255,11 @@ export function PartDetailsPage(props: {
           }
           onSaveAndClose={
             props.canEdit
-              ? () => void saveAllAndClose().then(() => props.onClose())
+              ? () =>
+                  void (async () => {
+                    const saved = await saveAllAndClose();
+                    if (saved) props.onClose();
+                  })()
               : undefined
           }
           onReset={props.canEdit ? () => void load().then(() => { dirtyRef.current = false; }) : undefined}
@@ -1991,7 +2316,115 @@ export function PartDetailsPage(props: {
           />
         </SectionCard>
 
-        {/* Meta / placeholders for next steps */}
+        <SectionCard title="Размеры детали" style={{ borderRadius: 0, padding: 16 }}>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {dimensions.length === 0 ? (
+              <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Размеры пока не заданы.</div>
+            ) : null}
+            {dimensions.map((row) => (
+              <div key={row.id} style={{ display: 'grid', gridTemplateColumns: props.canEdit ? '1fr 1fr auto' : '1fr 1fr', gap: 8, alignItems: 'center' }}>
+                <Input
+                  value={row.name}
+                  disabled={!props.canEdit}
+                  placeholder="Параметр"
+                  onChange={(e) => {
+                    dirtyRef.current = true;
+                    setDimensions((prev) => prev.map((item) => (item.id === row.id ? { ...item, name: e.target.value } : item)));
+                  }}
+                />
+                <Input
+                  value={row.value}
+                  disabled={!props.canEdit}
+                  placeholder="Значение"
+                  onChange={(e) => {
+                    dirtyRef.current = true;
+                    setDimensions((prev) => prev.map((item) => (item.id === row.id ? { ...item, value: e.target.value } : item)));
+                  }}
+                />
+                {props.canEdit ? (
+                  <Button
+                    variant="ghost"
+                    tone="danger"
+                    onClick={() => {
+                      dirtyRef.current = true;
+                      setDimensions((prev) => prev.filter((item) => item.id !== row.id));
+                    }}
+                  >
+                    Удалить
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+            {props.canEdit ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    dirtyRef.current = true;
+                    setDimensions((prev) => [...prev, { id: crypto.randomUUID(), name: '', value: '' }]);
+                  }}
+                >
+                  Добавить размер
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Где используется" style={{ borderRadius: 0, padding: 16 }}>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {usageStatus ? (
+              <div style={{ color: usageStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>{usageStatus}</div>
+            ) : null}
+            {usageItems.length > 0 ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {usageItems.map((item) => {
+                  const canOpen =
+                    item.kind === 'contract'
+                      ? Boolean(props.onOpenContract)
+                      : item.kind === 'engine_brand'
+                        ? Boolean(props.onOpenEngineBrand)
+                        : Boolean(item.targetTypeCode && props.onOpenByCode?.[item.targetTypeCode]);
+                  return (
+                    <div
+                      key={item.key}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        alignItems: 'center',
+                        padding: '10px 12px',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: 'var(--text)', fontSize: 14 }}>{item.label}</div>
+                        <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                          {item.kind === 'contract'
+                            ? 'Контракт'
+                            : item.kind === 'engine_brand'
+                              ? 'Марка двигателя'
+                              : item.kind === 'work_order'
+                                ? 'Наряд'
+                                : item.kind === 'service'
+                                  ? 'Услуга'
+                                  : 'Связанная сущность'}
+                          {item.description ? ` · ${item.description}` : ''}
+                        </div>
+                      </div>
+                      {canOpen ? (
+                        <Button variant="outline" tone="neutral" size="sm" onClick={() => openUsageItem(item)}>
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
+
         <SectionCard title="Карточка" style={{ borderRadius: 0, padding: 16 }}>
           <div style={{ marginTop: 10, color: 'var(--subtle)', fontSize: 13 }}>
             <div>
@@ -2003,10 +2436,6 @@ export function PartDetailsPage(props: {
             <div style={{ marginTop: 6 }}>
               <span style={{ color: 'var(--text)' }}>Обновлено:</span> {formatMoscowDateTime(part.updatedAt)}
             </div>
-          </div>
-
-          <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <BrandLinksEditor />
           </div>
         </SectionCard>
 

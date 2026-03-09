@@ -14,6 +14,7 @@ export const EntityTypeCode = {
   Category: 'category',
   Employee: 'employee',
   Part: 'part',
+  PartTemplate: 'part_template',
   Unit: 'unit',
   Store: 'store',
   EngineNode: 'engine_node',

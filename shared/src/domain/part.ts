@@ -43,3 +43,26 @@ export type PartEngineBrandLink = {
   quantity: number;
 };
 
+export const PART_TEMPLATE_ID_ATTR_CODE = 'part_template_id';
+export const PART_DIMENSIONS_ATTR_CODE = 'dimensions';
+
+export type PartDimension = {
+  id: string;
+  name: string;
+  value: string;
+};
+
+export type PartTemplateCard = {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type PartUsageRef = {
+  kind: 'contract' | 'engine_brand' | 'work_order' | 'service' | 'link';
+  entityId: string;
+  label: string;
+  description?: string | null;
+  targetTypeCode?: string | null;
+};
+

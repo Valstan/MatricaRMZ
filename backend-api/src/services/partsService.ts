@@ -1,7 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
-import { AttributeDataType, EntityTypeCode, SyncTableName, STATUS_CODES, type StatusCode } from '@matricarmz/shared';
+import {
+  AttributeDataType,
+  EntityTypeCode,
+  PART_DIMENSIONS_ATTR_CODE,
+  PART_TEMPLATE_ID_ATTR_CODE,
+  SyncTableName,
+  STATUS_CODES,
+  type PartDimension,
+  type StatusCode,
+} from '@matricarmz/shared';
 
 type PartEngineBrandLink = {
   id: string;
@@ -12,6 +21,7 @@ type PartEngineBrandLink = {
 };
 
 const PART_ENGINE_BRAND_ENTITY_TYPE_CODE = (EntityTypeCode as { PartEngineBrand?: string }).PartEngineBrand || 'part_engine_brand';
+const PART_TEMPLATE_ENTITY_TYPE_CODE = (EntityTypeCode as { PartTemplate?: string }).PartTemplate || 'part_template';
 
 import { db } from '../database/db.js';
 import { changeRequests, rowOwners, attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
@@ -275,7 +285,9 @@ async function ensurePartAttributeDefs(partTypeId: string): Promise<void> {
 
   // Base fields (MVP) + required buckets for the redesigned UI.
   await ensure('name', 'Название', AttributeDataType.Text, 10);
-  await ensure('article', 'Артикул / обозначение', AttributeDataType.Text, 20);
+  await ensure(PART_TEMPLATE_ID_ATTR_CODE, 'Шаблон детали', AttributeDataType.Link, 15, JSON.stringify({ linkTargetTypeCode: PART_TEMPLATE_ENTITY_TYPE_CODE }));
+  await ensure('article', 'Сборочный номер / артикул', AttributeDataType.Text, 20);
+  await ensure(PART_DIMENSIONS_ATTR_CODE, 'Размеры', AttributeDataType.Json, 25);
   await ensure('description', 'Описание', AttributeDataType.Text, 30);
   await ensure('assembly_unit_number', 'Номер сборочной единицы', AttributeDataType.Text, 35);
 
@@ -334,6 +346,408 @@ async function ensurePartEntityType(): Promise<string> {
 
   await ensurePartAttributeDefs(id);
   return id;
+}
+
+async function getPartTemplateEntityTypeId(): Promise<string | null> {
+  const rows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(eq(entityTypes.code, PART_TEMPLATE_ENTITY_TYPE_CODE))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+async function ensurePartTemplateAttributeDefs(templateTypeId: string): Promise<void> {
+  const existing = await db
+    .select({ code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, templateTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(10_000);
+  const have = new Set(existing.map((row) => String(row.code)));
+  const ts = nowMs();
+
+  async function ensure(code: string, name: string, dataType: string, sortOrder: number, metaJson?: string | null) {
+    if (have.has(code)) return;
+    const id = randomUUID();
+    await db.insert(attributeDefs).values({
+      id,
+      entityTypeId: templateTypeId,
+      code,
+      name,
+      dataType,
+      isRequired: false,
+      sortOrder,
+      metaJson: metaJson ?? null,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+    await recordSyncChanges(syncActor(), [
+      {
+        tableName: SyncTableName.AttributeDefs,
+        rowId: id,
+        op: 'upsert',
+        payload: attributeDefPayload({
+          id,
+          entityTypeId: templateTypeId,
+          code,
+          name,
+          dataType,
+          isRequired: false,
+          sortOrder,
+          metaJson: metaJson ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        }),
+        ts,
+      },
+    ]);
+    have.add(code);
+  }
+
+  await ensure('name', 'Название шаблона', AttributeDataType.Text, 10);
+  await ensure('description', 'Описание', AttributeDataType.Text, 20);
+}
+
+async function ensurePartTemplateEntityType(): Promise<string> {
+  const existing = await getPartTemplateEntityTypeId();
+  if (existing) {
+    await ensurePartTemplateAttributeDefs(existing);
+    return existing;
+  }
+
+  const id = randomUUID();
+  const ts = nowMs();
+  await db.insert(entityTypes).values({
+    id,
+    code: PART_TEMPLATE_ENTITY_TYPE_CODE,
+    name: 'Шаблон детали',
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'synced',
+  });
+  await recordSyncChanges(syncActor(), [
+    {
+      tableName: SyncTableName.EntityTypes,
+      rowId: id,
+      op: 'upsert',
+      payload: entityTypePayload({
+        id,
+        code: PART_TEMPLATE_ENTITY_TYPE_CODE,
+        name: 'Шаблон детали',
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      }),
+      ts,
+    },
+  ]);
+  await ensurePartTemplateAttributeDefs(id);
+  return id;
+}
+
+async function getAttributeDefsForEntityType(entityTypeId: string) {
+  return db
+    .select()
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, entityTypeId), isNull(attributeDefs.deletedAt)))
+    .orderBy(attributeDefs.sortOrder, attributeDefs.code);
+}
+
+async function upsertAttributeValueDirect(args: {
+  entityId: string;
+  attributeDefId: string;
+  value: unknown;
+  actor?: AuthUser | null;
+  ts?: number;
+}) {
+  const ts = Number(args.ts ?? nowMs());
+  const existing = await db
+    .select({ id: attributeValues.id, createdAt: attributeValues.createdAt })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, args.entityId), eq(attributeValues.attributeDefId, args.attributeDefId), isNull(attributeValues.deletedAt)))
+    .limit(1);
+  const rowId = existing[0]?.id ? String(existing[0].id) : randomUUID();
+  const createdAt = existing[0]?.createdAt ? Number(existing[0].createdAt) : ts;
+  const valueJson = toValueJson(args.value);
+  await db
+    .insert(attributeValues)
+    .values({
+      id: rowId,
+      entityId: args.entityId,
+      attributeDefId: args.attributeDefId,
+      valueJson,
+      createdAt,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'pending',
+    })
+    .onConflictDoUpdate({
+      target: [attributeValues.entityId, attributeValues.attributeDefId],
+      set: {
+        valueJson,
+        updatedAt: ts,
+        syncStatus: 'pending',
+      },
+    });
+  await recordSyncChanges(syncActor(args.actor ?? undefined), [
+    {
+      tableName: SyncTableName.AttributeValues,
+      rowId,
+      op: 'upsert',
+      payload: attributeValuePayload({
+        id: rowId,
+        entityId: args.entityId,
+        attributeDefId: args.attributeDefId,
+        valueJson,
+        createdAt,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'pending',
+      }),
+      ts,
+    },
+  ]);
+  return { rowId, createdAt };
+}
+
+async function touchEntityUpdatedAt(args: { entityId: string; typeId: string; actor?: AuthUser | null; ts?: number; deletedAt?: number | null }) {
+  const ts = Number(args.ts ?? nowMs());
+  const current = await db
+    .select({ id: entities.id, createdAt: entities.createdAt })
+    .from(entities)
+    .where(eq(entities.id, args.entityId))
+    .limit(1);
+  const createdAt = Number(current[0]?.createdAt ?? ts);
+  await db
+    .update(entities)
+    .set({ updatedAt: ts, deletedAt: args.deletedAt ?? null, syncStatus: 'pending' })
+    .where(eq(entities.id, args.entityId));
+  await recordSyncChanges(syncActor(args.actor ?? undefined), [
+    {
+      tableName: SyncTableName.Entities,
+      rowId: args.entityId,
+      op: 'upsert',
+      payload: entityPayload({
+        id: args.entityId,
+        typeId: args.typeId,
+        createdAt,
+        updatedAt: ts,
+        deletedAt: args.deletedAt ?? null,
+        syncStatus: 'pending',
+      }),
+      ts,
+    },
+  ]);
+}
+
+async function insertEntityDirect(args: { entityId?: string; typeId: string; actor?: AuthUser | null; ts?: number }) {
+  const entityId = String(args.entityId || randomUUID());
+  const ts = Number(args.ts ?? nowMs());
+  await db.insert(entities).values({
+    id: entityId,
+    typeId: args.typeId,
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'pending',
+  });
+  await recordSyncChanges(syncActor(args.actor ?? undefined), [
+    {
+      tableName: SyncTableName.Entities,
+      rowId: entityId,
+      op: 'upsert',
+      payload: entityPayload({
+        id: entityId,
+        typeId: args.typeId,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'pending',
+      }),
+      ts,
+    },
+  ]);
+  if (args.actor) {
+    await db
+      .insert(rowOwners)
+      .values({
+        id: randomUUID(),
+        tableName: SyncTableName.Entities,
+        rowId: entityId,
+        ownerUserId: args.actor.id,
+        ownerUsername: args.actor.username,
+        createdAt: ts,
+      })
+      .onConflictDoNothing();
+  }
+  return { entityId, ts };
+}
+
+async function findPartTemplateDuplicateId(args: { templateTypeId: string; name: string; excludeTemplateId?: string | null }): Promise<string | null> {
+  const normalizedName = normalizeSearch(args.name);
+  if (!normalizedName) return null;
+  const attrDefsRows = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, args.templateTypeId), isNull(attributeDefs.deletedAt)))
+    .limit(10_000);
+  const nameDef = attrDefsRows.find((row) => String(row.code) === 'name');
+  if (!nameDef) return null;
+  const rows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+    .where(
+      and(
+        eq(attributeValues.attributeDefId, nameDef.id),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+        eq(entities.typeId, args.templateTypeId),
+      ),
+    )
+    .limit(50_000);
+  for (const row of rows) {
+    const entityId = String(row.entityId);
+    if (args.excludeTemplateId && entityId === String(args.excludeTemplateId)) continue;
+    const name = typeof safeJsonParse(String(row.valueJson ?? 'null')) === 'string' ? String(safeJsonParse(String(row.valueJson ?? 'null'))) : '';
+    if (normalizeSearch(name) === normalizedName) return entityId;
+  }
+  return null;
+}
+
+async function createPartTemplateEntity(args: { actor?: AuthUser | null; attributes?: Record<string, unknown> }) {
+  const templateTypeId = await ensurePartTemplateEntityType();
+  const attrDefsRows = await getAttributeDefsForEntityType(templateTypeId);
+  const attrDefByCode = new Map(attrDefsRows.map((row) => [String(row.code), String(row.id)] as const));
+  const ts = nowMs();
+  const entityId = randomUUID();
+  await insertEntityDirect({ entityId, typeId: templateTypeId, actor: args.actor ?? null, ts });
+  for (const [code, value] of Object.entries(args.attributes ?? {})) {
+    const defId = attrDefByCode.get(code);
+    if (!defId) continue;
+    await upsertAttributeValueDirect({ entityId, attributeDefId: defId, value, actor: args.actor ?? null, ts });
+  }
+  return { templateTypeId, entityId, ts };
+}
+
+let partTemplateBackfillPromise: Promise<void> | null = null;
+
+async function ensureExistingPartTemplateAssignments() {
+  if (partTemplateBackfillPromise) {
+    await partTemplateBackfillPromise;
+    return;
+  }
+  partTemplateBackfillPromise = (async () => {
+    const partTypeId = await ensurePartEntityType();
+    const templateTypeId = await ensurePartTemplateEntityType();
+    const partAttrDefs = await getAttributeDefsForEntityType(partTypeId);
+    const templateAttrDefs = await getAttributeDefsForEntityType(templateTypeId);
+    const partDefByCode = new Map(partAttrDefs.map((row) => [String(row.code), row] as const));
+    const templateDefByCode = new Map(templateAttrDefs.map((row) => [String(row.code), row] as const));
+    const partNameDef = partDefByCode.get('name');
+    const partDescriptionDef = partDefByCode.get('description');
+    const partTemplateDef = partDefByCode.get(PART_TEMPLATE_ID_ATTR_CODE);
+    const templateNameDef = templateDefByCode.get('name');
+    const templateDescriptionDef = templateDefByCode.get('description');
+    if (!partNameDef || !partTemplateDef || !templateNameDef) return;
+
+    const partRows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, partTypeId), isNull(entities.deletedAt)))
+      .limit(100_000);
+    const templateRows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, templateTypeId), isNull(entities.deletedAt)))
+      .limit(100_000);
+    const partIds = partRows.map((row) => String(row.id));
+    const templateIds = templateRows.map((row) => String(row.id));
+    const partAttrIds = [partNameDef.id, partTemplateDef.id, ...(partDescriptionDef ? [partDescriptionDef.id] : [])];
+    const templateAttrIds = [templateNameDef.id, ...(templateDescriptionDef ? [templateDescriptionDef.id] : [])];
+    const partValues = partIds.length
+      ? await db
+          .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.entityId, partIds as any), inArray(attributeValues.attributeDefId, partAttrIds as any), isNull(attributeValues.deletedAt)))
+          .limit(200_000)
+      : [];
+    const templateValues = templateIds.length
+      ? await db
+          .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.entityId, templateIds as any), inArray(attributeValues.attributeDefId, templateAttrIds as any), isNull(attributeValues.deletedAt)))
+          .limit(200_000)
+      : [];
+
+    const partState = new Map<string, { name: string; description: string; templateId: string }>();
+    for (const row of partValues) {
+      const entityId = String(row.entityId);
+      const entry = partState.get(entityId) ?? { name: '', description: '', templateId: '' };
+      const parsed = safeJsonParse(String(row.valueJson ?? 'null'));
+      if (String(row.attributeDefId) === String(partNameDef.id)) entry.name = typeof parsed === 'string' ? parsed : '';
+      if (partDescriptionDef && String(row.attributeDefId) === String(partDescriptionDef.id)) entry.description = typeof parsed === 'string' ? parsed : '';
+      if (String(row.attributeDefId) === String(partTemplateDef.id)) entry.templateId = typeof parsed === 'string' ? parsed : '';
+      partState.set(entityId, entry);
+    }
+
+    const templateNameMap = new Map<string, { id: string; name: string; description: string }>();
+    const templateState = new Map<string, { name: string; description: string }>();
+    for (const row of templateValues) {
+      const entityId = String(row.entityId);
+      const entry = templateState.get(entityId) ?? { name: '', description: '' };
+      const parsed = safeJsonParse(String(row.valueJson ?? 'null'));
+      if (String(row.attributeDefId) === String(templateNameDef.id)) entry.name = typeof parsed === 'string' ? parsed : '';
+      if (templateDescriptionDef && String(row.attributeDefId) === String(templateDescriptionDef.id)) {
+        entry.description = typeof parsed === 'string' ? parsed : '';
+      }
+      templateState.set(entityId, entry);
+    }
+    for (const [entityId, entry] of templateState) {
+      const normalizedName = normalizeSearch(entry.name);
+      if (!normalizedName) continue;
+      if (!templateNameMap.has(normalizedName)) {
+        templateNameMap.set(normalizedName, { id: entityId, name: entry.name, description: entry.description });
+      }
+    }
+
+    for (const partId of partIds) {
+      const state = partState.get(partId) ?? { name: '', description: '', templateId: '' };
+      const normalizedName = normalizeSearch(state.name);
+      if (!normalizedName) continue;
+      let template = templateNameMap.get(normalizedName) ?? null;
+      if (!template) {
+        const created = await createPartTemplateEntity({
+          attributes: {
+            name: state.name.trim(),
+            ...(state.description.trim() ? { description: state.description.trim() } : {}),
+          },
+        });
+        template = { id: created.entityId, name: state.name.trim(), description: state.description.trim() };
+        templateNameMap.set(normalizedName, template);
+      }
+      if (state.templateId !== template.id) {
+        await upsertAttributeValueDirect({
+          entityId: partId,
+          attributeDefId: String(partTemplateDef.id),
+          value: template.id,
+          ts: nowMs(),
+        });
+        await touchEntityUpdatedAt({ entityId: partId, typeId: partTypeId, ts: nowMs() });
+      }
+    }
+  })();
+  try {
+    await partTemplateBackfillPromise;
+  } finally {
+    partTemplateBackfillPromise = null;
+  }
 }
 
 async function getPartEngineBrandTypeId(): Promise<string | null> {
@@ -448,6 +862,32 @@ async function findPartDuplicateId(args: {
   attrDefs: { id: string; code: string }[];
   attributes?: Record<string, unknown>;
 }): Promise<string | null> {
+  const articleDef = args.attrDefs.find((d) => String(d.code) === 'article');
+  const articleValue = args.attributes?.article;
+  const normalizedArticle = normalizeSearch(typeof articleValue === 'string' ? articleValue : articleValue == null ? '' : String(articleValue));
+  if (articleDef && normalizedArticle) {
+    const rows = await db
+      .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+      .where(
+        and(
+          eq(attributeValues.attributeDefId, articleDef.id),
+          isNull(attributeValues.deletedAt),
+          isNull(entities.deletedAt),
+          eq(entities.typeId, args.typeId),
+        ),
+      )
+      .limit(50_000);
+    for (const row of rows) {
+      const parsed = safeJsonParse(String(row.valueJson ?? 'null'));
+      const candidateArticle = typeof parsed === 'string' ? parsed : parsed == null ? '' : String(parsed);
+      if (normalizeSearch(candidateArticle) === normalizedArticle) {
+        return String(row.entityId);
+      }
+    }
+  }
+
   const nameDef = args.attrDefs.find((d) => String(d.code) === 'name');
   if (!nameDef) return null;
   const nameValueJson = toValueJson(args.attributes?.name);
@@ -522,6 +962,46 @@ async function findPartDuplicateOnUpdate(args: {
   nextDefId: string;
   nextValueJson: string | null;
 }): Promise<string | null> {
+  const articleDef = args.attrDefs.find((d) => String(d.code) === 'article');
+  if (articleDef) {
+    const relevantValueJson = args.nextDefId === String(articleDef.id) ? args.nextValueJson : null;
+    let articleValueJson = relevantValueJson;
+    if (articleValueJson == null) {
+      const currentArticleRow = await db
+        .select({ valueJson: attributeValues.valueJson })
+        .from(attributeValues)
+        .where(and(eq(attributeValues.entityId, args.partId), eq(attributeValues.attributeDefId, articleDef.id), isNull(attributeValues.deletedAt)))
+        .limit(1);
+      articleValueJson = currentArticleRow[0]?.valueJson == null ? null : String(currentArticleRow[0].valueJson);
+    }
+    const articleParsed = safeJsonParse(String(articleValueJson ?? 'null'));
+    const normalizedArticle = normalizeSearch(typeof articleParsed === 'string' ? articleParsed : articleParsed == null ? '' : String(articleParsed));
+    if (normalizedArticle) {
+      const rows = await db
+        .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+        .from(attributeValues)
+        .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+        .where(
+          and(
+            eq(attributeValues.attributeDefId, articleDef.id),
+            isNull(attributeValues.deletedAt),
+            isNull(entities.deletedAt),
+            eq(entities.typeId, args.typeId),
+          ),
+        )
+        .limit(50_000);
+      for (const row of rows) {
+        const entityId = String(row.entityId);
+        if (entityId === args.partId) continue;
+        const parsed = safeJsonParse(String(row.valueJson ?? 'null'));
+        const candidateArticle = typeof parsed === 'string' ? parsed : parsed == null ? '' : String(parsed);
+        if (normalizeSearch(candidateArticle) === normalizedArticle) {
+          return entityId;
+        }
+      }
+    }
+  }
+
   const nameDef = args.attrDefs.find((d) => String(d.code) === 'name');
   if (!nameDef) return null;
 
@@ -618,6 +1098,7 @@ export async function createPartAttributeDef(args: {
   | { ok: false; error: string }
 > {
   try {
+    await ensureExistingPartTemplateAssignments();
     const typeId = await ensurePartEntityType();
     const ts = nowMs();
 
@@ -820,13 +1301,16 @@ async function listPartBrandLinksInternal(args?: { partIds?: string[]; partId?: 
   return result;
 }
 
-export async function listParts(args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string }): Promise<
+export async function listParts(args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string; templateId?: string }): Promise<
   | {
       ok: true;
       parts: {
         id: string;
         name?: string;
         article?: string;
+        templateId?: string;
+        templateName?: string;
+        dimensions?: PartDimension[];
         contractId?: string;
         statusFlags?: Partial<Record<StatusCode, boolean>>;
         brandLinks?: PartEngineBrandLink[];
@@ -838,11 +1322,14 @@ export async function listParts(args?: { q?: string; limit?: number; offset?: nu
   | { ok: false; error: string }
 > {
   try {
+    await ensureExistingPartTemplateAssignments();
     const typeId = await ensurePartEntityType();
+    const templateTypeId = await ensurePartTemplateEntityType();
     const limit = args?.limit ?? 1000;
     const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0) || 0));
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const engineBrandId = args?.engineBrandId ? String(args.engineBrandId).trim() : '';
+    const templateIdFilter = args?.templateId ? String(args.templateId).trim() : '';
 
     const entityRows = await db
       .select({ id: entities.id, createdAt: entities.createdAt, updatedAt: entities.updatedAt })
@@ -887,6 +1374,8 @@ export async function listParts(args?: { q?: string; limit?: number; offset?: nu
 
     const attrsByEntity: Record<string, { name?: string; article?: string; searchParts: string[] }> = {};
     const contractIdByEntity: Record<string, string | null> = {};
+    const templateIdByEntity: Record<string, string | null> = {};
+    const dimensionsByEntity: Record<string, PartDimension[]> = {};
     const statusFlagsByEntity: Record<string, Partial<Record<StatusCode, boolean>>> = {};
     const attachmentPreviewsByEntity: Record<string, Array<{ id: string; name: string; mime: string | null }>> = {};
     for (const attr of attrRows) {
@@ -904,6 +1393,22 @@ export async function listParts(args?: { q?: string; limit?: number; offset?: nu
         if (valueText) entityAttrs.searchParts.push(valueText);
         if (code === 'contract_id') {
           contractIdByEntity[attr.entityId] = typeof val === 'string' && val ? val : null;
+        } else if (code === PART_TEMPLATE_ID_ATTR_CODE) {
+          templateIdByEntity[attr.entityId] = typeof val === 'string' && val ? val : null;
+        } else if (code === PART_DIMENSIONS_ATTR_CODE) {
+          const rows = Array.isArray(val) ? val : [];
+          const dimensions = rows
+            .filter((row) => row && typeof row === 'object')
+            .map((row, index) => {
+              const entry = row as Record<string, unknown>;
+              const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+              const value = typeof entry.value === 'string' ? entry.value.trim() : '';
+              if (!name && !value) return null;
+              const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : `dim-${index + 1}`;
+              return { id, name, value } satisfies PartDimension;
+            })
+            .filter((row): row is PartDimension => Boolean(row));
+          dimensionsByEntity[attr.entityId] = dimensions;
         } else if (statusCodes.has(code)) {
           const statusEntry = statusFlagsByEntity[attr.entityId] ?? {};
           statusEntry[code as StatusCode] = Boolean(val);
@@ -931,6 +1436,7 @@ export async function listParts(args?: { q?: string; limit?: number; offset?: nu
           .filter(([, enabled]) => enabled === true)
           .map(([code]) => code)
           .join(' ');
+        const dimensions = dimensionsByEntity[e.id] ?? [];
         const links = brandLinksByPart[e.id] ?? [];
         const linksText = links.map((link) => `${link.engineBrandId} ${link.assemblyUnitNumber} ${link.quantity}`).join(' ');
         const hay = normalizeSearch(
@@ -938,6 +1444,8 @@ export async function listParts(args?: { q?: string; limit?: number; offset?: nu
             e.id,
             attrs?.searchParts.join(' ') ?? '',
             contractIdByEntity[e.id] ?? '',
+            templateIdByEntity[e.id] ?? '',
+            dimensions.map((row) => `${row.name} ${row.value}`).join(' '),
             enabledStatuses,
             linksText,
           ].join(' '),
@@ -948,16 +1456,49 @@ export async function listParts(args?: { q?: string; limit?: number; offset?: nu
     if (engineBrandId) {
       filtered = filtered.filter((e) => (brandLinksByPart[e.id] ?? []).some((link) => link.engineBrandId === engineBrandId));
     }
+    if (templateIdFilter) {
+      filtered = filtered.filter((e) => templateIdByEntity[e.id] === templateIdFilter);
+    }
+
+    const templateIds = Array.from(new Set(Object.values(templateIdByEntity).filter((value): value is string => Boolean(value))));
+    const templateNameById = new Map<string, string>();
+    if (templateIds.length > 0) {
+      const templateNameDefRows = await db
+        .select({ id: attributeDefs.id })
+        .from(attributeDefs)
+        .where(and(eq(attributeDefs.entityTypeId, templateTypeId), eq(attributeDefs.code, 'name'), isNull(attributeDefs.deletedAt)))
+        .limit(1);
+      const templateNameDefId = templateNameDefRows[0]?.id ? String(templateNameDefRows[0].id) : '';
+      if (templateNameDefId) {
+        const templateNameRows = await db
+          .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(eq(attributeValues.attributeDefId, templateNameDefId), inArray(attributeValues.entityId, templateIds as any), isNull(attributeValues.deletedAt)))
+          .limit(50_000);
+        for (const row of templateNameRows) {
+          const parsed = safeJsonParse(String(row.valueJson ?? 'null'));
+          if (typeof parsed === 'string' && parsed.trim()) {
+            templateNameById.set(String(row.entityId), parsed.trim());
+          }
+        }
+      }
+    }
 
     const parts = filtered.map((e) => {
       const attrs = attrsByEntity[e.id] ?? { searchParts: [] as string[] };
       const contractId = contractIdByEntity[e.id];
+      const templateId = templateIdByEntity[e.id];
+      const templateName = templateId ? templateNameById.get(templateId) ?? null : null;
+      const dimensions = dimensionsByEntity[e.id] ?? [];
       const statusFlags = statusFlagsByEntity[e.id];
       const attachmentPreviews = attachmentPreviewsByEntity[e.id] ?? [];
       return {
         id: e.id,
         ...(attrs.name && { name: attrs.name }),
         ...(attrs.article && { article: attrs.article }),
+        ...(templateId ? { templateId } : {}),
+        ...(templateName ? { templateName } : {}),
+        ...(dimensions.length > 0 ? { dimensions } : {}),
         ...(contractId != null && { contractId }),
         ...(statusFlags && Object.keys(statusFlags).length > 0 && { statusFlags }),
         ...(brandLinksByPart[e.id]?.length ? { brandLinks: brandLinksByPart[e.id] } : {}),
@@ -1010,6 +1551,8 @@ export async function getPart(args: { partId: string }): Promise<
     }
 
     const entity = entityRows[0];
+    if (!entity) return { ok: false, error: 'шаблон детали не найден' };
+    if (!entity) return { ok: false, error: 'шаблон детали не найден' };
     if (!entity) {
       return { ok: false, error: 'деталь не найдена' };
     }
@@ -1064,6 +1607,293 @@ export async function getPart(args: { partId: string }): Promise<
         attributes,
       },
     };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listPartTemplates(args?: { q?: string; limit?: number; offset?: number }): Promise<
+  | {
+      ok: true;
+      templates: Array<{
+        id: string;
+        name?: string;
+        description?: string;
+        updatedAt: number;
+        createdAt: number;
+      }>;
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    await ensureExistingPartTemplateAssignments();
+    const typeId = await ensurePartTemplateEntityType();
+    const limit = args?.limit ?? 1000;
+    const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0) || 0));
+    const qNorm = normalizeSearch(args?.q ?? '');
+    const rows = await db
+      .select({ id: entities.id, createdAt: entities.createdAt, updatedAt: entities.updatedAt })
+      .from(entities)
+      .where(and(eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+      .orderBy(desc(entities.updatedAt))
+      .limit(limit)
+      .offset(offset);
+    if (!rows.length) return { ok: true, templates: [] };
+
+    const attrDefsRows = await getAttributeDefsForEntityType(typeId);
+    const defByCode = new Map(attrDefsRows.map((row) => [String(row.code), String(row.id)] as const));
+    const attrIds = Array.from(defByCode.values());
+    const values = attrIds.length
+      ? await db
+          .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.entityId, rows.map((row) => row.id) as any), inArray(attributeValues.attributeDefId, attrIds as any), isNull(attributeValues.deletedAt)))
+          .limit(200_000)
+      : [];
+    const nameDefId = defByCode.get('name') ?? '';
+    const descriptionDefId = defByCode.get('description') ?? '';
+    const state = new Map<string, { name: string; description: string; search: string[] }>();
+    for (const row of values) {
+      const entityId = String(row.entityId);
+      const entry = state.get(entityId) ?? { name: '', description: '', search: [] };
+      const parsed = safeJsonParse(String(row.valueJson ?? 'null'));
+      const valueText = valueToSearchText(parsed);
+      if (valueText) entry.search.push(valueText);
+      if (nameDefId && String(row.attributeDefId) === nameDefId) entry.name = typeof parsed === 'string' ? parsed : '';
+      if (descriptionDefId && String(row.attributeDefId) === descriptionDefId) entry.description = typeof parsed === 'string' ? parsed : '';
+      state.set(entityId, entry);
+    }
+
+    let filtered = rows;
+    if (qNorm) {
+      filtered = rows.filter((row) => {
+        const entry = state.get(String(row.id)) ?? { name: '', description: '', search: [] };
+        return normalizeSearch([row.id, entry.name, entry.description, entry.search.join(' ')].join(' ')).includes(qNorm);
+      });
+    }
+
+    return {
+      ok: true,
+      templates: filtered.map((row) => {
+        const entry = state.get(String(row.id));
+        return {
+          id: String(row.id),
+          ...(entry?.name ? { name: entry.name } : {}),
+          ...(entry?.description ? { description: entry.description } : {}),
+          createdAt: Number(row.createdAt),
+          updatedAt: Number(row.updatedAt),
+        };
+      }),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function getPartTemplate(args: { templateId: string }): Promise<
+  | {
+      ok: true;
+      template: {
+        id: string;
+        createdAt: number;
+        updatedAt: number;
+        attributes: Array<{
+          id: string;
+          code: string;
+          name: string;
+          dataType: string;
+          value: unknown;
+          isRequired: boolean;
+          sortOrder: number;
+          metaJson?: unknown;
+        }>;
+      };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    await ensureExistingPartTemplateAssignments();
+    const typeId = await ensurePartTemplateEntityType();
+    const templateId = String(args.templateId || '');
+    const entityRows = await db
+      .select({ id: entities.id, createdAt: entities.createdAt, updatedAt: entities.updatedAt })
+      .from(entities)
+      .where(and(eq(entities.id, templateId), eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!entityRows.length) return { ok: false, error: 'шаблон детали не найден' };
+
+    const entity = entityRows[0];
+    if (!entity) return { ok: false, error: 'шаблон детали не найден' };
+    const defs = await getAttributeDefsForEntityType(typeId);
+    const values = defs.length
+      ? await db
+          .select()
+          .from(attributeValues)
+          .where(and(eq(attributeValues.entityId, templateId), isNull(attributeValues.deletedAt)))
+          .limit(10_000)
+      : [];
+    const valueByDefId: Record<string, unknown> = {};
+    for (const row of values) {
+      valueByDefId[String(row.attributeDefId)] = row.valueJson ? safeJsonParse(String(row.valueJson)) : null;
+    }
+
+    return {
+      ok: true,
+      template: {
+        id: String(entity.id),
+        createdAt: Number(entity.createdAt),
+        updatedAt: Number(entity.updatedAt),
+        attributes: defs.map((def) => ({
+          id: String(def.id),
+          code: String(def.code),
+          name: String(def.name),
+          dataType: String(def.dataType),
+          value: valueByDefId[String(def.id)] ?? null,
+          isRequired: Boolean(def.isRequired),
+          sortOrder: Number(def.sortOrder ?? 0),
+          metaJson: def.metaJson ? safeJsonParse(String(def.metaJson)) : undefined,
+        })),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function createPartTemplate(args: { actor: AuthUser; attributes?: Record<string, unknown> }): Promise<
+  | {
+      ok: true;
+      template: { id: string; createdAt: number; updatedAt: number };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const name = typeof args.attributes?.name === 'string' ? args.attributes.name.trim() : '';
+    const templateTypeId = await ensurePartTemplateEntityType();
+    if (name) {
+      const duplicateId = await findPartTemplateDuplicateId({ templateTypeId, name });
+      if (duplicateId) return { ok: false, error: `duplicate template exists: ${duplicateId}` };
+    }
+    const created = await createPartTemplateEntity({
+      actor: args.actor,
+      ...(args.attributes ? { attributes: args.attributes } : {}),
+    });
+    const auditId = randomUUID();
+    await db.insert(auditLog).values({
+      id: auditId,
+      actor: args.actor.username,
+      action: 'partTemplate.create',
+      entityId: created.entityId,
+      tableName: 'entities',
+      payloadJson: JSON.stringify({ templateId: created.entityId, attributes: args.attributes }),
+      createdAt: created.ts,
+      updatedAt: created.ts,
+      deletedAt: null,
+      syncStatus: 'pending',
+    });
+    await recordSyncChanges(syncActor(args.actor), [
+      {
+        tableName: SyncTableName.AuditLog,
+        rowId: auditId,
+        op: 'upsert',
+        payload: auditLogPayload({
+          id: auditId,
+          actor: args.actor.username,
+          action: 'partTemplate.create',
+          entityId: created.entityId,
+          tableName: 'entities',
+          payloadJson: JSON.stringify({ templateId: created.entityId, attributes: args.attributes }),
+          createdAt: created.ts,
+          updatedAt: created.ts,
+          deletedAt: null,
+          syncStatus: 'pending',
+        }),
+        ts: created.ts,
+      },
+    ]);
+    return { ok: true, template: { id: created.entityId, createdAt: created.ts, updatedAt: created.ts } };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function updatePartTemplateAttribute(args: {
+  templateId: string;
+  attributeCode: string;
+  value: unknown;
+  actor: AuthUser;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const typeId = await ensurePartTemplateEntityType();
+    const templateId = String(args.templateId || '');
+    const attributeCode = String(args.attributeCode || '');
+    const entityRows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, templateId), eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!entityRows.length) return { ok: false, error: 'шаблон детали не найден' };
+    const defs = await getAttributeDefsForEntityType(typeId);
+    const def = defs.find((row) => String(row.code) === attributeCode);
+    if (!def) return { ok: false, error: 'атрибут не найден' };
+    if (attributeCode === 'name') {
+      const nextName = typeof args.value === 'string' ? args.value.trim() : '';
+      if (nextName) {
+        const duplicateId = await findPartTemplateDuplicateId({ templateTypeId: typeId, name: nextName, excludeTemplateId: templateId });
+        if (duplicateId) return { ok: false, error: `duplicate template exists: ${duplicateId}` };
+      }
+    }
+    const ts = nowMs();
+    await upsertAttributeValueDirect({ entityId: templateId, attributeDefId: String(def.id), value: args.value, actor: args.actor, ts });
+    await touchEntityUpdatedAt({ entityId: templateId, typeId, actor: args.actor, ts });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deletePartTemplate(args: { templateId: string; actor: AuthUser }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const typeId = await ensurePartTemplateEntityType();
+    const templateId = String(args.templateId || '');
+    const entityRows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, templateId), eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!entityRows.length) return { ok: false, error: 'шаблон детали не найден' };
+    const ts = nowMs();
+    await touchEntityUpdatedAt({ entityId: templateId, typeId, actor: args.actor, ts, deletedAt: ts });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function createPartFromTemplate(args: {
+  templateId: string;
+  actor: AuthUser;
+  attributes?: Record<string, unknown>;
+}): Promise<
+  | {
+      ok: true;
+      part: { id: string; createdAt: number; updatedAt: number };
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const template = await getPartTemplate({ templateId: args.templateId });
+    if (!template.ok) return { ok: false, error: template.error };
+    const attrsByCode = new Map(template.template.attributes.map((row) => [row.code, row.value] as const));
+    const name = typeof attrsByCode.get('name') === 'string' ? String(attrsByCode.get('name')) : '';
+    const description = typeof attrsByCode.get('description') === 'string' ? String(attrsByCode.get('description')) : '';
+    const attributes: Record<string, unknown> = {
+      ...(name ? { name } : {}),
+      ...(description ? { description } : {}),
+      [PART_TEMPLATE_ID_ATTR_CODE]: args.templateId,
+      ...(args.attributes ?? {}),
+    };
+    return createPart({ actor: args.actor, attributes });
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -1428,13 +2258,36 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
   | { ok: false; error: string }
 > {
   try {
+    const attributes = { ...(args.attributes ?? {}) };
+    const draftName = typeof attributes.name === 'string' ? attributes.name.trim() : '';
+    const currentTemplateId =
+      typeof attributes[PART_TEMPLATE_ID_ATTR_CODE] === 'string' ? String(attributes[PART_TEMPLATE_ID_ATTR_CODE]).trim() : '';
+    if (!currentTemplateId && draftName) {
+      const templateTypeId = await ensurePartTemplateEntityType();
+      const duplicateTemplateId = await findPartTemplateDuplicateId({ templateTypeId, name: draftName });
+      if (duplicateTemplateId) {
+        attributes[PART_TEMPLATE_ID_ATTR_CODE] = duplicateTemplateId;
+      } else {
+        const createdTemplate = await createPartTemplateEntity({
+          actor: args.actor,
+          attributes: {
+            name: draftName,
+            ...(typeof attributes.description === 'string' && attributes.description.trim()
+              ? { description: attributes.description.trim() }
+              : {}),
+          },
+        });
+        attributes[PART_TEMPLATE_ID_ATTR_CODE] = createdTemplate.entityId;
+      }
+    }
+
     const typeId = await ensurePartEntityType();
     const attrDefs = await db
       .select({ id: attributeDefs.id, code: attributeDefs.code })
       .from(attributeDefs)
       .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)));
 
-    const duplicateId = await findPartDuplicateId(args.attributes ? { typeId, attrDefs, attributes: args.attributes } : { typeId, attrDefs });
+    const duplicateId = await findPartDuplicateId(Object.keys(attributes).length > 0 ? { typeId, attrDefs, attributes } : { typeId, attrDefs });
     if (duplicateId) {
       return { ok: false, error: `duplicate part exists: ${duplicateId}` };
     }
@@ -1468,12 +2321,12 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
     ]);
 
     // Устанавливаем начальные атрибуты если переданы
-    if (args.attributes) {
+    if (Object.keys(attributes).length > 0) {
       const attrDefsFull = await db
         .select()
         .from(attributeDefs)
         .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)));
-      for (const [code, value] of Object.entries(args.attributes)) {
+      for (const [code, value] of Object.entries(attributes)) {
         const def = attrDefsFull.find((ad) => ad.code === code);
         if (!def) continue;
         const existing = await db
@@ -1532,7 +2385,7 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
       action: 'part.create',
       entityId: id,
       tableName: 'entities',
-      payloadJson: JSON.stringify({ partId: id, attributes: args.attributes }),
+      payloadJson: JSON.stringify({ partId: id, attributes }),
       createdAt: ts,
       updatedAt: ts,
       deletedAt: null,
@@ -1549,7 +2402,7 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
           action: 'part.create',
           entityId: id,
           tableName: 'entities',
-          payloadJson: JSON.stringify({ partId: id, attributes: args.attributes }),
+          payloadJson: JSON.stringify({ partId: id, attributes }),
           createdAt: ts,
           updatedAt: ts,
           deletedAt: null,
@@ -1789,6 +2642,10 @@ export async function updatePartAttribute(args: {
         ts,
       },
     ]);
+
+    if (attrCode === 'name' || attrCode === 'description' || attrCode === PART_TEMPLATE_ID_ATTR_CODE) {
+      await ensureExistingPartTemplateAssignments();
+    }
 
     return { ok: true };
   } catch (e) {

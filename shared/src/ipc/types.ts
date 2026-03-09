@@ -1,4 +1,4 @@
-import type { PartEngineBrandLink } from '../domain/part.js';
+import type { PartDimension, PartEngineBrandLink } from '../domain/part.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -216,7 +216,7 @@ export type SyncProgressEvent = {
 };
 
 export type UpdateCheckResult =
-  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' | 'lan' | 'torrent'; downloadUrl?: string }
+  | { ok: true; updateAvailable: boolean; version?: string; source?: 'github' | 'yandex' | 'lan' | 'torrent' | 'server'; downloadUrl?: string }
   | { ok: false; error: string };
 
 export type UpdateRuntimeState = {
@@ -1034,13 +1034,16 @@ export type MatricaApi = {
   };
 
   parts: {
-    list: (args?: { q?: string; limit?: number; engineBrandId?: string }) => Promise<
+    list: (args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string; templateId?: string }) => Promise<
       | {
           ok: true;
           parts: Array<{
             id: string;
             name?: string;
             article?: string;
+            templateId?: string;
+            templateName?: string;
+            dimensions?: PartDimension[];
             brandLinks?: PartEngineBrandLink[];
             contractId?: string;
             statusFlags?: Partial<Record<StatusCode, boolean>>;
@@ -1113,6 +1116,60 @@ export type MatricaApi = {
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     updateAttribute: (args: { partId: string; attributeCode: string; value: unknown }) => Promise<
       { ok: true; queued?: boolean; changeRequestId?: string } | { ok: false; error: string }
+    >;
+    templates: {
+      list: (args?: { q?: string; limit?: number; offset?: number }) => Promise<
+        | {
+            ok: true;
+            templates: Array<{
+              id: string;
+              name?: string;
+              description?: string;
+              updatedAt: number;
+              createdAt: number;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+      get: (templateId: string) => Promise<
+        | {
+            ok: true;
+            template: {
+              id: string;
+              createdAt: number;
+              updatedAt: number;
+              attributes: Array<{
+                id: string;
+                code: string;
+                name: string;
+                dataType: string;
+                value: unknown;
+                isRequired: boolean;
+                sortOrder: number;
+                metaJson?: unknown;
+              }>;
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      create: (args?: { attributes?: Record<string, unknown> }) => Promise<
+        | {
+            ok: true;
+            template: { id: string; createdAt: number; updatedAt: number };
+          }
+        | { ok: false; error: string }
+      >;
+      updateAttribute: (args: { templateId: string; attributeCode: string; value: unknown }) => Promise<
+        { ok: true } | { ok: false; error: string }
+      >;
+      delete: (templateId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    };
+    createFromTemplate: (args: { templateId: string; attributes?: Record<string, unknown> }) => Promise<
+      | {
+          ok: true;
+          part: { id: string; createdAt: number; updatedAt: number };
+        }
+      | { ok: false; error: string }
     >;
     delete: (partId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     getFiles: (partId: string) => Promise<{ ok: true; files: unknown[] } | { ok: false; error: string }>;
