@@ -438,6 +438,14 @@ async function resolvePublishedServerUpdate(
   return { serverMeta, torrentMeta };
 }
 
+async function getExpectedShaForVersion(version?: string | null): Promise<string | null> {
+  const safeVersion = String(version ?? '').trim();
+  if (!safeVersion) return null;
+  const serverMeta = await fetchLatestUpdateMetaFromServer().catch(() => null);
+  if (!serverMeta || serverMeta.version !== safeVersion) return null;
+  return serverMeta.sha256 ?? null;
+}
+
 async function findCachedInstallerForVersion(
   version: string,
   expectedName?: string,
@@ -588,6 +596,7 @@ async function queuePendingUpdate(args: {
   installerPath: string;
   expectedName?: string;
   expectedSize?: number | null;
+  expectedSha?: string | null;
   downloadUrl?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const validation = await validateInstallerPath(args.installerPath, args.expectedName, args.expectedSize ?? null);
@@ -596,6 +605,7 @@ async function queuePendingUpdate(args: {
     version: args.version,
     installerPath: args.installerPath,
     expectedSize: args.expectedSize ?? null,
+    expectedSha: args.expectedSha ?? null,
     downloadUrl: args.downloadUrl ?? null,
   });
   await writeUpdaterLog(
@@ -615,6 +625,7 @@ async function installNow(args: { installerPath: string; version?: string }) {
     installerPath: args.installerPath,
     version: args.version ?? pendingForInstaller?.version,
     expectedSize: pendingForInstaller?.expectedSize ?? null,
+    expectedSha: pendingForInstaller?.expectedSha ?? null,
     downloadUrl: pendingForInstaller?.downloadUrl ?? null,
   });
   if (!ready.ok) {
@@ -637,7 +648,13 @@ async function installNow(args: { installerPath: string; version?: string }) {
   if (!spawned) {
     await writeUpdaterLog('update-helper spawn failed, keeping pending update');
     await openInstallerFolder(args.installerPath);
-    await writePendingUpdate({ version: args.version ?? 'unknown', installerPath: args.installerPath });
+    await writePendingUpdate({
+      version: args.version ?? pendingForInstaller?.version ?? 'unknown',
+      installerPath: args.installerPath,
+      expectedSize: pendingForInstaller?.expectedSize ?? ready.expectedSize ?? null,
+      expectedSha: pendingForInstaller?.expectedSha ?? ready.expectedSha ?? null,
+      downloadUrl: pendingForInstaller?.downloadUrl ?? null,
+    });
     await stageUpdate('Не удалось запустить установщик. Повторим при следующем запуске.', 100, args.version);
     closeUpdateWindowSoon(4000);
     return;
@@ -889,6 +906,7 @@ async function writePendingUpdate(data: {
   version: string;
   installerPath: string;
   expectedSize?: number | null;
+  expectedSha?: string | null;
   downloadUrl?: string | null;
 }) {
   const outDir = getUpdatesRootDir();
@@ -900,6 +918,7 @@ async function readPendingUpdate(): Promise<{
   version: string;
   installerPath: string;
   expectedSize?: number | null;
+  expectedSha?: string | null;
   downloadUrl?: string | null;
 } | null> {
   try {
@@ -910,6 +929,7 @@ async function readPendingUpdate(): Promise<{
       version: String(json.version),
       installerPath: String(json.installerPath),
       expectedSize: json.expectedSize != null ? Number(json.expectedSize) : null,
+      expectedSha: typeof json.expectedSha === 'string' ? String(json.expectedSha) : null,
       downloadUrl: typeof json.downloadUrl === 'string' ? String(json.downloadUrl) : null,
     };
   } catch {
@@ -1212,6 +1232,7 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
     installerPath: pending.installerPath,
     version: pending.version,
     expectedSize: pending.expectedSize ?? null,
+    expectedSha: pending.expectedSha ?? null,
     downloadUrl: pending.downloadUrl ?? null,
   });
   if (!ready.ok) {
@@ -1294,10 +1315,12 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       return { ok: false, error: ydl.error ?? 'download failed', version };
     }
     const cachedPath = await cacheInstaller(ydl.filePath, version);
+    const expectedSha = await getExpectedShaForVersion(version);
     const queued = await queuePendingUpdate({
       version,
       installerPath: cachedPath,
       expectedSize: y.expectedSize ?? null,
+      expectedSha,
       downloadUrl: y.downloadUrl ?? null,
     });
     if (!queued.ok) {
@@ -1343,10 +1366,12 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       return { ok: false, error: gdl.error ?? 'download failed', version };
     }
     const cachedPath = await cacheInstaller(gdl.filePath, version);
+    const expectedSha = await getExpectedShaForVersion(version);
     const queued = await queuePendingUpdate({
       version,
       installerPath: cachedPath,
       expectedSize: gh.expectedSize ?? null,
+      expectedSha,
       downloadUrl: gh.downloadUrl ?? null,
     });
     if (!queued.ok) {
@@ -1422,6 +1447,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
             installerPath: cachedPath,
             expectedName: torrentMeta.fileName,
             expectedSize: torrentMeta.size,
+            expectedSha: torrentMeta.sha256 ?? null,
             downloadUrl: tLocal.downloadUrl,
           });
           if (queued.ok) {
@@ -1462,6 +1488,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
           installerPath: cachedPath,
           expectedName: serverMeta.fileName,
           expectedSize: serverMeta.size,
+          expectedSha: serverMeta.sha256 ?? null,
           downloadUrl: `lan://${serverMeta.fileName}`,
         });
         if (!queued.ok) {
@@ -1527,6 +1554,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
             installerPath: cachedPath,
             expectedName: torrentMeta.fileName,
             expectedSize: torrentMeta.size,
+            expectedSha: torrentMeta.sha256 ?? null,
             downloadUrl: tAny.downloadUrl,
           });
           if (queued.ok) {
@@ -1568,6 +1596,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
           installerPath: cachedPath,
           expectedName: serverMeta.fileName,
           expectedSize: serverMeta.size,
+          expectedSha: serverMeta.sha256 ?? null,
           downloadUrl: direct.downloadUrl,
         });
         if (queued.ok) {
@@ -1678,6 +1707,7 @@ export async function runAutoUpdateFlow(
           installerPath: cachedPath,
           expectedName: torrentMeta.fileName,
           expectedSize: torrentMeta.size,
+          expectedSha: torrentMeta.sha256 ?? null,
           downloadUrl: tLocal.downloadUrl,
         });
         if (!queued.ok) {
@@ -1731,6 +1761,7 @@ export async function runAutoUpdateFlow(
         installerPath: cachedPath,
         expectedName: serverMeta.fileName,
         expectedSize: serverMeta.size,
+        expectedSha: serverMeta.sha256 ?? null,
         downloadUrl: `lan://${serverMeta.fileName}`,
       });
       if (!queued.ok) {
@@ -1785,6 +1816,7 @@ export async function runAutoUpdateFlow(
           installerPath: cachedPath,
           ...('path' in y && y.path ? { expectedName: y.path } : {}),
           expectedSize: y.expectedSize ?? null,
+          expectedSha: serverMeta.version === y.version ? (serverMeta.sha256 ?? null) : null,
           downloadUrl: y.downloadUrl ?? null,
         });
         if (!queued.ok) {
@@ -1818,6 +1850,7 @@ export async function runAutoUpdateFlow(
           version: gh.version ?? 'latest',
           installerPath: cachedPath,
           expectedSize: gh.expectedSize ?? null,
+          expectedSha: serverMeta.version === gh.version ? (serverMeta.sha256 ?? null) : null,
           downloadUrl: gh.downloadUrl ?? null,
         });
         if (!queued.ok) {
@@ -1849,6 +1882,7 @@ export async function runAutoUpdateFlow(
           installerPath: cachedPath,
           expectedName: torrentMeta.fileName,
           expectedSize: torrentMeta.size,
+          expectedSha: torrentMeta.sha256 ?? null,
           downloadUrl: tAny.downloadUrl,
         });
         if (queued.ok) {
@@ -1881,6 +1915,7 @@ export async function runAutoUpdateFlow(
         installerPath: cachedPath,
         expectedName: serverMeta.fileName,
         expectedSize: serverMeta.size,
+        expectedSha: serverMeta.sha256 ?? null,
         downloadUrl: direct.downloadUrl,
       });
       if (!queued.ok) {

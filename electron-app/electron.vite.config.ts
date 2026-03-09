@@ -46,6 +46,12 @@ export default defineConfig({
             ) {
               return 'react-vendor';
             }
+            if (
+              normalized.includes('/node_modules/@matricarmz/shared/') ||
+              normalized.includes('/node_modules/@matricarmz/ledger/')
+            ) {
+              return 'shared';
+            }
             if (normalized.includes('/node_modules/')) {
               return 'vendor';
             }
@@ -146,6 +152,7 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer/src'),
+        '@matricarmz/shared': resolve(__dirname, '../shared/src/index.ts'),
       },
     },
     plugins: [react()],
