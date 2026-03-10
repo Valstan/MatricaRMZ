@@ -13,9 +13,16 @@
     "ledger"
   ],
   "scripts": {
-    "dev": "pnpm -r dev",
-    "build": "pnpm -r build",
-    "lint": "pnpm -r lint",
+    "setup:dev": "corepack prepare pnpm@10.26.1 --activate && corepack pnpm install && corepack pnpm --filter @matricarmz/shared build",
+    "build:shared": "corepack pnpm --filter @matricarmz/shared build",
+    "db:migrate": "corepack pnpm --filter @matricarmz/backend-api db:migrate",
+    "dev:backend": "corepack pnpm --filter @matricarmz/backend-api dev",
+    "dev:electron": "corepack pnpm --filter @matricarmz/electron-app dev",
+    "dev:web-admin": "corepack pnpm --filter @matricarmz/web-admin dev",
+    "dev": "corepack pnpm -r dev",
+    "build": "corepack pnpm -r build",
+    "lint": "corepack pnpm -r lint",
+    "test": "corepack pnpm -r --workspace-concurrency=1 test",
     "format": "prettier -w .",
     "version:bump": "node scripts/bump-version.mjs",
     "version:bump:minor": "node scripts/bump-version.mjs --minor",
@@ -23,8 +30,8 @@
     "version:backend:bump": "node scripts/bump-backend-version.mjs",
     "version:backend:bump:minor": "node scripts/bump-backend-version.mjs --minor",
     "version:backend:bump:major": "node scripts/bump-backend-version.mjs --major",
-    "release:auto": "bash -lc 'set -a; [ -f backend-api/.env ] && source backend-api/.env; set +a; node scripts/release-auto.mjs'",
-    "release:ledger-publish": "bash -lc 'set -a; [ -f backend-api/.env ] && source backend-api/.env; set +a; node scripts/publish-ledger-release.mjs'"
+    "release:auto": "node scripts/run-with-backend-env.mjs scripts/release-auto.mjs",
+    "release:ledger-publish": "node scripts/run-with-backend-env.mjs scripts/publish-ledger-release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

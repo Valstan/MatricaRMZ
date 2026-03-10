@@ -4,6 +4,7 @@
 
 ## С чего начинать
 - Общая карта проекта, запуск, ENV, логи и ключевые команды: [`OPERATIONS.md`](OPERATIONS.md)
+- Локальная разработка на Windows 11 + MCP-доступ к VPS: [`WINDOWS_DEVELOPMENT.md`](WINDOWS_DEVELOPMENT.md)
 - Если есть инцидент с синком/деплоем: [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
 - Если задача про обновления/релизы: [`RELEASE.md`](RELEASE.md)
 - Если задача про отчеты: [`REPORTS.md`](REPORTS.md)

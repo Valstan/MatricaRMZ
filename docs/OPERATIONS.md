@@ -42,6 +42,15 @@ pnpm --filter @matricarmz/backend-api dev
 pnpm --filter @matricarmz/electron-app dev
 ```
 
+Для Windows 11 можно использовать подготовленные root-команды:
+
+```powershell
+corepack pnpm run setup:dev
+corepack pnpm run db:migrate
+corepack pnpm run dev:backend
+corepack pnpm run dev:electron
+```
+
 ## 4) Ключевые ENV
 
 ### Backend

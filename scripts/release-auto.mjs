@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { readFile, stat, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -22,6 +22,8 @@ function envInt(name, fallback) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const PNPM = process.platform === 'win32' ? 'corepack pnpm' : 'pnpm';
 
 async function readVersion() {
   return (await readFile(join(process.cwd(), 'VERSION'), 'utf8').catch(() => '')).trim();
@@ -169,10 +171,10 @@ async function publishLedgerRelease({ version, filePath, fileName }) {
 // ── Deploy server ────────────────────────────────────────────────────
 
 function deployServer() {
-  run('pnpm install');
-  run('pnpm -C shared build');
-  run('pnpm -C backend-api build');
-  run('pnpm --filter @matricarmz/web-admin build');
+  run(`${PNPM} install`);
+  run(`${PNPM} -C shared build`);
+  run(`${PNPM} -C backend-api build`);
+  run(`${PNPM} --filter @matricarmz/web-admin build`);
 
   const units = new Set(listSystemdServiceUnits());
   const hasPrimary = units.has('matricarmz-backend-primary.service');
@@ -202,7 +204,7 @@ function deployServer() {
 
 async function main() {
   const gitRoot = out('git rev-parse --show-toplevel');
-  if (gitRoot !== process.cwd()) throw new Error(`Run from repo root: ${gitRoot}`);
+  if (resolve(gitRoot) !== resolve(process.cwd())) throw new Error(`Run from repo root: ${gitRoot}`);
 
   // Auto-commit dirty changes
   if (out('git status --porcelain=v1')) {
@@ -217,7 +219,7 @@ async function main() {
   }
 
   // Bump version
-  run('pnpm version:bump');
+  run(`${PNPM} version:bump`);
   const version = await readVersion();
   if (!version) throw new Error('VERSION is empty after bump');
   const tag = `v${version}`;

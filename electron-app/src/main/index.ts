@@ -174,7 +174,7 @@ app.whenReady().then(() => {
   app.commandLine.appendSwitch('v', '1');
 
   // Network bootstrap: proxy/PAC + ipv4first + online monitor.
-  const apiBaseUrl = process.env.MATRICA_API_URL ?? 'http://a6fd55b8e0ae.vps.myjino.ru';
+  const apiBaseUrl = process.env.MATRICA_API_URL ?? 'https://a6fd55b8e0ae.vps.myjino.ru';
   void initNetworkService({ probeUrl: `${apiBaseUrl.replace(/\/+$/, '')}/health` });
 
   initAutoUpdate();
