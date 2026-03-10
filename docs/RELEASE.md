@@ -7,13 +7,22 @@
 - Источник истины: файл `VERSION` в корне.
 - Формат: `MAJOR.MINOR.RELEASE`.
 
-## Базовый релиз (основной путь)
+## Базовый релиз
+
+### С VPS (основной путь)
 ```bash
 cd /home/valstan/MatricaRMZ
 pnpm release:auto
 ```
 
-`release:auto` использует env из `backend-api/.env` (если файл доступен), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
+### С Windows (dev-машина)
+```powershell
+corepack pnpm run release:auto
+```
+
+На Windows скрипт выполняет commit, version bump, tag, push. Deploy backend пропускается (нет systemd). GitHub Actions собирает Windows installer по тегу `v*.*.*`. Ledger publish выполняется позже с VPS или при наличии `gh` CLI.
+
+`release:auto` автоматически подхватывает env из `backend-api/.env` (если файл существует), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
 
 ## Что делает `release:auto`
 - Коммитит рабочее дерево (если есть изменения).
@@ -28,7 +37,11 @@ pnpm release:auto
 Если `.exe` появился позже, чем скрипт дождался:
 
 ```bash
+# VPS
 pnpm release:ledger-publish
+
+# Windows
+corepack pnpm run release:ledger-publish -- 1.2.3
 ```
 
 Или с явным путём:

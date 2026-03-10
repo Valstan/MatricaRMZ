@@ -171,6 +171,11 @@ async function publishLedgerRelease({ version, filePath, fileName }) {
 // ── Deploy server ────────────────────────────────────────────────────
 
 function deployServer() {
+  if (process.platform === 'win32') {
+    console.log('Windows detected; backend deploy is handled on the VPS. Skipping local deploy.');
+    return;
+  }
+
   run(`${PNPM} install`);
   run(`${PNPM} -C shared build`);
   run(`${PNPM} -C backend-api build`);

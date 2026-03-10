@@ -58,9 +58,23 @@ corepack pnpm run build:shared
 corepack pnpm run dev:web-admin
 ```
 
-## 5. Release-скрипты на Windows
+## 5. Lint и тесты
 
-Root-скрипты `release:auto` и `release:ledger-publish` теперь не зависят от `bash`.
+Перед релизом прогоняем проверки:
+
+```powershell
+corepack pnpm --filter @matricarmz/ledger build   # prerequisite для backend тестов
+corepack pnpm run lint
+corepack pnpm run test
+```
+
+`lint` проверяет все пакеты рекурсивно. `test` запускает `vitest run` в `shared` и `backend-api`.
+
+Если backend-тесты падают с `Failed to resolve entry for package "@matricarmz/ledger"`, соберите ledger первой командой выше.
+
+## 7. Release-скрипты на Windows
+
+Root-скрипты `release:auto` и `release:ledger-publish` кроссплатформенны, не зависят от `bash`.
 
 Они автоматически подхватывают `backend-api/.env`, если файл существует:
 
@@ -69,7 +83,15 @@ corepack pnpm run release:auto
 corepack pnpm run release:ledger-publish -- 1.2.3
 ```
 
-## 6. Работа с VPS через MCP
+На Windows `release:auto`:
+- коммитит, бампит версию, тегирует, пушит в GitHub;
+- deploy backend пропускается (нет systemd);
+- GitHub Actions (`release-electron-windows.yml`) собирает Windows installer по тегу;
+- без `gh` CLI ожидание артефакта и ledger publish пропускаются (делается позже с VPS).
+
+Для полного пайплайна с Windows можно установить [GitHub CLI](https://cli.github.com/).
+
+## 8. Работа с VPS через MCP
 
 Для серверных операций в Cursor используем MCP `vps-matricarmz`, а не ручной SSH в процессе агентной разработки.
 
@@ -87,7 +109,7 @@ corepack pnpm run release:ledger-publish -- 1.2.3
 - на VPS есть `node v22.22.0` и `pnpm 10.26.1`;
 - репозиторий находится в `/home/valstan/MatricaRMZ`.
 
-## 7. Полезные замечания
+## 9. Полезные замечания
 
 - `backend-api` сам читает `backend-api/.env` через `dotenv/config`.
 - Electron в dev-цикле ожидает переменные окружения из запускающей среды, поэтому для локальных переопределений держим отдельный `electron-app/.env` и запускаем через подготовленные команды/IDE-задачи.
