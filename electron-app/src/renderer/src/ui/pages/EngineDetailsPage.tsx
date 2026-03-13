@@ -131,6 +131,7 @@ export function EngineDetailsPage(props: {
   canExportReports?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  currentUserProfile?: { fullName: string; position: string } | null;
   onOpenEngineBrand?: (engineBrandId: string) => void;
   onOpenCounterparty?: (counterpartyId: string) => void;
   onOpenContract?: (contractId: string) => void;
@@ -800,6 +801,7 @@ export function EngineDetailsPage(props: {
             {...(engineBrandId ? { engineBrandId } : {})}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
+            currentUserProfile={props.currentUserProfile}
           />
         </div>
       )}
@@ -820,6 +822,7 @@ export function EngineDetailsPage(props: {
             {...(engineBrandId ? { engineBrandId } : {})}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
+            currentUserProfile={props.currentUserProfile}
           />
         </div>
       )}
@@ -839,6 +842,7 @@ export function EngineDetailsPage(props: {
           {...(engineBrandId ? { engineBrandId } : {})}
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}
+          currentUserProfile={props.currentUserProfile}
         />
       )}
 

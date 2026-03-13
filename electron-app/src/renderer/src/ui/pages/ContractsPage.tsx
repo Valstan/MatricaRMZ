@@ -30,6 +30,7 @@ import {
   resolveMenuRows,
 } from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 type Row = {
   id: string;
   number: string;
@@ -93,13 +94,6 @@ function collectProgressContractNumbers(sections: ContractSections): Set<string>
   return out;
 }
 
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value <= 0) return 0;
-  if (value >= 100) return 100;
-  return value;
-}
-
 function fromInputDate(value: string): number | null {
   const text = String(value ?? '').trim();
   if (!text) return null;
@@ -146,9 +140,20 @@ function collectAttachmentPreviews(attrs: Record<string, unknown>): Array<{ id: 
 }
 
 function getProgressBarStyle(row: Row): { style: React.CSSProperties; textColor: string; hoverable: boolean } {
+  const visual = getContractProgressVisual({
+    progressPct: row.progressPct,
+    dateMs: row.dateMs,
+    dueDateMs: row.dueDateMs,
+    isFullyExecuted: row.isFullyExecuted,
+    isOverdue: row.daysLeft != null && row.daysLeft < 0 && !row.isFullyExecuted,
+  });
+
   if (row.daysLeft != null && row.daysLeft < 0 && !row.isFullyExecuted) {
+    const pct = visual.execPct.toFixed(2);
     return {
-      style: { backgroundColor: 'rgba(239, 68, 68, 0.85)' },
+      style: {
+        background: `linear-gradient(to right, rgba(239, 68, 68, 0.85) ${pct}%, rgba(239, 68, 68, 0.18) ${pct}%)`,
+      },
       textColor: '#fff',
       hoverable: false,
     };
@@ -166,23 +171,13 @@ function getProgressBarStyle(row: Row): { style: React.CSSProperties; textColor:
     return { style: {}, textColor: '#6b7280', hoverable: true };
   }
 
-  const execPct = clampPercent(row.progressPct);
-  const timePct = clampPercent(((Date.now() - row.dateMs) / (row.dueDateMs - row.dateMs)) * 100);
-  const lag = timePct - execPct;
-
-  let barColor = '#3b82f6';
-  if (lag >= 50) barColor = '#ef4444';
-  else if (lag >= 30) barColor = '#f97316';
-  else if (lag >= 20) barColor = '#facc15';
-  else if (lag >= 10) barColor = '#a3e635';
-  else if (lag > 0) barColor = '#60a5fa';
-
-  const pct = execPct.toFixed(2);
+  const pct = visual.execPct.toFixed(2);
+  const textColor = visual.execPct > 70 && (visual.lag ?? 0) >= 30 ? '#fff' : '#374151';
   return {
     style: {
-      background: `linear-gradient(to right, ${barColor} ${pct}%, transparent ${pct}%)`,
+      background: `linear-gradient(to right, ${visual.barColor} ${pct}%, transparent ${pct}%)`,
     },
-    textColor: '#6b7280',
+    textColor,
     hoverable: false,
   };
 }
@@ -465,6 +460,7 @@ export function ContractsPage(props: {
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
           Дата обновления карточки контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
         </th>
+        <th style={{ textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 80 }}>Прогресс</th>
         {showPreviews && (
           <th style={{ textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 220 }}>
             Превью
@@ -515,6 +511,9 @@ export function ContractsPage(props: {
         <td style={{ padding: '8px 10px', color: textColor }}>
           {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
         </td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', color: textColor, fontWeight: 600, fontSize: 12 }}>
+          {row.progressPct != null ? `${Math.round(row.progressPct)}%` : '—'}
+        </td>
         {showPreviews && (
           <td style={{ padding: '8px 10px', textAlign: 'right' }}>
             <ListRowThumbs files={row.attachmentPreviews ?? []} />
@@ -533,7 +532,7 @@ export function ContractsPage(props: {
             {items.map((row) => renderContractRow(row))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={showPreviews ? 8 : 7} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={showPreviews ? 9 : 8} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>

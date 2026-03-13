@@ -58,6 +58,7 @@ import {
   markAllAttributeDefsPending,
 } from './sync/errorRecovery.js';
 import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
+import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
 // getKeyRing/keyRingToBuffers now imported in sync/e2eCrypto.ts
@@ -601,7 +602,7 @@ function formatError(e: unknown): string {
 async function fetchWithRetryLogged(
   url: string,
   init: RequestInit,
-  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull' },
+  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull'; retryOnStatuses?: number[] },
 ): Promise<Response> {
   const started = nowMs();
   try {
@@ -611,6 +612,7 @@ async function fetchWithRetryLogged(
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 250,
+      retryOnStatuses: opts.retryOnStatuses,
     });
     const dur = nowMs() - started;
     logSync(`${opts.label} attempt=ok status=${res.status} durMs=${dur} url=${url}`);
@@ -634,7 +636,7 @@ async function fetchAuthed(
   apiBaseUrl: string,
   url: string,
   init: RequestInit,
-  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull' },
+  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull'; retryOnStatuses?: number[] },
 ): Promise<Response> {
   const session = await getSession(db).catch(() => null);
   const first = await fetchWithRetryLogged(url, withAuthHeader(init, session?.accessToken ?? null), opts);
@@ -645,7 +647,7 @@ async function fetchAuthed(
     const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
     if (!refreshed.ok) {
       logSync(`${opts.label} refresh failed: ${refreshed.error}`);
-      await clearSession(db).catch(() => {});
+      // authRefresh handles session clearing for definitive auth rejection (401/403).
       return first;
     }
     logSync(`${opts.label} refresh ok, retrying`);
@@ -3086,6 +3088,7 @@ export async function runSync(
       return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor, serverLastSeq };
     } catch (e) {
       const err = formatError(e);
+      const offline = isOfflineSyncError(e);
       if (!attemptedFix && isNotFoundSyncError(err)) {
         attemptedFix = true;
         const recovered = await tryRecoverApiBaseUrl(db, currentApiBaseUrl);
@@ -3094,16 +3097,21 @@ export async function runSync(
           continue;
         }
       }
-      logSync(`error ${err}`);
-      logSync(`sync.run.error id=${syncRunId} err=${err}`);
-      emitSyncProgress('error', { error: err, etaMs: null, progress: null });
-      void logMessage(db, currentApiBaseUrl, 'error', `sync failed: ${err}`, {
+      if (offline) {
+        logSync(`sync.run.offline id=${syncRunId} err=${err}`);
+      } else {
+        logSync(`error ${err}`);
+        logSync(`sync.run.error id=${syncRunId} err=${err}`);
+      }
+      emitSyncProgress('error', { error: offline ? 'offline: waiting for network recovery' : err, etaMs: null, progress: null });
+      void logMessage(db, currentApiBaseUrl, offline ? 'warn' : 'error', offline ? 'sync deferred: offline' : `sync failed: ${err}`, {
         component: 'sync',
         action: 'run',
-        critical: true,
+        critical: offline ? false : true,
+        ...(offline ? { reason: 'offline' } : {}),
         clientId,
       });
-      return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: err };
+      return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: offline ? 'offline' : err };
     }
   }
   const err = 'sync failed: apiBaseUrl auto-fix exhausted';

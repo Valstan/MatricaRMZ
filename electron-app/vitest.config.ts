@@ -5,12 +5,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@matricarmz/shared': path.resolve(__dirname, '../shared/src/index.ts'),
-      '@matricarmz/ledger': path.resolve(__dirname, '../ledger/src/index.ts'),
     },
   },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
-    testTimeout: 15_000,
   },
 });
+

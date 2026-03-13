@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getSession } from '../services/authService.js';
+import { onNetworkChange } from '../services/networkService.js';
 import { SyncManager } from '../services/syncManager.js';
 import { logMessageGetEnabled, startLogSender } from '../services/logService.js';
 import { startClientSettingsPolling } from '../services/clientAdminService.js';
@@ -56,6 +57,10 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
   const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, { onProgress: emitSyncProgress });
   mgr.startAuto(5 * 60_000);
+  onNetworkChange((next) => {
+    if (!next.online) return;
+    void mgr.runOnce().catch(() => {});
+  });
 
   // Инициализация системы логирования
   void logMessageGetEnabled(db).then((enabled) => {

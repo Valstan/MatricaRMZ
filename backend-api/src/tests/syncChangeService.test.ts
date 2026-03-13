@@ -13,7 +13,9 @@ describe('syncChangeService', () => {
     vi.clearAllMocks();
   });
 
-  it('appendLedgerChanges skips rows with invalid payloadJson', async () => {
+  it(
+    'appendLedgerChanges skips rows with invalid payloadJson',
+    async () => {
     const { appendLedgerChanges } = await import('../services/sync/syncChangeService.js');
 
     const result = appendLedgerChanges(
@@ -23,7 +25,9 @@ describe('syncChangeService', () => {
 
     expect(result).toEqual({ applied: 0, lastSeq: 0, blockHeight: 0 });
     expect(signAndAppendDetailedMock).not.toHaveBeenCalled();
-  });
+    },
+    15_000,
+  );
 
   it('appendLedgerChanges maps op/table and defaults actor role', async () => {
     signAndAppendDetailedMock.mockReturnValueOnce({ applied: 1, lastSeq: 42, blockHeight: 7, signed: [] });

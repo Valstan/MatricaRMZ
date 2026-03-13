@@ -7,6 +7,7 @@ import { authStatus } from '../../services/authService.js';
 import {
   createSupplyRequest,
   deleteSupplyRequest,
+  getUserEmployeeProfile,
   getSupplyRequest,
   listSupplyRequests,
   transitionSupplyRequest,
@@ -17,7 +18,14 @@ export function registerSupplyRequestsIpc(ctx: IpcContext) {
   async function getScope() {
     const auth = await authStatus(ctx.sysDb);
     if (!auth.loggedIn || !auth.user) return null;
-    return { userId: auth.user.id, role: auth.user.role };
+    const profile = await getUserEmployeeProfile(ctx.dataDb(), auth.user.id).catch(() => null);
+    return {
+      userId: auth.user.id,
+      role: auth.user.role,
+      position: profile?.position ?? '',
+      fullName: profile?.fullName ?? '',
+      departmentId: profile?.departmentId ?? null,
+    };
   }
 
   ipcMain.handle('supplyRequests:list', async (_e, args?: { q?: string; month?: string }) => {

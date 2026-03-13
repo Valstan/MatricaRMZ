@@ -270,6 +270,7 @@ export function RepairChecklistPanel(props: {
   canViewFiles?: boolean;
   canUploadFiles?: boolean;
   defaultCollapsed?: boolean;
+  currentUserProfile?: { fullName: string; position: string } | null;
 }) {
   const [status, setStatus] = useState<string>('');
   const [templates, setTemplates] = useState<RepairChecklistTemplate[]>([]);
@@ -456,6 +457,28 @@ export function RepairChecklistPanel(props: {
     setAnswers(next);
     if (props.canEdit) void save(next);
   }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
+
+  useEffect(() => {
+    if (!activeTemplate) return;
+    const fullName = String(props.currentUserProfile?.fullName ?? '').trim();
+    const position = String(props.currentUserProfile?.position ?? '').trim();
+    if (!fullName && !position) return;
+    const next = { ...answers } as RepairChecklistAnswers;
+    let changed = false;
+    for (const item of activeTemplate.items) {
+      if (item.kind !== 'signature') continue;
+      const current = (answers as any)[item.id];
+      const currentFio = current?.kind === 'signature' ? String(current.fio ?? '').trim() : '';
+      const currentPosition = current?.kind === 'signature' ? String(current.position ?? '').trim() : '';
+      if (currentFio || currentPosition) continue;
+      const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
+      (next as any)[item.id] = { kind: 'signature', fio: fullName, position, signedAt };
+      changed = true;
+    }
+    if (!changed) return;
+    setAnswers(next);
+    if (props.canEdit) void save(next);
+  }, [activeTemplate?.id, answers, props.canEdit, props.currentUserProfile?.fullName, props.currentUserProfile?.position]);
 
   useEffect(() => {
     if (props.stage !== 'repair') {

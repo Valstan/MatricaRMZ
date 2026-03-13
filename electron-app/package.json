@@ -13,6 +13,7 @@
     "prebuild": "corepack pnpm -C ../ledger build",
     "build": "electron-vite build",
     "lint": "eslint src electron.vite.config.ts drizzle.config.ts",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "dist": "pnpm build && electron-builder"
   },
@@ -38,7 +39,8 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^4.0.17"
   },
   "build": {
     "appId": "ru.matricarmz.app",

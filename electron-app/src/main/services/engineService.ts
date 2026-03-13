@@ -354,8 +354,13 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
         }
       }
     }
-    if (shippingDate == null && statusDateByCode.status_customer_sent != null) {
-      shippingDate = statusDateByCode.status_customer_sent;
+    if (shippingDate == null) {
+      if (statusDateByCode.status_customer_sent != null) {
+        shippingDate = statusDateByCode.status_customer_sent;
+      } else if (statusDateByCode.status_customer_accepted != null) {
+        // Some historical cards have only the final customer acceptance date.
+        shippingDate = statusDateByCode.status_customer_accepted;
+      }
     }
     const statusRejected = statusFlags.status_rejected === true;
     const allDefectPartsScrapped = defectScrapByEngineId.get(e.id) === true;

@@ -24,6 +24,8 @@ import {
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
+import { prependUtf8Bom } from './reportCsvEncoding.js';
+import { resolveEngineShippingState } from './reportEngineShippingState.js';
 
 type Snapshot = {
   entityTypeIdByCode: Map<string, string>;
@@ -1152,7 +1154,7 @@ async function buildEnginesListReport(
 
     const createdAtRaw = toNumber(attrs.created_at);
     const arrivalDateRaw = toNumber(attrs.arrival_date);
-    const shippingDateRaw = toNumber(attrs.shipping_date);
+    const { shippingDate, onSite } = resolveEngineShippingState(attrs);
     const isScrap = attrs.is_scrap === true || attrs.is_scrap === 'true' || attrs.is_scrap === 1;
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const contractId = normalizeText(attrs.contract_id, '');
@@ -1164,8 +1166,8 @@ async function buildEnginesListReport(
     if (arrivalStart != null && (arrivalDateRaw <= 0 || arrivalDateRaw < arrivalStart)) continue;
     if (arrivalEnd != null && (arrivalDateRaw <= 0 || arrivalDateRaw > arrivalEnd)) continue;
 
-    if (shippingStart != null && (shippingDateRaw <= 0 || shippingDateRaw < shippingStart)) continue;
-    if (shippingEnd != null && (shippingDateRaw <= 0 || shippingDateRaw > shippingEnd)) continue;
+    if (shippingStart != null && (shippingDate == null || shippingDate < shippingStart)) continue;
+    if (shippingEnd != null && (shippingDate == null || shippingDate > shippingEnd)) continue;
 
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
@@ -1173,7 +1175,6 @@ async function buildEnginesListReport(
     if (scrapFilter === 'yes' && !isScrap) continue;
     if (scrapFilter === 'no' && isScrap) continue;
 
-    const onSite = shippingDateRaw <= 0;
     if (onSiteFilter === 'yes' && !onSite) continue;
     if (onSiteFilter === 'no' && onSite) continue;
 
@@ -1186,7 +1187,7 @@ async function buildEnginesListReport(
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       arrivalDate: arrivalDateRaw > 0 ? arrivalDateRaw : null,
-      shippingDate: shippingDateRaw > 0 ? shippingDateRaw : null,
+      shippingDate,
       isScrap: isScrap ? 'Да' : 'Нет',
     });
   }
@@ -1270,7 +1271,7 @@ export function buildReportCsv(report: OkPreview): string {
     lines.push('');
     lines.push(['Итого по отчету', ...formatTotalsForDisplay(report.totals)].map(csvEscape).join(';'));
   }
-  return lines.join('\n') + '\n';
+  return prependUtf8Bom(lines.join('\n') + '\n');
 }
 
 export function renderReportHtml(report: OkPreview): string {

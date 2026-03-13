@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { SupplyRequestPayload, SupplyRequestStatus } from '@matricarmz/shared';
-import { SystemIds } from '@matricarmz/shared';
+import type { SupplyRequestPayload, SupplyRequestStatus, SupplyRequestTransitionAction } from '@matricarmz/shared';
+import { canActByPosition, canSignAsDepartmentHead, SystemIds } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, auditLog, entityTypes, operations } from '../database/schema.js';
 
@@ -62,6 +62,22 @@ function canEditAllDepartments(role: string) {
   return normalizeRole(role) === 'superadmin';
 }
 
+function parseAttributeString(raw: unknown): string | null {
+  const source = raw == null ? '' : String(raw);
+  if (!source) return null;
+  try {
+    const parsed = JSON.parse(source);
+    if (typeof parsed === 'string') {
+      const value = parsed.trim();
+      return value ? value : null;
+    }
+    return null;
+  } catch {
+    const fallback = source.trim();
+    return fallback ? fallback : null;
+  }
+}
+
 async function getEntityTypeIdByCode(db: BetterSQLite3Database, code: string): Promise<string | null> {
   const rows = await db
     .select({ id: entityTypes.id })
@@ -80,20 +96,55 @@ async function getAttributeDefIdByCode(db: BetterSQLite3Database, entityTypeId: 
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
-async function getUserDepartmentId(db: BetterSQLite3Database, userId: string): Promise<string | null> {
+export type SupplyRequestScope = {
+  userId: string;
+  role: string;
+  position?: string | null;
+  fullName?: string | null;
+  departmentId?: string | null;
+};
+
+export async function getUserEmployeeProfile(
+  db: BetterSQLite3Database,
+  userId: string,
+): Promise<{ position: string; fullName: string; departmentId: string | null }> {
   const employeeTypeId = await getEntityTypeIdByCode(db, 'employee');
-  if (!employeeTypeId) return null;
-  const defId = await getAttributeDefIdByCode(db, employeeTypeId, 'department_id');
-  if (!defId) return null;
+  if (!employeeTypeId) return { position: '', fullName: '', departmentId: null };
+
+  const [roleDefId, fullNameDefId, departmentDefId] = await Promise.all([
+    getAttributeDefIdByCode(db, employeeTypeId, 'role'),
+    getAttributeDefIdByCode(db, employeeTypeId, 'full_name'),
+    getAttributeDefIdByCode(db, employeeTypeId, 'department_id'),
+  ]);
+  const defIds = [roleDefId, fullNameDefId, departmentDefId].filter((id): id is string => Boolean(id));
+  if (defIds.length === 0) return { position: '', fullName: '', departmentId: null };
+
   const rows = await db
-    .select({ valueJson: attributeValues.valueJson })
+    .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, userId), eq(attributeValues.attributeDefId, defId), isNull(attributeValues.deletedAt)))
-    .limit(1);
-  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : '';
-  if (!raw) return null;
-  const parsed = safeJsonParse(raw);
-  return typeof parsed === 'string' && parsed.trim() ? parsed.trim() : null;
+    .where(
+      and(
+        eq(attributeValues.entityId, userId),
+        inArray(attributeValues.attributeDefId, defIds),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(50);
+
+  const byDefId = rows.reduce<Record<string, string | null>>((acc, row) => {
+    acc[String(row.attributeDefId)] = parseAttributeString(row.valueJson);
+    return acc;
+  }, {});
+
+  const position = roleDefId ? String(byDefId[roleDefId] ?? '').trim() : '';
+  const fullName = fullNameDefId ? String(byDefId[fullNameDefId] ?? '').trim() : '';
+  const departmentId = departmentDefId ? (byDefId[departmentDefId] ?? null) : null;
+  return { position, fullName, departmentId };
+}
+
+async function getUserDepartmentId(db: BetterSQLite3Database, userId: string): Promise<string | null> {
+  const profile = await getUserEmployeeProfile(db, userId);
+  return profile.departmentId;
 }
 
 async function getDepartmentNamesById(db: BetterSQLite3Database, ids: string[]): Promise<Record<string, string>> {
@@ -141,7 +192,7 @@ async function audit(db: BetterSQLite3Database, actor: string, action: string, p
 export async function listSupplyRequests(
   db: BetterSQLite3Database,
   args?: { q?: string; month?: string },
-  scope?: { userId: string; role: string },
+  scope?: SupplyRequestScope,
 ): Promise<
   | {
       ok: true;
@@ -286,7 +337,7 @@ async function getSupplyRequestRaw(
 export async function getSupplyRequest(
   db: BetterSQLite3Database,
   id: string,
-  scope?: { userId: string; role: string },
+  scope?: SupplyRequestScope,
 ): Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }> {
   const res = await getSupplyRequestRaw(db, id);
   if (!res.ok) return res;
@@ -338,7 +389,7 @@ async function nextRequestNumber(db: BetterSQLite3Database, compiledAt: number):
 export async function createSupplyRequest(
   db: BetterSQLite3Database,
   actor: string,
-  scope?: { userId: string; role: string },
+  scope?: SupplyRequestScope,
 ): Promise<{ ok: true; id: string; payload: SupplyRequestPayload } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
@@ -395,7 +446,7 @@ export async function createSupplyRequest(
 
 export async function deleteSupplyRequest(
   db: BetterSQLite3Database,
-  args: { id: string; actor: string; scope?: { userId: string; role: string } },
+  args: { id: string; actor: string; scope?: SupplyRequestScope },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
@@ -425,7 +476,7 @@ export async function deleteSupplyRequest(
 
 export async function updateSupplyRequest(
   db: BetterSQLite3Database,
-  args: { id: string; payload: SupplyRequestPayload; actor: string; scope?: { userId: string; role: string } },
+  args: { id: string; payload: SupplyRequestPayload; actor: string; scope?: SupplyRequestScope },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const cur = await getSupplyRequestRaw(db, args.id);
@@ -481,10 +532,10 @@ export async function transitionSupplyRequest(
   db: BetterSQLite3Database,
   args: {
     id: string;
-    action: 'sign' | 'director_approve' | 'accept' | 'fulfill_full' | 'fulfill_partial';
+    action: SupplyRequestTransitionAction;
     actor: string;
     note?: string | null;
-    scope?: { userId: string; role: string };
+    scope?: SupplyRequestScope;
   },
 ): Promise<{ ok: true; payload: SupplyRequestPayload } | { ok: false; error: string }> {
   try {
@@ -503,7 +554,21 @@ export async function transitionSupplyRequest(
     const auditTrail = [...(p.auditTrail ?? [])];
     const addTrail = (action: string) => auditTrail.push({ at: ts, by: args.actor, action, note: args.note ?? null });
 
-    const sig = { username: args.actor, signedAt: ts };
+    const userRole = args.scope?.role ?? '';
+    if (!canActByPosition(args.action, args.scope?.position ?? null, userRole)) {
+      return { ok: false as const, error: 'Недостаточно прав по должности для этого действия' };
+    }
+    if (normalizeRole(userRole) !== 'superadmin' && !canSignAsDepartmentHead(args.action, args.scope?.departmentId, p.departmentId)) {
+      return { ok: false as const, error: 'Подписывать заявку может только начальник своего подразделения' };
+    }
+
+    const sig = {
+      userId: args.scope?.userId ?? null,
+      username: args.actor,
+      fullName: args.scope?.fullName ?? null,
+      position: args.scope?.position ?? null,
+      signedAt: ts,
+    };
 
     switch (args.action) {
       case 'sign': {

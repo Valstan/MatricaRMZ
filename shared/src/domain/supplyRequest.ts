@@ -6,6 +6,13 @@ export type SupplyRequestStatus =
   | 'fulfilled_full'
   | 'fulfilled_partial';
 
+export type SupplyRequestTransitionAction =
+  | 'sign'
+  | 'director_approve'
+  | 'accept'
+  | 'fulfill_full'
+  | 'fulfill_partial';
+
 export type SupplyRequestDelivery = {
   deliveredAt?: number; // ms epoch
   qty?: number;
@@ -25,6 +32,8 @@ export type SupplyRequestItem = {
 export type SupplyRequestSignature = {
   userId?: string | null;
   username?: string | null;
+  fullName?: string | null;
+  position?: string | null;
   signedAt: number; // ms epoch
 };
 

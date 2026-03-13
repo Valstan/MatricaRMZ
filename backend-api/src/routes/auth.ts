@@ -55,6 +55,22 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(20),
 });
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isTransientRefreshDbError(message: string) {
+  const lower = String(message ?? '').toLowerCase();
+  return (
+    lower.includes('timeout') ||
+    lower.includes('trying to connect') ||
+    lower.includes('connection') ||
+    lower.includes('econnrefused') ||
+    lower.includes('econnreset') ||
+    lower.includes('etimedout')
+  );
+}
+
 authRouter.post('/login', async (req, res) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
@@ -469,48 +485,55 @@ authRouter.patch('/profile', requireAuth, async (req, res) => {
 });
 
 authRouter.post('/refresh', async (req, res) => {
-  try {
-    const parsed = refreshSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const parsed = refreshSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const inToken = parsed.data.refreshToken;
-    const tokenHash = hashRefreshToken(inToken);
+  const tokenHash = hashRefreshToken(parsed.data.refreshToken);
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const now = Date.now();
+      const rows = await db
+        .select()
+        .from(refreshTokens)
+        .where(and(eq(refreshTokens.tokenHash, tokenHash), gt(refreshTokens.expiresAt, now)))
+        .limit(1);
+      const rt = rows[0];
+      if (!rt) return res.status(401).json({ ok: false, error: 'недействительный токен обновления' });
 
-    const now = Date.now();
-    const rows = await db
-      .select()
-      .from(refreshTokens)
-      .where(and(eq(refreshTokens.tokenHash, tokenHash), gt(refreshTokens.expiresAt, now)))
-      .limit(1);
-    const rt = rows[0];
-    if (!rt) return res.status(401).json({ ok: false, error: 'недействительный токен обновления' });
+      const u = await getEmployeeAuthById(String(rt.userId));
+      if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'пользователь отключен' });
 
-    const u = await getEmployeeAuthById(String(rt.userId));
-    if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'пользователь отключен' });
+      const role = normalizeRole(u.login, u.systemRole);
+      if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
+      const authUser: AuthUser = { id: u.id, username: u.login, role };
+      const accessToken = await signAccessToken(authUser);
+      const permissions = await getEffectivePermissionsForUser(u.id);
 
-    const role = normalizeRole(u.login, u.systemRole);
-    if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
-    const authUser: AuthUser = { id: u.id, username: u.login, role };
-    const accessToken = await signAccessToken(authUser);
-    const permissions = await getEffectivePermissionsForUser(u.id);
+      // Rotation refresh token: удаляем старый, выдаём новый.
+      const newRefreshToken = generateRefreshToken();
+      const expiresAt = now + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
+      await db.delete(refreshTokens).where(eq(refreshTokens.id, rt.id));
+      await db.insert(refreshTokens).values({
+        id: randomUUID(),
+        userId: u.id,
+        tokenHash: hashRefreshToken(newRefreshToken),
+        expiresAt,
+        createdAt: now,
+      });
 
-    // Rotation refresh token: удаляем старый, выдаём новый.
-    const newRefreshToken = generateRefreshToken();
-    const expiresAt = now + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
-    await db.delete(refreshTokens).where(eq(refreshTokens.id, rt.id));
-    await db.insert(refreshTokens).values({
-      id: randomUUID(),
-      userId: u.id,
-      tokenHash: hashRefreshToken(newRefreshToken),
-      expiresAt,
-      createdAt: now,
-    });
-
-    return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser, permissions });
-  } catch (e) {
-    logError('auth refresh failed', { error: String(e) });
-    return res.status(500).json({ ok: false, error: String(e) });
+      return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser, permissions });
+    } catch (e) {
+      const error = String(e);
+      if (attempt < maxAttempts && isTransientRefreshDbError(error)) {
+        await sleep(500);
+        continue;
+      }
+      logError('auth refresh failed', { error, attempt });
+      return res.status(500).json({ ok: false, error });
+    }
   }
+  return res.status(500).json({ ok: false, error: 'auth refresh failed: exhausted retries' });
 });
 
 authRouter.post('/logout', requireAuth, async (req, res) => {

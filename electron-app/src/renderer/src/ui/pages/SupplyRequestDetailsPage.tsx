@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { canActByPosition, canSignAsDepartmentHead } from '@matricarmz/shared';
 import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -144,20 +145,27 @@ function printSupplyRequest(
     })
     .join('\n');
 
-  const headName = p.signedByHead?.username ?? '';
+  const headName = String(p.signedByHead?.fullName ?? '').trim() || String(p.signedByHead?.username ?? '').trim();
+  const headPosition = String(p.signedByHead?.position ?? '').trim();
   const headAt = p.signedByHead?.signedAt ? formatMoscowDateTime(p.signedByHead.signedAt) : '';
-  const dirName = p.approvedByDirector?.username ?? '';
+  const dirName = String(p.approvedByDirector?.fullName ?? '').trim() || String(p.approvedByDirector?.username ?? '').trim();
+  const dirPosition = String(p.approvedByDirector?.position ?? '').trim();
   const dirAt = p.approvedByDirector?.signedAt ? formatMoscowDateTime(p.approvedByDirector.signedAt) : '';
-  const supplyName = p.acceptedBySupply?.username ?? '';
+  const supplyName = String(p.acceptedBySupply?.fullName ?? '').trim() || String(p.acceptedBySupply?.username ?? '').trim();
+  const supplyPosition = String(p.acceptedBySupply?.position ?? '').trim();
   const supplyAt = p.acceptedBySupply?.signedAt ? formatMoscowDateTime(p.acceptedBySupply.signedAt) : '';
 
   const footer = `
   <div style="margin-top:18px;">
-    <div><b>Подпись начальника цеха:</b> _______________ ([Ф.И.О начальника цеха или подразделения]) ${escapeHtml(headName)} ${escapeHtml(headAt)}</div>
+    <div><b>Подпись начальника цеха:</b> _______________ ([Ф.И.О начальника цеха или подразделения]) ${escapeHtml(headName)} ${
+      headPosition ? `(${escapeHtml(headPosition)})` : ''
+    } ${escapeHtml(headAt)}</div>
     <div style="margin-top:8px;"><b>К исполнению. Подпись директора:</b> __________________ ([Ф.И.О директора завода или исполняющего обязанности директора]) ${escapeHtml(
       dirName,
-    )} ${escapeHtml(dirAt)}</div>
-    <div style="margin-top:8px;"><b>Принято снабжением:</b> _______________________ ([Ф.И.О начальника снабжения]) ${escapeHtml(supplyName)} ${escapeHtml(
+    )} ${dirPosition ? `(${escapeHtml(dirPosition)})` : ''} ${escapeHtml(dirAt)}</div>
+    <div style="margin-top:8px;"><b>Принято снабжением:</b> _______________________ ([Ф.И.О начальника снабжения]) ${escapeHtml(
+      supplyName,
+    )} ${supplyPosition ? `(${escapeHtml(supplyPosition)})` : ''} ${escapeHtml(
       supplyAt,
     )}</div>
   </div>`;
@@ -222,6 +230,9 @@ export function SupplyRequestDetailsPage(props: {
   canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  userPosition?: string | null;
+  userRole?: string | null;
+  userDepartmentId?: string | null;
   onOpenProduct?: (productId: string) => void;
   onOpenService?: (serviceId: string) => void;
   onClose: () => void;
@@ -539,10 +550,24 @@ export function SupplyRequestDetailsPage(props: {
     return <div style={{ color: 'var(--subtle)' }}>{saveStatus || '...'}</div>;
   }
 
-  const canTransitionSign = props.canSign && payload.status === 'draft';
-  const canTransitionApprove = props.canApprove && payload.status === 'signed';
-  const canTransitionAccept = props.canAccept && payload.status === 'director_approved';
-  const canTransitionFulfill = props.canFulfill && payload.status === 'accepted';
+  const canTransitionSign =
+    props.canSign &&
+    payload.status === 'draft' &&
+    canActByPosition('sign', props.userPosition ?? null, props.userRole ?? null) &&
+    (String(props.userRole ?? '').trim().toLowerCase() === 'superadmin' ||
+      canSignAsDepartmentHead('sign', props.userDepartmentId ?? null, payload.departmentId ?? null));
+  const canTransitionApprove =
+    props.canApprove &&
+    payload.status === 'signed' &&
+    canActByPosition('director_approve', props.userPosition ?? null, props.userRole ?? null);
+  const canTransitionAccept =
+    props.canAccept &&
+    payload.status === 'director_approved' &&
+    canActByPosition('accept', props.userPosition ?? null, props.userRole ?? null);
+  const canTransitionFulfill =
+    props.canFulfill &&
+    payload.status === 'accepted' &&
+    canActByPosition('fulfill_full', props.userPosition ?? null, props.userRole ?? null);
 
   const mainFields = orderFieldsByDefs(
     [

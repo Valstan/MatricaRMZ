@@ -3,6 +3,8 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
 
 import { runSync } from './syncService.js';
+import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
+import { computeNextSyncDelayMs } from './sync/syncScheduling.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
 
 type RunSyncOpts = Parameters<typeof runSync>[3];
@@ -94,10 +96,11 @@ export class SyncManager {
       // Перед каждым синком подхватываем актуальную конфигурацию.
       await this.refreshApiBaseUrlFromDb();
       const r = await runSync(this.db, this.clientId, this.apiBaseUrl, opts);
+      const offline = !r.ok && isOfflineSyncError(r.error ?? '');
       this.lastResult = r;
-      this.lastSyncAt = nowMs();
-      this.state = r.ok ? 'idle' : 'error';
-      if (!r.ok) this.lastError = r.error ?? 'unknown';
+      if (r.ok) this.lastSyncAt = nowMs();
+      this.state = r.ok || offline ? 'idle' : 'error';
+      this.lastError = !r.ok && !offline ? (r.error ?? 'unknown') : null;
       return r;
     } finally {
       this.inFlight = false;
@@ -114,22 +117,18 @@ export class SyncManager {
       },
     });
 
-    let nextDelay = baseIntervalMs;
-    if (!r.ok) {
-      this.consecutiveErrors += 1;
-      const backoff = Math.min(10 * 60_000, 30_000 * 2 ** Math.min(4, this.consecutiveErrors - 1));
-      nextDelay = Math.max(30_000, backoff);
-    } else {
-      this.consecutiveErrors = 0;
-      const activity = Number(r.pulled ?? 0) + Number(r.pushed ?? 0);
-      // Если были изменения — повторяем быстрее, чтобы «догрызать хвост».
-      nextDelay = activity > 0 ? Math.min(45_000, Math.max(15_000, Math.floor(baseIntervalMs / 3))) : baseIntervalMs;
-    }
-    // Добавляем jitter, чтобы клиенты не били сервер одновременно.
-    const jitter = Math.floor(nextDelay * 0.15 * Math.random());
-    nextDelay = Math.max(10_000, nextDelay + jitter);
+    const offline = !r.ok && isOfflineSyncError(r.error ?? '');
+    const { nextDelayMs, nextConsecutiveErrors } = computeNextSyncDelayMs({
+      baseIntervalMs,
+      resultOk: r.ok,
+      pulled: Number(r.pulled ?? 0),
+      pushed: Number(r.pushed ?? 0),
+      offline,
+      consecutiveErrors: this.consecutiveErrors,
+    });
+    this.consecutiveErrors = nextConsecutiveErrors;
     this.stopAuto();
-    this.startAuto(nextDelay);
+    this.startAuto(nextDelayMs);
   }
 }
 

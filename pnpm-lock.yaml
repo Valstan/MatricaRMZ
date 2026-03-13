@@ -184,6 +184,9 @@ importers:
       vite:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@22.19.3)
+      vitest:
+        specifier: ^4.0.17
+        version: 4.0.17(@types/node@22.19.3)(tsx@4.21.0)
 
   ledger:
     devDependencies:

@@ -36,6 +36,7 @@ import { formatMoscowDateTime, formatRuMoney, formatRuNumber } from '../utils/da
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
+import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 
 type AttributeDef = {
   id: string;
@@ -1090,6 +1091,15 @@ export function ContractDetailsPage(props: {
   );
   const daysLeft = dueAt != null ? Math.ceil((dueAt - Date.now()) / (24 * 60 * 60 * 1000)) : null;
   const progressPct = contractProgress?.progressPct ?? 0;
+  const dateMs = sections?.primary.signedAt ?? (typeof contract?.attributes?.date === 'number' ? Number(contract.attributes.date) : null);
+  const isFullyExecuted = Boolean(contractProgress?.progressPct != null && contractProgress.progressPct >= 100);
+  const progressVisual = getContractProgressVisual({
+    progressPct: contractProgress?.progressPct ?? null,
+    dateMs,
+    dueDateMs: dueAt,
+    isFullyExecuted,
+    isOverdue: daysLeft != null && daysLeft < 0 && !isFullyExecuted,
+  });
   const executionState = getExecutionState(contractProgress?.progressPct ?? null);
 
   function printContractCard() {
@@ -1622,7 +1632,7 @@ export function ContractDetailsPage(props: {
                   style={{
                     width: `${Math.min(100, Math.max(0, progressPct))}%`,
                     height: '100%',
-                    background: 'var(--success)',
+                    background: progressVisual.barColor,
                     transition: 'width 0.2s',
                   }}
                 />

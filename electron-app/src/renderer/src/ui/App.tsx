@@ -60,6 +60,13 @@ type QuickStartScoreEntry = {
   lastAt: number;
 };
 
+type CurrentUserProfile = {
+  fullName: string;
+  position: string;
+  sectionId: string | null;
+  sectionName: string | null;
+};
+
 const QUICK_START_DAY_MS = 24 * 60 * 60 * 1000;
 const QUICK_START_RATING_WINDOW_DAYS = 10;
 const QUICK_START_RATING_WINDOW_MS = QUICK_START_DAY_MS * QUICK_START_RATING_WINDOW_DAYS;
@@ -370,6 +377,7 @@ export function App() {
     closing: false,
   });
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
+  const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [tab, setTabState] = useState<TabId>('history');
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
@@ -1112,6 +1120,38 @@ export function App() {
       clearInterval(id);
     };
   }, [authStatus.loggedIn]);
+
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) {
+      setCurrentUserProfile(null);
+      return;
+    }
+    let alive = true;
+    void window.matrica.auth
+      .profileGet()
+      .then((result: any) => {
+        if (!alive) return;
+        const profile = result?.ok ? result.profile : null;
+        if (!profile) {
+          setCurrentUserProfile(null);
+          return;
+        }
+        setCurrentUserProfile({
+          fullName: String(profile.fullName ?? '').trim(),
+          position: String(profile.position ?? '').trim(),
+          sectionId: profile.sectionId ? String(profile.sectionId) : null,
+          sectionName: profile.sectionName ? String(profile.sectionName) : null,
+        });
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCurrentUserProfile(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [authStatus.loggedIn, authStatus.user?.id]);
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -3106,6 +3146,7 @@ export function App() {
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenEngineBrand={openEngineBrand}
@@ -3164,6 +3205,9 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            userPosition={currentUserProfile?.position ?? null}
+            userRole={authStatus.user?.role ?? null}
+            userDepartmentId={currentUserProfile?.sectionId ?? null}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenProduct={openProduct}
