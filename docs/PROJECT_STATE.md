@@ -37,10 +37,12 @@
 - Управление VPS из Cursor идет через MCP `ssh-mcp`; рабочая конфигурация и типичные ошибки описаны в `docs/MCP_SETUP_WINDOWS.md`.
 - Прод-контур backend работает в режиме dual-instance: `matricarmz-backend-primary.service` (`:3001`) + `matricarmz-backend-secondary.service` (`:3002`) за nginx upstream.
 - Singleton background jobs (sync-pipeline supervisor, critical notifier, schedulers) должны запускаться только на `primary`; `secondary` обслуживает только API.
+- Завершение ИИ-сессии теперь должно доводить не только git-репозиторий, но и прод-контур до актуального состояния: push в GitHub, выравнивание VPS checkout, deploy при необходимости, и выпуск нового Windows-клиентского релиза при риске несовместимости с продом.
 - Рабочий контур синхронизации клиента использует ledger-эндпоинты; legacy `sync/*` не считается актуальным контуром.
 - Клиентский release для автообновлений становится видимым клиенту только после публикации installer-метаданных в ledger с корректными `version`, `fileName`, `size`, `sha256`.
 
 ## Последние важные изменения
+- Протокол завершения сессии расширен до полного production closure: GitHub push, sync VPS-репозитория, deploy, пост-проверки и decision gate по клиентскому релизу.
 - Уточнен прод operational-контур: dual-backend сохранен как штатный режим, restart/deploy делается последовательно (primary -> health -> secondary).
 - Шум в критических событиях снижен: plain client offline и transient Telegram bot poll ошибки больше не должны выглядеть как серьёзная sync-авария.
 - Клиент-серверное взаимодействие переведено на HTTPS; использовать HTTP как актуальную норму больше нельзя.
