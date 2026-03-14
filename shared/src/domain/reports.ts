@@ -6,15 +6,24 @@ export type ReportPresetId =
   | 'contracts_requisites'
   | 'supply_fulfillment'
   | 'work_order_costs'
+  | 'work_order_payroll'
+  | 'employees_roster'
+  | 'tools_inventory'
+  | 'services_pricelist'
+  | 'products_catalog'
+  | 'parts_compatibility'
+  | 'counterparties_summary'
   | 'engine_movements'
   | 'engines_list';
 
 export type ReportFilterOption = {
   value: string;
   label: string;
+  hintText?: string;
+  searchText?: string;
 };
 
-export type ReportOptionSource = 'contracts' | 'brands' | 'counterparties' | 'employees';
+export type ReportOptionSource = 'contracts' | 'brands' | 'counterparties' | 'employees' | 'departments';
 
 export type ReportFilterSpec =
   | {
@@ -345,6 +354,136 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
       { key: 'amountRub', label: 'Сумма (руб)', kind: 'number', align: 'right' },
       { key: 'crewLabel', label: 'Бригада' },
+    ],
+  },
+  {
+    id: 'work_order_payroll',
+    title: 'Наряды: зарплата сотрудников',
+    description: 'Одна строка на сотрудника и конкретный наряд за выбранный период.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'employeeIds', label: 'Сотрудники', optionsSource: 'employees' },
+    ],
+    columns: [
+      { key: 'employeeName', label: 'Сотрудник' },
+      { key: 'workOrderNumber', label: '№ наряда', kind: 'number', align: 'right' },
+      { key: 'orderDate', label: 'Дата наряда', kind: 'date' },
+      { key: 'ktu', label: 'КТУ', kind: 'number', align: 'right' },
+      { key: 'amountRub', label: 'Начислено (руб)', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'employees_roster',
+    title: 'Кадровый реестр сотрудников',
+    description: 'Сотрудники, табельные номера, должности и статус занятости с группировкой по подразделениям.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период (дата приема)', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'departmentIds', label: 'Подразделения', optionsSource: 'departments' },
+      {
+        type: 'select',
+        key: 'employmentStatus',
+        label: 'Статус занятости',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'working', label: 'Работает' },
+          { value: 'fired', label: 'Уволен' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'fullName', label: 'ФИО' },
+      { key: 'personnelNumber', label: 'Табельный номер' },
+      { key: 'position', label: 'Должность' },
+      { key: 'departmentName', label: 'Подразделение' },
+      { key: 'hireDate', label: 'Дата приема', kind: 'date' },
+      { key: 'terminationDate', label: 'Дата увольнения', kind: 'date' },
+      { key: 'employmentStatus', label: 'Статус' },
+    ],
+  },
+  {
+    id: 'tools_inventory',
+    title: 'Инструменты: учет по подразделениям',
+    description: 'Реестр инструмента с датами поступления/списания и статусом учета.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период (дата получения)', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'departmentIds', label: 'Подразделения', optionsSource: 'departments' },
+      {
+        type: 'select',
+        key: 'status',
+        label: 'Статус',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'in_inventory', label: 'В учете' },
+          { value: 'retired', label: 'Списан' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'toolNumber', label: 'Табельный номер' },
+      { key: 'name', label: 'Наименование' },
+      { key: 'serialNumber', label: 'Серийный номер' },
+      { key: 'departmentName', label: 'Подразделение' },
+      { key: 'receivedAt', label: 'Дата получения', kind: 'date' },
+      { key: 'retiredAt', label: 'Дата списания', kind: 'date' },
+      { key: 'retireReason', label: 'Причина списания' },
+    ],
+  },
+  {
+    id: 'services_pricelist',
+    title: 'Услуги: прайс-лист',
+    description: 'Актуальный список услуг с ценами и привязкой к деталям.',
+    filters: [{ type: 'checkbox', key: 'onlyLinkedParts', label: 'Только услуги с привязкой к деталям' }],
+    columns: [
+      { key: 'serviceName', label: 'Наименование' },
+      { key: 'unit', label: 'Единица измерения' },
+      { key: 'priceRub', label: 'Цена (руб)', kind: 'number', align: 'right' },
+      { key: 'linkedParts', label: 'Привязанные детали' },
+    ],
+  },
+  {
+    id: 'products_catalog',
+    title: 'Товары: каталог',
+    description: 'Справочник товаров с артикулами, единицами и ценами.',
+    filters: [],
+    columns: [
+      { key: 'productName', label: 'Наименование' },
+      { key: 'article', label: 'Артикул' },
+      { key: 'unit', label: 'Единица измерения' },
+      { key: 'priceRub', label: 'Цена (руб)', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'parts_compatibility',
+    title: 'Детали: совместимость по маркам',
+    description: 'Какие детали и в каком количестве применяются по маркам двигателей.',
+    filters: [
+      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      { type: 'multi_select', key: 'supplierIds', label: 'Поставщики', optionsSource: 'counterparties' },
+    ],
+    columns: [
+      { key: 'partName', label: 'Деталь' },
+      { key: 'article', label: 'Артикул' },
+      { key: 'engineBrand', label: 'Марка двигателя' },
+      { key: 'assemblyUnitNumber', label: 'Номер сборочной единицы' },
+      { key: 'qtyPerEngine', label: 'Количество на двигатель', kind: 'number', align: 'right' },
+      { key: 'supplierName', label: 'Поставщик' },
+    ],
+  },
+  {
+    id: 'counterparties_summary',
+    title: 'Контрагенты: сводка по контрактам',
+    description: 'Количество контрактов и двигателей, сумма и средний прогресс по каждому контрагенту.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период (дата контракта)', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+    ],
+    columns: [
+      { key: 'counterpartyName', label: 'Контрагент' },
+      { key: 'inn', label: 'ИНН' },
+      { key: 'contractsCount', label: 'Контрактов, шт.', kind: 'number', align: 'right' },
+      { key: 'enginesCount', label: 'Двигателей, шт.', kind: 'number', align: 'right' },
+      { key: 'totalAmountRub', label: 'Сумма контрактов (руб)', kind: 'number', align: 'right' },
+      { key: 'progressPct', label: 'Прогресс, %', kind: 'number', align: 'right' },
     ],
   },
   {

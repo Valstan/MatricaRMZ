@@ -6,15 +6,23 @@ import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { listAllParts } from '../utils/partsPagination.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { buildSearchOption, joinOptionHint, joinOptionSearch, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 
-type LinkOpt = { id: string; label: string };
+type LinkOpt = SearchSelectOption;
 type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[] };
-type EmployeeInfo = { id: string; displayName: string };
-type PartInfo = { id: string; label: string };
+type EmployeeInfo = {
+  id: string;
+  displayName: string;
+  personnelNumber?: string | null;
+  departmentName?: string | null;
+  position?: string | null;
+};
+type PartInfo = { id: string; name?: string; article?: string; templateName?: string };
 
 function toInputDate(ms: number | null | undefined) {
   if (!ms) return '';
@@ -253,11 +261,34 @@ export function WorkOrderDetailsPage(props: {
 
   const serviceById = useMemo(() => new Map(services.map((service) => [service.id, service])), [services]);
   const allServiceOptions: LinkOpt[] = useMemo(
-    () => services.map((s) => ({ id: s.id, label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})` })),
+    () =>
+      services.map((s) =>
+        buildSearchOption({
+          id: s.id,
+          label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})`,
+          hintText: joinOptionHint([s.unit && `Ед. ${s.unit}`, `Цена ${money(s.priceRub)}`]),
+          searchText: joinOptionSearch([s.name, s.id, s.unit, s.priceRub, ...s.partIds]),
+        }),
+      ),
     [services],
   );
-  const employeeOptions: LinkOpt[] = useMemo(() => employees.map((e) => ({ id: e.id, label: e.displayName })), [employees]);
-  const partOptions: LinkOpt[] = useMemo(() => parts.map((p) => ({ id: p.id, label: p.label })), [parts]);
+  const employeeOptions: LinkOpt[] = useMemo(
+    () =>
+      employees.map((e) =>
+        buildSearchOption({
+          id: e.id,
+          label: e.displayName,
+          hintText: joinOptionHint([
+            e.personnelNumber && `Таб. ${e.personnelNumber}`,
+            e.position,
+            e.departmentName,
+          ]),
+          searchText: joinOptionSearch([e.displayName, e.id, e.personnelNumber, e.position, e.departmentName]),
+        }),
+      ),
+    [employees],
+  );
+  const partOptions: LinkOpt[] = useMemo(() => mapPartRowsToSearchOptions(parts), [parts]);
 
   async function loadRefs() {
     try {
@@ -265,13 +296,21 @@ export function WorkOrderDetailsPage(props: {
         window.matrica.employees.list().catch(() => [] as any[]),
         listAllParts(),
       ]);
-      setEmployees((emps as any[]).map((x) => ({ id: String(x.id), displayName: String(x.displayName || x.fullName || x.id) })));
-      setParts(
-        (partRes.ok ? partRes.parts : []).map((p: any) => ({
-          id: String(p.id),
-          label: String(p.name || p.article || p.id),
+      setEmployees(
+        (emps as any[]).map((x) => ({
+          id: String(x.id),
+          displayName: String(x.displayName || x.fullName || x.id),
+          personnelNumber: x.personnelNumber ? String(x.personnelNumber) : null,
+          departmentName: x.departmentName ? String(x.departmentName) : null,
+          position: x.position ? String(x.position) : null,
         })),
       );
+      setParts((partRes.ok ? partRes.parts : []).map((p: any) => ({
+        id: String(p.id),
+        name: p.name ? String(p.name) : undefined,
+        article: p.article ? String(p.article) : undefined,
+        templateName: p.templateName ? String(p.templateName) : undefined,
+      })));
 
       const et = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
       const serviceType = (et as any[]).find((x) => String(x.code) === 'service');
@@ -553,15 +592,150 @@ export function WorkOrderDetailsPage(props: {
             ['База на человека', money(current.basePerWorkerRub || 0)],
           ]),
         },
+        { id: 'crew', title: 'Бригада и выплаты', html: crewHtml },
         { id: 'groups', title: 'Работы по изделиям', html: groupsHtml },
         { id: 'free', title: 'Работы без привязки к изделию', html: linesTable(current.freeWorks) },
-        { id: 'crew', title: 'Бригада и выплаты', html: crewHtml },
       ],
     });
   }
 
   if (loading) return <div style={{ color: 'var(--muted)' }}>Загрузка…</div>;
   if (!payload) return <div style={{ color: 'var(--danger)' }}>{status || 'Карточка наряда недоступна'}</div>;
+
+  const crewSection = (
+    <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
+      <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Состав бригады и КТУ</div>
+      <table className="list-table">
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: 8 }}>Сотрудник</th>
+            <th style={{ textAlign: 'left', padding: 8, width: 130 }}>КТУ</th>
+            <th style={{ textAlign: 'left', padding: 8, width: 180 }}>Выплата</th>
+            <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Заморозить</th>
+            {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {payload.crew.map((member, idx) => (
+            <tr key={`crew-${idx}-${member.employeeId}`}>
+              <td style={{ padding: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+                  <SearchSelectWithCreate
+                    value={member.employeeId || null}
+                    options={employeeOptions}
+                    disabled={!props.canEdit}
+                    canCreate={props.canCreateEmployees === true}
+                    createLabel="Новый сотрудник"
+                    onChange={(next) => {
+                      const e = employees.find((x) => x.id === next);
+                      const crew = payload.crew.map((c, i) => (i === idx ? { ...c, employeeId: e?.id || '', employeeName: e?.displayName || '' } : c));
+                      patch({ ...payload, crew });
+                    }}
+                    onCreate={async (label) => {
+                      const createdId = await createEmployeeFromWorkOrder(label);
+                      if (!createdId) return null;
+                      const clean = label.trim();
+                      const crew = payload.crew.map((c, i) =>
+                        i === idx ? { ...c, employeeId: createdId, employeeName: clean } : c,
+                      );
+                      patch({ ...payload, crew });
+                      return createdId;
+                    }}
+                    placeholder="Выберите сотрудника"
+                  />
+                  {member.employeeId && props.onOpenEmployee ? (
+                    <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(member.employeeId as string)}>
+                      Открыть
+                    </Button>
+                  ) : null}
+                </div>
+              </td>
+              <td style={{ padding: 8 }}>
+                <Input
+                  type="number"
+                  min={0.01}
+                  step="0.01"
+                  value={String(member.ktu ?? 1)}
+                  disabled={!props.canEdit}
+                  onChange={(e) => {
+                    const crew = payload.crew.map((c, i) => (i === idx ? { ...c, ktu: Math.max(0.01, safeNum(e.target.value, 1)) } : c));
+                    patch({ ...payload, crew });
+                  }}
+                />
+              </td>
+              <td style={{ padding: 8 }}>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={String(member.payoutFrozen ? member.manualPayoutRub ?? member.payoutRub ?? 0 : member.payoutRub ?? 0)}
+                    disabled={!props.canEdit || !member.payoutFrozen}
+                    onChange={(e) => {
+                      const crew = payload.crew.map((c, i) =>
+                        i === idx
+                          ? {
+                              ...c,
+                              manualPayoutRub: Math.max(0, safeNum(e.target.value, 0)),
+                            }
+                          : c,
+                      );
+                      patch({ ...payload, crew });
+                    }}
+                  />
+                  {!member.payoutFrozen ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>Авто: {money(member.payoutRub ?? 0)}</div> : null}
+                </div>
+              </td>
+              <td style={{ padding: 8 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: props.canEdit ? 'pointer' : 'default' }}>
+                  <input
+                    type="checkbox"
+                    disabled={!props.canEdit}
+                    checked={Boolean(member.payoutFrozen)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      const crew = payload.crew.map((c, i) =>
+                        i === idx
+                          ? {
+                              ...c,
+                              payoutFrozen: checked,
+                              manualPayoutRub: checked ? Math.max(0, safeNum(c.manualPayoutRub ?? c.payoutRub, 0)) : undefined,
+                            }
+                          : c,
+                      );
+                      patch({ ...payload, crew });
+                    }}
+                  />
+                  <span>{member.payoutFrozen ? 'Да' : 'Нет'}</span>
+                </label>
+              </td>
+              {props.canEdit && (
+                <td style={{ padding: 8 }}>
+                  <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
+                    Удалить
+                  </Button>
+                </td>
+              )}
+            </tr>
+          ))}
+          {payload.crew.length === 0 && (
+            <tr>
+              <td colSpan={props.canEdit ? 5 : 4} style={{ padding: 10, color: 'var(--muted)' }}>
+                Состав бригады пуст
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {props.canEdit && (
+        <div style={{ padding: 8 }}>
+          <Button variant="ghost" onClick={() => patch({ ...payload, crew: [...payload.crew, { employeeId: '', employeeName: '', ktu: 1, payoutFrozen: false }] })}>
+            + Добавить сотрудника
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -618,6 +792,8 @@ export function WorkOrderDetailsPage(props: {
           onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
         />
       </div>
+
+      {crewSection}
 
       <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы по изделиям</div>
@@ -924,139 +1100,6 @@ export function WorkOrderDetailsPage(props: {
           <div style={{ padding: 8 }}>
             <Button variant="ghost" onClick={addFreeWorkLine}>
               Добавить работы +
-            </Button>
-          </div>
-        )}
-      </div>
-
-      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-        <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Состав бригады и КТУ</div>
-        <table className="list-table">
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 8 }}>Сотрудник</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 130 }}>КТУ</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 180 }}>Выплата</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Заморозить</th>
-              {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {payload.crew.map((member, idx) => (
-              <tr key={`crew-${idx}-${member.employeeId}`}>
-                <td style={{ padding: 8 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                    <SearchSelectWithCreate
-                      value={member.employeeId || null}
-                      options={employeeOptions}
-                      disabled={!props.canEdit}
-                      canCreate={props.canCreateEmployees === true}
-                      createLabel="Новый сотрудник"
-                      onChange={(next) => {
-                        const e = employees.find((x) => x.id === next);
-                        const crew = payload.crew.map((c, i) => (i === idx ? { ...c, employeeId: e?.id || '', employeeName: e?.displayName || '' } : c));
-                        patch({ ...payload, crew });
-                      }}
-                      onCreate={async (label) => {
-                        const createdId = await createEmployeeFromWorkOrder(label);
-                        if (!createdId) return null;
-                        const clean = label.trim();
-                        const crew = payload.crew.map((c, i) =>
-                          i === idx ? { ...c, employeeId: createdId, employeeName: clean } : c,
-                        );
-                        patch({ ...payload, crew });
-                        return createdId;
-                      }}
-                      placeholder="Выберите сотрудника"
-                    />
-                    {member.employeeId && props.onOpenEmployee ? (
-                      <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(member.employeeId as string)}>
-                        Открыть
-                      </Button>
-                    ) : null}
-                  </div>
-                </td>
-                <td style={{ padding: 8 }}>
-                  <Input
-                    type="number"
-                    min={0.01}
-                    step="0.01"
-                    value={String(member.ktu ?? 1)}
-                    disabled={!props.canEdit}
-                    onChange={(e) => {
-                      const crew = payload.crew.map((c, i) => (i === idx ? { ...c, ktu: Math.max(0.01, safeNum(e.target.value, 1)) } : c));
-                      patch({ ...payload, crew });
-                    }}
-                  />
-                </td>
-                <td style={{ padding: 8 }}>
-                  <div style={{ display: 'grid', gap: 6 }}>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      value={String(member.payoutFrozen ? member.manualPayoutRub ?? member.payoutRub ?? 0 : member.payoutRub ?? 0)}
-                      disabled={!props.canEdit || !member.payoutFrozen}
-                      onChange={(e) => {
-                        const crew = payload.crew.map((c, i) =>
-                          i === idx
-                            ? {
-                                ...c,
-                                manualPayoutRub: Math.max(0, safeNum(e.target.value, 0)),
-                              }
-                            : c,
-                        );
-                        patch({ ...payload, crew });
-                      }}
-                    />
-                    {!member.payoutFrozen ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>Авто: {money(member.payoutRub ?? 0)}</div> : null}
-                  </div>
-                </td>
-                <td style={{ padding: 8 }}>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: props.canEdit ? 'pointer' : 'default' }}>
-                    <input
-                      type="checkbox"
-                      disabled={!props.canEdit}
-                      checked={Boolean(member.payoutFrozen)}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        const crew = payload.crew.map((c, i) =>
-                          i === idx
-                            ? {
-                                ...c,
-                                payoutFrozen: checked,
-                                manualPayoutRub: checked ? Math.max(0, safeNum(c.manualPayoutRub ?? c.payoutRub, 0)) : undefined,
-                              }
-                            : c,
-                        );
-                        patch({ ...payload, crew });
-                      }}
-                    />
-                    <span>{member.payoutFrozen ? 'Да' : 'Нет'}</span>
-                  </label>
-                </td>
-                {props.canEdit && (
-                  <td style={{ padding: 8 }}>
-                    <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
-                      Удалить
-                    </Button>
-                  </td>
-                )}
-              </tr>
-            ))}
-            {payload.crew.length === 0 && (
-              <tr>
-                <td colSpan={props.canEdit ? 5 : 4} style={{ padding: 10, color: 'var(--muted)' }}>
-                  Состав бригады пуст
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {props.canEdit && (
-          <div style={{ padding: 8 }}>
-            <Button variant="ghost" onClick={() => patch({ ...payload, crew: [...payload.crew, { employeeId: '', employeeName: '', ktu: 1, payoutFrozen: false }] })}>
-              + Добавить сотрудника
             </Button>
           </div>
         )}

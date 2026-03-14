@@ -48,6 +48,18 @@ type DefectSupplyPresetRow = {
 
 const UNKNOWN_CONTRACT_LABEL = '(не указан)';
 const TOTAL_LABEL_MAP: Record<string, string> = {
+  employees: 'Сотрудники, шт.',
+  workingEmployees: 'Работают, шт.',
+  firedEmployees: 'Уволены, шт.',
+  firedInPeriod: 'Уволены за период, шт.',
+  counterparties: 'Контрагенты, шт.',
+  tools: 'Инструменты, шт.',
+  inInventory: 'В учете, шт.',
+  retired: 'Списано, шт.',
+  services: 'Услуги, шт.',
+  products: 'Товары, шт.',
+  parts: 'Детали, шт.',
+  brands: 'Марки, шт.',
   scrapQty: 'Утиль, шт.',
   missingQty: 'Недокомплект, шт.',
   deliveredQty: 'Привезено, шт.',
@@ -63,6 +75,7 @@ const TOTAL_LABEL_MAP: Record<string, string> = {
   workOrders: 'Наряды, шт.',
   lines: 'Записей, шт.',
   amountRub: 'Сумма, ₽',
+  avgAmountRub: 'Средняя цена, ₽',
   onSiteQty: 'На заводе, шт.',
   acceptance: 'Приёмка',
   shipment: 'Отгрузка',
@@ -75,6 +88,18 @@ const TOTAL_LABEL_MAP: Record<string, string> = {
   withoutSeparateAccount: 'Без отдельного счета, шт.',
 };
 const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
+  employees: 'Количество сотрудников, по которым есть начисления в выбранном периоде.',
+  workingEmployees: 'Количество сотрудников со статусом "работает" в отобранных строках.',
+  firedEmployees: 'Количество сотрудников со статусом "уволен" в отобранных строках.',
+  firedInPeriod: 'Количество сотрудников с датой увольнения в выбранном периоде.',
+  counterparties: 'Количество контрагентов в итоговой выборке.',
+  tools: 'Количество инструментов, попавших в выборку отчета.',
+  inInventory: 'Инструменты, которые числятся в учете и не списаны.',
+  retired: 'Инструменты, у которых заполнена дата списания.',
+  services: 'Количество услуг в отчете.',
+  products: 'Количество товаров в отчете.',
+  parts: 'Количество уникальных деталей в выборке.',
+  brands: 'Количество уникальных марок двигателей в выборке.',
   scrapQty: 'Количество бракованных деталей, фактически зафиксированных в периоде.',
   missingQty: 'Детали, которые недокомплектуются и еще нужно обеспечить.',
   deliveredQty: 'Фактический объем поставленных деталей.',
@@ -91,6 +116,7 @@ const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   withoutIgk: 'Количество контрактов без ИГК.',
   withSeparateAccount: 'Количество контрактов с заполненным отдельным счетом.',
   withoutSeparateAccount: 'Количество контрактов без отдельного счета.',
+  avgAmountRub: 'Средняя цена позиции в отчете.',
 };
 
 function labelTotalKey(key: string): string {
@@ -269,6 +295,17 @@ function statusLabel(status: string): string {
   }
 }
 
+function normalizeEmploymentStatusCode(rawStatus: unknown, terminationDate: number | null): 'working' | 'fired' {
+  const normalized = normalizeText(rawStatus, '').toLowerCase();
+  if (normalized === 'fired' || normalized.includes('уволен')) return 'fired';
+  if (terminationDate != null && terminationDate > 0) return 'fired';
+  return 'working';
+}
+
+function employmentStatusLabel(code: 'working' | 'fired'): string {
+  return code === 'fired' ? 'уволен' : 'работает';
+}
+
 function matchesDueState(dueAt: number | null, now: number, dueState: string): boolean {
   if (dueState === 'all') return true;
   if (!dueAt) return dueState === 'no_due';
@@ -387,13 +424,117 @@ function getIdsByTypeCodes(snapshot: Snapshot, typeCodes: string[]): string[] {
   return Array.from(out);
 }
 
+function joinOptionHint(parts: Array<unknown>): string | undefined {
+  const items = parts.map((part) => normalizeText(part, '')).filter(Boolean);
+  return items.length > 0 ? items.join(' • ') : undefined;
+}
+
+function joinOptionSearch(parts: Array<unknown>): string | undefined {
+  const items = parts.map((part) => normalizeText(part, '')).filter(Boolean);
+  return items.length > 0 ? items.join(' ') : undefined;
+}
+
+function relatedEntityLabel(snapshot: Snapshot, entityId: string): string {
+  if (!entityId) return '';
+  return entityLabel(snapshot.attrsByEntity.get(entityId), '');
+}
+
+function buildOptionMeta(
+  snapshot: Snapshot,
+  typeCode: string,
+  id: string,
+  attrs: Record<string, unknown> | undefined,
+  label: string,
+): Pick<ReportFilterOption, 'hintText' | 'searchText'> {
+  const safeAttrs = attrs ?? {};
+  switch (typeCode) {
+    case 'employee': {
+      const departmentId = normalizeText(safeAttrs.department_id, '');
+      const departmentLabel = relatedEntityLabel(snapshot, departmentId) || normalizeText(safeAttrs.department, '');
+      const personnelNumber = normalizeText(safeAttrs.personnel_number, '');
+      const role = normalizeText(safeAttrs.role ?? safeAttrs.position, '');
+      return {
+        hintText: joinOptionHint([personnelNumber && `Таб. ${personnelNumber}`, role, departmentLabel]),
+        searchText: joinOptionSearch([
+          label,
+          id,
+          personnelNumber,
+          role,
+          departmentLabel,
+          safeAttrs.last_name,
+          safeAttrs.first_name,
+          safeAttrs.middle_name,
+          safeAttrs.employment_status,
+        ]),
+      };
+    }
+    case 'contract': {
+      const sections = parseContractSections(safeAttrs);
+      const internalNumber = normalizeText(sections.primary.internalNumber ?? safeAttrs.internal_number, '');
+      const counterpartyId = normalizeText(sections.primary.customerId ?? safeAttrs.customer_id, '');
+      const counterpartyLabel = relatedEntityLabel(snapshot, counterpartyId);
+      return {
+        hintText: joinOptionHint([internalNumber && `Внутр. ${internalNumber}`, counterpartyLabel]),
+        searchText: joinOptionSearch([
+          label,
+          id,
+          internalNumber,
+          safeAttrs.contract_number,
+          safeAttrs.number,
+          safeAttrs.name,
+          counterpartyLabel,
+          safeAttrs.igk,
+          safeAttrs.goz_igk,
+          safeAttrs.separate_account,
+          safeAttrs.separate_account_number,
+        ]),
+      };
+    }
+    case 'engine_brand': {
+      return {
+        hintText: joinOptionHint([normalizeText(safeAttrs.code, ''), normalizeText(safeAttrs.short_name, '')]),
+        searchText: joinOptionSearch([
+          label,
+          id,
+          safeAttrs.code,
+          safeAttrs.name,
+          safeAttrs.short_name,
+          safeAttrs.display_name,
+        ]),
+      };
+    }
+    case 'department': {
+      return {
+        hintText: joinOptionHint([normalizeText(safeAttrs.code, ''), normalizeText(safeAttrs.short_name, '')]),
+        searchText: joinOptionSearch([
+          label,
+          id,
+          safeAttrs.code,
+          safeAttrs.name,
+          safeAttrs.short_name,
+          safeAttrs.description,
+        ]),
+      };
+    }
+    default:
+      return {
+        hintText: undefined,
+        searchText: joinOptionSearch([label, id]),
+      };
+  }
+}
+
 function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[] {
   return getIdsByType(snapshot, typeCode)
     .map((id) => {
-      const label = entityLabel(snapshot.attrsByEntity.get(id), typeCode === 'contract' ? '' : id);
+      const attrs = snapshot.attrsByEntity.get(id);
+      const label = entityLabel(attrs, typeCode === 'contract' ? '' : id);
+      const meta = buildOptionMeta(snapshot, typeCode, id, attrs, label || (typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : id));
       return {
         value: id,
         label: label || (typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : id),
+        ...(meta.hintText ? { hintText: meta.hintText } : {}),
+        ...(meta.searchText ? { searchText: meta.searchText } : {}),
       };
     })
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
@@ -403,8 +544,29 @@ function buildCounterpartyOptions(snapshot: Snapshot): ReportFilterOption[] {
   const ids = getIdsByTypeCodes(snapshot, ['counterparty', 'customer']);
   return ids
     .map((id) => {
-      const label = entityLabel(snapshot.attrsByEntity.get(id), '');
-      return { value: id, label: label || '(не указан)' };
+      const attrs = snapshot.attrsByEntity.get(id) ?? {};
+      const label = entityLabel(attrs, '');
+      const inn = normalizeText(attrs.inn, '');
+      const kpp = normalizeText(attrs.kpp, '');
+      const contact = normalizeText(attrs.phone ?? attrs.email ?? attrs.contact_person, '');
+      const hintText = joinOptionHint([inn && `ИНН ${inn}`, kpp && `КПП ${kpp}`, !inn && !kpp ? contact : '']);
+      const searchText = joinOptionSearch([
+        label,
+        id,
+        inn,
+        kpp,
+        contact,
+        attrs.address,
+        attrs.email,
+        attrs.phone,
+        attrs.contact_person,
+      ]);
+      return {
+        value: id,
+        label: label || '(не указан)',
+        ...(hintText ? { hintText } : {}),
+        ...(searchText ? { searchText } : {}),
+      };
     })
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
@@ -699,6 +861,19 @@ function collectContractTotals(attrs: Record<string, unknown>) {
     }
   }
   return { sections, totalQty, totalAmountRub };
+}
+
+function collectContractEngineQty(attrs: Record<string, unknown>): number {
+  const sections = parseContractSections(attrs);
+  const sectionList = [sections.primary, ...sections.addons];
+  let total = 0;
+  for (const section of sectionList) {
+    for (const item of section.engineBrands ?? []) {
+      total += Math.max(0, toNumber(item.qty));
+    }
+  }
+  if (total > 0) return total;
+  return Math.max(0, toNumber(attrs.engine_count_total));
 }
 
 async function buildContractsFinanceReport(
@@ -1003,6 +1178,115 @@ async function buildSupplyFulfillmentReport(
   };
 }
 
+type NormalizedWorkOrderReportLine = {
+  serviceName: string;
+  qty: number;
+  amountRub: number;
+};
+
+type NormalizedWorkOrderReportCrewMember = {
+  employeeId: string;
+  employeeName: string;
+  ktu: number;
+  payoutRub: number;
+};
+
+function normalizeWorkOrderReportLines(payload: any): NormalizedWorkOrderReportLine[] {
+  const normalized = (source: unknown): NormalizedWorkOrderReportLine[] =>
+    Array.isArray(source)
+      ? source.map((line) => ({
+          serviceName: normalizeText((line as any)?.serviceName, '(без названия)'),
+          qty: Math.max(0, toNumber((line as any)?.qty)),
+          amountRub: Math.max(0, toNumber((line as any)?.amountRub)),
+        }))
+      : [];
+
+  const grouped = Array.isArray(payload?.workGroups)
+    ? payload.workGroups.flatMap((group: any) => normalized(group?.lines))
+    : [];
+  const free = normalized(payload?.freeWorks);
+  const combined = [...grouped, ...free];
+  if (combined.length > 0) return combined;
+
+  const legacyWorks = normalized(payload?.works);
+  if (legacyWorks.length > 0) return legacyWorks;
+
+  const fallbackName = normalizeText(payload?.partName, '');
+  if (!fallbackName) return [];
+  return [
+    {
+      serviceName: fallbackName,
+      qty: 1,
+      amountRub: Math.max(0, toNumber(payload?.totalAmountRub)),
+    },
+  ];
+}
+
+function normalizeWorkOrderReportCrew(payload: any): NormalizedWorkOrderReportCrewMember[] {
+  const payoutFallbackByKey = new Map<string, { employeeName: string; ktu: number; payoutRub: number }>();
+  if (Array.isArray(payload?.payouts)) {
+    for (const item of payload.payouts) {
+      const employeeId = normalizeText(item?.employeeId, '');
+      const employeeName = normalizeText(item?.employeeName, '');
+      const key = employeeId || employeeName.toLowerCase();
+      if (!key) continue;
+      payoutFallbackByKey.set(key, {
+        employeeName,
+        ktu: Math.max(0.01, toNumber(item?.ktu) || 1),
+        payoutRub: Math.max(0, toNumber(item?.amountRub)),
+      });
+    }
+  }
+
+  if (Array.isArray(payload?.crew) && payload.crew.length > 0) {
+    return payload.crew
+      .map((member: any) => {
+        const employeeId = normalizeText(member?.employeeId, '');
+        const employeeName = normalizeText(member?.employeeName, '');
+        const key = employeeId || employeeName.toLowerCase();
+        const fallback = key ? payoutFallbackByKey.get(key) : undefined;
+        const payoutRub = Math.max(
+          0,
+          toNumber(
+            member?.payoutFrozen
+              ? member?.manualPayoutRub ?? member?.payoutRub ?? fallback?.payoutRub
+              : member?.payoutRub ?? fallback?.payoutRub,
+          ),
+        );
+        return {
+          employeeId,
+          employeeName: employeeName || fallback?.employeeName || '(не указан)',
+          ktu: Math.max(0.01, toNumber(member?.ktu) || fallback?.ktu || 1),
+          payoutRub,
+        } satisfies NormalizedWorkOrderReportCrewMember;
+      })
+      .filter((member) => member.employeeId || member.employeeName !== '(не указан)');
+  }
+
+  return Array.isArray(payload?.payouts)
+    ? payload.payouts
+        .map((item: any) => ({
+          employeeId: normalizeText(item?.employeeId, ''),
+          employeeName: normalizeText(item?.employeeName, '(не указан)'),
+          ktu: Math.max(0.01, toNumber(item?.ktu) || 1),
+          payoutRub: Math.max(0, toNumber(item?.amountRub)),
+        }))
+        .filter((member) => member.employeeId || member.employeeName !== '(не указан)')
+    : [];
+}
+
+function resolveWorkOrderTargetLabel(payload: any): string {
+  const direct = normalizeText(payload?.partName, '');
+  if (direct) return direct;
+  const partNames = Array.isArray(payload?.workGroups)
+    ? payload.workGroups
+        .map((group: any) => normalizeText(group?.partName, ''))
+        .filter(Boolean)
+    : [];
+  if (partNames.length === 0) return '';
+  return Array.from(new Set(partNames)).join(', ');
+}
+
 async function buildWorkOrderCostsReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
@@ -1024,18 +1308,21 @@ async function buildWorkOrderCostsReport(
     const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;
-    const crewIds = Array.isArray(payload.crew) ? payload.crew.map((c: any) => normalizeText(c?.employeeId, '')).filter(Boolean) : [];
+    const normalizedCrew = normalizeWorkOrderReportCrew(payload);
+    const crewIds = normalizedCrew.map((member) => member.employeeId).filter(Boolean);
     if (employeeFilter.length > 0 && !crewIds.some((id: string) => employeeFilter.includes(id))) continue;
     const partId = normalizeText(payload.partId ?? op.engineEntityId, '');
     const partAttrs = partId ? snapshot.attrsByEntity.get(partId) : undefined;
     const brandId = normalizeText(partAttrs?.engine_brand_id, '');
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
-    const works = Array.isArray(payload.works) && payload.works.length > 0 ? payload.works : [{ serviceName: payload.partName, qty: 1, amountRub: payload.totalAmountRub }];
-    const crewLabel = Array.isArray(payload.crew) ? payload.crew.map((c: any) => normalizeText(c?.employeeName, '')).filter(Boolean).join(', ') : '';
-    for (const work of works) {
+    const works = normalizeWorkOrderReportLines(payload);
+    const fallbackWorkLabel = resolveWorkOrderTargetLabel(payload);
+    const normalizedWorks = works.length > 0 ? works : [{ serviceName: fallbackWorkLabel || '(без названия)', qty: 1, amountRub: Math.max(0, toNumber(payload.totalAmountRub)) }];
+    const crewLabel = normalizedCrew.map((member) => member.employeeName).filter(Boolean).join(', ');
+    for (const work of normalizedWorks) {
       rows.push({
         workOrderNumber: toNumber(payload.workOrderNumber),
-        engineNumber: normalizeText(payload.partName, ''),
+        engineNumber: fallbackWorkLabel,
         engineBrand: brandOptions.get(brandId) ?? normalizeText(partAttrs?.engine_brand, brandId),
         orderDate,
         workLabel: normalizeText(work?.serviceName, '(без названия)'),
@@ -1058,6 +1345,546 @@ async function buildWorkOrderCostsReport(
       lines: rows.length,
       workOrders: new Set(rows.map((r) => String(r.workOrderNumber))).size,
       amountRub: rows.reduce((acc, row) => acc + toNumber(row.amountRub), 0),
+    },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildWorkOrderPayrollReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const employeeFilter = asArray(filters?.employeeIds);
+  const sourceOps = await db
+    .select()
+    .from(operations)
+    .where(and(isNull(operations.deletedAt), eq(operations.operationType, 'work_order'), lte(operations.createdAt, period.endMs)))
+    .limit(120_000);
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  const totalsByEmployee = new Map<string, { employeeName: string; workOrders: number; amountRub: number }>();
+  const seenEmployeeWorkOrderKeys = new Set<string>();
+  const totalWorkOrderKeys = new Set<string>();
+
+  for (const op of sourceOps as any[]) {
+    const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
+    if (!payload || payload.kind !== 'work_order') continue;
+    const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
+    if (period.startMs != null && orderDate < period.startMs) continue;
+    if (orderDate > period.endMs) continue;
+
+    const crew = normalizeWorkOrderReportCrew(payload);
+    if (crew.length === 0) continue;
+    const workOrderKey = String(op.id ?? payload.operationId ?? `${payload.workOrderNumber ?? 'work-order'}-${orderDate}`);
+
+    for (const member of crew) {
+      if (employeeFilter.length > 0 && (!member.employeeId || !employeeFilter.includes(member.employeeId))) continue;
+      const employeeKey = member.employeeId || `name:${member.employeeName.toLowerCase()}`;
+      const employeeLabel = member.employeeName || '(не указан)';
+      const amountRub = Math.max(0, toNumber(member.payoutRub));
+      rows.push({
+        employeeName: employeeLabel,
+        workOrderNumber: toNumber(payload.workOrderNumber) || null,
+        orderDate,
+        ktu: Math.max(0.01, toNumber(member.ktu) || 1),
+        amountRub,
+      });
+      const employeeTotals = totalsByEmployee.get(employeeKey) ?? { employeeName: employeeLabel, workOrders: 0, amountRub: 0 };
+      if (!employeeTotals.employeeName || employeeTotals.employeeName === '(не указан)') employeeTotals.employeeName = employeeLabel;
+      employeeTotals.amountRub += amountRub;
+      const employeeWorkOrderKey = `${employeeKey}::${workOrderKey}`;
+      if (!seenEmployeeWorkOrderKeys.has(employeeWorkOrderKey)) {
+        employeeTotals.workOrders += 1;
+        seenEmployeeWorkOrderKeys.add(employeeWorkOrderKey);
+      }
+      totalsByEmployee.set(employeeKey, employeeTotals);
+      totalWorkOrderKeys.add(workOrderKey);
+    }
+  }
+
+  rows.sort(
+    (a, b) =>
+      String(a.employeeName ?? '').localeCompare(String(b.employeeName ?? ''), 'ru') ||
+      toNumber(b.orderDate) - toNumber(a.orderDate) ||
+      toNumber(b.workOrderNumber) - toNumber(a.workOrderNumber),
+  );
+
+  const preset = getPreset('work_order_payroll');
+  return {
+    ok: true,
+    presetId: 'work_order_payroll',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      employees: totalsByEmployee.size,
+      workOrders: totalWorkOrderKeys.size,
+      amountRub: rows.reduce((acc, row) => acc + toNumber(row.amountRub), 0),
+    },
+    totalsByGroup: Array.from(totalsByEmployee.entries())
+      .map(([, totals]) => ({
+        group: totals.employeeName || '(не указан)',
+        totals: {
+          workOrders: totals.workOrders,
+          amountRub: Math.round(totals.amountRub * 100) / 100,
+        },
+      }))
+      .sort((a, b) => String(a.group).localeCompare(String(b.group), 'ru')),
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildEmployeesRosterReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const departmentFilter = asArray(filters?.departmentIds);
+  const employmentFilter = normalizeText(filters?.employmentStatus, 'all');
+  const snapshot = await loadSnapshot(db);
+  const departmentOptions = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  const periodStart = period.startMs ?? Number.NEGATIVE_INFINITY;
+
+  for (const employeeId of getIdsByType(snapshot, 'employee')) {
+    const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
+    const hireDate = asNumberOrNull(attrs.hire_date);
+    if (hireDate != null) {
+      if (period.startMs != null && hireDate < period.startMs) continue;
+      if (hireDate > period.endMs) continue;
+    } else if (period.startMs != null) {
+      continue;
+    }
+
+    const departmentId = normalizeText(attrs.department_id, '');
+    if (departmentFilter.length > 0 && (!departmentId || !departmentFilter.includes(departmentId))) continue;
+    const terminationDate = asNumberOrNull(attrs.termination_date);
+    const employmentCode = normalizeEmploymentStatusCode(attrs.employment_status, terminationDate);
+    if (employmentFilter !== 'all' && employmentCode !== employmentFilter) continue;
+    const fullName = normalizeText(
+      attrs.full_name,
+      [normalizeText(attrs.last_name, ''), normalizeText(attrs.first_name, ''), normalizeText(attrs.middle_name, '')]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || employeeId,
+    );
+    rows.push({
+      fullName,
+      personnelNumber: normalizeText(attrs.personnel_number, ''),
+      position: normalizeText(attrs.role, ''),
+      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)'),
+      hireDate,
+      terminationDate,
+      employmentStatus: employmentStatusLabel(employmentCode),
+    });
+  }
+
+  rows.sort(
+    (a, b) =>
+      String(a.departmentName ?? '').localeCompare(String(b.departmentName ?? ''), 'ru') ||
+      String(a.fullName ?? '').localeCompare(String(b.fullName ?? ''), 'ru'),
+  );
+
+  const totalsByDepartment = new Map<string, { employees: number; workingEmployees: number; firedEmployees: number }>();
+  let firedInPeriod = 0;
+  for (const row of rows) {
+    const groupKey = normalizeText(row.departmentName, '(не указано)');
+    const current = totalsByDepartment.get(groupKey) ?? { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+    current.employees += 1;
+    if (String(row.employmentStatus) === 'уволен') current.firedEmployees += 1;
+    else current.workingEmployees += 1;
+    totalsByDepartment.set(groupKey, current);
+
+    const terminationDate = asNumberOrNull(row.terminationDate);
+    if (terminationDate != null && terminationDate >= periodStart && terminationDate <= period.endMs) firedInPeriod += 1;
+  }
+
+  const preset = getPreset('employees_roster');
+  return {
+    ok: true,
+    presetId: 'employees_roster',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      employees: rows.length,
+      workingEmployees: rows.filter((row) => String(row.employmentStatus) === 'работает').length,
+      firedEmployees: rows.filter((row) => String(row.employmentStatus) === 'уволен').length,
+      firedInPeriod,
+    },
+    totalsByGroup: Array.from(totalsByDepartment.entries())
+      .map(([group, totals]) => ({ group, totals }))
+      .sort((a, b) => a.group.localeCompare(b.group, 'ru')),
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildToolsInventoryReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const departmentFilter = asArray(filters?.departmentIds);
+  const statusFilter = normalizeText(filters?.status, 'all');
+  const snapshot = await loadSnapshot(db);
+  const departmentOptions = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
+  const rows: Array<Record<string, ReportCellValue>> = [];
+
+  for (const toolId of getIdsByType(snapshot, 'tool')) {
+    const attrs = snapshot.attrsByEntity.get(toolId) ?? {};
+    const receivedAt = asNumberOrNull(attrs.received_at);
+    if (receivedAt != null) {
+      if (period.startMs != null && receivedAt < period.startMs) continue;
+      if (receivedAt > period.endMs) continue;
+    } else if (period.startMs != null) {
+      continue;
+    }
+
+    const departmentId = normalizeText(attrs.department_id, '');
+    if (departmentFilter.length > 0 && (!departmentId || !departmentFilter.includes(departmentId))) continue;
+
+    const retiredAt = asNumberOrNull(attrs.retired_at);
+    const inventoryStatus = retiredAt != null && retiredAt > 0 ? 'retired' : 'in_inventory';
+    if (statusFilter !== 'all' && statusFilter !== inventoryStatus) continue;
+
+    rows.push({
+      toolNumber: normalizeText(attrs.tool_number, ''),
+      name: normalizeText(attrs.name, entityLabel(attrs, toolId)),
+      serialNumber: normalizeText(attrs.serial_number, ''),
+      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)'),
+      receivedAt,
+      retiredAt,
+      retireReason: normalizeText(attrs.retire_reason, ''),
+    });
+  }
+
+  rows.sort(
+    (a, b) =>
+      String(a.departmentName ?? '').localeCompare(String(b.departmentName ?? ''), 'ru') ||
+      String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru') ||
+      String(a.toolNumber ?? '').localeCompare(String(b.toolNumber ?? ''), 'ru'),
+  );
+
+  const totalsByDepartment = new Map<string, { tools: number; inInventory: number; retired: number }>();
+  for (const row of rows) {
+    const groupKey = normalizeText(row.departmentName, '(не указано)');
+    const current = totalsByDepartment.get(groupKey) ?? { tools: 0, inInventory: 0, retired: 0 };
+    current.tools += 1;
+    if (row.retiredAt) current.retired += 1;
+    else current.inInventory += 1;
+    totalsByDepartment.set(groupKey, current);
+  }
+
+  const preset = getPreset('tools_inventory');
+  return {
+    ok: true,
+    presetId: 'tools_inventory',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      tools: rows.length,
+      inInventory: rows.filter((row) => !row.retiredAt).length,
+      retired: rows.filter((row) => Boolean(row.retiredAt)).length,
+    },
+    totalsByGroup: Array.from(totalsByDepartment.entries())
+      .map(([group, totals]) => ({ group, totals }))
+      .sort((a, b) => a.group.localeCompare(b.group, 'ru')),
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildServicesPricelistReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const onlyLinkedParts = asBool(filters?.onlyLinkedParts);
+  const snapshot = await loadSnapshot(db);
+  const partNames = new Map(
+    getIdsByType(snapshot, 'part').map((partId) => {
+      const attrs = snapshot.attrsByEntity.get(partId) ?? {};
+      const label = normalizeText(attrs.name, normalizeText(attrs.article, partId));
+      return [partId, label] as const;
+    }),
+  );
+  const rows: Array<Record<string, ReportCellValue>> = [];
+
+  for (const serviceId of getIdsByType(snapshot, 'service')) {
+    const attrs = snapshot.attrsByEntity.get(serviceId) ?? {};
+    const partIds = asArray(attrs.part_ids);
+    if (onlyLinkedParts && partIds.length === 0) continue;
+    const linkedParts = partIds
+      .map((partId) => partNames.get(partId) ?? normalizeText(partId, ''))
+      .filter(Boolean)
+      .join(', ');
+    rows.push({
+      serviceName: normalizeText(attrs.name, serviceId),
+      unit: normalizeText(attrs.unit, ''),
+      priceRub: Math.max(0, toNumber(attrs.price)),
+      linkedParts,
+    });
+  }
+
+  rows.sort((a, b) => String(a.serviceName ?? '').localeCompare(String(b.serviceName ?? ''), 'ru'));
+  const preset = getPreset('services_pricelist');
+  return {
+    ok: true,
+    presetId: 'services_pricelist',
+    title: preset.title,
+    subtitle: onlyLinkedParts ? 'Только услуги с привязкой к деталям' : 'Полный каталог услуг',
+    columns: preset.columns,
+    rows,
+    totals: {
+      services: rows.length,
+      avgAmountRub: rows.length > 0 ? rows.reduce((acc, row) => acc + toNumber(row.priceRub), 0) / rows.length : 0,
+    },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildProductsCatalogReport(db: BetterSQLite3Database): Promise<ReportPresetPreviewResult> {
+  const snapshot = await loadSnapshot(db);
+  const rows: Array<Record<string, ReportCellValue>> = [];
+
+  for (const productId of getIdsByType(snapshot, 'product')) {
+    const attrs = snapshot.attrsByEntity.get(productId) ?? {};
+    rows.push({
+      productName: normalizeText(attrs.name, productId),
+      article: normalizeText(attrs.article, ''),
+      unit: normalizeText(attrs.unit, ''),
+      priceRub: Math.max(0, toNumber(attrs.price)),
+    });
+  }
+
+  rows.sort((a, b) => String(a.productName ?? '').localeCompare(String(b.productName ?? ''), 'ru'));
+  const preset = getPreset('products_catalog');
+  return {
+    ok: true,
+    presetId: 'products_catalog',
+    title: preset.title,
+    subtitle: 'Полный каталог товаров',
+    columns: preset.columns,
+    rows,
+    totals: {
+      products: rows.length,
+      avgAmountRub: rows.length > 0 ? rows.reduce((acc, row) => acc + toNumber(row.priceRub), 0) / rows.length : 0,
+    },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildPartsCompatibilityReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const brandFilter = asArray(filters?.brandIds);
+  const supplierFilter = asArray(filters?.supplierIds);
+  const snapshot = await loadSnapshot(db);
+  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  const seenPartBrandPairs = new Set<string>();
+
+  for (const linkId of getIdsByType(snapshot, 'part_engine_brand')) {
+    const linkAttrs = snapshot.attrsByEntity.get(linkId) ?? {};
+    const partId = normalizeText(linkAttrs.part_id, '');
+    const brandId = normalizeText(linkAttrs.engine_brand_id, '');
+    if (!partId || !brandId) continue;
+    if (brandFilter.length > 0 && !brandFilter.includes(brandId)) continue;
+    const partAttrs = snapshot.attrsByEntity.get(partId) ?? {};
+    const supplierId = normalizeText(partAttrs.supplier_id, '');
+    if (supplierFilter.length > 0 && (!supplierId || !supplierFilter.includes(supplierId))) continue;
+    seenPartBrandPairs.add(`${partId}::${brandId}`);
+    rows.push({
+      partName: normalizeText(partAttrs.name, partId),
+      article: normalizeText(partAttrs.article, ''),
+      engineBrand: brandOptions.get(brandId) ?? normalizeText(partAttrs.engine_brand, brandId),
+      assemblyUnitNumber: normalizeText(linkAttrs.assembly_unit_number ?? partAttrs.assembly_unit_number, ''),
+      qtyPerEngine: Math.max(0, toNumber(linkAttrs.quantity)),
+      supplierName: supplierId ? resolveCounterpartyLabel(snapshot, counterpartyOptions, supplierId) : normalizeText(partAttrs.shop, ''),
+      _partId: partId,
+      _brandId: brandId,
+    });
+  }
+
+  for (const partId of getIdsByType(snapshot, 'part')) {
+    const attrs = snapshot.attrsByEntity.get(partId) ?? {};
+    const brandIds = asArray(attrs.engine_brand_ids);
+    if (brandIds.length === 0) continue;
+    const qtyMapRaw = attrs.engine_brand_qty_map;
+    const qtyMap = qtyMapRaw && typeof qtyMapRaw === 'object' && !Array.isArray(qtyMapRaw) ? (qtyMapRaw as Record<string, unknown>) : {};
+    const supplierId = normalizeText(attrs.supplier_id, '');
+    if (supplierFilter.length > 0 && (!supplierId || !supplierFilter.includes(supplierId))) continue;
+    for (const brandId of brandIds) {
+      if (!brandId) continue;
+      if (brandFilter.length > 0 && !brandFilter.includes(brandId)) continue;
+      const pairKey = `${partId}::${brandId}`;
+      if (seenPartBrandPairs.has(pairKey)) continue;
+      rows.push({
+        partName: normalizeText(attrs.name, partId),
+        article: normalizeText(attrs.article, ''),
+        engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        assemblyUnitNumber: normalizeText(attrs.assembly_unit_number, ''),
+        qtyPerEngine: Math.max(0, toNumber(qtyMap[brandId])),
+        supplierName: supplierId ? resolveCounterpartyLabel(snapshot, counterpartyOptions, supplierId) : normalizeText(attrs.shop, ''),
+        _partId: partId,
+        _brandId: brandId,
+      });
+    }
+  }
+
+  rows.sort(
+    (a, b) =>
+      String(a.engineBrand ?? '').localeCompare(String(b.engineBrand ?? ''), 'ru') ||
+      String(a.partName ?? '').localeCompare(String(b.partName ?? ''), 'ru') ||
+      String(a.assemblyUnitNumber ?? '').localeCompare(String(b.assemblyUnitNumber ?? ''), 'ru'),
+  );
+
+  const uniquePartIds = new Set<string>();
+  const uniqueBrandIds = new Set<string>();
+  const grouped = new Map<string, { partIds: Set<string>; totalQty: number }>();
+  for (const row of rows) {
+    const partId = normalizeText((row as any)._partId, '');
+    const brandId = normalizeText((row as any)._brandId, '');
+    if (partId) uniquePartIds.add(partId);
+    if (brandId) uniqueBrandIds.add(brandId);
+    const brandGroup = normalizeText(row.engineBrand, '(не указано)');
+    const current = grouped.get(brandGroup) ?? { partIds: new Set<string>(), totalQty: 0 };
+    if (partId) current.partIds.add(partId);
+    current.totalQty += Math.max(0, toNumber(row.qtyPerEngine));
+    grouped.set(brandGroup, current);
+  }
+
+  for (const row of rows) {
+    delete (row as any)._partId;
+    delete (row as any)._brandId;
+  }
+
+  const preset = getPreset('parts_compatibility');
+  return {
+    ok: true,
+    presetId: 'parts_compatibility',
+    title: preset.title,
+    subtitle: rows.length > 0 ? `Строк: ${rows.length}` : 'Нет данных',
+    columns: preset.columns,
+    rows,
+    totals: {
+      parts: uniquePartIds.size,
+      brands: uniqueBrandIds.size,
+      totalQty: rows.reduce((acc, row) => acc + Math.max(0, toNumber(row.qtyPerEngine)), 0),
+    },
+    totalsByGroup: Array.from(grouped.entries())
+      .map(([group, value]) => ({
+        group,
+        totals: {
+          parts: value.partIds.size,
+          totalQty: Math.round(value.totalQty * 100) / 100,
+        },
+      }))
+      .sort((a, b) => a.group.localeCompare(b.group, 'ru')),
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildCounterpartiesSummaryReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const snapshot = await loadSnapshot(db);
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+  const progressByContract = new Map<string, { sum: number; count: number }>();
+
+  for (const engineId of getIdsByType(snapshot, 'engine')) {
+    const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+    const contractId = normalizeText(attrs.contract_id, '');
+    if (!contractId) continue;
+    const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
+    for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
+    const progress = computeObjectProgress(statusFlags);
+    const current = progressByContract.get(contractId) ?? { sum: 0, count: 0 };
+    current.sum += progress;
+    current.count += 1;
+    progressByContract.set(contractId, current);
+  }
+
+  const byCounterparty = new Map<
+    string,
+    { counterpartyName: string; inn: string; contractsCount: number; enginesCount: number; totalAmountRub: number; progressSum: number; progressWeight: number }
+  >();
+
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const { sections, totalAmountRub } = collectContractTotals(attrs);
+    const signedAt = sections.primary.signedAt ?? asNumberOrNull(attrs.date);
+    if (signedAt != null) {
+      if (period.startMs != null && signedAt < period.startMs) continue;
+      if (signedAt > period.endMs) continue;
+    } else if (period.startMs != null) {
+      continue;
+    }
+
+    const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+    const counterpartyAttrs = counterpartyId ? snapshot.attrsByEntity.get(counterpartyId) : undefined;
+    const counterpartyName = counterpartyId
+      ? resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId)
+      : '(не указан)';
+    const inn = normalizeText(counterpartyAttrs?.inn, '');
+    const counterpartyKey = counterpartyId || `name:${counterpartyName.toLowerCase()}`;
+    const contractAmount = totalAmountRub > 0 ? totalAmountRub : Math.max(0, toNumber(attrs.contract_amount_rub));
+    const engineQty = collectContractEngineQty(attrs);
+    const progress = progressByContract.get(contractId) ?? { sum: 0, count: 0 };
+    const current = byCounterparty.get(counterpartyKey) ?? {
+      counterpartyName,
+      inn,
+      contractsCount: 0,
+      enginesCount: 0,
+      totalAmountRub: 0,
+      progressSum: 0,
+      progressWeight: 0,
+    };
+    current.contractsCount += 1;
+    current.enginesCount += engineQty;
+    current.totalAmountRub += contractAmount;
+    current.progressSum += progress.sum;
+    current.progressWeight += progress.count;
+    if (!current.inn && inn) current.inn = inn;
+    byCounterparty.set(counterpartyKey, current);
+  }
+
+  const rows = Array.from(byCounterparty.values())
+    .map((row) => ({
+      counterpartyName: row.counterpartyName,
+      inn: row.inn,
+      contractsCount: row.contractsCount,
+      enginesCount: row.enginesCount,
+      totalAmountRub: Math.round(row.totalAmountRub * 100) / 100,
+      progressPct: row.progressWeight > 0 ? row.progressSum / row.progressWeight : 0,
+    }))
+    .sort((a, b) => String(a.counterpartyName).localeCompare(String(b.counterpartyName), 'ru'));
+
+  const totalProgressSum = Array.from(byCounterparty.values()).reduce((acc, row) => acc + row.progressSum, 0);
+  const totalProgressWeight = Array.from(byCounterparty.values()).reduce((acc, row) => acc + row.progressWeight, 0);
+  const preset = getPreset('counterparties_summary');
+  return {
+    ok: true,
+    presetId: 'counterparties_summary',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      counterparties: rows.length,
+      contracts: rows.reduce((acc, row) => acc + toNumber(row.contractsCount), 0),
+      engines: rows.reduce((acc, row) => acc + toNumber(row.enginesCount), 0),
+      totalAmountRub: rows.reduce((acc, row) => acc + toNumber(row.totalAmountRub), 0),
+      progressPct: totalProgressWeight > 0 ? totalProgressSum / totalProgressWeight : 0,
     },
     generatedAt: Date.now(),
   };
@@ -1222,6 +2049,7 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
         brands: buildOptions(snapshot, 'engine_brand'),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
+        departments: buildOptions(snapshot, 'department'),
       },
     };
   } catch (e) {
@@ -1249,6 +2077,20 @@ export async function buildReportByPreset(
         return buildSupplyFulfillmentReport(db, args.filters);
       case 'work_order_costs':
         return buildWorkOrderCostsReport(db, args.filters);
+      case 'work_order_payroll':
+        return buildWorkOrderPayrollReport(db, args.filters);
+      case 'employees_roster':
+        return buildEmployeesRosterReport(db, args.filters);
+      case 'tools_inventory':
+        return buildToolsInventoryReport(db, args.filters);
+      case 'services_pricelist':
+        return buildServicesPricelistReport(db, args.filters);
+      case 'products_catalog':
+        return buildProductsCatalogReport(db);
+      case 'parts_compatibility':
+        return buildPartsCompatibilityReport(db, args.filters);
+      case 'counterparties_summary':
+        return buildCounterpartiesSummaryReport(db, args.filters);
       case 'engine_movements':
         return buildEngineMovementsReport(db, args.filters);
       case 'engines_list':

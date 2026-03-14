@@ -17,6 +17,8 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type EmployeeAccount = {
   id: string;
@@ -31,7 +33,7 @@ type Employee = {
   attributes: Record<string, unknown>;
 };
 
-type Option = { id: string; label: string };
+type Option = SearchSelectOption;
 type TextLookupMeta = { targetTypeCode: string; storeAs: 'id' | 'label' };
 
 type AttrDef = {
@@ -590,13 +592,7 @@ export function EmployeeDetailsPage(props: {
       const positionType = list.find((t) => t.code === 'position_ref');
       if (positionType?.id) {
         const positionRows = await window.matrica.admin.entities.listByEntityType(positionType.id);
-        const opts = (positionRows as any[])
-          .map((row) => ({
-            id: String(row.id),
-            label: row.displayName ? String(row.displayName) : String(row.id).slice(0, 8),
-          }))
-          .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-        setPositionOptions(opts);
+        setPositionOptions(mapEntityRowsToSearchOptions(positionRows, { fallbackToShortId: true }));
       } else {
         setPositionOptions([]);
       }
@@ -663,12 +659,7 @@ export function EmployeeDetailsPage(props: {
     setLinkLoadingByDefId((p) => ({ ...p, [def.id]: true }));
     try {
       const list = await window.matrica.admin.entities.listByEntityType(targetType.id);
-      const opts = (list as any[]).map((x) => ({
-        id: String(x.id),
-        label: x.displayName ? String(x.displayName) : String(x.id).slice(0, 8),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setLinkOptionsByDefId((p) => ({ ...p, [def.id]: opts }));
+      setLinkOptionsByDefId((p) => ({ ...p, [def.id]: mapEntityRowsToSearchOptions(list, { fallbackToShortId: true }) }));
     } finally {
       setLinkLoadingByDefId((p) => ({ ...p, [def.id]: false }));
     }
@@ -685,12 +676,7 @@ export function EmployeeDetailsPage(props: {
     setTextLookupLoadingByDefId((prev) => ({ ...prev, [def.id]: true }));
     try {
       const list = await window.matrica.admin.entities.listByEntityType(targetType.id);
-      const opts = (list as any[]).map((x) => ({
-        id: String(x.id),
-        label: x.displayName ? String(x.displayName) : String(x.id),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setTextLookupOptionsByDefId((prev) => ({ ...prev, [def.id]: opts }));
+      setTextLookupOptionsByDefId((prev) => ({ ...prev, [def.id]: mapEntityRowsToSearchOptions(list) }));
       setTextLookupMetaByDefId((prev) => ({ ...prev, [def.id]: config }));
     } finally {
       setTextLookupLoadingByDefId((prev) => ({ ...prev, [def.id]: false }));
@@ -730,12 +716,7 @@ export function EmployeeDetailsPage(props: {
       await window.matrica.admin.entities.setAttr(created.id, String(labelDef.code), label);
     }
     const list = await window.matrica.admin.entities.listByEntityType(targetType.id);
-    const opts = (list as any[]).map((x) => ({
-      id: String(x.id),
-      label: x.displayName ? String(x.displayName) : String(x.id),
-    }));
-    opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-    setTextLookupOptionsByDefId((prev) => ({ ...prev, [def.id]: opts }));
+    setTextLookupOptionsByDefId((prev) => ({ ...prev, [def.id]: mapEntityRowsToSearchOptions(list) }));
     setTextLookupMetaByDefId((prev) => ({ ...prev, [def.id]: config }));
     return created.id;
   }

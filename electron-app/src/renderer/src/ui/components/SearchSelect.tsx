@@ -1,17 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
+import { buildLookupHighlightParts, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
 
-export type SearchSelectOption = { id: string; label: string };
-
-function normalizeLookupText(value: string): string {
-  return String(value || '')
-    .toLowerCase()
-    .replaceAll('ё', 'е')
-    .replaceAll(/["'`.,;:!?()[\]{}<>/\\|+-]+/g, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim();
-}
+export type SearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
 
 function formatCreateError(error: unknown): string {
   const raw = String(error ?? '').trim();
@@ -24,6 +16,8 @@ export function SearchSelect(props: {
   options: SearchSelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  query?: string;
+  onQueryChange?: (next: string) => void;
   onChange: (next: string | null) => void;
   onCreate?: (label: string) => Promise<string | null>;
   createLabel?: string;
@@ -41,16 +35,21 @@ export function SearchSelect(props: {
   const normalizedQuery = useMemo(() => normalizeLookupText(dropdown.query), [dropdown.query]);
   const similarMatches = useMemo(() => {
     if (!normalizedQuery) return [];
-    return props.options.filter((option) => normalizeLookupText(option.label).includes(normalizedQuery)).slice(0, 5);
+    return rankLookupOptions(props.options, normalizedQuery).slice(0, 5);
   }, [normalizedQuery, props.options]);
   const exactMatch = useMemo(
     () => props.options.find((option) => normalizeLookupText(option.label) === normalizedQuery) ?? null,
     [normalizedQuery, props.options],
   );
 
-  function close() {
+  function setQuery(next: string) {
+    dropdown.setQuery(next);
+    props.onQueryChange?.(next);
+  }
+
+  function close(nextLabel?: string) {
     dropdown.closeDropdown();
-    dropdown.setQuery(selected?.label ?? '');
+    dropdown.setQuery(nextLabel ?? selected?.label ?? '');
     setCreateBusy(false);
     setCreateError('');
   }
@@ -59,8 +58,7 @@ export function SearchSelect(props: {
     const o = dropdown.filtered[idx];
     if (!o) return;
     props.onChange(o.id);
-    dropdown.setQuery(o.label);
-    close();
+    close(o.label);
   }
 
   useEffect(() => {
@@ -73,11 +71,14 @@ export function SearchSelect(props: {
 
   useEffect(() => {
     if (!dropdown.open) {
-      dropdown.setQuery(selected?.label ?? '');
+      const next = selected?.label ?? '';
+      if (dropdown.query !== next) dropdown.setQuery(next);
       return;
     }
-    dropdown.setQuery((prev) => (String(prev ?? '').trim() ? prev : selected?.label ?? ''));
-  }, [dropdown.open, selected?.label]);
+    const next =
+      props.query !== undefined ? props.query : String(dropdown.query ?? '').trim() ? dropdown.query : (selected?.label ?? '');
+    if (dropdown.query !== next) dropdown.setQuery(next);
+  }, [dropdown.open, dropdown.query, props.query, selected?.label]);
 
   async function submitCreate() {
     if (!props.onCreate || createBusy) return;
@@ -102,8 +103,7 @@ export function SearchSelect(props: {
       return;
     }
     props.onChange(id);
-    dropdown.setQuery(label);
-    close();
+    close(label);
   }
 
   return (
@@ -126,7 +126,7 @@ export function SearchSelect(props: {
           onChange={(e) => {
             if (disabled) return;
             if (!dropdown.open) dropdown.setOpen(true);
-            dropdown.setQuery(e.target.value);
+            setQuery(e.target.value);
           }}
           onKeyDown={(e) => {
             if (disabled) return;
@@ -178,7 +178,8 @@ export function SearchSelect(props: {
             type="button"
             onClick={() => {
               props.onChange(null);
-              close();
+              props.onQueryChange?.('');
+              close('');
             }}
             style={{
               flexShrink: 0,
@@ -220,13 +221,15 @@ export function SearchSelect(props: {
                 {dropdown.filtered.map((o, idx) => {
                   const active = props.value === o.id;
                   const focused = dropdown.activeIdx === idx;
+                  const highlightParts = buildLookupHighlightParts(o.label, dropdown.query);
+                  const hintParts = o.hintText ? buildLookupHighlightParts(o.hintText, dropdown.query) : null;
                   return (
                     <div
                       key={o.id}
                       data-idx={idx}
                       onClick={() => {
                         props.onChange(o.id);
-                        close();
+                        close(o.label);
                       }}
                       onMouseEnter={() => {
                         dropdown.setActiveIdx(idx);
@@ -238,7 +241,28 @@ export function SearchSelect(props: {
                         background: focused ? 'rgba(96, 165, 250, 0.18)' : active ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
                       }}
                     >
-                      <div style={{ fontWeight: 700, color: 'var(--text)' }}>{o.label}</div>
+                      <div style={{ fontWeight: 700, color: 'var(--text)' }}>
+                        {highlightParts.map((part, partIdx) => (
+                          <span
+                            key={`${o.id}-part-${partIdx}`}
+                            style={part.matched ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
+                          >
+                            {part.text}
+                          </span>
+                        ))}
+                      </div>
+                      {hintParts && hintParts.some((part) => part.text) ? (
+                        <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)' }}>
+                          {hintParts.map((part, partIdx) => (
+                            <span
+                              key={`${o.id}-hint-${partIdx}`}
+                              style={part.matched ? { background: 'rgba(250, 204, 21, 0.2)', borderRadius: 3 } : undefined}
+                            >
+                              {part.text}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}

@@ -10,11 +10,13 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { listAllParts } from '../utils/partsPagination.js';
+import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
 
@@ -47,9 +49,9 @@ export function SimpleMasterdataDetailsPage(props: {
   const [defs, setDefs] = useState<AttributeDefRow[]>([]);
   const [coreDefsReady, setCoreDefsReady] = useState(false);
   const [defsLoaded, setDefsLoaded] = useState(false);
-  const [unitOptions, setUnitOptions] = useState<Array<{ id: string; label: string }>>([]);
-  const [storeOptions, setStoreOptions] = useState<Array<{ id: string; label: string }>>([]);
-  const [partOptions, setPartOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [unitOptions, setUnitOptions] = useState<SearchSelectOption[]>([]);
+  const [storeOptions, setStoreOptions] = useState<SearchSelectOption[]>([]);
+  const [partOptions, setPartOptions] = useState<SearchSelectOption[]>([]);
   const [partIds, setPartIds] = useState<string[]>([]);
   const [unitTypeId, setUnitTypeId] = useState<string>('');
   const [storeTypeId, setStoreTypeId] = useState<string>('');
@@ -166,25 +168,16 @@ export function SimpleMasterdataDetailsPage(props: {
         setStoreTypeId(storeType?.id ? String(storeType.id) : '');
         if (unitType?.id) {
           const rows = await window.matrica.admin.entities.listByEntityType(String(unitType.id));
-          const opts = (rows as any[]).map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }));
-          opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-          setUnitOptions(opts);
+          setUnitOptions(mapEntityRowsToSearchOptions(rows));
         }
         if (storeType?.id) {
           const rows = await window.matrica.admin.entities.listByEntityType(String(storeType.id));
-          const opts = (rows as any[]).map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }));
-          opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-          setStoreOptions(opts);
+          setStoreOptions(mapEntityRowsToSearchOptions(rows));
         }
         const partRes = await listAllParts();
         if (!alive) return;
         if (partRes.ok) {
-          const opts = partRes.parts.map((p: any) => ({
-            id: String(p.id),
-            label: String(p.name || p.article || p.id),
-          }));
-          opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-          setPartOptions(opts);
+          setPartOptions(mapPartRowsToSearchOptions(partRes.parts as Array<{ id: string; name?: string; article?: string; templateName?: string }>));
         } else {
           setPartOptions([]);
         }

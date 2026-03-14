@@ -4,6 +4,7 @@ import {
   WarehouseDocumentTypeLabels,
   type WarehouseLookupOption,
 } from '@matricarmz/shared';
+import { mapWarehouseLookupOptions } from './selectOptions.js';
 
 export const WAREHOUSE_ITEM_TYPE_OPTIONS: Array<{ id: NomenclatureItemType | ''; label: string }> = [
   { id: '', label: 'Все типы' },
@@ -37,10 +38,7 @@ export function warehouseDocTypeLabel(docType: string | null | undefined): strin
 }
 
 export function lookupToSelectOptions(rows: WarehouseLookupOption[]) {
-  return rows.map((row) => ({
-    id: row.id,
-    label: row.code ? `${row.label} (${row.code})` : row.label,
-  }));
+  return mapWarehouseLookupOptions(rows);
 }
 
 export function lookupLabelById(rows: WarehouseLookupOption[], id: string | null | undefined): string {

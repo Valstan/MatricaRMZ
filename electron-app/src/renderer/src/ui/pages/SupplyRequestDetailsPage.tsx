@@ -15,8 +15,11 @@ import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { buildSearchOption, joinOptionHint, joinOptionSearch, mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
-type LinkOpt = { id: string; label: string };
+type LinkOpt = SearchSelectOption;
+type ProductOption = LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' };
 
 const UI_TYPE_CODE = 'ui_supply_request';
 
@@ -245,7 +248,7 @@ export function SupplyRequestDetailsPage(props: {
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   const typeIdByCode = useRef<Record<string, string>>({});
-  const [productOptions, setProductOptions] = useState<Array<LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' }>>([]);
+  const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [unitOptions, setUnitOptions] = useState<LinkOpt[]>([]);
   const [uiTypeId, setUiTypeId] = useState<string>('');
   const [uiDefs, setUiDefs] = useState<AttributeDefRow[]>([]);
@@ -293,8 +296,7 @@ export function SupplyRequestDetailsPage(props: {
       const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
       const rows = await window.matrica.admin.entities.listByEntityType(tid);
-      const opts = rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      const opts = mapEntityRowsToSearchOptions(rows);
       setLinkLists((p) => ({
         ...p,
         [key]: opts,
@@ -305,13 +307,23 @@ export function SupplyRequestDetailsPage(props: {
     // Product suggestions (master-data)
     const productTid = typeIdByCodeMap.get('product');
     const serviceTid = typeIdByCodeMap.get('service');
-    const items: Array<LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' }> = [];
+    const items: ProductOption[] = [];
     if (productTid) {
       const rows = await window.matrica.admin.entities.listByEntityType(productTid);
       rows.forEach((r: any) => {
         const name = String(r.displayName ?? '').trim();
         if (!name) return;
-        items.push({ id: String(r.id), label: name, name, unit: '', kind: 'product' });
+        items.push({
+          ...buildSearchOption({
+            id: String(r.id),
+            label: name,
+            hintText: 'Товар',
+            searchText: joinOptionSearch([name, r.id, r.searchText]),
+          }),
+          name,
+          unit: '',
+          kind: 'product',
+        });
       });
     }
     if (serviceTid) {
@@ -319,7 +331,17 @@ export function SupplyRequestDetailsPage(props: {
       rows.forEach((r: any) => {
         const name = String(r.displayName ?? '').trim();
         if (!name) return;
-        items.push({ id: String(r.id), label: `${name} (услуга)`, name, unit: '', kind: 'service' });
+        items.push({
+          ...buildSearchOption({
+            id: String(r.id),
+            label: `${name} (услуга)`,
+            hintText: 'Услуга',
+            searchText: joinOptionSearch([name, r.id, r.searchText, 'услуга']),
+          }),
+          name,
+          unit: '',
+          kind: 'service',
+        });
       });
     }
     items.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
@@ -328,9 +350,7 @@ export function SupplyRequestDetailsPage(props: {
     const unitTypeId = typeIdByCodeMap.get('unit');
     if (unitTypeId) {
       const rows = await window.matrica.admin.entities.listByEntityType(String(unitTypeId));
-      const opts = (rows as any[]).map((r) => ({ id: String(r.id), label: String(r.displayName ?? r.id) }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setUnitOptions(opts);
+      setUnitOptions(mapEntityRowsToSearchOptions(rows));
     } else {
       setUnitOptions([]);
     }
@@ -381,9 +401,23 @@ export function SupplyRequestDetailsPage(props: {
       const details = await window.matrica.admin.entities.get(optionId);
       const unit = String(details?.attributes?.unit ?? '').trim();
       if (!unit) return opt;
-      const nextOptions = productOptions.map((p) => (p.id === optionId ? { ...p, unit } : p));
+      const nextOptions = productOptions.map((p) =>
+        p.id === optionId
+          ? {
+              ...p,
+              unit,
+              hintText: joinOptionHint([p.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]),
+              searchText: joinOptionSearch([p.name, p.id, p.kind, unit]),
+            }
+          : p,
+      );
       setProductOptions(nextOptions);
-      return { ...opt, unit };
+      return {
+        ...opt,
+        unit,
+        hintText: joinOptionHint([opt.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]),
+        searchText: joinOptionSearch([opt.name, opt.id, opt.kind, unit]),
+      };
     } catch {
       return opt;
     }
@@ -405,6 +439,18 @@ export function SupplyRequestDetailsPage(props: {
     await window.matrica.admin.entities.setAttr(created.id, attr, label);
     await loadLinkLists();
     return created.id;
+  }
+
+  function updateRequestItem(
+    index: number,
+    updater: (current: SupplyRequestItem) => SupplyRequestItem,
+    markSessionChange = true,
+  ) {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const items = [...(currentPayload.items ?? [])];
+    items[index] = updater(ensureItem(items[index], index + 1));
+    scheduleSave({ ...currentPayload, items }, markSessionChange);
   }
 
   async function saveNow(next: SupplyRequestPayload) {
@@ -949,24 +995,22 @@ export function SupplyRequestDetailsPage(props: {
                             canCreate={props.canEditMasterData}
                             createLabel="Добавить товар или услугу"
                             onChange={(next) => {
-                              const items = [...(payload.items ?? [])];
                               const selected = productOptions.find((p) => p.id === next);
-                              const current = ensureItem(items[idx], idx + 1);
-                              items[idx] = {
+                              updateRequestItem(idx, (current) => ({
                                 ...current,
                                 productId: next || null,
                                 name: selected?.name ?? current.name ?? '',
                                 unit: selected?.unit ?? current.unit ?? '',
-                              };
-                              scheduleSave({ ...payload, items });
+                              }));
                               if (next) {
                                 void (async () => {
                                   const enriched = await enrichUnitIfMissing(next);
                                   if (!enriched?.unit) return;
-                                  const updated = [...(payload.items ?? [])];
-                                  const current = ensureItem(updated[idx], idx + 1);
-                                  updated[idx] = { ...current, unit: enriched.unit };
-                                  scheduleSave({ ...payload, items: updated });
+                                  updateRequestItem(
+                                    idx,
+                                    (current) => (current.productId === next ? { ...current, unit: enriched.unit } : current),
+                                    false,
+                                  );
                                 })();
                               }
                             }}
@@ -977,25 +1021,27 @@ export function SupplyRequestDetailsPage(props: {
                               const typeCode = isService ? 'service' : 'product';
                               const id = await createMasterDataItem(typeCode, name);
                               if (!id) return null;
-                              const nextOptions = [...productOptions];
-                              nextOptions.push({
-                                id,
-                                name,
-                                label: isService ? `${name} (услуга)` : name,
-                                unit: '',
-                                kind: isService ? 'service' : 'product',
+                              setProductOptions((current) => {
+                                const createdOption: ProductOption = {
+                                  ...buildSearchOption({
+                                    id,
+                                    label: isService ? `${name} (услуга)` : name,
+                                    hintText: isService ? 'Услуга' : 'Товар',
+                                    searchText: joinOptionSearch([name, id, isService ? 'service' : 'product']),
+                                  }),
+                                  name,
+                                  unit: '',
+                                  kind: isService ? 'service' : 'product',
+                                };
+                                const withoutDuplicate = current.filter((option) => option.id !== id);
+                                return [...withoutDuplicate, createdOption].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
                               });
-                              nextOptions.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-                              setProductOptions(nextOptions);
-                              const items = [...(payload.items ?? [])];
-                              const current = ensureItem(items[idx], idx + 1);
-                              items[idx] = {
+                              updateRequestItem(idx, (current) => ({
                                 ...current,
                                 productId: id,
                                 name,
                                 unit: current.unit ?? '',
-                              };
-                              scheduleSave({ ...payload, items });
+                              }));
                               return id;
                             }}
                           />

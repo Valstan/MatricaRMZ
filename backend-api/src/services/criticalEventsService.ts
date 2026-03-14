@@ -124,7 +124,7 @@ const SERVER_PATTERNS: Array<{ re: RegExp; info: MatchInfo }> = [
     },
   },
   {
-    re: /sync pipeline bot poll failed/i,
+    re: /sync pipeline bot poll(?:ing)? failed/i,
     info: {
       code: 'server.sync.pipeline_poll_failed',
       title: 'Сбой фонового опроса sync pipeline',
@@ -214,10 +214,28 @@ function isOfflineSyncFailure(message: string, metadata?: Record<string, unknown
   );
 }
 
-function classifySyncPipelinePollError(metadata?: Record<string, unknown>): 'conflict' | 'transient' | 'other' {
+function classifySyncPipelinePollError(metadata?: Record<string, unknown>): 'conflict' | 'transient' | 'misconfigured' | 'other' {
   const raw = String(metadata?.error ?? '').trim().toLowerCase();
   if (!raw) return 'other';
-  if (raw.includes('telegram http 409') && raw.includes('other getupdates request')) return 'conflict';
+  if (
+    (raw.includes('telegram http 409') && raw.includes('getupdates')) ||
+    raw.includes('terminated by other getupdates request') ||
+    (raw.includes('error_code') && raw.includes('409') && raw.includes('getupdates'))
+  ) {
+    return 'conflict';
+  }
+  if (
+    raw.includes('telegram http 401') ||
+    raw.includes('telegram http 403') ||
+    raw.includes('unauthorized') ||
+    raw.includes('forbidden') ||
+    raw.includes('bot was blocked') ||
+    raw.includes('bot is blocked') ||
+    raw.includes('invalid token') ||
+    raw.includes('token is invalid')
+  ) {
+    return 'misconfigured';
+  }
   if (
     raw.includes('fetch failed') ||
     raw.includes('etimedout') ||
@@ -391,10 +409,25 @@ export function ingestServerLogForCriticalEvent(args: {
         category: 'network',
         severity: 'warn',
       };
+    } else if (pollErrorKind === 'misconfigured') {
+      info = {
+        code: 'server.sync.pipeline_poll_misconfigured',
+        title: 'Проблема конфигурации Telegram-бота sync pipeline',
+        category: 'auth',
+        severity: 'warn',
+      };
     } else if (pollErrorKind === 'transient') {
       info = {
         code: 'server.sync.pipeline_poll_transient',
         title: 'Временный сбой опроса Telegram-бота sync pipeline',
+        category: 'network',
+        severity: 'warn',
+      };
+    } else {
+      // Polling bot updates is auxiliary and should not produce "serious error" alerts.
+      info = {
+        code: 'server.sync.pipeline_poll_failed',
+        title: 'Сбой фонового опроса Telegram-бота sync pipeline',
         category: 'network',
         severity: 'warn',
       };

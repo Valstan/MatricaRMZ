@@ -37,6 +37,8 @@ import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.j
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type AttributeDef = {
   id: string;
@@ -56,7 +58,7 @@ type ContractEntity = {
   attributes: Record<string, unknown>;
 };
 
-type LinkOpt = { id: string; label: string };
+type LinkOpt = SearchSelectOption;
 
 type ContractAccountingForm = {
   gozName: string;
@@ -720,10 +722,8 @@ export function ContractDetailsPage(props: {
         setEngineBrandOptions([]);
         return;
       }
-      const rows = (await window.matrica.admin.entities.listByEntityType(type.id)) as Array<{ id: string; displayName?: string }>;
-      const opts = rows.map((r) => ({ id: String(r.id), label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8) }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setEngineBrandOptions(opts);
+      const rows = await window.matrica.admin.entities.listByEntityType(type.id);
+      setEngineBrandOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
     } catch {
       setEngineBrandOptions([]);
     }
@@ -736,10 +736,8 @@ export function ContractDetailsPage(props: {
         setCustomerOptions([]);
         return;
       }
-      const rows = (await window.matrica.admin.entities.listByEntityType(type.id)) as Array<{ id: string; displayName?: string }>;
-      const opts = rows.map((r) => ({ id: String(r.id), label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8) }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setCustomerOptions(opts);
+      const rows = await window.matrica.admin.entities.listByEntityType(type.id);
+      setCustomerOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
     } catch {
       setCustomerOptions([]);
     }
@@ -752,12 +750,7 @@ export function ContractDetailsPage(props: {
         setPartOptions([]);
         return;
       }
-      const opts = r.parts.map((p: { id: string; name?: string; article?: string }) => ({
-        id: p.id,
-        label: [p.name, p.article].filter(Boolean).join(' — ') || p.id.slice(0, 8),
-      }));
-      opts.sort((a: LinkOpt, b: LinkOpt) => a.label.localeCompare(b.label, 'ru'));
-      setPartOptions(opts);
+      setPartOptions(mapPartRowsToSearchOptions(r.parts));
     } catch {
       setPartOptions([]);
     }

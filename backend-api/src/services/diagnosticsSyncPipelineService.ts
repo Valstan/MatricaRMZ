@@ -4,6 +4,7 @@ import { SyncTableName } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { diagnosticsSnapshots, ledgerTxIndex } from '../database/schema.js';
 import { getLedgerLastSeq, queryState } from '../ledger/ledgerService.js';
+import { getSyncPipelineBotPollMetrics } from './syncPipelineBotPollMetricsService.js';
 
 type TableKey = 'entity_types' | 'entities' | 'attribute_defs' | 'attribute_values' | 'operations';
 
@@ -338,6 +339,7 @@ export async function getSyncPipelineHealth() {
       indexToProjectionLag,
     },
     tables,
+    botPoll: getSyncPipelineBotPollMetrics(),
     skippedRows24h,
     reasons: reasons({ ledgerToIndexLag, indexToProjectionLag, worstTable, skippedRows24h }),
   };

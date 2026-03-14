@@ -8,6 +8,7 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
 import {
   createEngineBrandSummarySyncState,
   computeSummaryFromBrandRows,
@@ -15,8 +16,9 @@ import {
   type EngineBrandSummarySyncState,
 } from '../utils/engineBrandSummary.js';
 import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
+import { buildSearchOption, joinOptionSearch, mapPartRowsToSearchOptions, sortSearchOptions } from '../utils/selectOptions.js';
 
-type PartOption = { id: string; label: string };
+type PartOption = SearchSelectOption;
 type BrandPartRow = { id: string; label: string; linkId?: string; assemblyUnitNumber: string; quantity: number };
 export function EngineBrandDetailsPage(props: {
   brandId: string;
@@ -91,12 +93,7 @@ export function EngineBrandDetailsPage(props: {
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return;
     }
-    const opts = r.parts.map((p) => ({
-      id: String(p.id),
-      label: String(p.name ?? p.article ?? p.id),
-    }));
-    opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-    setPartsOptions(opts);
+    setPartsOptions(mapPartRowsToSearchOptions(r.parts as Array<{ id: string; name?: string; article?: string; templateName?: string }>));
     setPartsStatus('');
   }
 
@@ -342,9 +339,12 @@ export function EngineBrandDetailsPage(props: {
       invalidateListAllPartsCache({ engineBrandId: props.brandId });
       const id = String(created.part.id);
       if (!partsOptions.some((o) => o.id === id)) {
-        const nextOpts = [...partsOptions, { id, label: name }];
-        nextOpts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-        setPartsOptions(nextOpts);
+        setPartsOptions(
+          sortSearchOptions([
+            ...partsOptions,
+            buildSearchOption({ id, label: name, searchText: joinOptionSearch([name, id]) }),
+          ]),
+        );
       }
       await addPart(id);
       setPartsStatus('');

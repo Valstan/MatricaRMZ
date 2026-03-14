@@ -12,6 +12,8 @@ import type {
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -71,6 +73,18 @@ function formatCell(
 }
 
 const REPORT_TOTAL_LABELS: Record<string, string> = {
+  employees: 'Сотрудники, шт.',
+  workingEmployees: 'Работают, шт.',
+  firedEmployees: 'Уволены, шт.',
+  firedInPeriod: 'Уволены за период, шт.',
+  counterparties: 'Контрагенты, шт.',
+  tools: 'Инструменты, шт.',
+  inInventory: 'В учете, шт.',
+  retired: 'Списано, шт.',
+  services: 'Услуги, шт.',
+  products: 'Товары, шт.',
+  parts: 'Детали, шт.',
+  brands: 'Марки, шт.',
   scrapQty: 'Утиль, шт.',
   missingQty: 'Недокомплект, шт.',
   deliveredQty: 'Привезено, шт.',
@@ -86,6 +100,7 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   workOrders: 'Наряды, шт.',
   lines: 'Записей, шт.',
   amountRub: 'Сумма, ₽',
+  avgAmountRub: 'Средняя цена, ₽',
   onSiteQty: 'На заводе, шт.',
   acceptance: 'Приёмка',
   shipment: 'Отгрузка',
@@ -98,6 +113,18 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   withoutSeparateAccount: 'Без отдельного счета, шт.',
 };
 const REPORT_METRIC_NOTES: Record<string, string> = {
+  employees: 'Сотрудники: количество работников, попавших в отчетный период.',
+  workingEmployees: 'Работают: количество сотрудников со статусом "работает".',
+  firedEmployees: 'Уволены: количество сотрудников со статусом "уволен".',
+  firedInPeriod: 'Уволены за период: сотрудники с датой увольнения в выбранном диапазоне.',
+  counterparties: 'Контрагенты: количество контрагентов в текущей выборке.',
+  tools: 'Инструменты: общее количество карточек инструмента в отчете.',
+  inInventory: 'В учете: инструменты без даты списания.',
+  retired: 'Списано: инструменты с заполненной датой списания.',
+  services: 'Услуги: количество услуг, вошедших в прайс-лист.',
+  products: 'Товары: количество товарных позиций каталога.',
+  parts: 'Детали: количество уникальных деталей в отчете.',
+  brands: 'Марки: количество уникальных марок двигателей в отчете.',
   scrapQty: 'Утиль: количество бракованных деталей.',
   missingQty: 'Недокомплект: детали, которых не хватает по плану.',
   deliveredQty: 'Привезено: фактический объём поступивших деталей.',
@@ -114,6 +141,7 @@ const REPORT_METRIC_NOTES: Record<string, string> = {
   withoutIgk: 'Без ИГК: количество контрактов без ИГК.',
   withSeparateAccount: 'С отдельным счетом: количество контрактов с заполненным полем счета.',
   withoutSeparateAccount: 'Без отдельного счета: количество контрактов без заполненного счета.',
+  avgAmountRub: 'Средняя цена: среднее значение цены по строкам отчета.',
 };
 
 function reportTotalLabel(key: string): string {
@@ -224,6 +252,7 @@ export function ReportsPage(props: { canExport: boolean }) {
   const [optionSets, setOptionSets] = useState<Partial<Record<ReportOptionSource, ReportFilterOption[]>>>({});
   const [selectedPresetId, setSelectedPresetId] = useState<ReportPresetId | null>(null);
   const [filtersByPreset, setFiltersByPreset] = useState<Partial<Record<ReportPresetId, ReportPresetFilters>>>({});
+  const [filterSearchByPreset, setFilterSearchByPreset] = useState<Partial<Record<ReportPresetId, Record<string, string>>>>({});
   const [preview, setPreview] = useState<PreviewOk | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -236,11 +265,29 @@ export function ReportsPage(props: { canExport: boolean }) {
     if (!activePreset) return {};
     return filtersByPreset[activePreset.id] ?? buildDefaultFilters(activePreset);
   }, [activePreset, filtersByPreset]);
+  const activeFilterSearch = useMemo(() => {
+    if (!activePreset) return {};
+    return filterSearchByPreset[activePreset.id] ?? {};
+  }, [activePreset, filterSearchByPreset]);
 
   function patchFilter(key: string, value: unknown) {
     if (!activePreset) return;
     setFiltersByPreset((prev) => {
       const current = prev[activePreset.id] ?? buildDefaultFilters(activePreset);
+      return {
+        ...prev,
+        [activePreset.id]: {
+          ...current,
+          [key]: value,
+        },
+      };
+    });
+  }
+
+  function patchFilterSearch(key: string, value: string) {
+    if (!activePreset) return;
+    setFilterSearchByPreset((prev) => {
+      const current = prev[activePreset.id] ?? {};
       return {
         ...prev,
         [activePreset.id]: {
@@ -453,6 +500,9 @@ export function ReportsPage(props: { canExport: boolean }) {
           <div className="ui-muted">Выберите шаблон отчета.</div>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+              Для списочных фильтров можно начать вводить текст или вставить его из буфера, чтобы быстро найти нужный объект.
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
               {activePreset.filters.map((filter) => {
                 if (filter.type === 'date_range') {
@@ -488,44 +538,47 @@ export function ReportsPage(props: { canExport: boolean }) {
                 }
                 if (filter.type === 'select') {
                   const value = String(activeFilters[filter.key] ?? filter.options[0]?.value ?? '');
+                  const options = filter.options.map((option) => ({
+                    id: option.value,
+                    label: option.label,
+                    hintText: option.hintText,
+                    searchText: option.searchText,
+                  }));
                   return (
-                    <label key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
                       <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                      <select
-                        value={value}
-                        onChange={(e) => patchFilter(filter.key, e.target.value)}
-                        style={{ minHeight: 30, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-                      >
-                        {filter.options.map((option) => (
-                          <option key={`${filter.key}-${option.value}`} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                      <SearchSelect
+                        value={value || null}
+                        options={options}
+                        placeholder="Начните вводить для поиска"
+                        disabled={busy}
+                        query={activeFilterSearch[filter.key] ?? ''}
+                        onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+                        onChange={(next) => patchFilter(filter.key, next ?? filter.options[0]?.value ?? '')}
+                      />
+                    </div>
                   );
                 }
                 const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
                 const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
                 return (
-                  <label key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                  <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
                     <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                    <select
-                      multiple
-                      value={selected}
-                      onChange={(e) => {
-                        const values = Array.from(e.currentTarget.selectedOptions).map((opt) => opt.value);
-                        patchFilter(filter.key, values);
-                      }}
-                      style={{ minHeight: 90, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-                    >
-                      {options.map((option) => (
-                        <option key={`${filter.key}-${option.value}`} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    <MultiSearchSelect
+                      values={selected}
+                      options={options.map((option) => ({
+                        id: option.value,
+                        label: option.label,
+                        hintText: option.hintText,
+                        searchText: option.searchText,
+                      }))}
+                      placeholder="Начните вводить или вставьте текст"
+                      disabled={busy}
+                      query={activeFilterSearch[filter.key] ?? ''}
+                      onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+                      onChange={(next) => patchFilter(filter.key, next)}
+                    />
+                  </div>
                 );
               })}
             </div>

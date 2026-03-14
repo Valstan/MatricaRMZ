@@ -88,5 +88,35 @@ describe('criticalEventsService alert hygiene', () => {
     expect(events[0]?.eventCode).toBe('server.sync.pipeline_poll_conflict');
     expect(events[0]?.severity).toBe('warn');
   });
+
+  it('demotes poll misconfiguration (401) to warn and config code', () => {
+    ingestServerLogForCriticalEvent({
+      level: 'warn',
+      message: 'sync pipeline bot polling failed',
+      metadata: {
+        component: 'sync',
+        error: 'telegram HTTP 401: {"ok":false,"error_code":401,"description":"Unauthorized"}',
+        streak: 2,
+      },
+    });
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventCode).toBe('server.sync.pipeline_poll_misconfigured');
+    expect(events[0]?.severity).toBe('warn');
+  });
+
+  it('keeps unknown poll errors as warn (not error)', () => {
+    ingestServerLogForCriticalEvent({
+      level: 'warn',
+      message: 'sync pipeline bot poll failed',
+      metadata: { component: 'sync', error: 'telegram HTTP 418: teapot', streak: 4 },
+    });
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventCode).toBe('server.sync.pipeline_poll_failed');
+    expect(events[0]?.severity).toBe('warn');
+  });
 });
 

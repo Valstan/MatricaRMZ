@@ -10,14 +10,16 @@ import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
-type LinkOpt = { id: string; label: string };
+type LinkOpt = SearchSelectOption;
 
 function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
@@ -429,8 +431,7 @@ export function EngineDetailsPage(props: {
       const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
       const rows = await window.matrica.admin.entities.listByEntityType(tid);
-      const opts = rows.map((x) => ({ id: x.id, label: x.displayName ? `${x.displayName}` : x.id }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      const opts = mapEntityRowsToSearchOptions(rows);
       setLinkLists((p) => ({ ...p, [key]: opts }));
     }
     await load('engine_brand', 'engine_brand');

@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { rankLookupOptions } from '../utils/searchMatching.js';
 
-type SuggestOption = { id: string; label: string };
-
-function norm(s: string): string {
-  return String(s || '')
-    .toLowerCase()
-    .replaceAll('ё', 'е')
-    .replaceAll(/["'`.,;:!?()[\]{}<>/\\|+-]+/g, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim();
-}
+type SuggestOption = { id: string; label: string; searchText?: string; hintText?: string };
 
 export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
   const [open, setOpen] = useState(false);
@@ -21,9 +13,7 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const filtered = useMemo(() => {
-    const q = norm(query);
-    if (!q) return options;
-    return options.filter((o) => norm(o.label).includes(q) || norm(o.id).includes(q));
+    return rankLookupOptions(options, query);
   }, [options, query]);
 
   useEffect(() => {

@@ -9,6 +9,13 @@ import {
 } from './telegramBotService.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
+import {
+  classifySyncPipelineBotPollError,
+  getSyncPipelineBotPollMetrics,
+  markSyncPipelineBotPollAttempt,
+  markSyncPipelineBotPollFailure,
+  markSyncPipelineBotPollSuccess,
+} from './syncPipelineBotPollMetricsService.js';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
 const DEFAULT_TZ = 'Europe/Moscow';
@@ -16,28 +23,11 @@ const DEFAULT_DAILY_TIME = '21:00';
 const CHECK_TICK_MS = 60_000;
 const BOT_POLL_MS = 15_000;
 const BOT_POLL_ERROR_LOG_STREAK = 3;
+const BOT_POLL_SILENT_COUNTER_LOG_MS = 10 * 60_000;
 let knownSuperadminChatId: string | null = null;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isTransientBotPollError(raw: string) {
-  const text = String(raw ?? '').toLowerCase();
-  if (!text) return false;
-  return (
-    text.includes('fetch failed') ||
-    text.includes('etimedout') ||
-    text.includes('econnreset') ||
-    text.includes('eai_again') ||
-    text.includes('socket hang up') ||
-    text.includes('timeout') ||
-    text.includes('http 429') ||
-    text.includes('http 500') ||
-    text.includes('http 502') ||
-    text.includes('http 503') ||
-    text.includes('http 504')
-  );
 }
 
 function parseBool(raw: string | undefined, fallback: boolean) {
@@ -56,6 +46,12 @@ function parseTime(value: string) {
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function parseNumber(raw: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(raw ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
 function normalizeLogin(value: string | null | undefined) {
@@ -203,12 +199,61 @@ export function startSyncPipelineSupervisorService() {
   const dailyTime = parseTime(String(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_TIME ?? DEFAULT_DAILY_TIME)) ?? DEFAULT_DAILY_TIME;
   const sendOkSummary = parseBool(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_OK_SUMMARY, false);
   const actionsEnabled = parseBool(process.env.MATRICA_SYNC_PIPELINE_TELEGRAM_ACTIONS_ENABLED, true);
+  const botPollSilentCounterLogMs = parseNumber(
+    process.env.MATRICA_SYNC_PIPELINE_BOT_POLL_COUNTER_LOG_MS,
+    BOT_POLL_SILENT_COUNTER_LOG_MS,
+    60_000,
+    24 * 60 * 60_000,
+  );
 
   let lastNightlyDate = '';
   let updateOffset = 0;
   let botPollingDisabledLogged = false;
   let botPollFailureStreak = 0;
   let lastBotPollError = '';
+  let lastMetricsLogAt = Date.now();
+  let lastMetricsAttempts = 0;
+  let lastMetricsFailures = 0;
+  let lastMetricsTransient = 0;
+  let lastMetricsConflict = 0;
+  let lastMetricsMisconfigured = 0;
+  let lastMetricsOther = 0;
+
+  const logBotPollSilentCounter = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastMetricsLogAt < botPollSilentCounterLogMs) return;
+    lastMetricsLogAt = now;
+    const metrics = getSyncPipelineBotPollMetrics();
+    const deltaAttempts = Math.max(0, metrics.totalAttempts - lastMetricsAttempts);
+    const deltaFailures = Math.max(0, metrics.totalFailures - lastMetricsFailures);
+    const deltaTransient = Math.max(0, metrics.transientFailures - lastMetricsTransient);
+    const deltaConflict = Math.max(0, metrics.conflictFailures - lastMetricsConflict);
+    const deltaMisconfigured = Math.max(0, metrics.misconfiguredFailures - lastMetricsMisconfigured);
+    const deltaOther = Math.max(0, metrics.otherFailures - lastMetricsOther);
+    lastMetricsAttempts = metrics.totalAttempts;
+    lastMetricsFailures = metrics.totalFailures;
+    lastMetricsTransient = metrics.transientFailures;
+    lastMetricsConflict = metrics.conflictFailures;
+    lastMetricsMisconfigured = metrics.misconfiguredFailures;
+    lastMetricsOther = metrics.otherFailures;
+    if (deltaFailures <= 0) return;
+    const failurePct = deltaAttempts > 0 ? Number(((deltaFailures / deltaAttempts) * 100).toFixed(2)) : null;
+    logInfo('sync pipeline bot poll silent counter', {
+      component: 'sync',
+      subsystem: 'pipeline_bot_poll',
+      periodMs: botPollSilentCounterLogMs,
+      attempts: deltaAttempts,
+      failures: deltaFailures,
+      failurePct,
+      transient: deltaTransient,
+      conflict: deltaConflict,
+      misconfigured: deltaMisconfigured,
+      other: deltaOther,
+      currentStreak: metrics.currentFailureStreak,
+      maxStreak: metrics.maxFailureStreak,
+      lastError: metrics.lastError,
+    });
+  };
 
   const runNightlyCheck = async () => {
     const health = await getSyncPipelineHealth();
@@ -284,13 +329,16 @@ export function startSyncPipelineSupervisorService() {
       return;
     }
     botPollingDisabledLogged = false;
+    markSyncPipelineBotPollAttempt();
     let updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
-    if (!updatesRes.ok && isTransientBotPollError(updatesRes.error)) {
+    if (!updatesRes.ok && classifySyncPipelineBotPollError(updatesRes.error) === 'transient') {
       await sleep(800);
+      markSyncPipelineBotPollAttempt();
       updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
     }
-    if (!updatesRes.ok && isTransientBotPollError(updatesRes.error)) {
+    if (!updatesRes.ok && classifySyncPipelineBotPollError(updatesRes.error) === 'transient') {
       await sleep(1_600);
+      markSyncPipelineBotPollAttempt();
       updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
     }
     if (!updatesRes.ok) {
@@ -298,7 +346,8 @@ export function startSyncPipelineSupervisorService() {
       const err = String(updatesRes.error ?? '');
       const changedError = err !== lastBotPollError;
       lastBotPollError = err;
-      const isTransient = isTransientBotPollError(err);
+      const kind = markSyncPipelineBotPollFailure(err);
+      const isTransient = kind === 'transient';
       const shouldLog = isTransient
         ? botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)
         : (botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)) || changedError;
@@ -313,8 +362,10 @@ export function startSyncPipelineSupervisorService() {
       }
       return;
     }
+    markSyncPipelineBotPollSuccess();
     if (botPollFailureStreak > 0) {
       logInfo('sync pipeline bot poll recovered', { streak: botPollFailureStreak });
+      logBotPollSilentCounter(true);
       botPollFailureStreak = 0;
       lastBotPollError = '';
     }
@@ -366,9 +417,11 @@ export function startSyncPipelineSupervisorService() {
 
   void tickNightly();
   setInterval(() => void tickNightly(), CHECK_TICK_MS);
+  setInterval(() => logBotPollSilentCounter(false), CHECK_TICK_MS);
   if (actionsEnabled) {
     setInterval(() => {
       void processBotUpdates().catch((e) => {
+        markSyncPipelineBotPollFailure(String(e));
         logWarn('sync pipeline bot polling failed', { component: 'sync', subsystem: 'pipeline_bot_poll', error: String(e) });
       });
     }, BOT_POLL_MS);
@@ -379,6 +432,7 @@ export function startSyncPipelineSupervisorService() {
     dailyTime,
     sendOkSummary,
     actionsEnabled,
+    botPollSilentCounterLogMs,
   });
 }
 

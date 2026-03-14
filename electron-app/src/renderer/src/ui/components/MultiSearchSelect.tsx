@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
+import { buildLookupHighlightParts } from '../utils/searchMatching.js';
 
-export type MultiSearchSelectOption = { id: string; label: string };
+export type MultiSearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
 
 export function MultiSearchSelect(props: {
   values: string[];
   options: MultiSearchSelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  query?: string;
+  onQueryChange?: (next: string) => void;
   onChange: (next: string[]) => void;
 }) {
   const disabled = props.disabled === true;
@@ -22,12 +25,23 @@ export function MultiSearchSelect(props: {
   }, [props.options, safeValues]);
 
   useEffect(() => {
+    if (props.query === undefined) return;
+    if (dropdown.query === props.query) return;
+    dropdown.setQuery(props.query);
+  }, [dropdown.query, props.query]);
+
+  useEffect(() => {
     if (!dropdown.open) return;
     const input = searchInputRef.current;
     if (!input) return;
     input.focus();
     input.select();
   }, [dropdown.open]);
+
+  function setQuery(next: string) {
+    dropdown.setQuery(next);
+    props.onQueryChange?.(next);
+  }
 
   function toggle(id: string) {
     const set = new Set(safeValues);
@@ -39,7 +53,7 @@ export function MultiSearchSelect(props: {
   function clearAll() {
     props.onChange([]);
     dropdown.closeDropdown();
-    dropdown.setQuery('');
+    setQuery('');
   }
 
   return (
@@ -62,16 +76,35 @@ export function MultiSearchSelect(props: {
           onChange={(e) => {
             if (disabled) return;
             if (!dropdown.open) dropdown.setOpen(true);
-            dropdown.setQuery(e.target.value);
+            setQuery(e.target.value);
           }}
           onKeyDown={(e) => {
             if (disabled) return;
             if (e.key === 'ArrowDown') {
               e.preventDefault();
-              dropdown.setOpen(true);
+              if (!dropdown.open) {
+                dropdown.setOpen(true);
+                return;
+              }
+              if (!dropdown.filtered.length) return;
+              dropdown.setActiveIdx((prev) => (prev < 0 ? 0 : Math.min(dropdown.filtered.length - 1, prev + 1)));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              if (!dropdown.open) {
+                dropdown.setOpen(true);
+                return;
+              }
+              if (!dropdown.filtered.length) return;
+              dropdown.setActiveIdx((prev) => (prev <= 0 ? 0 : prev - 1));
             } else if (e.key === 'Enter') {
               e.preventDefault();
-              dropdown.setOpen(true);
+              if (!dropdown.open) {
+                dropdown.setOpen(true);
+                return;
+              }
+              const option = dropdown.filtered[dropdown.activeIdx];
+              if (!option) return;
+              toggle(option.id);
             } else if (e.key === 'Escape') {
               e.preventDefault();
               dropdown.closeDropdown();
@@ -130,11 +163,18 @@ export function MultiSearchSelect(props: {
             >
               <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight, overflowY: 'auto' }}>
                 {dropdown.filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
-                {dropdown.filtered.map((o) => {
+                {dropdown.filtered.map((o, idx) => {
                   const checked = safeValues.includes(o.id);
+                  const focused = dropdown.activeIdx === idx;
+                  const highlightParts = buildLookupHighlightParts(o.label, dropdown.query);
+                  const hintParts = o.hintText ? buildLookupHighlightParts(o.hintText, dropdown.query) : null;
                   return (
                     <label
                       key={o.id}
+                      data-idx={idx}
+                      onMouseEnter={() => {
+                        dropdown.setActiveIdx(idx);
+                      }}
                       style={{
                         display: 'flex',
                         gap: 10,
@@ -142,10 +182,34 @@ export function MultiSearchSelect(props: {
                         padding: '8px 10px',
                         borderBottom: '1px solid var(--border)',
                         cursor: 'pointer',
+                        background: focused ? 'rgba(96, 165, 250, 0.14)' : 'transparent',
                       }}
                     >
                       <input type="checkbox" checked={checked} onChange={() => toggle(o.id)} />
-                      <span style={{ color: 'var(--text)' }}>{o.label}</span>
+                      <span style={{ display: 'grid', gap: 2, color: 'var(--text)' }}>
+                        <span>
+                          {highlightParts.map((part, partIdx) => (
+                            <span
+                              key={`${o.id}-part-${partIdx}`}
+                              style={part.matched ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
+                            >
+                              {part.text}
+                            </span>
+                          ))}
+                        </span>
+                        {hintParts && hintParts.some((part) => part.text) ? (
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {hintParts.map((part, partIdx) => (
+                              <span
+                                key={`${o.id}-hint-${partIdx}`}
+                                style={part.matched ? { background: 'rgba(250, 204, 21, 0.2)', borderRadius: 3 } : undefined}
+                              >
+                                {part.text}
+                              </span>
+                            ))}
+                          </span>
+                        ) : null}
+                      </span>
                     </label>
                   );
                 })}

@@ -28,6 +28,8 @@ import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartsCache } from '../utils/partsPagination.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import {
   createEngineBrandSummarySyncState,
   persistEngineBrandSummaries as persistEngineBrandSummariesShared,
@@ -45,7 +47,7 @@ type Attribute = {
   metaJson?: unknown;
 };
 
-type LinkOpt = { id: string; label: string };
+type LinkOpt = SearchSelectOption;
 type TextLookupMeta = { targetTypeCode: string; storeAs: 'id' | 'label' };
 
 type PartBrandLink = {
@@ -229,7 +231,6 @@ export function PartDetailsPage(props: {
   const [brandLinksStatus, setBrandLinksStatus] = useState<string>('');
   const [brandLinkDrafts, setBrandLinkDrafts] = useState<Record<string, { engineBrandId: string; assemblyUnitNumber: string; quantity: number }>>({});
   const [newBrandLink, setNewBrandLink] = useState({ engineBrandId: '', assemblyUnitNumber: '', quantity: 1 });
-  const [contractId, setContractId] = useState<string>('');
   const [contractOptions, setContractOptions] = useState<LinkOpt[]>([]);
   const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
     const out: Partial<Record<StatusCode, boolean>> = {};
@@ -403,12 +404,7 @@ export function PartDetailsPage(props: {
         return;
       }
       const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
-      const opts = (rows as any[]).map((r) => ({
-        id: String(r.id),
-        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setEngineBrandOptions(opts);
+      setEngineBrandOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
       setEngineBrandStatus('');
     } catch (e) {
       setEngineBrandOptions([]);
@@ -583,12 +579,7 @@ export function PartDetailsPage(props: {
         return;
       }
       const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
-      const opts = (rows as any[]).map((r) => ({
-        id: String(r.id),
-        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setContractOptions(opts);
+      setContractOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
     } catch {
       setContractOptions([]);
     }
@@ -605,12 +596,7 @@ export function PartDetailsPage(props: {
         return;
       }
       const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
-      const opts = (rows as any[]).map((r) => ({
-        id: String(r.id),
-        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setCustomerOptions(opts);
+      setCustomerOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
       setCustomerStatus('');
     } catch (e) {
       setCustomerOptions([]);
@@ -766,12 +752,7 @@ export function PartDetailsPage(props: {
         return;
       }
       const rows = await window.matrica.admin.entities.listByEntityType(String(type.id));
-      const opts = (rows as any[]).map((r) => ({
-        id: String(r.id),
-        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setLinkOptionsByCode((p) => ({ ...p, [attrCode]: opts }));
+      setLinkOptionsByCode((p) => ({ ...p, [attrCode]: mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }) }));
     } catch {
       setLinkOptionsByCode((p) => ({ ...p, [attrCode]: [] }));
     } finally {
@@ -1011,7 +992,6 @@ export function PartDetailsPage(props: {
     const vSupplier = byCode.supplier?.value;
     const vSupplierId = byCode.supplier_id?.value;
     const vTemplateId = byCode[PART_TEMPLATE_ID_ATTR_CODE]?.value;
-    const vContractId = byCode.contract_id?.value;
     const vDimensions = byCode[PART_DIMENSIONS_ATTR_CODE]?.value;
 
     setName(typeof vName === 'string' ? vName : vName == null ? '' : String(vName));
@@ -1021,7 +1001,6 @@ export function PartDetailsPage(props: {
     setSupplier(typeof vSupplier === 'string' ? vSupplier : vSupplier == null ? '' : String(vSupplier));
     setSupplierId(typeof vSupplierId === 'string' ? vSupplierId : vSupplierId == null ? '' : String(vSupplierId));
     setTemplateId(typeof vTemplateId === 'string' ? vTemplateId : vTemplateId == null ? '' : String(vTemplateId));
-    setContractId(typeof vContractId === 'string' ? vContractId : vContractId == null ? '' : String(vContractId));
     setDimensions(normalizeDimensionsValue(vDimensions));
     const linked = normalizeBrandLinksFromPart(part);
     if (linked.length > 0) {
@@ -1125,12 +1104,7 @@ export function PartDetailsPage(props: {
     setTextLookupLoadingByCode((prev) => ({ ...prev, [attr.code]: true }));
     try {
       const rows = await window.matrica.admin.entities.listByEntityType(String(targetType.id));
-      const opts = (rows as any[]).map((x) => ({
-        id: String(x.id),
-        label: x.displayName ? String(x.displayName) : String(x.id),
-      }));
-      opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setTextLookupOptionsByCode((prev) => ({ ...prev, [attr.code]: opts }));
+      setTextLookupOptionsByCode((prev) => ({ ...prev, [attr.code]: mapEntityRowsToSearchOptions(rows) }));
       setTextLookupMetaByCode((prev) => ({ ...prev, [attr.code]: config }));
     } finally {
       setTextLookupLoadingByCode((prev) => ({ ...prev, [attr.code]: false }));
@@ -2106,10 +2080,6 @@ export function PartDetailsPage(props: {
 
     return (
       <div style={{ display: 'grid', gap: 12 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <strong>Марки двигателя и сборочные номера</strong>
-          <span style={{ flex: 1 }} />
-        </div>
         {engineBrandStatus && (
           <div style={{ color: engineBrandStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{engineBrandStatus}</div>
         )}
@@ -2314,6 +2284,10 @@ export function PartDetailsPage(props: {
               </div>
             )}
           />
+        </SectionCard>
+
+        <SectionCard title="Совместимость" style={{ borderRadius: 0, padding: 16 }}>
+          <BrandLinksEditor />
         </SectionCard>
 
         <SectionCard title="Размеры детали" style={{ borderRadius: 0, padding: 16 }}>
