@@ -35,10 +35,14 @@
 - Основная точка входа для новой ИИ-сессии: `docs/README.md`.
 - Локальная разработка на Windows 11 считается штатной; рабочие шаги и ENV описаны в `docs/WINDOWS_DEVELOPMENT.md`.
 - Управление VPS из Cursor идет через MCP `ssh-mcp`; рабочая конфигурация и типичные ошибки описаны в `docs/MCP_SETUP_WINDOWS.md`.
+- Прод-контур backend работает в режиме dual-instance: `matricarmz-backend-primary.service` (`:3001`) + `matricarmz-backend-secondary.service` (`:3002`) за nginx upstream.
+- Singleton background jobs (sync-pipeline supervisor, critical notifier, schedulers) должны запускаться только на `primary`; `secondary` обслуживает только API.
 - Рабочий контур синхронизации клиента использует ledger-эндпоинты; legacy `sync/*` не считается актуальным контуром.
 - Клиентский release для автообновлений становится видимым клиенту только после публикации installer-метаданных в ledger с корректными `version`, `fileName`, `size`, `sha256`.
 
 ## Последние важные изменения
+- Уточнен прод operational-контур: dual-backend сохранен как штатный режим, restart/deploy делается последовательно (primary -> health -> secondary).
+- Шум в критических событиях снижен: plain client offline и transient Telegram bot poll ошибки больше не должны выглядеть как серьёзная sync-авария.
 - Клиент-серверное взаимодействие переведено на HTTPS; использовать HTTP как актуальную норму больше нельзя.
 - Release-flow уточнен для Windows-разработки: локальный релиз может создать commit/tag/push, но финальная доступность обновления для клиентов зависит от наличия installer на сервере и публикации релиза в ledger.
 - Добавлена отдельная краткая инструкция по настройке MCP на Windows 11: `docs/MCP_SETUP_WINDOWS.md`.

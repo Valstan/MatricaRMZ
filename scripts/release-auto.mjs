@@ -58,6 +58,24 @@ function listSystemdServiceUnits() {
   }
 }
 
+function waitForLocalHealth(port, label, attempts = 30, sleepSec = 1) {
+  const safeLabel = String(label ?? `:${port}`).replace(/"/g, '');
+  run(
+    `bash -lc 'for i in $(seq 1 ${attempts}); do code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${port}/health || true); if [ "$code" = "200" ]; then echo "${safeLabel} health ok"; exit 0; fi; sleep ${sleepSec}; done; echo "${safeLabel} health check failed on :${port}" >&2; exit 1'`,
+  );
+}
+
+function restartUnitWithHealth(unit) {
+  run(`sudo systemctl restart ${unit}`);
+  if (unit.includes('matricarmz-backend-primary.service')) {
+    waitForLocalHealth(3001, 'primary');
+    return;
+  }
+  if (unit.includes('matricarmz-backend-secondary.service')) {
+    waitForLocalHealth(3002, 'secondary');
+  }
+}
+
 // ── SHA-256 ──────────────────────────────────────────────────────────
 
 async function sha256(filePath) {
@@ -187,10 +205,8 @@ function deployServer() {
   const hasLegacy = units.has('matricarmz-backend.service');
 
   if (hasPrimary || hasSecondary) {
-    const restartUnits = [];
-    if (hasPrimary) restartUnits.push('matricarmz-backend-primary.service');
-    if (hasSecondary) restartUnits.push('matricarmz-backend-secondary.service');
-    run(`sudo systemctl restart ${restartUnits.join(' ')}`);
+    if (hasPrimary) restartUnitWithHealth('matricarmz-backend-primary.service');
+    if (hasSecondary) restartUnitWithHealth('matricarmz-backend-secondary.service');
 
     // Legacy single-instance unit conflicts with primary on 3001.
     if (hasLegacy) run('sudo systemctl disable --now matricarmz-backend.service');

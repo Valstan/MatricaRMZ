@@ -5,6 +5,7 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '../database/db.js';
 import { diagnosticsSnapshots } from '../database/schema.js';
 import { getSuperadminUserId, listEmployeesAuth } from './employeeAuthService.js';
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logError, logInfo } from '../utils/logger.js';
 
 const DEFAULT_INTERVAL_MS = 10 * 60_000;
@@ -146,6 +147,12 @@ function normalizeMessage(row: ChatRow) {
 }
 
 export function startAiAgentChatLearningService() {
+  const instanceRole = getInstanceRole();
+  if (!shouldRunBackgroundJobs(instanceRole)) {
+    logInfo('ai chat learning service skipped on non-primary instance', { instanceRole: instanceRole || 'primary' }, { critical: true });
+    return;
+  }
+
   const enabled = String(process.env.AI_CHAT_LEARNING_ENABLED ?? 'true').toLowerCase() === 'true';
   if (!enabled) return;
   const intervalMs = Number(process.env.AI_CHAT_LEARNING_INTERVAL_MS ?? DEFAULT_INTERVAL_MS);

@@ -12,7 +12,10 @@
 - Код: `backend-api/src`
 - Точка входа: `backend-api/src/index.ts`
 - Сборка: `backend-api/dist/index.js`
-- systemd сервис: `matricarmz-backend.service`
+- systemd сервисы (prod):
+  - `matricarmz-backend-primary.service` (`127.0.0.1:3001`) — API + singleton background jobs
+  - `matricarmz-backend-secondary.service` (`127.0.0.1:3002`) — только API (без background jobs)
+- nginx upstream: `127.0.0.1:3001` + `127.0.0.1:3002`
 - Роуты: `backend-api/src/routes/*`
 - Ledger: `backend-api/ledger/`
 - Складской backend-контур: `backend-api/src/routes/warehouse.ts`, `backend-api/src/services/warehouseService.ts`
@@ -60,6 +63,7 @@ corepack pnpm run dev:electron
 - `MATRICA_LEDGER_DATA_KEY`
 - `MATRICA_LOGS_DIR`
 - `PORT`, `HOST`
+- `MATRICA_INSTANCE_PORT`, `MATRICA_INSTANCE_ROLE`
 - `SYNC_V2_ENFORCE`
 - `MATRICA_SYNC_AUTOHEAL_ENABLED`
 - `MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS`
@@ -91,6 +95,7 @@ corepack pnpm run dev:electron
 - `clientId` должен быть стабильным на клиенте.
 - Временные поля в ms должны храниться как `bigint`.
 - Релизы для автообновления публикуются в ledger с валидными `version/fileName/size/sha256`.
+- В dual-backend контуре singleton background jobs (`sync pipeline supervisor`, `critical events notifier`, schedulers) запускаются только на `primary` (`MATRICA_INSTANCE_ROLE` не должен быть `secondary/readonly/worker`).
 
 ## 7) Что смотреть в первую очередь при новой сессии
 1. `docs/README.md`

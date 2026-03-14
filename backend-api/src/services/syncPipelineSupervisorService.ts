@@ -8,6 +8,7 @@ import {
   sendTelegramMessageToChat,
 } from './telegramBotService.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
 const DEFAULT_TZ = 'Europe/Moscow';
@@ -187,6 +188,12 @@ async function sendToSuperadmin(text: string, withKeyboard = false) {
 }
 
 export function startSyncPipelineSupervisorService() {
+  const instanceRole = getInstanceRole();
+  if (!shouldRunBackgroundJobs(instanceRole)) {
+    logInfo('sync pipeline supervisor skipped on non-primary instance', { instanceRole: instanceRole || 'primary' }, { critical: true });
+    return;
+  }
+
   const enabled = parseBool(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_ENABLED, true);
   if (!enabled) {
     logInfo('sync pipeline supervisor disabled');
@@ -297,7 +304,10 @@ export function startSyncPipelineSupervisorService() {
         : (botPollFailureStreak >= BOT_POLL_ERROR_LOG_STREAK && (botPollFailureStreak === BOT_POLL_ERROR_LOG_STREAK || botPollFailureStreak % 5 === 0)) || changedError;
       if (shouldLog) {
         logWarn('sync pipeline bot poll failed', {
+          component: 'sync',
+          subsystem: 'pipeline_bot_poll',
           error: updatesRes.error,
+          transient: isTransient,
           streak: botPollFailureStreak,
         });
       }
@@ -359,7 +369,7 @@ export function startSyncPipelineSupervisorService() {
   if (actionsEnabled) {
     setInterval(() => {
       void processBotUpdates().catch((e) => {
-        logWarn('sync pipeline bot polling failed', { error: String(e) });
+        logWarn('sync pipeline bot polling failed', { component: 'sync', subsystem: 'pipeline_bot_poll', error: String(e) });
       });
     }, BOT_POLL_MS);
   }

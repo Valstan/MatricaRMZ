@@ -15,9 +15,9 @@ Commands:
   status        Show backend services status
   logs [N]      Last N lines of primary backend log (default 80)
   logs2 [N]     Last N lines of secondary backend log
-  restart       Restart both backend services (graceful)
+  restart       Restart primary -> health -> secondary
   stop          Stop both backend services
-  start         Start both backend services
+  start         Start primary -> health -> secondary
   build         Build backend (tsc) + shared + ledger
   deploy        git pull → pnpm install → build → restart
   deploy-quick  git pull → build → restart (skip install)
@@ -43,10 +43,31 @@ cmd_logs2() {
   journalctl -u "$SECONDARY" --no-pager -n "$n" --output=short-iso
 }
 
+wait_for_health() {
+  local port="$1"
+  local name="$2"
+  local retries="${3:-30}"
+  local i
+  for ((i=1; i<=retries; i++)); do
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
+    if [[ "$code" == "200" ]]; then
+      echo "  $name health ok on :$port"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "  $name health check failed on :$port" >&2
+  return 1
+}
+
 cmd_restart() {
-  echo ">>> Restarting $PRIMARY and $SECONDARY..."
-  sudo systemctl restart "$PRIMARY" "$SECONDARY"
-  sleep 2
+  echo ">>> Restarting $PRIMARY..."
+  sudo systemctl restart "$PRIMARY"
+  wait_for_health 3001 "$PRIMARY"
+  echo ">>> Restarting $SECONDARY..."
+  sudo systemctl restart "$SECONDARY"
+  wait_for_health 3002 "$SECONDARY"
   cmd_status
 }
 
@@ -56,8 +77,12 @@ cmd_stop() {
 }
 
 cmd_start() {
-  sudo systemctl start "$PRIMARY" "$SECONDARY"
-  sleep 2
+  echo ">>> Starting $PRIMARY..."
+  sudo systemctl start "$PRIMARY"
+  wait_for_health 3001 "$PRIMARY"
+  echo ">>> Starting $SECONDARY..."
+  sudo systemctl start "$SECONDARY"
+  wait_for_health 3002 "$SECONDARY"
   cmd_status
 }
 

@@ -12,6 +12,7 @@ import { startAuditStatisticsScheduler } from './services/statisticsAuditService
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
+import { getInstanceRole, isPrimaryInstance, shouldRunBackgroundJobs } from './services/instanceRole.js';
 import { createApp } from './app.js';
 
 if (!process.env.TZ) {
@@ -37,8 +38,9 @@ const port = Number(process.env.MATRICA_INSTANCE_PORT ?? process.env.PORT ?? 300
 // По умолчанию слушаем только localhost и открываем наружу через nginx.
 // Для отладки можно выставить HOST=0.0.0.0 (но лучше не делать в проде).
 const host = process.env.HOST ?? '127.0.0.1';
-const instanceRole = String(process.env.MATRICA_INSTANCE_ROLE ?? '').trim().toLowerCase();
-const runBackgroundJobs = !['secondary', 'readonly', 'worker'].includes(instanceRole);
+const instanceRole = getInstanceRole();
+const isPrimary = isPrimaryInstance(instanceRole);
+const runBackgroundJobs = shouldRunBackgroundJobs(instanceRole);
 
 async function ensurePermissionsSeeded() {
   const ts = Date.now();
@@ -51,6 +53,18 @@ async function ensurePermissionsSeeded() {
 }
 
 async function bootstrap() {
+  logInfo(
+    'backend instance config',
+    {
+      host,
+      port,
+      instanceRole: instanceRole || 'primary',
+      isPrimary,
+      runBackgroundJobs,
+    },
+    { critical: true },
+  );
+
   await ensurePermissionsSeeded().catch((e) => {
     logError('permissions seed failed', { error: String(e) });
   });
@@ -81,7 +95,7 @@ async function bootstrap() {
   }
 
   const server = app.listen(port, host, () => {
-    logInfo(`listening on ${host}:${port}`, { host, port }, { critical: true });
+    logInfo(`listening on ${host}:${port}`, { host, port, instanceRole: instanceRole || 'primary', runBackgroundJobs }, { critical: true });
   });
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {

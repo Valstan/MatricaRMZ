@@ -200,6 +200,42 @@ function detectByPattern(text: string, list: Array<{ re: RegExp; info: MatchInfo
   return null;
 }
 
+function isOfflineSyncFailure(message: string, metadata?: Record<string, unknown>): boolean {
+  const reason = String(metadata?.reason ?? '').trim().toLowerCase();
+  if (reason === 'offline') return true;
+  if (!/sync failed/i.test(message)) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('sync failed: offline') ||
+    lower.includes('sync failed: error: offline') ||
+    lower.includes('\nerror: offline') ||
+    lower.trim() === 'offline' ||
+    lower.trim() === 'error: offline'
+  );
+}
+
+function classifySyncPipelinePollError(metadata?: Record<string, unknown>): 'conflict' | 'transient' | 'other' {
+  const raw = String(metadata?.error ?? '').trim().toLowerCase();
+  if (!raw) return 'other';
+  if (raw.includes('telegram http 409') && raw.includes('other getupdates request')) return 'conflict';
+  if (
+    raw.includes('fetch failed') ||
+    raw.includes('etimedout') ||
+    raw.includes('econnreset') ||
+    raw.includes('eai_again') ||
+    raw.includes('socket hang up') ||
+    raw.includes('timeout') ||
+    raw.includes('http 429') ||
+    raw.includes('http 500') ||
+    raw.includes('http 502') ||
+    raw.includes('http 503') ||
+    raw.includes('http 504')
+  ) {
+    return 'transient';
+  }
+  return 'other';
+}
+
 function shouldKeepServerEvent(level: ServerLogLevel, message: string, meta?: Record<string, unknown>, critical?: boolean): boolean {
   if (critical) return true;
   if (level === 'error') return true;
@@ -283,6 +319,7 @@ export function ingestClientLogForCriticalEvent(args: {
 }) {
   const text = safeText(args.message, 8_000);
   if (!text) return;
+  if (isOfflineSyncFailure(text, args.metadata)) return;
   const detected = detectByPattern(text, CLIENT_PATTERNS);
   const isCritical = args.metadata?.critical === true;
   if (!detected && !isCritical) return;
@@ -336,7 +373,7 @@ export function ingestServerLogForCriticalEvent(args: {
 
   const detected = detectByPattern(text, SERVER_PATTERNS);
   const component = String(args.metadata?.component ?? '').trim().toLowerCase();
-  const info: MatchInfo =
+  let info: MatchInfo =
     detected ??
     ({
       code: `server.${component || 'general'}.error`,
@@ -344,6 +381,25 @@ export function ingestServerLogForCriticalEvent(args: {
       category: component === 'sync' ? 'sync' : 'backend',
       severity: args.level === 'warn' ? 'warn' : 'error',
     } as const);
+
+  if (detected?.code === 'server.sync.pipeline_poll_failed') {
+    const pollErrorKind = classifySyncPipelinePollError(args.metadata);
+    if (pollErrorKind === 'conflict') {
+      info = {
+        code: 'server.sync.pipeline_poll_conflict',
+        title: 'Конфликт опроса Telegram-бота sync pipeline',
+        category: 'network',
+        severity: 'warn',
+      };
+    } else if (pollErrorKind === 'transient') {
+      info = {
+        code: 'server.sync.pipeline_poll_transient',
+        title: 'Временный сбой опроса Telegram-бота sync pipeline',
+        category: 'network',
+        severity: 'warn',
+      };
+    }
+  }
 
   const humanMessage = safeText(`${info.title}: ${text}`, 2_000);
   const aiDetails = makeAiDetails({

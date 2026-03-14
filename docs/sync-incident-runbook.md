@@ -36,8 +36,11 @@
   - Проверить nginx config и оба инстанса: если один перезапущен, второй должен держать трафик.
   - Не перезапускать оба инстанса одновременно в окне пикового трафика.
 - `server.sync.pipeline_poll_failed`:
+  - Это сигнал про Telegram polling (bot `getUpdates`), а не прямой индикатор падения ledger-sync.
   - Один-один раз в сети/доступе к Telegram нормально, валидация нужна, если повторяется сплошной серией.
-  - Если серии идут часто, проверить `syncPipelineSupervisorService`, сеть до api.telegram.org и отсутствие второго `getUpdates`‑процесса.
+  - Если в metadata есть `telegram HTTP 409 ... other getUpdates request`, искать второй polling-процесс с тем же bot token.
+  - Если в metadata `TypeError: fetch failed`/timeout, сначала считать это transient network issue до `api.telegram.org`.
+  - При частых сериях проверить `syncPipelineSupervisorService`, сеть до Telegram и что `secondary` запущен с `MATRICA_INSTANCE_ROLE=secondary` (без singleton jobs).
 - `SqliteError: too many SQL variables` на клиенте:
   - Проверить обновленный клиент и логи синка: должен уйти после последних изменений chunking и лимита `PULL_PAGE_SIZE`.
 

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../database/db.js';
 import { auditLog, statisticsAuditDaily, statisticsAuditEvents } from '../database/schema.js';
 import { listEmployeesAuth } from './employeeAuthService.js';
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logError, logInfo } from '../utils/logger.js';
 
 type ActionType = 'create' | 'update' | 'delete' | 'session' | 'other';
@@ -416,6 +417,12 @@ async function schedulerTick(force = false) {
 }
 
 export function startAuditStatisticsScheduler() {
+  const instanceRole = getInstanceRole();
+  if (!shouldRunBackgroundJobs(instanceRole)) {
+    logInfo('statistics audit scheduler skipped on non-primary instance', { instanceRole: instanceRole || 'primary' }, { critical: true });
+    return;
+  }
+
   if (schedulerStarted) return;
   schedulerStarted = true;
   const intervalMs = Math.max(30_000, Number(process.env.MATRICA_STATS_AUDIT_INTERVAL_MS ?? 180_000));

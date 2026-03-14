@@ -73,6 +73,30 @@ curl -I http://127.0.0.1/auth/me
 
 ---
 
+## 1.4) `server.sync.pipeline_poll_failed`: Telegram polling vs реальный сбой sync
+
+### Что это значит
+- `server.sync.pipeline_poll_failed` относится к Telegram polling в `sync pipeline supervisor`, а не к падению ledger sync сам по себе.
+
+### Типовые причины
+- `telegram HTTP 409 ... terminated by other getUpdates request` — тот же bot token опрашивается вторым процессом/инстансом.
+- `TypeError: fetch failed` / timeout — временный сетевой сбой до `api.telegram.org`.
+
+### Что проверить в первую очередь
+1. На VPS активны оба backend-процесса и роли корректны:
+   - `systemctl is-active matricarmz-backend-primary.service matricarmz-backend-secondary.service`
+   - `ss -ltnp | grep -E ':3001|:3002'`
+   - `cat /proc/<pid>/environ | tr '\0' '\n' | grep MATRICA_INSTANCE_ROLE`
+2. `secondary` обязан иметь `MATRICA_INSTANCE_ROLE=secondary`, чтобы не запускать singleton background jobs.
+3. Наличие стороннего `getUpdates`-consumer для того же bot token (другой host/process).
+4. Доступность Telegram API с VPS: `curl -I --max-time 10 https://api.telegram.org`.
+
+### Практика
+- Одиночные/редкие poll-fail события считать сетевым шумом.
+- Инцидентом считать только устойчивые серии + признаки деградации `server.sync.pipeline_health.*` или ошибок API sync.
+
+---
+
 ## 2) `push HTTP 502` / `502 Bad Gateway`
 
 ### Симптом
@@ -197,8 +221,11 @@ git describe --tags --always
 pnpm --filter @matricarmz/shared build
 pnpm --filter @matricarmz/backend-api build
 
-sudo systemctl restart matricarmz-backend.service
-sudo systemctl status matricarmz-backend.service --no-pager -l | head -n 30
+sudo systemctl restart matricarmz-backend-primary.service
+curl -sS http://127.0.0.1:3001/health
+sudo systemctl restart matricarmz-backend-secondary.service
+curl -sS http://127.0.0.1:3002/health
+systemctl status matricarmz-backend-primary.service matricarmz-backend-secondary.service --no-pager -l | head -n 30
 ```
 
 ---
@@ -282,7 +309,7 @@ pnpm exec tsx src/scripts/ledgerReplayToDb.ts
 
 ### Решение (пересобрать ledger из БД)
 ```bash
-sudo systemctl stop matricarmz-backend.service
+sudo systemctl stop matricarmz-backend-primary.service matricarmz-backend-secondary.service
 
 # резервная копия старого ledger
 mv /home/valstan/MatricaRMZ/backend-api/ledger /home/valstan/MatricaRMZ/backend-api/ledger.bak-$(date +%Y%m%d-%H%M%S)
@@ -291,8 +318,10 @@ mv /home/valstan/MatricaRMZ/backend-api/ledger /home/valstan/MatricaRMZ/backend-
 cd /home/valstan/MatricaRMZ/backend-api
 pnpm run ledger:import
 
-sudo systemctl start matricarmz-backend.service
+sudo systemctl start matricarmz-backend-primary.service
 curl -sS http://127.0.0.1:3001/health
+sudo systemctl start matricarmz-backend-secondary.service
+curl -sS http://127.0.0.1:3002/health
 ```
 
 После этого на клиенте: “Перекачать с сервера”/“Повторить синхронизацию”.

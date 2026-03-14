@@ -8,6 +8,7 @@ import {
   diagnosticsSnapshots,
   syncState,
 } from '../database/schema.js';
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logError, logInfo } from '../utils/logger.js';
 import { getLedgerLastSeq, queryState } from '../ledger/ledgerService.js';
 
@@ -500,6 +501,12 @@ export async function storeClientSnapshot(clientId: string, payload: Partial<Con
 }
 
 export function startConsistencyDiagnostics(intervalMs = 10 * 60_000) {
+  const instanceRole = getInstanceRole();
+  if (!shouldRunBackgroundJobs(instanceRole)) {
+    logInfo('diagnostics consistency scheduler skipped on non-primary instance', { instanceRole: instanceRole || 'primary' }, { critical: true });
+    return;
+  }
+
   const tick = async () => {
     try {
       const snapshot = await computeServerSnapshot();

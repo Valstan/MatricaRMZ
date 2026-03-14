@@ -5,6 +5,7 @@ import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 
 type WebTorrentInstance = ReturnType<typeof WebTorrent>;
@@ -356,6 +357,12 @@ async function rescanAndSeed() {
 }
 
 export function startUpdateTorrentService() {
+  const instanceRole = getInstanceRole();
+  if (!shouldRunBackgroundJobs(instanceRole)) {
+    logInfo('torrent update service skipped on non-primary instance', { instanceRole: instanceRole || 'primary' }, { critical: true });
+    return;
+  }
+
   const dir = getUpdatesDir();
   if (!dir) {
     lastError = 'updates_dir_not_set';

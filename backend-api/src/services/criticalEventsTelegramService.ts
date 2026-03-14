@@ -1,6 +1,7 @@
 import { listEmployeesAuth } from './employeeAuthService.js';
 import { listCriticalEvents, type CriticalEventRecord } from './criticalEventsService.js';
 import { getCachedChatIdByLogin, sendTelegramMessage, sendTelegramMessageToChat } from './telegramBotService.js';
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 
 const DEFAULT_POLL_MS = 15_000;
@@ -107,6 +108,12 @@ async function sendAlert(text: string) {
 }
 
 export function startCriticalEventsTelegramService() {
+  const instanceRole = getInstanceRole();
+  if (!shouldRunBackgroundJobs(instanceRole)) {
+    logInfo('critical events telegram notifier skipped on non-primary instance', { instanceRole: instanceRole || 'primary' }, { critical: true });
+    return;
+  }
+
   if (started) return;
   started = true;
 
