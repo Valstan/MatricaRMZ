@@ -46,6 +46,7 @@ export function SimpleMasterdataDetailsPage(props: {
   const [entityTypeId, setEntityTypeId] = useState<string>('');
   const [defs, setDefs] = useState<AttributeDefRow[]>([]);
   const [coreDefsReady, setCoreDefsReady] = useState(false);
+  const [defsLoaded, setDefsLoaded] = useState(false);
   const [unitOptions, setUnitOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [storeOptions, setStoreOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [partOptions, setPartOptions] = useState<Array<{ id: string; label: string }>>([]);
@@ -99,6 +100,7 @@ export function SimpleMasterdataDetailsPage(props: {
 
   async function loadDefs() {
     if (!props.typeCode) return;
+    setDefsLoaded(false);
     try {
       const types = await window.matrica.admin.entityTypes.list();
       const type = (types as any[]).find((t) => String(t.code) === String(props.typeCode)) ?? null;
@@ -106,9 +108,11 @@ export function SimpleMasterdataDetailsPage(props: {
       setEntityTypeId(String(type.id));
       const rows = await window.matrica.admin.attributeDefs.listByEntityType(String(type.id));
       setDefs(rows as AttributeDefRow[]);
+      setDefsLoaded(true);
       setCoreDefsReady(false);
     } catch {
       setDefs([]);
+      setDefsLoaded(true);
     }
   }
 
@@ -211,7 +215,7 @@ export function SimpleMasterdataDetailsPage(props: {
   }
 
   useEffect(() => {
-    if (!props.canEdit || !entityTypeId || defs.length === 0 || coreDefsReady) return;
+    if (!props.canEdit || !entityTypeId || !defsLoaded || coreDefsReady) return;
     const desired = [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
       { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 20 },
@@ -229,7 +233,7 @@ export function SimpleMasterdataDetailsPage(props: {
       if (next.length !== defs.length) setDefs(next);
       setCoreDefsReady(true);
     });
-  }, [props.canEdit, entityTypeId, defs.length, coreDefsReady]);
+  }, [props.canEdit, entityTypeId, defsLoaded, coreDefsReady]);
 
   async function saveName() {
     if (!props.canEdit) return;
@@ -293,20 +297,29 @@ export function SimpleMasterdataDetailsPage(props: {
 
   async function saveAll() {
     if (!props.canEdit) return;
-    await saveName();
-    await saveDescription();
-    await saveField('shop', shop.trim() || null);
-    await saveField('article', article.trim() || null);
-    await saveField('unit', unit.trim() || null);
+    const errors: string[] = [];
+    async function trySave(fn: () => Promise<void>) {
+      try { await fn(); } catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+    }
+    await trySave(() => saveName());
+    await trySave(() => saveDescription());
+    await trySave(() => saveField('shop', shop.trim() || null));
+    await trySave(() => saveField('article', article.trim() || null));
+    await trySave(() => saveField('unit', unit.trim() || null));
     const parsedPrice = normalizeNumberValue(price);
     if (price.trim() && parsedPrice == null) {
-      throw new Error('Цена должна быть числом');
+      errors.push('Цена должна быть числом');
+    } else {
+      await trySave(() => saveField('price', parsedPrice));
     }
-    await saveField('price', parsedPrice);
     if (props.typeCode === 'service') {
-      await saveField('part_ids', partIds);
+      await trySave(() => saveField('part_ids', partIds));
     }
     dirtyRef.current = false;
+    if (errors.length > 0) {
+      setStatus(`Частично сохранено. Ошибки (${errors.length}): ${errors[0]}`);
+      throw new Error(errors.join('; '));
+    }
   }
 
   async function saveAllAndClose() {
@@ -354,6 +367,15 @@ export function SimpleMasterdataDetailsPage(props: {
         const created = await window.matrica.admin.entities.create(entityTypeId);
         if (created?.ok && 'id' in created) {
           await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+          if (description.trim()) await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim());
+          if (shop.trim()) await window.matrica.admin.entities.setAttr(created.id, 'shop', shop.trim());
+          if (article.trim()) await window.matrica.admin.entities.setAttr(created.id, 'article', article.trim());
+          if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
+          const p = normalizeNumberValue(price);
+          if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
+          if (props.typeCode === 'service' && partIds.length > 0) {
+            await window.matrica.admin.entities.setAttr(created.id, 'part_ids', partIds);
+          }
         }
       },
     });
@@ -779,6 +801,15 @@ export function SimpleMasterdataDetailsPage(props: {
               const created = await window.matrica.admin.entities.create(entityTypeId);
               if (created?.ok && 'id' in created) {
                 await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+                if (description.trim()) await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim());
+                if (shop.trim()) await window.matrica.admin.entities.setAttr(created.id, 'shop', shop.trim());
+                if (article.trim()) await window.matrica.admin.entities.setAttr(created.id, 'article', article.trim());
+                if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
+                const p = normalizeNumberValue(price);
+                if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
+                if (props.typeCode === 'service' && partIds.length > 0) {
+                  await window.matrica.admin.entities.setAttr(created.id, 'part_ids', partIds);
+                }
               }
             })();
           }}

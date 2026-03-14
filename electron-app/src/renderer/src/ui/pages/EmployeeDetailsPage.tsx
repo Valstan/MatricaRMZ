@@ -997,7 +997,8 @@ export function EmployeeDetailsPage(props: {
     const draft: Record<string, unknown> = {};
     for (const def of customDefs) draft[def.code] = (attrs as any)?.[def.code];
     setCustomDraftValues(draft);
-    dirtyRef.current = false;
+    const hasAnyData = Boolean(vLast || vFirst || vMiddle || vPos || vPersonnel);
+    dirtyRef.current = !hasAnyData;
   }, [employee?.id, employee?.attributes, customDefs]);
 
   useEffect(() => {
