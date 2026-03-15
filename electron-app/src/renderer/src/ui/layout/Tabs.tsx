@@ -45,6 +45,7 @@ export type TabId =
   | 'changes'
   | 'auth'
   | 'reports'
+  | 'report_preset'
   | 'masterdata'
   | 'admin'
   | 'audit'
@@ -69,6 +70,7 @@ export type MenuTabId = Exclude<
   | 'tool'
   | 'tool_property'
   | 'tool_properties'
+  | 'report_preset'
 >;
 export type TabsLayoutPrefs = {
   order?: MenuTabId[];
@@ -847,18 +849,18 @@ export function Tabs(props: {
             disabled={!canGoBack}
             title="Перейти к предыдущему окну"
             onClick={() => props.onBack?.()}
-            style={{ minHeight: 56, padding: '14px 18px', fontSize: 16 }}
+            style={{ minHeight: sectionCardMinHeight, padding: '2px 10px', fontSize: sectionButtonInactiveStyle.fontSize }}
           >
-            Назад
+            ← Назад
           </Button>
           <Button
             variant="ghost"
             disabled={!canGoForward}
             title="Вернуться вперед к следующему окну"
             onClick={() => props.onForward?.()}
-            style={{ minHeight: 56, padding: '14px 18px', fontSize: 16 }}
+            style={{ minHeight: sectionCardMinHeight, padding: '2px 10px', fontSize: sectionButtonInactiveStyle.fontSize }}
           >
-            Вперёд
+            Вперёд →
           </Button>
         </div>
 

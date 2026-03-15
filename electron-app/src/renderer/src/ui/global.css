@@ -549,21 +549,6 @@ table.list-table.list-table--catalog {
   }
 }
 
-@keyframes releaseWelcomeCardFloat {
-  0% {
-    transform: translateY(0);
-    box-shadow: 0 24px 54px rgba(15, 23, 42, 0.5);
-  }
-  50% {
-    transform: translateY(-4px);
-    box-shadow: 0 30px 70px rgba(30, 64, 175, 0.45);
-  }
-  100% {
-    transform: translateY(0);
-    box-shadow: 0 24px 54px rgba(15, 23, 42, 0.5);
-  }
-}
-
 @keyframes releaseWelcomeStarBlink {
   0%,
   100% {
@@ -577,6 +562,27 @@ table.list-table.list-table--catalog {
   70% {
     opacity: 0.55;
     transform: scale(1);
+  }
+}
+
+@keyframes releaseWelcomeTeleprompterScroll {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes releaseWelcomeEmberPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
   }
 }
 
@@ -681,16 +687,19 @@ table.list-table.list-table--catalog {
 
 .release-welcome-card {
   position: relative;
-  width: min(980px, 96vw);
-  max-height: min(92vh, 940px);
-  overflow: auto;
-  padding: 28px 30px;
+  width: min(1020px, 96vw);
+  max-height: min(92vh, 920px);
+  overflow: hidden;
+  padding: 28px 30px 26px;
   border: 1px solid rgba(147, 197, 253, 0.45);
   background:
     linear-gradient(160deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.84)),
     radial-gradient(circle at 80% 10%, rgba(56, 189, 248, 0.25), transparent 44%);
   color: #e2e8f0;
-  animation: releaseWelcomeCardFloat 6s ease-in-out infinite;
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.5);
+  display: grid;
+  grid-template-rows: auto auto auto auto;
+  gap: 0;
 }
 
 .release-welcome-badge {
@@ -711,34 +720,153 @@ table.list-table.list-table--catalog {
   letter-spacing: 0.2px;
 }
 
-.release-welcome-intro,
-.release-welcome-outro {
-  font-size: 17px;
-  line-height: 1.56;
-  color: #f1f5f9;
-  text-wrap: pretty;
-}
-
-.release-welcome-list-wrap {
-  margin: 18px 0 14px;
-  display: grid;
-  gap: 10px;
-}
-
-.release-welcome-list-item {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-  gap: 8px;
-  align-items: start;
-  font-size: 16px;
-  line-height: 1.5;
-  color: #e2e8f0;
-}
-
 .release-welcome-list-dot {
   color: #67e8f9;
   font-size: 15px;
   line-height: 1.4;
+}
+
+.release-welcome-teleprompter-shell {
+  position: relative;
+  margin: 18px auto 0;
+  width: min(860px, 100%);
+  padding: 16px;
+  border-radius: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.56), rgba(15, 23, 42, 0.36)),
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.04), transparent 46%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(14, 165, 233, 0.05),
+    0 24px 48px rgba(15, 23, 42, 0.26);
+}
+
+.release-welcome-teleprompter-glow {
+  position: absolute;
+  inset: auto;
+  border-radius: 9999px;
+  filter: blur(22px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.release-welcome-teleprompter-glow--one {
+  width: 40%;
+  height: 24%;
+  left: 8%;
+  bottom: -6%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.32), rgba(56, 189, 248, 0.02));
+}
+
+.release-welcome-teleprompter-glow--two {
+  width: 34%;
+  height: 22%;
+  right: 10%;
+  top: -4%;
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.26), rgba(250, 204, 21, 0.02));
+}
+
+.release-welcome-embers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.release-welcome-ember {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(253, 224, 71, 0.92), rgba(249, 115, 22, 0.24) 62%, transparent 76%);
+  filter: blur(0.2px);
+  animation: releaseWelcomeEmberPulse 3.8s ease-in-out infinite;
+}
+
+.release-welcome-ember--1 {
+  top: 10%;
+  left: 12%;
+}
+
+.release-welcome-ember--2 {
+  top: 16%;
+  right: 14%;
+  animation-delay: -0.7s;
+}
+
+.release-welcome-ember--3 {
+  top: 38%;
+  left: 6%;
+  animation-delay: -1.2s;
+}
+
+.release-welcome-ember--4 {
+  bottom: 18%;
+  right: 8%;
+  animation-delay: -1.9s;
+}
+
+.release-welcome-ember--5 {
+  bottom: 10%;
+  left: 18%;
+  animation-delay: -2.6s;
+}
+
+.release-welcome-teleprompter-mask {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  height: 56px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.release-welcome-teleprompter-mask--top {
+  top: 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0));
+}
+
+.release-welcome-teleprompter-mask--bottom {
+  bottom: 16px;
+  background: linear-gradient(0deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0));
+}
+
+.release-welcome-teleprompter-viewport {
+  position: relative;
+  height: min(46vh, 430px);
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.18);
+}
+
+.release-welcome-teleprompter-track {
+  display: flex;
+  flex-direction: column;
+  animation: releaseWelcomeTeleprompterScroll 54s linear infinite;
+  will-change: transform;
+}
+
+.release-welcome-teleprompter-sequence {
+  display: grid;
+  gap: 16px;
+  padding: 24px 20px;
+}
+
+.release-welcome-teleprompter-item {
+  display: block;
+  font-size: 18px;
+  line-height: 1.68;
+  color: #f8fafc;
+  text-wrap: pretty;
+}
+
+.release-welcome-teleprompter-item--highlight {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 17px;
+  color: #e2e8f0;
 }
 
 .release-welcome-meta {
@@ -759,16 +887,48 @@ table.list-table.list-table--catalog {
     padding: 20px;
   }
 
-  .release-welcome-intro,
-  .release-welcome-outro {
+  .release-welcome-teleprompter-shell {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .release-welcome-teleprompter-mask {
+    left: 12px;
+    right: 12px;
+    height: 42px;
+  }
+
+  .release-welcome-teleprompter-mask--top {
+    top: 12px;
+  }
+
+  .release-welcome-teleprompter-mask--bottom {
+    bottom: 12px;
+  }
+
+  .release-welcome-teleprompter-viewport {
+    height: min(42vh, 360px);
+  }
+
+  .release-welcome-teleprompter-sequence {
+    padding: 18px 14px;
+    gap: 14px;
+  }
+
+  .release-welcome-teleprompter-item {
     font-size: 16px;
+  }
+
+  .release-welcome-teleprompter-item--highlight {
+    font-size: 15px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .release-welcome-aurora,
-  .release-welcome-card,
-  .release-welcome-star {
+  .release-welcome-star,
+  .release-welcome-ember,
+  .release-welcome-teleprompter-track {
     animation: none !important;
   }
 }

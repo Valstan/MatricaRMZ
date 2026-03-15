@@ -98,7 +98,13 @@ const matricaApi = {
     presetPreview: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPreview', args),
     presetPdf: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPdf', args),
     presetCsv: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetCsv', args),
+    preset1cXml: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:preset1cXml', args),
     presetPrint: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPrint', args),
+    favoritesGet: async (args?: { userId?: string }) => ipcRenderer.invoke('reports:favoritesGet', args),
+    favoritesSet: async (args: { userId?: string; ids: string[] }) => ipcRenderer.invoke('reports:favoritesSet', args),
+    historyList: async (args?: { userId?: string; limit?: number }) => ipcRenderer.invoke('reports:historyList', args),
+    historyAdd: async (args: { userId?: string; entry: { presetId: string; title: string; generatedAt: number } }) =>
+      ipcRenderer.invoke('reports:historyAdd', args),
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),

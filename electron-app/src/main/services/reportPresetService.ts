@@ -11,6 +11,7 @@ import {
   type ReportCellValue,
   type ReportColumn,
   type ReportFilterOption,
+  type ReportPreset1cXmlResult,
   type ReportPresetCsvResult,
   type ReportPresetDefinition,
   type ReportPresetFilters,
@@ -2281,6 +2282,71 @@ export function buildReportCsv(report: OkPreview): string {
   return prependUtf8Bom(lines.join('\n') + '\n');
 }
 
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export function buildReport1cXml(report: OkPreview): string {
+  const generatedAtIso = new Date(report.generatedAt).toISOString();
+  const columnsXml = report.columns
+    .map(
+      (column) =>
+        `      <Колонка><Ключ>${xmlEscape(column.key)}</Ключ><Наименование>${xmlEscape(column.label)}</Наименование><Тип>${xmlEscape(
+          column.kind ?? 'text',
+        )}</Тип></Колонка>`,
+    )
+    .join('\n');
+  const rowsXml = report.rows
+    .map((row) => {
+      const fields = report.columns
+        .map((column) => {
+          const raw = row[column.key] ?? null;
+          const text = formatCell(column, raw as ReportCellValue);
+          return `        <Поле><Ключ>${xmlEscape(column.key)}</Ключ><Значение>${xmlEscape(text)}</Значение></Поле>`;
+        })
+        .join('\n');
+      return `      <Строка>\n${fields}\n      </Строка>`;
+    })
+    .join('\n');
+  const totalsXml =
+    report.totals && Object.keys(report.totals).length > 0
+      ? Object.entries(report.totals)
+          .map(([key, value]) => {
+            const label = labelTotalKey(key);
+            return `      <Итог><Ключ>${xmlEscape(key)}</Ключ><Наименование>${xmlEscape(label)}</Наименование><Значение>${xmlEscape(
+              formatTotalValue(key, value),
+            )}</Значение></Итог>`;
+          })
+          .join('\n')
+      : '';
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<КоммерческаяИнформация ВерсияСхемы="2.10">',
+    '  <Отчет>',
+    `    <ИдПресета>${xmlEscape(report.presetId)}</ИдПресета>`,
+    `    <Наименование>${xmlEscape(report.title)}</Наименование>`,
+    `    <Подзаголовок>${xmlEscape(report.subtitle ?? '')}</Подзаголовок>`,
+    `    <ДатаФормирования>${xmlEscape(generatedAtIso)}</ДатаФормирования>`,
+    '    <Колонки>',
+    columnsXml,
+    '    </Колонки>',
+    '    <Строки>',
+    rowsXml || '      <Строка />',
+    '    </Строки>',
+    '    <Итоги>',
+    totalsXml || '      <Итог />',
+    '    </Итоги>',
+    '  </Отчет>',
+    '</КоммерческаяИнформация>',
+    '',
+  ].join('\n');
+}
+
 export function renderReportHtml(report: OkPreview): string {
   const headers = report.columns.map((c) => `<th style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`).join('');
   const rows = report.rows
@@ -2365,6 +2431,20 @@ export async function exportReportPresetCsv(
     csv: buildReportCsv(report),
     fileName: `${buildFileBaseName(args.presetId)}.csv`,
     mime: 'text/csv;charset=utf-8',
+  };
+}
+
+export async function exportReportPreset1cXml(
+  db: BetterSQLite3Database,
+  args: ReportPresetPreviewRequest,
+): Promise<ReportPreset1cXmlResult> {
+  const report = await buildReportByPreset(db, args);
+  if (!report.ok) return report;
+  return {
+    ok: true,
+    xml: buildReport1cXml(report),
+    fileName: `${buildFileBaseName(args.presetId)}.xml`,
+    mime: 'application/xml;charset=utf-8',
   };
 }
 

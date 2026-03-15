@@ -8,6 +8,7 @@ import { formatMoscowDate, formatRuNumber } from '../utils/dateUtils.js';
 export {
   buildReportByPreset,
   buildReportCsv,
+  exportReportPreset1cXml,
   exportReportPresetCsv,
   exportReportPresetPdf,
   getReportPresetList,

@@ -111,7 +111,21 @@ export type ReportPresetCsvResult =
   | { ok: true; csv: string; fileName: string; mime: string }
   | { ok: false; error: string };
 
+export type ReportPreset1cXmlResult =
+  | { ok: true; xml: string; fileName: string; mime: string }
+  | { ok: false; error: string };
+
 export type ReportPresetPrintResult = { ok: true } | { ok: false; error: string };
+
+export type ReportPresetHistoryEntry = {
+  presetId: ReportPresetId;
+  title: string;
+  generatedAt: number;
+};
+
+export type ReportPresetFavoritesResult = { ok: true; ids: ReportPresetId[] } | { ok: false; error: string };
+export type ReportPresetHistoryListResult = { ok: true; entries: ReportPresetHistoryEntry[] } | { ok: false; error: string };
+export type ReportPresetHistoryAddResult = { ok: true } | { ok: false; error: string };
 
 export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {

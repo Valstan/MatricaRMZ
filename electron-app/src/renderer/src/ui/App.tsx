@@ -12,6 +12,7 @@ import type {
   UiControlSettings,
   UiDisplayPrefs,
   ReleaseWelcomeContent,
+  ReportPresetId,
 } from '@matricarmz/shared';
 import {
   DEFAULT_UI_CONTROL_SETTINGS,
@@ -89,7 +90,8 @@ const EngineDetailsPage = lazyPage('./pages/EngineDetailsPage.tsx', 'EngineDetai
 const EngineBrandsPage = lazyPage('./pages/EngineBrandsPage.tsx', 'EngineBrandsPage');
 const EngineBrandDetailsPage = lazyPage('./pages/EngineBrandDetailsPage.tsx', 'EngineBrandDetailsPage');
 const ChangesPage = lazyPage('./pages/ChangesPage.tsx', 'ChangesPage');
-const ReportsPage = lazyPage('./pages/ReportsPage.tsx', 'ReportsPage');
+const ReportsCatalogPage = lazyPage('./pages/ReportsCatalogPage.tsx', 'ReportsCatalogPage');
+const ReportPresetPage = lazyPage('./pages/ReportPresetPage.tsx', 'ReportPresetPage');
 const MasterdataPage = lazyPage('./pages/AdminPage.tsx', 'MasterdataPage');
 const CounterpartiesPage = lazyPage('./pages/CounterpartiesPage.tsx', 'CounterpartiesPage');
 const CounterpartyDetailsPage = lazyPage('./pages/CounterpartyDetailsPage.tsx', 'CounterpartyDetailsPage');
@@ -148,6 +150,7 @@ function appLinkSignature(link: ChatDeepLinkPayload) {
     counterpartyId: link.counterpartyId ?? null,
     nomenclatureId: link.nomenclatureId ?? null,
     stockDocumentId: link.stockDocumentId ?? null,
+    reportPresetId: link.reportPresetId ?? null,
   });
 }
 
@@ -297,6 +300,7 @@ function appTabTitle(tab: string): string {
     stock_document: 'Карточка складского документа',
     stock_inventory: 'Инвентаризация',
     reports: 'Отчёты',
+    report_preset: 'Шаблон отчёта',
     changes: 'Изменения',
     notes: 'Заметки',
     settings: 'Настройки',
@@ -321,6 +325,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   service: 'services',
   nomenclature_item: 'nomenclature',
   stock_document: 'stock_documents',
+  report_preset: 'reports',
 };
 
 const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
@@ -339,6 +344,7 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'service',
   'nomenclature_item',
   'stock_document',
+  'report_preset',
 ];
 
 export function App() {
@@ -418,6 +424,7 @@ export function App() {
   const [stockDocumentParentTab, setStockDocumentParentTab] = useState<StockDocumentParentTab>('stock_documents');
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
+  const [selectedReportPresetId, setSelectedReportPresetId] = useState<ReportPresetId | null>(null);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
     selectedUserId: null,
@@ -1023,6 +1030,7 @@ export function App() {
     setSelectedProductId(null);
     setSelectedServiceId(null);
     setSelectedCounterpartyId(null);
+    setSelectedReportPresetId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
 
   useEffect(() => {
@@ -1072,6 +1080,7 @@ export function App() {
     setSelectedProductId(null);
     setSelectedServiceId(null);
     setSelectedCounterpartyId(null);
+    setSelectedReportPresetId(null);
     setChatUnreadTotal(0);
     setChatContext({ selectedUserId: null, adminMode: false });
     setPresence(null);
@@ -1285,6 +1294,7 @@ export function App() {
     | 'nomenclature_item'
     | 'stock_document'
     | 'counterparty'
+    | 'report_preset'
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
   const menuLabels: Record<MenuTabId, string> = {
@@ -1509,7 +1519,8 @@ export function App() {
       tab === 'product' ||
       tab === 'service' ||
       tab === 'nomenclature_item' ||
-      tab === 'stock_document'
+      tab === 'stock_document' ||
+      tab === 'report_preset'
     )
       return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
@@ -1697,6 +1708,11 @@ export function App() {
     setTab('counterparty');
   }
 
+  function openReportPreset(presetId: ReportPresetId) {
+    setSelectedReportPresetId(presetId);
+    setTab('report_preset');
+  }
+
   const openByCode = {
     customer: openCounterparty,
     counterparty: openCounterparty,
@@ -1736,6 +1752,7 @@ export function App() {
     const counterpartyId = link?.counterpartyId ? String(link.counterpartyId) : null;
     const nomenclatureId = link?.nomenclatureId ? String(link.nomenclatureId) : null;
     const stockDocumentId = link?.stockDocumentId ? String(link.stockDocumentId) : null;
+    const reportPresetId = link?.reportPresetId ? String(link.reportPresetId) : null;
 
     // Prefer opening specific entities if IDs are present.
     if (engineId) {
@@ -1788,6 +1805,10 @@ export function App() {
     }
     if (engineBrandId) {
       await openEngineBrand(engineBrandId);
+      return;
+    }
+    if (reportPresetId) {
+      openReportPreset(reportPresetId as ReportPresetId);
       return;
     }
     setTab(tabId);
@@ -1850,9 +1871,10 @@ export function App() {
       employees: 'Сотрудники',
       employee: 'Карточка сотрудника',
       reports: 'Отчёты',
-    admin: 'Админ',
-    notes: 'Заметки',
-    settings: 'Настройки',
+      report_preset: 'Шаблон отчёта',
+      admin: 'Админ',
+      notes: 'Заметки',
+      settings: 'Настройки',
       auth: 'Вход',
     };
     const parent: Record<string, string> = {
@@ -1871,6 +1893,7 @@ export function App() {
       service: 'Услуги',
       nomenclature_item: 'Номенклатура',
       stock_document: 'Складские документы',
+      report_preset: 'Отчёты',
     };
 
     const crumbs: string[] = [];
@@ -1898,6 +1921,7 @@ export function App() {
     if (tab === 'service' && selectedServiceId) crumbs.push(`ID ${shortId(selectedServiceId)}`);
     if (tab === 'nomenclature_item' && selectedNomenclatureId) crumbs.push(`ID ${shortId(selectedNomenclatureId)}`);
     if (tab === 'stock_document' && selectedStockDocumentId) crumbs.push(`ID ${shortId(selectedStockDocumentId)}`);
+    if (tab === 'report_preset' && selectedReportPresetId) crumbs.push(`Шаблон: ${selectedReportPresetId}`);
 
     return crumbs.filter(Boolean);
   }
@@ -1979,6 +2003,7 @@ export function App() {
       selectedCounterpartyId,
       selectedNomenclatureId,
       selectedStockDocumentId,
+      selectedReportPresetId,
       engineDetails,
     ],
   );
@@ -2009,6 +2034,7 @@ export function App() {
       counterpartyId: tab === 'counterparty' ? selectedCounterpartyId ?? null : null,
       nomenclatureId: tab === 'nomenclature_item' ? selectedNomenclatureId ?? null : null,
       stockDocumentId: tab === 'stock_document' ? selectedStockDocumentId ?? null : null,
+      reportPresetId: tab === 'report_preset' ? selectedReportPresetId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
     [
@@ -2027,6 +2053,7 @@ export function App() {
       selectedCounterpartyId,
       selectedNomenclatureId,
       selectedStockDocumentId,
+      selectedReportPresetId,
       engineDetails,
     ],
   );
@@ -2344,6 +2371,8 @@ export function App() {
           ? 'Матрица РМЗ — Настройки'
         : tab === 'reports'
           ? 'Матрица РМЗ — Отчёты'
+          : tab === 'report_preset'
+            ? 'Матрица РМЗ — Шаблон отчёта'
           : tab === 'masterdata'
             ? 'Матрица РМЗ — Справочники'
             : tab === 'admin'
@@ -2589,6 +2618,12 @@ export function App() {
     if (!releaseWelcomeUi.open || !releaseWelcomeUi.content) return null;
     const c = releaseWelcomeUi.content;
     const stars = Array.from({ length: 24 }, (_v, idx) => idx);
+    const embers = Array.from({ length: 10 }, (_v, idx) => idx);
+    const teleprompterItems = [
+      { kind: 'intro' as const, text: c.intro },
+      ...c.highlights.map((item) => ({ kind: 'highlight' as const, text: item })),
+      { kind: 'outro' as const, text: c.outro },
+    ];
     return (
       <div className="release-welcome-overlay">
         <div className="release-welcome-aurora release-welcome-aurora--one" />
@@ -2602,16 +2637,38 @@ export function App() {
         <div className="release-welcome-card">
           <div className="release-welcome-badge">Обновление {c.releaseLabel || releaseWelcomeUi.currentVersion || 'MatricaRMZ'}</div>
           <h2 className="release-welcome-title">{c.title}</h2>
-          <div className="release-welcome-intro">{c.intro}</div>
-          <div className="release-welcome-list-wrap">
-            {c.highlights.map((item, idx) => (
-              <div key={`${idx}-${item}`} className="release-welcome-list-item">
-                <span className="release-welcome-list-dot">✦</span>
-                <span>{item}</span>
+          <div className="release-welcome-teleprompter-shell">
+            <div className="release-welcome-teleprompter-glow release-welcome-teleprompter-glow--one" />
+            <div className="release-welcome-teleprompter-glow release-welcome-teleprompter-glow--two" />
+            <div className="release-welcome-embers" aria-hidden="true">
+              {embers.map((i) => (
+                <span key={i} className={`release-welcome-ember release-welcome-ember--${(i % 5) + 1}`} />
+              ))}
+            </div>
+            <div className="release-welcome-teleprompter-mask release-welcome-teleprompter-mask--top" />
+            <div className="release-welcome-teleprompter-mask release-welcome-teleprompter-mask--bottom" />
+            <div className="release-welcome-teleprompter-viewport">
+              <div className="release-welcome-teleprompter-track">
+                {[0, 1].map((copyIdx) => (
+                  <div key={`teleprompter-copy-${copyIdx}`} className="release-welcome-teleprompter-sequence">
+                    {teleprompterItems.map((item, idx) => (
+                      <div
+                        key={`${copyIdx}-${idx}-${item.text}`}
+                        className={
+                          item.kind === 'highlight'
+                            ? 'release-welcome-teleprompter-item release-welcome-teleprompter-item--highlight'
+                            : 'release-welcome-teleprompter-item'
+                        }
+                      >
+                        {item.kind === 'highlight' ? <span className="release-welcome-list-dot">✦</span> : null}
+                        <span>{item.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-          <div className="release-welcome-outro">{c.outro}</div>
           <div className="release-welcome-meta">
             {releaseWelcomeUi.previousVersion
               ? `Предыдущая версия на этом рабочем месте: ${releaseWelcomeUi.previousVersion}`
@@ -3573,7 +3630,20 @@ export function App() {
           />
         )}
 
-        {tab === 'reports' && <ReportsPage canExport={caps.canExportReports} />}
+        {tab === 'reports' && (
+          <ReportsCatalogPage
+            userId={authStatus.user?.id ?? ''}
+            onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
+          />
+        )}
+        {tab === 'report_preset' && selectedReportPresetId && (
+          <ReportPresetPage
+            presetId={selectedReportPresetId}
+            canExport={caps.canExportReports}
+            userId={authStatus.user?.id ?? ''}
+            onBack={() => setTab('reports')}
+          />
+        )}
 
         {tab === 'masterdata' && (
           <MasterdataPage
@@ -3643,6 +3713,9 @@ export function App() {
 
         {tab === 'stock_document' && !selectedStockDocumentId && (
           <div style={{ color: 'var(--muted)' }}>Выберите складской документ из списка.</div>
+        )}
+        {tab === 'report_preset' && !selectedReportPresetId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите шаблон отчёта из каталога.</div>
         )}
             </React.Suspense>
           </div>

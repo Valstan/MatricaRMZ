@@ -358,6 +358,7 @@ export type ChatDeepLinkPayload = {
     | 'stock_document'
     | 'stock_inventory'
     | 'reports'
+    | 'report_preset'
     | 'admin'
     | 'audit'
     | 'notes'
@@ -376,6 +377,7 @@ export type ChatDeepLinkPayload = {
   counterpartyId?: string | null;
   nomenclatureId?: string | null;
   stockDocumentId?: string | null;
+  reportPresetId?: string | null;
   breadcrumbs?: string[];
 };
 
@@ -517,7 +519,12 @@ import type { StatusCode } from '../domain/contract.js';
 import type { UiControlSettings } from '../domain/uiControl.js';
 import type { ReleaseWelcomeContent } from '../domain/releaseWelcome.js';
 import type {
+  ReportPreset1cXmlResult,
   ReportPresetCsvResult,
+  ReportPresetFavoritesResult,
+  ReportPresetHistoryAddResult,
+  ReportPresetHistoryEntry,
+  ReportPresetHistoryListResult,
   ReportPresetListResult,
   ReportPresetPdfResult,
   ReportPresetPreviewRequest,
@@ -709,7 +716,12 @@ export type MatricaApi = {
     presetPreview: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPreviewResult>;
     presetPdf: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPdfResult>;
     presetCsv: (args: ReportPresetPreviewRequest) => Promise<ReportPresetCsvResult>;
+    preset1cXml: (args: ReportPresetPreviewRequest) => Promise<ReportPreset1cXmlResult>;
     presetPrint: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPrintResult>;
+    favoritesGet: (args?: { userId?: string }) => Promise<ReportPresetFavoritesResult>;
+    favoritesSet: (args: { userId?: string; ids: string[] }) => Promise<ReportPresetFavoritesResult>;
+    historyList: (args?: { userId?: string; limit?: number }) => Promise<ReportPresetHistoryListResult>;
+    historyAdd: (args: { userId?: string; entry: ReportPresetHistoryEntry }) => Promise<ReportPresetHistoryAddResult>;
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
     periodStagesCsv: (args: { startMs?: number; endMs: number }) => Promise<{ ok: true; csv: string } | { ok: false; error: string }>;
     // CSV: “стадии по группам” (заказчик/контракт/наряд) по link-атрибуту двигателя.
