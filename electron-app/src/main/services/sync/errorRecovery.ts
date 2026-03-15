@@ -58,6 +58,9 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.UserPresence]: userPresence,
   [SyncTableName.Notes]: notes,
   [SyncTableName.NoteShares]: noteShares,
+  [SyncTableName.ErpNomenclature]: undefined,
+  [SyncTableName.ErpRegStockBalance]: undefined,
+  [SyncTableName.ErpRegStockMovements]: undefined,
 };
 const IN_ARRAY_CHUNK = 400;
 

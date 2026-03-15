@@ -89,6 +89,16 @@ describe('report presets regressions', () => {
       'ktu',
       'amountRub',
     ]);
+    expect(preset('work_order_payroll_summary')?.columns.map((column) => column.key)).toEqual([
+      'departmentName',
+      'employeeName',
+      'workOrders',
+      'lines',
+      'totalKtu',
+      'avgKtu',
+      'amountRub',
+      'avgWorkOrderAmountRub',
+    ]);
   });
 });
 

@@ -289,6 +289,11 @@ export type WarehouseDocumentUpsertInput = {
   departmentId?: string | null;
   authorId?: string | null;
   payloadJson?: string | null;
+  header?: {
+    warehouseId?: string | null;
+    reason?: string | null;
+    counterpartyId?: string | null;
+  };
   lines: WarehouseDocumentLineInput[];
 };
 

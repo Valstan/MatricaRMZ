@@ -734,7 +734,7 @@ export function MasterdataPage(props: {
       setPartsStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return;
     }
-    const opts = r.parts.map((p) => ({
+    const opts = r.parts.map((p: any) => ({
       id: String(p.id),
       label: String(p.name ?? p.article ?? p.id),
     }));

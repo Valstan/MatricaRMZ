@@ -287,12 +287,51 @@ export function SearchSelect(props: {
                     </button>
                     {exactMatch ? (
                       <div style={{ marginTop: 6, fontSize: 12, color: 'var(--warning, #b45309)' }}>
-                        Похожий элемент уже найден: {exactMatch.label}
+                        Такой элемент уже есть.
+                        <button
+                          type="button"
+                          onClick={() => {
+                            props.onChange(exactMatch.id);
+                            close(exactMatch.label);
+                          }}
+                          style={{
+                            marginLeft: 8,
+                            border: 'none',
+                            background: 'transparent',
+                            color: 'var(--accent, #2563eb)',
+                            cursor: 'pointer',
+                            padding: 0,
+                          }}
+                        >
+                          Выбрать: {exactMatch.label}
+                        </button>
                       </div>
                     ) : null}
                     {!exactMatch && similarMatches.length > 0 ? (
-                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
-                        Похожие варианты: {similarMatches.map((option) => option.label).join(' • ')}
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 4 }}>
+                        <div>Похожие варианты:</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {similarMatches.map((option) => (
+                            <button
+                              key={`suggestion-${option.id}`}
+                              type="button"
+                              onClick={() => {
+                                props.onChange(option.id);
+                                close(option.label);
+                              }}
+                              style={{
+                                border: '1px solid var(--border)',
+                                background: 'var(--surface2)',
+                                padding: '2px 6px',
+                                fontSize: 12,
+                                color: 'var(--text)',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     ) : null}
                     {createError ? <div style={{ marginTop: 6, fontSize: 12, color: 'var(--danger)' }}>{createError}</div> : null}

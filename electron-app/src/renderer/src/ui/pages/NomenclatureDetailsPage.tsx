@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
+import type { NomenclatureItemType, WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -86,7 +86,7 @@ export function NomenclatureDetailsPage(props: {
                 id: props.id,
                 code: code.trim(),
                 name: name.trim(),
-                itemType,
+                itemType: itemType as NomenclatureItemType,
                 groupId,
                 unitId,
                 barcode: barcode.trim() || null,
@@ -110,7 +110,8 @@ export function NomenclatureDetailsPage(props: {
         ) : null}
         {props.canEdit ? (
           <Button
-            variant="danger"
+            variant="ghost"
+            style={{ color: 'var(--danger)' }}
             onClick={async () => {
               if (!confirm('Удалить номенклатурную позицию?')) return;
               const result = await window.matrica.warehouse.nomenclatureDelete(props.id);

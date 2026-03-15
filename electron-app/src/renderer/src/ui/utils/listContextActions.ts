@@ -105,7 +105,7 @@ export function buildListContextMenuItems<T>(args: {
       { id: 'clear-selected', label: 'Снять выделение', onClick: args.onClearSelection },
     ];
   }
-  const row = args.rows[0];
+  const row = args.rows[0]!;
   return [
     { id: 'select-row', label: 'Выделить', onClick: () => args.onSelect(args.getId(row)) },
     { id: 'print-row', label: 'Распечатать', onClick: () => args.onPrint([row]) },

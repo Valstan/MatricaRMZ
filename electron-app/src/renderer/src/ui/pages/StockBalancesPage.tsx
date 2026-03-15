@@ -57,11 +57,10 @@ export function StockBalancesPage(props: {
     let alive = true;
     void (async () => {
       setMovementsStatus('Загрузка движений...');
-      const result = await window.matrica.warehouse.movementsList({
-        nomenclatureId: selectedRow.nomenclatureId,
-        warehouseId: selectedRow.warehouseId,
-        limit: 20,
-      });
+      const movListArgs: { limit: number; nomenclatureId?: string; warehouseId?: string } = { limit: 20 };
+      if (selectedRow.nomenclatureId) movListArgs.nomenclatureId = selectedRow.nomenclatureId;
+      if (selectedRow.warehouseId) movListArgs.warehouseId = selectedRow.warehouseId;
+      const result = await window.matrica.warehouse.movementsList(movListArgs);
       if (!alive) return;
       if (!result?.ok) {
         setMovements([]);

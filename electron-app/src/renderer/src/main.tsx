@@ -2,7 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { registerLocale, setDefaultLocale } from 'react-datepicker';
-import ru from 'date-fns/locale/ru';
+import { ru } from 'date-fns/locale/ru';
 
 import 'react-datepicker/dist/react-datepicker.css';
 import './ui/global.css';

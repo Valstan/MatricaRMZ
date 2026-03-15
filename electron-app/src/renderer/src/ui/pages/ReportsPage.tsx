@@ -541,8 +541,8 @@ export function ReportsPage(props: { canExport: boolean }) {
                   const options = filter.options.map((option) => ({
                     id: option.value,
                     label: option.label,
-                    hintText: option.hintText,
-                    searchText: option.searchText,
+                    ...(option.hintText ? { hintText: option.hintText } : {}),
+                    ...(option.searchText ? { searchText: option.searchText } : {}),
                   }));
                   return (
                     <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
@@ -569,8 +569,8 @@ export function ReportsPage(props: { canExport: boolean }) {
                       options={options.map((option) => ({
                         id: option.value,
                         label: option.label,
-                        hintText: option.hintText,
-                        searchText: option.searchText,
+                        ...(option.hintText ? { hintText: option.hintText } : {}),
+                        ...(option.searchText ? { searchText: option.searchText } : {}),
                       }))}
                       placeholder="Начните вводить или вставьте текст"
                       disabled={busy}

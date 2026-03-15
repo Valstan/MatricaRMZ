@@ -162,6 +162,7 @@ export function StockDocumentDetailsPage(props: {
     if (lines.length === 0) return 'Добавьте хотя бы одну строку документа.';
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
+      if (!line) continue;
       if (!line.nomenclatureId) return `В строке ${index + 1} не выбрана номенклатура.`;
       if (!isInventory && Number(line.qty || 0) <= 0) return `В строке ${index + 1} количество должно быть больше нуля.`;
       if (!isTransfer && !isInventory && !(line.warehouseId || warehouseId)) return `В строке ${index + 1} не указан склад.`;
@@ -253,7 +254,7 @@ export function StockDocumentDetailsPage(props: {
         {canEditDocument ? <Button onClick={() => void saveDocument()}>Сохранить</Button> : null}
         {canEditDocument ? <Button onClick={() => void postDocument()}>Провести</Button> : null}
         {canEditDocument ? (
-          <Button variant="danger" onClick={() => void cancelDocument()}>
+          <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => void cancelDocument()}>
             Отменить документ
           </Button>
         ) : null}

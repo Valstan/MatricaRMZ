@@ -13,6 +13,9 @@ export const SyncTableName = {
   UserPresence: 'user_presence',
   Notes: 'notes',
   NoteShares: 'note_shares',
+  ErpNomenclature: 'erp_nomenclature',
+  ErpRegStockBalance: 'erp_reg_stock_balance',
+  ErpRegStockMovements: 'erp_reg_stock_movements',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

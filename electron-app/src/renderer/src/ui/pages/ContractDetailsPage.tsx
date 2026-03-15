@@ -750,7 +750,7 @@ export function ContractDetailsPage(props: {
         setPartOptions([]);
         return;
       }
-      setPartOptions(mapPartRowsToSearchOptions(r.parts));
+      setPartOptions(mapPartRowsToSearchOptions(r.parts as { id: string; name?: string; article?: string; templateName?: string }[]));
     } catch {
       setPartOptions([]);
     }
@@ -871,7 +871,7 @@ export function ContractDetailsPage(props: {
     if (typeCode === 'part') {
       const created = await window.matrica.parts.create({ attributes: { name: label } });
       if (!created?.ok || !created?.part?.id) {
-        throw new Error(created?.error ?? 'Не удалось создать деталь');
+        throw new Error(!created?.ok && created ? created.error : 'Не удалось создать деталь');
       }
       invalidateListAllPartsCache();
       await loadParts();
@@ -881,7 +881,7 @@ export function ContractDetailsPage(props: {
     if (!typeId) throw new Error(`Не найден справочник ${typeCode}`);
     const created = await window.matrica.admin.entities.create(typeId);
     if (!created?.ok || !created?.id) {
-      throw new Error(created?.error ?? 'Не удалось создать элемент');
+      throw new Error(!created?.ok && created ? created.error : 'Не удалось создать элемент');
     }
     const attrByType: Record<string, string> = { engine_brand: 'name', customer: 'name' };
     const attr = attrByType[typeCode] ?? 'name';

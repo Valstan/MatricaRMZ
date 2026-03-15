@@ -54,7 +54,7 @@ export function useListSelection(orderedIds: string[]) {
     const [start, end] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      for (let i = start; i <= end; i += 1) next.add(ids[i]);
+      for (let i = start; i <= end; i += 1) next.add(ids[i]!);
       return next;
     });
     setAnchorId(baseId);
@@ -63,11 +63,11 @@ export function useListSelection(orderedIds: string[]) {
 
   const handleShiftArrow = (dir: -1 | 1) => {
     if (!orderedIds.length) return false;
-    const baseId = cursorId ?? selectedInOrder[selectedInOrder.length - 1] ?? orderedIds[0];
+    const baseId = cursorId ?? selectedInOrder[selectedInOrder.length - 1] ?? orderedIds[0] ?? '';
     let idx = orderedIds.indexOf(baseId);
     if (idx < 0) idx = 0;
     const nextIdx = Math.max(0, Math.min(orderedIds.length - 1, idx + dir));
-    const nextId = orderedIds[nextIdx];
+    const nextId = orderedIds[nextIdx]!;
     addRangeTo(nextId);
     return true;
   };

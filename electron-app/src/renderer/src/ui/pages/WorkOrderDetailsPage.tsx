@@ -4,7 +4,11 @@ import type { WorkOrderPayload, WorkOrderWorkGroup, WorkOrderWorkLine } from '@m
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { FormField } from '../components/FormField.js';
+import { FormGrid } from '../components/FormGrid.js';
 import { Input } from '../components/Input.js';
+import { SectionCard } from '../components/SectionCard.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -23,6 +27,24 @@ type EmployeeInfo = {
   position?: string | null;
 };
 type PartInfo = { id: string; name?: string; article?: string; templateName?: string };
+
+function normalizeLookupValue(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+}
+
+function partDisplayName(part: PartInfo | null | undefined): string {
+  if (!part) return '';
+  const direct = String(part.name ?? '').trim();
+  if (direct) return direct;
+  const article = String(part.article ?? '').trim();
+  if (article) return article;
+  return String(part.id ?? '').trim();
+}
 
 function toInputDate(ms: number | null | undefined) {
   if (!ms) return '';
@@ -120,8 +142,8 @@ function distributeByKtu(
     return a.index - b.index;
   });
   for (let i = 0; i < weighted.length && remainder > 0; i += 1) {
-    weighted[i].floor += 1;
-    remainder -= 1;
+    const row = weighted[i];
+    if (row) { row.floor += 1; remainder -= 1; }
   }
 
   for (const row of weighted) payoutsCents[row.index] = row.floor;
@@ -186,31 +208,33 @@ function recalcLocally(payload: WorkOrderPayload): WorkOrderPayload {
       manualPayoutRub,
     };
   });
+  type CrewEntry = { employeeId: string; employeeName: string; ktu: number; payoutFrozen: boolean; manualPayoutRub: number };
   const payoutValues = distributeByKtu(totalAmountRub, crew);
-  const payouts = crew.map((member, idx) => ({
+  const payouts = crew.map((member: CrewEntry, idx: number) => ({
     employeeId: member.employeeId,
     employeeName: member.employeeName,
     ktu: member.ktu,
     amountRub: payoutValues[idx] ?? 0,
   }));
 
-  return {
+  const result: WorkOrderPayload = {
     ...payload,
     version: 2,
     workGroups,
     freeWorks,
     works,
-    crew: crew.map((member, idx) => ({
+    crew: crew.map((member: CrewEntry, idx: number) => ({
       ...member,
       payoutRub: payoutValues[idx] ?? 0,
-      manualPayoutRub: member.payoutFrozen ? member.manualPayoutRub : undefined,
+      ...(member.payoutFrozen ? { manualPayoutRub: member.manualPayoutRub } : {}),
     })),
     totalAmountRub,
     basePerWorkerRub: crew.length > 0 ? fromCents(toCents(totalAmountRub / crew.length)) : 0,
     payouts,
-    partId: undefined,
-    partName: undefined,
+    partId: null,
   };
+  delete result.partName;
+  return result;
 }
 
 export function WorkOrderDetailsPage(props: {
@@ -262,30 +286,34 @@ export function WorkOrderDetailsPage(props: {
   const serviceById = useMemo(() => new Map(services.map((service) => [service.id, service])), [services]);
   const allServiceOptions: LinkOpt[] = useMemo(
     () =>
-      services.map((s) =>
-        buildSearchOption({
+      services.map((s) => {
+        const hint = joinOptionHint([s.unit && `Ед. ${s.unit}`, `Цена ${money(s.priceRub)}`]);
+        const search = joinOptionSearch([s.name, s.id, s.unit, s.priceRub, ...s.partIds]);
+        return buildSearchOption({
           id: s.id,
           label: `${s.name} (${s.unit || 'ед.'}, ${money(s.priceRub)})`,
-          hintText: joinOptionHint([s.unit && `Ед. ${s.unit}`, `Цена ${money(s.priceRub)}`]),
-          searchText: joinOptionSearch([s.name, s.id, s.unit, s.priceRub, ...s.partIds]),
-        }),
-      ),
+          ...(hint ? { hintText: hint } : {}),
+          ...(search ? { searchText: search } : {}),
+        });
+      }),
     [services],
   );
   const employeeOptions: LinkOpt[] = useMemo(
     () =>
-      employees.map((e) =>
-        buildSearchOption({
+      employees.map((e) => {
+        const hint = joinOptionHint([
+          e.personnelNumber && `Таб. ${e.personnelNumber}`,
+          e.position,
+          e.departmentName,
+        ]);
+        const search = joinOptionSearch([e.displayName, e.id, e.personnelNumber, e.position, e.departmentName]);
+        return buildSearchOption({
           id: e.id,
           label: e.displayName,
-          hintText: joinOptionHint([
-            e.personnelNumber && `Таб. ${e.personnelNumber}`,
-            e.position,
-            e.departmentName,
-          ]),
-          searchText: joinOptionSearch([e.displayName, e.id, e.personnelNumber, e.position, e.departmentName]),
-        }),
-      ),
+          ...(hint ? { hintText: hint } : {}),
+          ...(search ? { searchText: search } : {}),
+        });
+      }),
     [employees],
   );
   const partOptions: LinkOpt[] = useMemo(() => mapPartRowsToSearchOptions(parts), [parts]);
@@ -307,9 +335,9 @@ export function WorkOrderDetailsPage(props: {
       );
       setParts((partRes.ok ? partRes.parts : []).map((p: any) => ({
         id: String(p.id),
-        name: p.name ? String(p.name) : undefined,
-        article: p.article ? String(p.article) : undefined,
-        templateName: p.templateName ? String(p.templateName) : undefined,
+        ...(p.name ? { name: String(p.name) } : {}),
+        ...(p.article ? { article: String(p.article) } : {}),
+        ...(p.templateName ? { templateName: String(p.templateName) } : {}),
       })));
 
       const et = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
@@ -407,10 +435,32 @@ export function WorkOrderDetailsPage(props: {
   }
 
   function serviceOptionsForPart(partId: string | null): LinkOpt[] {
-    return servicesForPart(partId).map((service) => ({
-      id: service.id,
-      label: `${service.name} (${service.unit || 'ед.'}, ${money(service.priceRub)})`,
-    }));
+    return servicesForPart(partId).map((service) => {
+      const hint = joinOptionHint([service.unit && `Ед. ${service.unit}`, `Цена ${money(service.priceRub)}`]);
+      const search = joinOptionSearch([service.name, service.id, service.unit, service.priceRub, ...service.partIds]);
+      return buildSearchOption({
+        id: service.id,
+        label: `${service.name} (${service.unit || 'ед.'}, ${money(service.priceRub)})`,
+        ...(hint ? { hintText: hint } : {}),
+        ...(search ? { searchText: search } : {}),
+      });
+    });
+  }
+
+  function findExistingServiceByLabel(label: string, partId: string | null): ServiceInfo | null {
+    const key = normalizeLookupValue(label);
+    if (!key) return null;
+    const exact = services.find((service) => normalizeLookupValue(service.name) === key);
+    if (!exact) return null;
+    if (!partId) return exact;
+    if (exact.partIds.length === 0 || exact.partIds.includes(partId)) return exact;
+    return exact;
+  }
+
+  function findExistingEmployeeByLabel(label: string): EmployeeInfo | null {
+    const key = normalizeLookupValue(label);
+    if (!key) return null;
+    return employees.find((employee) => normalizeLookupValue(employee.displayName) === key) ?? null;
   }
 
   function applyServiceSnapshotToLines(lines: WorkOrderWorkLine[], idx: number, serviceId: string | null): WorkOrderWorkLine[] {
@@ -450,6 +500,11 @@ export function WorkOrderDetailsPage(props: {
     if (!props.canEditMasterData) return null;
     const clean = label.trim();
     if (!clean) return null;
+    const existing = findExistingServiceByLabel(clean, partId);
+    if (existing?.id) {
+      setStatus(`Использована существующая услуга: ${existing.name}`);
+      return existing.id;
+    }
     const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
     const serviceType = (types as any[]).find((x) => String(x.code) === 'service');
     if (!serviceType?.id) {
@@ -457,8 +512,9 @@ export function WorkOrderDetailsPage(props: {
       return null;
     }
     const created = await window.matrica.admin.entities.create(String(serviceType.id));
-    if (!created.ok || !created.id) {
-      setStatus(`Ошибка создания услуги: ${created.error ?? 'unknown'}`);
+    if (!created?.ok || !created?.id) {
+      const err = !created?.ok && created && 'error' in created ? (created as { error: string }).error : 'unknown';
+      setStatus(`Ошибка создания услуги: ${err}`);
       return null;
     }
     await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
@@ -484,11 +540,14 @@ export function WorkOrderDetailsPage(props: {
     if (!clean) return null;
     const created = await window.matrica.parts.create({ attributes: { name: clean } });
     if (!created?.ok || !created?.part?.id) {
-      setStatus(`Ошибка создания детали: ${created?.error ?? 'unknown'}`);
+      const err = !created?.ok && created && 'error' in created ? (created as { error: string }).error : 'unknown';
+      setStatus(`Ошибка создания детали: ${err}`);
       return null;
     }
     const id = String(created.part.id);
-    setParts((prev) => [...prev, { id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    setParts((prev) =>
+      [...prev, { id, name: clean }].sort((a, b) => partDisplayName(a).localeCompare(partDisplayName(b), 'ru')),
+    );
     return id;
   }
 
@@ -496,9 +555,15 @@ export function WorkOrderDetailsPage(props: {
     if (props.canCreateEmployees !== true) return null;
     const clean = label.trim();
     if (!clean) return null;
+    const existing = findExistingEmployeeByLabel(clean);
+    if (existing?.id) {
+      setStatus(`Использован существующий сотрудник: ${existing.displayName}`);
+      return existing.id;
+    }
     const created = await window.matrica.employees.create();
     if (!created?.ok || !created?.id) {
-      setStatus(`Ошибка создания сотрудника: ${created?.error ?? 'unknown'}`);
+      const err = !created?.ok && created && 'error' in created ? (created as { error: string }).error : 'unknown';
+      setStatus(`Ошибка создания сотрудника: ${err}`);
       return null;
     }
     const parts = clean.split(/\s+/).filter(Boolean);
@@ -602,208 +667,255 @@ export function WorkOrderDetailsPage(props: {
   if (loading) return <div style={{ color: 'var(--muted)' }}>Загрузка…</div>;
   if (!payload) return <div style={{ color: 'var(--danger)' }}>{status || 'Карточка наряда недоступна'}</div>;
 
+  const amountInputStyle: React.CSSProperties = { textAlign: 'right' };
+  const rightCellStyle: React.CSSProperties = { textAlign: 'right', whiteSpace: 'nowrap' };
+
+  const cardActionBar = (
+    <CardActionBar
+      canEdit={props.canEdit}
+      onCopyToNew={() => {
+        void (async () => {
+          if (!payload) return;
+          await copyToNewWorkOrder(payload);
+        })();
+      }}
+      onSaveAndClose={() => {
+        void (async () => {
+          if (payload && props.canEdit) await flushSave(payload);
+          dirtyRef.current = false;
+          props.onClose();
+        })();
+      }}
+      onReset={() => {
+        void refresh().then(() => {
+          dirtyRef.current = false;
+        });
+      }}
+      onPrint={() => printWorkOrderCard(payload)}
+      onClose={() => props.requestClose?.()}
+      onDelete={() => {
+        void (async () => {
+          if (!confirm('Удалить наряд?')) return;
+          const r = await window.matrica.workOrders.delete(props.id);
+          if (!r.ok) {
+            setStatus(`Ошибка удаления: ${r.error}`);
+            return;
+          }
+          props.onClose();
+        })();
+      }}
+      deleteLabel="Удалить наряд"
+    />
+  );
+
   const crewSection = (
-    <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-      <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Состав бригады и КТУ</div>
-      <table className="list-table">
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left', padding: 8 }}>Сотрудник</th>
-            <th style={{ textAlign: 'left', padding: 8, width: 130 }}>КТУ</th>
-            <th style={{ textAlign: 'left', padding: 8, width: 180 }}>Выплата</th>
-            <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Заморозить</th>
-            {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {payload.crew.map((member, idx) => (
-            <tr key={`crew-${idx}-${member.employeeId}`}>
-              <td style={{ padding: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                  <SearchSelectWithCreate
-                    value={member.employeeId || null}
-                    options={employeeOptions}
-                    disabled={!props.canEdit}
-                    canCreate={props.canCreateEmployees === true}
-                    createLabel="Новый сотрудник"
-                    onChange={(next) => {
-                      const e = employees.find((x) => x.id === next);
-                      const crew = payload.crew.map((c, i) => (i === idx ? { ...c, employeeId: e?.id || '', employeeName: e?.displayName || '' } : c));
-                      patch({ ...payload, crew });
-                    }}
-                    onCreate={async (label) => {
-                      const createdId = await createEmployeeFromWorkOrder(label);
-                      if (!createdId) return null;
-                      const clean = label.trim();
-                      const crew = payload.crew.map((c, i) =>
-                        i === idx ? { ...c, employeeId: createdId, employeeName: clean } : c,
-                      );
-                      patch({ ...payload, crew });
-                      return createdId;
-                    }}
-                    placeholder="Выберите сотрудника"
-                  />
-                  {member.employeeId && props.onOpenEmployee ? (
-                    <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(member.employeeId as string)}>
-                      Открыть
-                    </Button>
-                  ) : null}
-                </div>
-              </td>
-              <td style={{ padding: 8 }}>
-                <Input
-                  type="number"
-                  min={0.01}
-                  step="0.01"
-                  value={String(member.ktu ?? 1)}
-                  disabled={!props.canEdit}
-                  onChange={(e) => {
-                    const crew = payload.crew.map((c, i) => (i === idx ? { ...c, ktu: Math.max(0.01, safeNum(e.target.value, 1)) } : c));
-                    patch({ ...payload, crew });
-                  }}
-                />
-              </td>
-              <td style={{ padding: 8 }}>
-                <div style={{ display: 'grid', gap: 6 }}>
+    <SectionCard className="entity-card-span-full" title="Состав бригады и КТУ">
+      <div className="list-table-wrap list-table-wrap--single">
+        <table className="list-table list-table--single-mode work-order-table">
+          <colgroup>
+            <col />
+            <col style={{ width: 130 }} />
+            <col style={{ width: 190 }} />
+            <col style={{ width: 140 }} />
+            {props.canEdit ? <col style={{ width: 90 }} /> : null}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Сотрудник</th>
+              <th style={{ textAlign: 'right' }}>КТУ</th>
+              <th style={{ textAlign: 'right' }}>Выплата</th>
+              <th style={{ textAlign: 'right' }}>Заморозить</th>
+              {props.canEdit && <th style={{ textAlign: 'center' }}>Действия</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {payload.crew.map((member, idx) => (
+              <tr key={`crew-${idx}-${member.employeeId}`}>
+                <td>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
+                    <SearchSelectWithCreate
+                      value={member.employeeId || null}
+                      options={employeeOptions}
+                      disabled={!props.canEdit}
+                      canCreate={props.canCreateEmployees === true}
+                      createLabel="Новый сотрудник"
+                      onChange={(next) => {
+                        const employee = employees.find((x) => x.id === next);
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx ? { ...c, employeeId: employee?.id || '', employeeName: employee?.displayName || '' } : c,
+                        );
+                        patch({ ...payload, crew });
+                      }}
+                      onCreate={async (label) => {
+                        const createdId = await createEmployeeFromWorkOrder(label);
+                        if (!createdId) return null;
+                        const employee = employees.find((x) => x.id === createdId);
+                        const nextName = employee?.displayName || label.trim();
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx ? { ...c, employeeId: createdId, employeeName: nextName } : c,
+                        );
+                        patch({ ...payload, crew });
+                        return createdId;
+                      }}
+                      placeholder="Выберите сотрудника"
+                    />
+                    {member.employeeId && props.onOpenEmployee ? (
+                      <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(member.employeeId as string)}>
+                        Открыть
+                      </Button>
+                    ) : null}
+                  </div>
+                </td>
+                <td style={rightCellStyle}>
                   <Input
                     type="number"
+                    min={0.01}
                     step="0.01"
-                    min={0}
-                    value={String(member.payoutFrozen ? member.manualPayoutRub ?? member.payoutRub ?? 0 : member.payoutRub ?? 0)}
-                    disabled={!props.canEdit || !member.payoutFrozen}
-                    onChange={(e) => {
-                      const crew = payload.crew.map((c, i) =>
-                        i === idx
-                          ? {
-                              ...c,
-                              manualPayoutRub: Math.max(0, safeNum(e.target.value, 0)),
-                            }
-                          : c,
-                      );
-                      patch({ ...payload, crew });
-                    }}
-                  />
-                  {!member.payoutFrozen ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>Авто: {money(member.payoutRub ?? 0)}</div> : null}
-                </div>
-              </td>
-              <td style={{ padding: 8 }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: props.canEdit ? 'pointer' : 'default' }}>
-                  <input
-                    type="checkbox"
+                    value={String(member.ktu ?? 1)}
+                    style={amountInputStyle}
                     disabled={!props.canEdit}
-                    checked={Boolean(member.payoutFrozen)}
                     onChange={(e) => {
-                      const checked = e.target.checked;
-                      const crew = payload.crew.map((c, i) =>
-                        i === idx
-                          ? {
-                              ...c,
-                              payoutFrozen: checked,
-                              manualPayoutRub: checked ? Math.max(0, safeNum(c.manualPayoutRub ?? c.payoutRub, 0)) : undefined,
-                            }
-                          : c,
-                      );
+                      const crew = payload.crew.map((c, i) => (i === idx ? { ...c, ktu: Math.max(0.01, safeNum(e.target.value, 1)) } : c));
                       patch({ ...payload, crew });
                     }}
                   />
-                  <span>{member.payoutFrozen ? 'Да' : 'Нет'}</span>
-                </label>
-              </td>
-              {props.canEdit && (
-                <td style={{ padding: 8 }}>
-                  <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
-                    Удалить
-                  </Button>
                 </td>
-              )}
-            </tr>
-          ))}
-          {payload.crew.length === 0 && (
-            <tr>
-              <td colSpan={props.canEdit ? 5 : 4} style={{ padding: 10, color: 'var(--muted)' }}>
-                Состав бригады пуст
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-      {props.canEdit && (
-        <div style={{ padding: 8 }}>
+                <td style={rightCellStyle}>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={String(member.payoutFrozen ? member.manualPayoutRub ?? member.payoutRub ?? 0 : member.payoutRub ?? 0)}
+                      style={amountInputStyle}
+                      disabled={!props.canEdit || !member.payoutFrozen}
+                      onChange={(e) => {
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx
+                            ? {
+                                ...c,
+                                manualPayoutRub: Math.max(0, safeNum(e.target.value, 0)),
+                              }
+                            : c,
+                        );
+                        patch({ ...payload, crew });
+                      }}
+                    />
+                  </div>
+                </td>
+                <td style={rightCellStyle}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%', cursor: props.canEdit ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      disabled={!props.canEdit}
+                      checked={Boolean(member.payoutFrozen)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const crew = payload.crew.map((c, i) =>
+                          i === idx
+                            ? {
+                                ...c,
+                                payoutFrozen: checked,
+                                ...(checked ? { manualPayoutRub: Math.max(0, safeNum(c.manualPayoutRub ?? c.payoutRub, 0)) } : {}),
+                              }
+                            : c,
+                        );
+                        patch({ ...payload, crew });
+                      }}
+                    />
+                    <span>{member.payoutFrozen ? 'Да' : 'Нет'}</span>
+                  </label>
+                </td>
+                {props.canEdit && (
+                  <td style={{ textAlign: 'center' }}>
+                    <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
+                      Удалить
+                    </Button>
+                  </td>
+                )}
+              </tr>
+            ))}
+            {payload.crew.length === 0 && (
+              <tr>
+                <td colSpan={props.canEdit ? 5 : 4} style={{ color: 'var(--muted)' }}>
+                  Состав бригады пуст
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {props.canEdit && (
           <Button variant="ghost" onClick={() => patch({ ...payload, crew: [...payload.crew, { employeeId: '', employeeName: '', ktu: 1, payoutFrozen: false }] })}>
             + Добавить сотрудника
           </Button>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, color: 'var(--muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
+          <span>Итог: {money(payload.totalAmountRub)}</span>
+          <span>База на человека: {money(payload.basePerWorkerRub)}</span>
         </div>
-      )}
-    </div>
+      </div>
+    </SectionCard>
   );
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
-        <CardActionBar
-          canEdit={props.canEdit}
-          onCopyToNew={() => {
-            void (async () => {
-              if (!payload) return;
-              await copyToNewWorkOrder(payload);
-            })();
-          }}
-          onSaveAndClose={() => {
-            void (async () => {
-              if (payload && props.canEdit) await flushSave(payload);
-              dirtyRef.current = false;
-              props.onClose();
-            })();
-          }}
-          onReset={() => {
-            void refresh().then(() => {
-              dirtyRef.current = false;
-            });
-          }}
-          onPrint={() => printWorkOrderCard(payload)}
-          onClose={() => props.requestClose?.()}
-          onDelete={() => {
-            void (async () => {
-              if (!confirm('Удалить наряд?')) return;
-              const r = await window.matrica.workOrders.delete(props.id);
-              if (!r.ok) {
-                setStatus(`Ошибка удаления: ${r.error}`);
-                return;
-              }
-              props.onClose();
-            })();
-          }}
-          deleteLabel="Удалить наряд"
-        />
-      </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ fontWeight: 700 }}>Наряд №{payload.workOrderNumber}</div>
-        <div style={{ color: 'var(--muted)' }}>Итог: {money(payload.totalAmountRub)}</div>
-        <div style={{ color: 'var(--muted)' }}>База на человека: {money(payload.basePerWorkerRub)}</div>
-        {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)' }}>{status}</div> : null}
-      </div>
+    <EntityCardShell
+      title={`Наряд №${payload.workOrderNumber}`}
+      layout="two-column"
+      cardActions={cardActionBar}
+      actions={
+        props.canEdit ? (
+          <Button
+            variant="outline"
+            tone="info"
+            size="sm"
+            onClick={() => {
+              void flushSave(payload);
+            }}
+          >
+            Сохранить
+          </Button>
+        ) : undefined
+      }
+    >
+      <SectionCard title="Основные реквизиты">
+        <FormGrid columns="repeat(auto-fit, minmax(min(260px, 100%), 1fr))" gap={10}>
+          <FormField label="Номер наряда" compact>
+            <Input value={String(payload.workOrderNumber)} disabled style={amountInputStyle} />
+          </FormField>
+          <FormField label="Дата наряда" compact>
+            <Input
+              type="date"
+              value={toInputDate(payload.orderDate)}
+              disabled={!props.canEdit}
+              onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
+            />
+          </FormField>
+        </FormGrid>
+      </SectionCard>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 8, alignItems: 'center' }}>
-        <div style={{ color: 'var(--muted)' }}>Дата наряда</div>
-        <Input
-          type="date"
-          value={toInputDate(payload.orderDate)}
-          disabled={!props.canEdit}
-          onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
-        />
-      </div>
+      <SectionCard title="Итоги">
+        <FormGrid columns="repeat(auto-fit, minmax(min(260px, 100%), 1fr))" gap={10}>
+          <FormField label="Итог по наряду" compact>
+            <Input value={money(payload.totalAmountRub)} disabled style={amountInputStyle} />
+          </FormField>
+          <FormField label="База на человека" compact>
+            <Input value={money(payload.basePerWorkerRub)} disabled style={amountInputStyle} />
+          </FormField>
+        </FormGrid>
+        {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)', fontSize: 12 }}>{status}</div> : null}
+      </SectionCard>
 
       {crewSection}
 
-      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-        <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы по изделиям</div>
-        <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+      <SectionCard className="entity-card-span-full" title="Работы по изделиям">
+        <div style={{ display: 'grid', gap: 10 }}>
           {payload.workGroups.map((group, groupIdx) => {
             const groupServiceOptions = serviceOptionsForPart(group.partId);
             return (
               <div key={group.groupId} style={{ border: '1px solid var(--border)', padding: 10, display: 'grid', gap: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto auto', gap: 8, alignItems: 'center' }}>
-                  <div style={{ color: 'var(--muted)' }}>Изделие</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center' }}>
                   <SearchSelectWithCreate
                     value={group.partId}
                     options={partOptions}
@@ -818,7 +930,7 @@ export function WorkOrderDetailsPage(props: {
                         return {
                           ...current,
                           partId: part.id,
-                          partName: part.label,
+                          partName: partDisplayName(part),
                           lines: linkedServices.map((service, idx) => buildLineFromService(service, idx + 1)),
                         };
                       });
@@ -834,14 +946,14 @@ export function WorkOrderDetailsPage(props: {
                       }));
                       return createdId;
                     }}
-                    placeholder="Выберите деталь"
+                    placeholder="Выберите изделие"
                   />
                   {group.partId && props.onOpenPart ? (
                     <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenPart?.(group.partId as string)}>
                       Открыть
                     </Button>
                   ) : (
-                    <div />
+                    <span />
                   )}
                   {props.canEdit ? (
                     <Button
@@ -857,120 +969,133 @@ export function WorkOrderDetailsPage(props: {
                       Удалить блок
                     </Button>
                   ) : (
-                    <div />
+                    <span />
                   )}
                 </div>
-                <table className="list-table">
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', padding: 8 }}>Вид работ</th>
-                      <th style={{ textAlign: 'left', padding: 8, width: 110 }}>Кол-во</th>
-                      <th style={{ textAlign: 'left', padding: 8, width: 130 }}>Ед.</th>
-                      <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Цена</th>
-                      <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Сумма</th>
-                      {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.lines.map((line, lineIdx) => (
-                      <tr key={`${group.groupId}-line-${lineIdx}`}>
-                        <td style={{ padding: 8 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                            <SearchSelectWithCreate
-                              value={line.serviceId}
-                              options={groupServiceOptions}
-                              disabled={!props.canEdit}
-                              canCreate={props.canEditMasterData}
-                              createLabel="Новая услуга"
-                              onChange={(next) =>
-                                updateGroup(groupIdx, (current) => ({
-                                  ...current,
-                                  lines: applyServiceSnapshotToLines(current.lines, lineIdx, next),
-                                }))
-                              }
-                              onCreate={async (label) => {
-                                const createdId = await createServiceFromWorkOrder(label, group.partId);
-                                if (!createdId) return null;
-                                updateGroup(groupIdx, (current) => ({
-                                  ...current,
-                                  lines: applyServiceSnapshotToLines(current.lines, lineIdx, createdId),
-                                }));
-                                return createdId;
-                              }}
-                              placeholder="Выберите вид работ"
-                            />
-                            {line.serviceId && props.onOpenService ? (
-                              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
-                                Открыть
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td style={{ padding: 8 }}>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
-                            value={String(line.qty ?? 0)}
-                            disabled={!props.canEdit}
-                            onChange={(e) =>
-                              updateGroup(groupIdx, (current) => ({
-                                ...current,
-                                lines: current.lines.map((currentLine, idx) =>
-                                  idx === lineIdx ? ({ ...currentLine, qty: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
-                                ),
-                              }))
-                            }
-                          />
-                        </td>
-                        <td style={{ padding: 8 }}>
-                          <Input value={line.unit || ''} disabled />
-                        </td>
-                        <td style={{ padding: 8 }}>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
-                            value={String(line.priceRub ?? 0)}
-                            disabled={!props.canEdit}
-                            onChange={(e) =>
-                              updateGroup(groupIdx, (current) => ({
-                                ...current,
-                                lines: current.lines.map((currentLine, idx) =>
-                                  idx === lineIdx ? ({ ...currentLine, priceRub: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
-                                ),
-                              }))
-                            }
-                          />
-                        </td>
-                        <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{money(line.amountRub ?? 0)}</td>
-                        {props.canEdit && (
-                          <td style={{ padding: 8 }}>
-                            <Button
-                              variant="ghost"
-                              style={{ color: 'var(--danger)' }}
-                              onClick={() =>
-                                updateGroup(groupIdx, (current) => ({
-                                  ...current,
-                                  lines: current.lines.filter((_, idx) => idx !== lineIdx),
-                                }))
-                              }
-                            >
-                              Удалить
-                            </Button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                    {group.lines.length === 0 && (
+
+                <div className="list-table-wrap list-table-wrap--single">
+                  <table className="list-table list-table--single-mode work-order-table">
+                    <colgroup>
+                      <col />
+                      <col style={{ width: 120 }} />
+                      <col style={{ width: 120 }} />
+                      <col style={{ width: 150 }} />
+                      <col style={{ width: 150 }} />
+                      {props.canEdit ? <col style={{ width: 90 }} /> : null}
+                    </colgroup>
+                    <thead>
                       <tr>
-                        <td colSpan={props.canEdit ? 6 : 5} style={{ padding: 10, color: 'var(--muted)' }}>
-                          Работы для изделия не добавлены
-                        </td>
+                        <th style={{ textAlign: 'left' }}>Вид работ</th>
+                        <th style={{ textAlign: 'right' }}>Кол-во</th>
+                        <th style={{ textAlign: 'right' }}>Ед.</th>
+                        <th style={{ textAlign: 'right' }}>Цена</th>
+                        <th style={{ textAlign: 'right' }}>Сумма</th>
+                        {props.canEdit && <th style={{ textAlign: 'center' }}>Действия</th>}
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {group.lines.map((line, lineIdx) => (
+                        <tr key={`${group.groupId}-line-${lineIdx}`}>
+                          <td>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
+                              <SearchSelectWithCreate
+                                value={line.serviceId}
+                                options={groupServiceOptions}
+                                disabled={!props.canEdit}
+                                canCreate={props.canEditMasterData}
+                                createLabel="Новая услуга"
+                                onChange={(next) =>
+                                  updateGroup(groupIdx, (current) => ({
+                                    ...current,
+                                    lines: applyServiceSnapshotToLines(current.lines, lineIdx, next),
+                                  }))
+                                }
+                                onCreate={async (label) => {
+                                  const createdId = await createServiceFromWorkOrder(label, group.partId);
+                                  if (!createdId) return null;
+                                  updateGroup(groupIdx, (current) => ({
+                                    ...current,
+                                    lines: applyServiceSnapshotToLines(current.lines, lineIdx, createdId),
+                                  }));
+                                  return createdId;
+                                }}
+                                placeholder="Выберите вид работ"
+                              />
+                              {line.serviceId && props.onOpenService ? (
+                                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
+                                  Открыть
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td style={rightCellStyle}>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={String(line.qty ?? 0)}
+                              style={amountInputStyle}
+                              disabled={!props.canEdit}
+                              onChange={(e) =>
+                                updateGroup(groupIdx, (current) => ({
+                                  ...current,
+                                  lines: current.lines.map((currentLine, idx) =>
+                                    idx === lineIdx ? ({ ...currentLine, qty: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
+                                  ),
+                                }))
+                              }
+                            />
+                          </td>
+                          <td style={rightCellStyle}>
+                            <Input value={line.unit || ''} disabled style={amountInputStyle} />
+                          </td>
+                          <td style={rightCellStyle}>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={String(line.priceRub ?? 0)}
+                              style={amountInputStyle}
+                              disabled={!props.canEdit}
+                              onChange={(e) =>
+                                updateGroup(groupIdx, (current) => ({
+                                  ...current,
+                                  lines: current.lines.map((currentLine, idx) =>
+                                    idx === lineIdx ? ({ ...currentLine, priceRub: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
+                                  ),
+                                }))
+                              }
+                            />
+                          </td>
+                          <td style={rightCellStyle}>{money(line.amountRub ?? 0)}</td>
+                          {props.canEdit && (
+                            <td style={{ textAlign: 'center' }}>
+                              <Button
+                                variant="ghost"
+                                style={{ color: 'var(--danger)' }}
+                                onClick={() =>
+                                  updateGroup(groupIdx, (current) => ({
+                                    ...current,
+                                    lines: current.lines.filter((_, idx) => idx !== lineIdx),
+                                  }))
+                                }
+                              >
+                                Удалить
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                      {group.lines.length === 0 && (
+                        <tr>
+                          <td colSpan={props.canEdit ? 6 : 5} style={{ color: 'var(--muted)' }}>
+                            Работы для изделия не добавлены
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
                 {props.canEdit && (
                   <div>
                     <Button
@@ -998,114 +1123,124 @@ export function WorkOrderDetailsPage(props: {
             </div>
           )}
         </div>
-      </div>
+      </SectionCard>
 
-      <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-        <div style={{ padding: 10, background: 'var(--surface2)', fontWeight: 700 }}>Работы без привязки к изделию</div>
-        <table className="list-table">
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 8 }}>Вид работ</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 110 }}>Кол-во</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 130 }}>Ед.</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Цена</th>
-              <th style={{ textAlign: 'left', padding: 8, width: 140 }}>Сумма</th>
-              {props.canEdit && <th style={{ textAlign: 'left', padding: 8, width: 90 }}>Действия</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {payload.freeWorks.map((line, idx) => (
-              <tr key={`free-work-line-${idx}`}>
-                <td style={{ padding: 8 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-                    <SearchSelectWithCreate
-                      value={line.serviceId}
-                      options={allServiceOptions}
-                      disabled={!props.canEdit}
-                      canCreate={props.canEditMasterData}
-                      createLabel="Новая услуга"
-                      onChange={(next) =>
-                        patch({
-                          ...payload,
-                          freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, next),
-                        })
-                      }
-                      onCreate={async (label) => {
-                        const createdId = await createServiceFromWorkOrder(label, null);
-                        if (!createdId) return null;
-                        patch({
-                          ...payload,
-                          freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, createdId),
-                        });
-                        return createdId;
-                      }}
-                      placeholder="Выберите вид работ"
-                    />
-                    {line.serviceId && props.onOpenService ? (
-                      <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
-                        Открыть
-                      </Button>
-                    ) : null}
-                  </div>
-                </td>
-                <td style={{ padding: 8 }}>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={String(line.qty ?? 0)}
-                    disabled={!props.canEdit}
-                    onChange={(e) => {
-                      const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, qty: safeNum(e.target.value, 0) } : item));
-                      patch({ ...payload, freeWorks });
-                    }}
-                  />
-                </td>
-                <td style={{ padding: 8 }}>
-                  <Input value={line.unit || ''} disabled />
-                </td>
-                <td style={{ padding: 8 }}>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={String(line.priceRub ?? 0)}
-                    disabled={!props.canEdit}
-                    onChange={(e) => {
-                      const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, priceRub: safeNum(e.target.value, 0) } : item));
-                      patch({ ...payload, freeWorks });
-                    }}
-                  />
-                </td>
-                <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{money(line.amountRub ?? 0)}</td>
-                {props.canEdit && (
-                  <td style={{ padding: 8 }}>
-                    <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) })}>
-                      Удалить
-                    </Button>
-                  </td>
-                )}
-              </tr>
-            ))}
-            {payload.freeWorks.length === 0 && (
+      <SectionCard className="entity-card-span-full" title="Работы без привязки к изделию">
+        <div className="list-table-wrap list-table-wrap--single">
+          <table className="list-table list-table--single-mode work-order-table">
+            <colgroup>
+              <col />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 150 }} />
+              <col style={{ width: 150 }} />
+              {props.canEdit ? <col style={{ width: 90 }} /> : null}
+            </colgroup>
+            <thead>
               <tr>
-                <td colSpan={props.canEdit ? 6 : 5} style={{ padding: 10, color: 'var(--muted)' }}>
-                  Работы без изделия не добавлены
-                </td>
+                <th style={{ textAlign: 'left' }}>Вид работ</th>
+                <th style={{ textAlign: 'right' }}>Кол-во</th>
+                <th style={{ textAlign: 'right' }}>Ед.</th>
+                <th style={{ textAlign: 'right' }}>Цена</th>
+                <th style={{ textAlign: 'right' }}>Сумма</th>
+                {props.canEdit && <th style={{ textAlign: 'center' }}>Действия</th>}
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {payload.freeWorks.map((line, idx) => (
+                <tr key={`free-work-line-${idx}`}>
+                  <td>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
+                      <SearchSelectWithCreate
+                        value={line.serviceId}
+                        options={allServiceOptions}
+                        disabled={!props.canEdit}
+                        canCreate={props.canEditMasterData}
+                        createLabel="Новая услуга"
+                        onChange={(next) =>
+                          patch({
+                            ...payload,
+                            freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, next),
+                          })
+                        }
+                        onCreate={async (label) => {
+                          const createdId = await createServiceFromWorkOrder(label, null);
+                          if (!createdId) return null;
+                          patch({
+                            ...payload,
+                            freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, createdId),
+                          });
+                          return createdId;
+                        }}
+                        placeholder="Выберите вид работ"
+                      />
+                      {line.serviceId && props.onOpenService ? (
+                        <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td style={rightCellStyle}>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={String(line.qty ?? 0)}
+                      style={amountInputStyle}
+                      disabled={!props.canEdit}
+                      onChange={(e) => {
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, qty: safeNum(e.target.value, 0) } : item));
+                        patch({ ...payload, freeWorks });
+                      }}
+                    />
+                  </td>
+                  <td style={rightCellStyle}>
+                    <Input value={line.unit || ''} disabled style={amountInputStyle} />
+                  </td>
+                  <td style={rightCellStyle}>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={String(line.priceRub ?? 0)}
+                      style={amountInputStyle}
+                      disabled={!props.canEdit}
+                      onChange={(e) => {
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, priceRub: safeNum(e.target.value, 0) } : item));
+                        patch({ ...payload, freeWorks });
+                      }}
+                    />
+                  </td>
+                  <td style={rightCellStyle}>{money(line.amountRub ?? 0)}</td>
+                  {props.canEdit && (
+                    <td style={{ textAlign: 'center' }}>
+                      <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) })}>
+                        Удалить
+                      </Button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {payload.freeWorks.length === 0 && (
+                <tr>
+                  <td colSpan={props.canEdit ? 6 : 5} style={{ color: 'var(--muted)' }}>
+                    Работы без изделия не добавлены
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {props.canEdit && (
-          <div style={{ padding: 8 }}>
+          <div>
             <Button variant="ghost" onClick={addFreeWorkLine}>
               Добавить работы +
             </Button>
           </div>
         )}
-      </div>
-
-    </div>
+      </SectionCard>
+    </EntityCardShell>
   );
 }
 

@@ -7,6 +7,7 @@ export type ReportPresetId =
   | 'supply_fulfillment'
   | 'work_order_costs'
   | 'work_order_payroll'
+  | 'work_order_payroll_summary'
   | 'employees_roster'
   | 'tools_inventory'
   | 'services_pricelist'
@@ -370,6 +371,26 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'orderDate', label: 'Дата наряда', kind: 'date' },
       { key: 'ktu', label: 'КТУ', kind: 'number', align: 'right' },
       { key: 'amountRub', label: 'Начислено (руб)', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'work_order_payroll_summary',
+    title: 'Наряды: начисления по сотрудникам (свод)',
+    description: 'Сводный бухгалтерский срез по сотрудникам и подразделениям за период.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'employeeIds', label: 'Сотрудники', optionsSource: 'employees' },
+      { type: 'multi_select', key: 'departmentIds', label: 'Подразделения', optionsSource: 'departments' },
+    ],
+    columns: [
+      { key: 'departmentName', label: 'Подразделение' },
+      { key: 'employeeName', label: 'Сотрудник' },
+      { key: 'workOrders', label: 'Наряды, шт', kind: 'number', align: 'right' },
+      { key: 'lines', label: 'Начисления, шт', kind: 'number', align: 'right' },
+      { key: 'totalKtu', label: 'КТУ суммарно', kind: 'number', align: 'right' },
+      { key: 'avgKtu', label: 'КТУ средний', kind: 'number', align: 'right' },
+      { key: 'amountRub', label: 'Начислено (руб)', kind: 'number', align: 'right' },
+      { key: 'avgWorkOrderAmountRub', label: 'Средняя сумма на наряд (руб)', kind: 'number', align: 'right' },
     ],
   },
   {

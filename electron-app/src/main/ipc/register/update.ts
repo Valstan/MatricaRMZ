@@ -47,7 +47,7 @@ export function registerUpdateIpc(ctx: IpcContext) {
       const parent = BrowserWindow.getFocusedWindow();
       const opts = {
         title: 'Выберите папку для скачивания обновлений',
-        properties: ['openDirectory', 'createDirectory'] as const,
+        properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
       };
       const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
       const path = r.filePaths?.[0] ? String(r.filePaths[0]) : '';

@@ -380,6 +380,21 @@ table.list-table.list-table--single-mode td {
   max-width: 100ch;
 }
 
+table.list-table.work-order-table {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  table-layout: fixed;
+}
+
+table.list-table.work-order-table th,
+table.list-table.work-order-table td {
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 table.list-table tbody tr {
   background: var(--list-row-bg);
   color: var(--list-row-text);

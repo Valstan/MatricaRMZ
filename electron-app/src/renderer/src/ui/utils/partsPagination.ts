@@ -69,7 +69,7 @@ export async function listAllParts(args: PartsListArgs = {}): Promise<PaginatedP
         offset,
       }).catch((e) => ({ ok: false as const, error: String(e), parts: [] as unknown[] }));
 
-      if (!r.ok) return { ok: false, error: String(r.error ?? 'unknown') };
+      if (!r.ok) return { ok: false as const, error: String(r.error ?? 'unknown') };
 
       const chunk = Array.isArray(r.parts) ? r.parts : [];
       allParts.push(...chunk);
@@ -78,11 +78,11 @@ export async function listAllParts(args: PartsListArgs = {}): Promise<PaginatedP
       offset += PARTS_LIST_LIMIT;
 
       if (offset >= MAX_OFFSET_GUARD) {
-        return { ok: false, error: 'слишком много данных для полной выгрузки деталей' };
+        return { ok: false as const, error: 'слишком много данных для полной выгрузки деталей' };
       }
     }
 
-    return { ok: true, parts: allParts };
+    return { ok: true as const, parts: allParts };
   };
 
   const promise = load();
@@ -126,8 +126,8 @@ export function invalidateListAllPartsCache(args?: PartsListArgs) {
     return;
   }
 
-  const normalizedQ = hasQ ? args.q.trim() : undefined;
-  const normalizedBrandId = hasEngineBrandId ? args.engineBrandId.trim() : undefined;
+  const normalizedQ = typeof args.q === 'string' ? args.q.trim() : undefined;
+  const normalizedBrandId = typeof args.engineBrandId === 'string' ? args.engineBrandId.trim() : undefined;
 
   for (const key of Array.from(partsListCache.keys())) {
     let parsed: ReturnType<typeof normalizeListAllPartsArgs> | null = null;

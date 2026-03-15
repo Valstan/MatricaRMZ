@@ -75,6 +75,9 @@ const TOTAL_LABEL_MAP: Record<string, string> = {
   workOrders: 'Наряды, шт.',
   lines: 'Записей, шт.',
   amountRub: 'Сумма, ₽',
+  totalKtu: 'КТУ суммарно',
+  avgKtu: 'КТУ средний',
+  avgWorkOrderAmountRub: 'Средняя сумма на наряд, ₽',
   avgAmountRub: 'Средняя цена, ₽',
   onSiteQty: 'На заводе, шт.',
   acceptance: 'Приёмка',
@@ -110,6 +113,9 @@ const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   remainingQty: 'Остаток незакрытого объема по заказу.',
   fulfillmentPct: 'Доля выполнения плана по объему в процентах.',
   progressPct: 'Прогресс выполнения этапов в процентах.',
+  totalKtu: 'Суммарный коэффициент трудового участия по всем начислениям в выборке.',
+  avgKtu: 'Средний КТУ на одну строку начисления.',
+  avgWorkOrderAmountRub: 'Средняя начисленная сумма на один уникальный наряд.',
   overdueContracts: 'Количество контрактов, срок исполнения которых уже истек.',
   dueSoonContracts: 'Количество контрактов со сроком исполнения в ближайшие 30 дней.',
   withIgk: 'Количество контрактов, где указан ИГК.',
@@ -453,19 +459,21 @@ function buildOptionMeta(
       const departmentLabel = relatedEntityLabel(snapshot, departmentId) || normalizeText(safeAttrs.department, '');
       const personnelNumber = normalizeText(safeAttrs.personnel_number, '');
       const role = normalizeText(safeAttrs.role ?? safeAttrs.position, '');
+      const hintText = joinOptionHint([personnelNumber && `Таб. ${personnelNumber}`, role, departmentLabel]);
+      const searchText = joinOptionSearch([
+        label,
+        id,
+        personnelNumber,
+        role,
+        departmentLabel,
+        safeAttrs.last_name,
+        safeAttrs.first_name,
+        safeAttrs.middle_name,
+        safeAttrs.employment_status,
+      ]);
       return {
-        hintText: joinOptionHint([personnelNumber && `Таб. ${personnelNumber}`, role, departmentLabel]),
-        searchText: joinOptionSearch([
-          label,
-          id,
-          personnelNumber,
-          role,
-          departmentLabel,
-          safeAttrs.last_name,
-          safeAttrs.first_name,
-          safeAttrs.middle_name,
-          safeAttrs.employment_status,
-        ]),
+        ...(hintText != null ? { hintText } : {}),
+        ...(searchText != null ? { searchText } : {}),
       };
     }
     case 'contract': {
@@ -473,54 +481,61 @@ function buildOptionMeta(
       const internalNumber = normalizeText(sections.primary.internalNumber ?? safeAttrs.internal_number, '');
       const counterpartyId = normalizeText(sections.primary.customerId ?? safeAttrs.customer_id, '');
       const counterpartyLabel = relatedEntityLabel(snapshot, counterpartyId);
+      const hintText = joinOptionHint([internalNumber && `Внутр. ${internalNumber}`, counterpartyLabel]);
+      const searchText = joinOptionSearch([
+        label,
+        id,
+        internalNumber,
+        safeAttrs.contract_number,
+        safeAttrs.number,
+        safeAttrs.name,
+        counterpartyLabel,
+        safeAttrs.igk,
+        safeAttrs.goz_igk,
+        safeAttrs.separate_account,
+        safeAttrs.separate_account_number,
+      ]);
       return {
-        hintText: joinOptionHint([internalNumber && `Внутр. ${internalNumber}`, counterpartyLabel]),
-        searchText: joinOptionSearch([
-          label,
-          id,
-          internalNumber,
-          safeAttrs.contract_number,
-          safeAttrs.number,
-          safeAttrs.name,
-          counterpartyLabel,
-          safeAttrs.igk,
-          safeAttrs.goz_igk,
-          safeAttrs.separate_account,
-          safeAttrs.separate_account_number,
-        ]),
+        ...(hintText != null ? { hintText } : {}),
+        ...(searchText != null ? { searchText } : {}),
       };
     }
     case 'engine_brand': {
+      const hintText = joinOptionHint([normalizeText(safeAttrs.code, ''), normalizeText(safeAttrs.short_name, '')]);
+      const searchText = joinOptionSearch([
+        label,
+        id,
+        safeAttrs.code,
+        safeAttrs.name,
+        safeAttrs.short_name,
+        safeAttrs.display_name,
+      ]);
       return {
-        hintText: joinOptionHint([normalizeText(safeAttrs.code, ''), normalizeText(safeAttrs.short_name, '')]),
-        searchText: joinOptionSearch([
-          label,
-          id,
-          safeAttrs.code,
-          safeAttrs.name,
-          safeAttrs.short_name,
-          safeAttrs.display_name,
-        ]),
+        ...(hintText != null ? { hintText } : {}),
+        ...(searchText != null ? { searchText } : {}),
       };
     }
     case 'department': {
+      const hintText = joinOptionHint([normalizeText(safeAttrs.code, ''), normalizeText(safeAttrs.short_name, '')]);
+      const searchText = joinOptionSearch([
+        label,
+        id,
+        safeAttrs.code,
+        safeAttrs.name,
+        safeAttrs.short_name,
+        safeAttrs.description,
+      ]);
       return {
-        hintText: joinOptionHint([normalizeText(safeAttrs.code, ''), normalizeText(safeAttrs.short_name, '')]),
-        searchText: joinOptionSearch([
-          label,
-          id,
-          safeAttrs.code,
-          safeAttrs.name,
-          safeAttrs.short_name,
-          safeAttrs.description,
-        ]),
+        ...(hintText != null ? { hintText } : {}),
+        ...(searchText != null ? { searchText } : {}),
       };
     }
-    default:
+    default: {
+      const searchText = joinOptionSearch([label, id]);
       return {
-        hintText: undefined,
-        searchText: joinOptionSearch([label, id]),
+        ...(searchText != null ? { searchText } : {}),
       };
+    }
   }
 }
 
@@ -1191,6 +1206,15 @@ type NormalizedWorkOrderReportCrewMember = {
   payoutRub: number;
 };
 
+type PayrollSummaryBucket = {
+  employeeName: string;
+  departmentName: string;
+  lines: number;
+  totalKtu: number;
+  amountRub: number;
+  workOrderKeys: Set<string>;
+};
+
 function normalizeWorkOrderReportLines(payload: any): NormalizedWorkOrderReportLine[] {
   const normalized = (source: unknown): NormalizedWorkOrderReportLine[] =>
     Array.isArray(source)
@@ -1260,7 +1284,7 @@ function normalizeWorkOrderReportCrew(payload: any): NormalizedWorkOrderReportCr
           payoutRub,
         } satisfies NormalizedWorkOrderReportCrewMember;
       })
-      .filter((member) => member.employeeId || member.employeeName !== '(не указан)');
+      .filter((member: any) => member.employeeId || member.employeeName !== '(не указан)');
   }
 
   return Array.isArray(payload?.payouts)
@@ -1271,7 +1295,7 @@ function normalizeWorkOrderReportCrew(payload: any): NormalizedWorkOrderReportCr
           ktu: Math.max(0.01, toNumber(item?.ktu) || 1),
           payoutRub: Math.max(0, toNumber(item?.amountRub)),
         }))
-        .filter((member) => member.employeeId || member.employeeName !== '(не указан)')
+        .filter((member: any) => member.employeeId || member.employeeName !== '(не указан)')
     : [];
 }
 
@@ -1427,6 +1451,145 @@ async function buildWorkOrderPayrollReport(
       .map(([, totals]) => ({
         group: totals.employeeName || '(не указан)',
         totals: {
+          workOrders: totals.workOrders,
+          amountRub: Math.round(totals.amountRub * 100) / 100,
+        },
+      }))
+      .sort((a, b) => String(a.group).localeCompare(String(b.group), 'ru')),
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildWorkOrderPayrollSummaryReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const employeeFilter = asArray(filters?.employeeIds);
+  const departmentFilter = asArray(filters?.departmentIds);
+  const snapshot = await loadSnapshot(db);
+  const departmentOptions = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
+  const employeeMetaById = new Map<string, { employeeName: string; departmentId: string; departmentName: string }>();
+
+  for (const employeeId of getIdsByType(snapshot, 'employee')) {
+    const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
+    const departmentId = normalizeText(attrs.department_id, '');
+    const departmentName = departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)');
+    const employeeName = normalizeText(
+      attrs.full_name,
+      [normalizeText(attrs.last_name, ''), normalizeText(attrs.first_name, ''), normalizeText(attrs.middle_name, '')]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || employeeId,
+    );
+    employeeMetaById.set(employeeId, { employeeName, departmentId, departmentName });
+  }
+
+  const sourceOps = await db
+    .select()
+    .from(operations)
+    .where(and(isNull(operations.deletedAt), eq(operations.operationType, 'work_order'), lte(operations.createdAt, period.endMs)))
+    .limit(120_000);
+
+  const totalWorkOrderKeys = new Set<string>();
+  const buckets = new Map<string, PayrollSummaryBucket>();
+
+  for (const op of sourceOps as any[]) {
+    const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
+    if (!payload || payload.kind !== 'work_order') continue;
+    const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
+    if (period.startMs != null && orderDate < period.startMs) continue;
+    if (orderDate > period.endMs) continue;
+
+    const crew = normalizeWorkOrderReportCrew(payload);
+    if (crew.length === 0) continue;
+    const workOrderKey = String(op.id ?? payload.operationId ?? `${payload.workOrderNumber ?? 'work-order'}-${orderDate}`);
+
+    for (const member of crew) {
+      if (employeeFilter.length > 0 && (!member.employeeId || !employeeFilter.includes(member.employeeId))) continue;
+      const meta = member.employeeId ? employeeMetaById.get(member.employeeId) : undefined;
+      const departmentId = meta?.departmentId ?? '';
+      if (departmentFilter.length > 0 && (!departmentId || !departmentFilter.includes(departmentId))) continue;
+
+      const departmentName = meta?.departmentName || '(не указано)';
+      const employeeName = normalizeText(member.employeeName, meta?.employeeName || '(не указан)');
+      const employeeKey = member.employeeId || `name:${employeeName.toLowerCase()}`;
+      const bucketKey = `${departmentName}::${employeeKey}`;
+      const bucket = buckets.get(bucketKey) ?? {
+        employeeName,
+        departmentName,
+        lines: 0,
+        totalKtu: 0,
+        amountRub: 0,
+        workOrderKeys: new Set<string>(),
+      };
+      bucket.lines += 1;
+      bucket.totalKtu += Math.max(0.01, toNumber(member.ktu) || 1);
+      bucket.amountRub += Math.max(0, toNumber(member.payoutRub));
+      bucket.workOrderKeys.add(workOrderKey);
+      buckets.set(bucketKey, bucket);
+      totalWorkOrderKeys.add(workOrderKey);
+    }
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = Array.from(buckets.values())
+    .map((bucket) => {
+      const workOrders = bucket.workOrderKeys.size;
+      const amountRub = Math.round(bucket.amountRub * 100) / 100;
+      const totalKtu = Math.round(bucket.totalKtu * 100) / 100;
+      return {
+        departmentName: bucket.departmentName || '(не указано)',
+        employeeName: bucket.employeeName || '(не указан)',
+        workOrders,
+        lines: bucket.lines,
+        totalKtu,
+        avgKtu: bucket.lines > 0 ? Math.round((bucket.totalKtu / bucket.lines) * 100) / 100 : 0,
+        amountRub,
+        avgWorkOrderAmountRub: workOrders > 0 ? Math.round((bucket.amountRub / workOrders) * 100) / 100 : 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        String(a.departmentName ?? '').localeCompare(String(b.departmentName ?? ''), 'ru') ||
+        String(a.employeeName ?? '').localeCompare(String(b.employeeName ?? ''), 'ru'),
+    );
+
+  const totalsByDepartment = new Map<string, { employees: number; workOrders: number; amountRub: number }>();
+  for (const row of rows) {
+    const departmentName = normalizeText(row.departmentName, '(не указано)');
+    const current = totalsByDepartment.get(departmentName) ?? { employees: 0, workOrders: 0, amountRub: 0 };
+    current.employees += 1;
+    current.workOrders += Math.max(0, toNumber(row.workOrders));
+    current.amountRub += Math.max(0, toNumber(row.amountRub));
+    totalsByDepartment.set(departmentName, current);
+  }
+
+  const preset = getPreset('work_order_payroll_summary');
+  return {
+    ok: true,
+    presetId: 'work_order_payroll_summary',
+    title: preset.title,
+    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      employees: rows.length,
+      workOrders: totalWorkOrderKeys.size,
+      lines: rows.reduce((acc, row) => acc + Math.max(0, toNumber(row.lines)), 0),
+      totalKtu: Math.round(rows.reduce((acc, row) => acc + Math.max(0, toNumber(row.totalKtu)), 0) * 100) / 100,
+      amountRub: Math.round(rows.reduce((acc, row) => acc + Math.max(0, toNumber(row.amountRub)), 0) * 100) / 100,
+      avgWorkOrderAmountRub:
+        totalWorkOrderKeys.size > 0
+          ? Math.round(
+              (rows.reduce((acc, row) => acc + Math.max(0, toNumber(row.amountRub)), 0) / totalWorkOrderKeys.size) * 100,
+            ) / 100
+          : 0,
+    },
+    totalsByGroup: Array.from(totalsByDepartment.entries())
+      .map(([departmentName, totals]) => ({
+        group: departmentName,
+        totals: {
+          employees: totals.employees,
           workOrders: totals.workOrders,
           amountRub: Math.round(totals.amountRub * 100) / 100,
         },
@@ -2079,6 +2242,8 @@ export async function buildReportByPreset(
         return buildWorkOrderCostsReport(db, args.filters);
       case 'work_order_payroll':
         return buildWorkOrderPayrollReport(db, args.filters);
+      case 'work_order_payroll_summary':
+        return buildWorkOrderPayrollSummaryReport(db, args.filters);
       case 'employees_roster':
         return buildEmployeesRosterReport(db, args.filters);
       case 'tools_inventory':
@@ -2225,4 +2390,10 @@ export async function printReportPreset(
     win.destroy();
   }
 }
+
+export const __reportPresetTestUtils = {
+  normalizeWorkOrderReportLines,
+  normalizeWorkOrderReportCrew,
+  resolveWorkOrderTargetLabel,
+};
 

@@ -92,7 +92,7 @@ export function StockDocumentsPage(props: {
                 lines: [],
               });
               if (!created?.ok || !created.id) {
-                setStatus(`Ошибка: ${String(created?.error ?? 'не удалось создать документ')}`);
+                setStatus(`Ошибка: ${String(!created?.ok && created ? created.error : 'не удалось создать документ')}`);
                 return;
               }
               await refresh();

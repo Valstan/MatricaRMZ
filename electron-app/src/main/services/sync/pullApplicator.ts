@@ -34,6 +34,9 @@ const CLIENT_TABLES: Record<SyncTableName, any> = {
   [SyncTableName.UserPresence]: userPresence,
   [SyncTableName.Notes]: notes,
   [SyncTableName.NoteShares]: noteShares,
+  [SyncTableName.ErpNomenclature]: null,
+  [SyncTableName.ErpRegStockBalance]: null,
+  [SyncTableName.ErpRegStockMovements]: null,
 };
 const SQLITE_BIND_PARAM_LIMIT = 900;
 const CHUNK_SIZE_FALLBACK = 200;

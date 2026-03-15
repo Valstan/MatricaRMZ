@@ -802,7 +802,7 @@ export function EngineDetailsPage(props: {
             {...(engineBrandId ? { engineBrandId } : {})}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
-            currentUserProfile={props.currentUserProfile}
+            currentUserProfile={props.currentUserProfile ?? null}
           />
         </div>
       )}
@@ -823,7 +823,7 @@ export function EngineDetailsPage(props: {
             {...(engineBrandId ? { engineBrandId } : {})}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
-            currentUserProfile={props.currentUserProfile}
+            currentUserProfile={props.currentUserProfile ?? null}
           />
         </div>
       )}
@@ -843,7 +843,7 @@ export function EngineDetailsPage(props: {
           {...(engineBrandId ? { engineBrandId } : {})}
           canViewFiles={props.canViewFiles}
           canUploadFiles={props.canUploadFiles}
-          currentUserProfile={props.currentUserProfile}
+          currentUserProfile={props.currentUserProfile ?? null}
         />
       )}
 

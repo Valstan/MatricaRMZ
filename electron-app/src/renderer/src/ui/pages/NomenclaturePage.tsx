@@ -74,7 +74,7 @@ export function NomenclaturePage(props: {
                 isActive: true,
               });
               if (!created?.ok || !created.id) {
-                setStatus(`Ошибка: ${String(created?.error ?? 'не удалось создать')}`);
+                setStatus(`Ошибка: ${String(!created?.ok && created ? created.error : 'не удалось создать')}`);
                 return;
               }
               await refresh();

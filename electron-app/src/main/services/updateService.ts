@@ -359,7 +359,9 @@ async function readFilePrefix(filePath: string, byteCount: number): Promise<Buff
     const chunks: Buffer[] = [];
     const stream = createReadStream(filePath, { start: 0, end: Math.max(0, byteCount - 1) });
     stream.on('error', reject);
-    stream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    stream.on('data', (chunk: string | Buffer) => {
+      chunks.push(Buffer.from(chunk));
+    });
     stream.on('end', () => resolve(Buffer.concat(chunks)));
   });
 }
@@ -621,9 +623,10 @@ async function installNow(args: { installerPath: string; version?: string }) {
   const pending = await readPendingUpdate();
   const pendingForInstaller =
     pending && pending.installerPath === args.installerPath ? pending : null;
+  const resolvedVersion = args.version ?? pendingForInstaller?.version;
   const ready = await ensureInstallerReadyForInstall({
     installerPath: args.installerPath,
-    version: args.version ?? pendingForInstaller?.version,
+    ...(resolvedVersion != null ? { version: resolvedVersion } : {}),
     expectedSize: pendingForInstaller?.expectedSize ?? null,
     expectedSha: pendingForInstaller?.expectedSha ?? null,
     downloadUrl: pendingForInstaller?.downloadUrl ?? null,
@@ -1258,7 +1261,7 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
     installerPath: pending.installerPath,
     launchPath: helper.launchPath,
     resourcesPath: helper.resourcesPath,
-    version: pending.version,
+    ...(pending.version != null ? { version: pending.version } : {}),
     parentPid: process.pid,
   });
   if (!spawned) {

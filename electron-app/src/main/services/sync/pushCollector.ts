@@ -36,6 +36,9 @@ const CLIENT_TABLES: Record<SyncTableName, any> = {
   [SyncTableName.UserPresence]: userPresence,
   [SyncTableName.Notes]: notes,
   [SyncTableName.NoteShares]: noteShares,
+  [SyncTableName.ErpNomenclature]: null,
+  [SyncTableName.ErpRegStockBalance]: null,
+  [SyncTableName.ErpRegStockMovements]: null,
 };
 
 /**

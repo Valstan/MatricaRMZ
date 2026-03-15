@@ -112,7 +112,7 @@ export function StockInventoryPage(props: {
                   lines: effectiveRows,
                 });
                 if (!result?.ok || !result.id) {
-                  setStatus(`Ошибка: ${String(result?.error ?? 'не удалось создать документ')}`);
+                  setStatus(`Ошибка: ${String(!result?.ok && result ? result.error : 'не удалось создать документ')}`);
                   return;
                 }
                 setStatus('Документ инвентаризации создан');

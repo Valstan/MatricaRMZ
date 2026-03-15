@@ -326,7 +326,7 @@ export function ToolDetailsPage(props: {
     if (!clean) return null;
     const created = await window.matrica.employees.create();
     if (!created?.ok || !created?.id) {
-      setStatus(`Ошибка: ${created?.error ?? 'не удалось создать сотрудника'}`);
+      setStatus(`Ошибка: ${!created?.ok && created ? created.error : 'не удалось создать сотрудника'}`);
       return null;
     }
     const chunks = clean.split(/\s+/).filter(Boolean);

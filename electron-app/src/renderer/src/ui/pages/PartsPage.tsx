@@ -188,7 +188,7 @@ export function PartsPage(props: {
       setStatus('Создание детали...');
       const r = await window.matrica.parts.createFromTemplate({ templateId: cleanTemplateId });
       if (!r.ok || !r.part?.id) {
-        setStatus(`Ошибка: ${r.error ?? 'Не удалось создать деталь'}`);
+        setStatus(`Ошибка: ${!r.ok ? r.error : 'Не удалось создать деталь'}`);
         return;
       }
       invalidateListAllPartsCache();
@@ -209,7 +209,7 @@ export function PartsPage(props: {
       setStatus('Создание шаблона детали...');
       const createdTemplate = await window.matrica.parts.templates.create({ attributes: { name } });
       if (!createdTemplate.ok || !createdTemplate.template?.id) {
-        setStatus(`Ошибка: ${createdTemplate.error ?? 'Не удалось создать шаблон детали'}`);
+        setStatus(`Ошибка: ${!createdTemplate.ok ? createdTemplate.error : 'Не удалось создать шаблон детали'}`);
         return null;
       }
       const nextTemplate = { id: String(createdTemplate.template.id), label: name };

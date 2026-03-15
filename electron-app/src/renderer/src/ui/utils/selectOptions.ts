@@ -40,8 +40,8 @@ export function sortSearchOptions<T extends SearchableSelectOption>(options: T[]
 export function buildSearchOption(args: {
   id: string;
   label: string;
-  hintText?: string;
-  searchText?: string;
+  hintText?: string | undefined;
+  searchText?: string | undefined;
 }): SearchableSelectOption {
   return {
     id: args.id,

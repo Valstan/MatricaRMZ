@@ -393,6 +393,8 @@ export function Tabs(props: {
     services: 'Услуги',
     nomenclature: 'Номенклатура',
     stock_balances: 'Остатки',
+    stock_documents: 'Документы',
+    part_templates: 'Справочник деталей',
     stock_receipts: 'Приход',
     stock_issues: 'Расход',
     stock_transfers: 'Перемещения',

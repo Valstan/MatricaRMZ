@@ -71,7 +71,7 @@ const QUICK_START_DAY_MS = 24 * 60 * 60 * 1000;
 const QUICK_START_RATING_WINDOW_DAYS = 10;
 const QUICK_START_RATING_WINDOW_MS = QUICK_START_DAY_MS * QUICK_START_RATING_WINDOW_DAYS;
 
-const pageModules = import.meta.glob('./pages/*.tsx');
+const pageModules = (import.meta as unknown as { glob: (pattern: string) => Record<string, () => Promise<unknown>> }).glob('./pages/*.tsx');
 
 function lazyPage(modulePath: keyof typeof pageModules, exportName: string) {
   return React.lazy(async () => {
@@ -1304,6 +1304,7 @@ export function App() {
     services: 'Услуги',
     nomenclature: 'Номенклатура',
     stock_balances: 'Остатки',
+    stock_documents: 'Документы',
     stock_receipts: 'Приход',
     stock_issues: 'Расход',
     stock_transfers: 'Перемещения',
@@ -1498,6 +1499,7 @@ export function App() {
       tab === 'request' ||
       tab === 'work_order' ||
       tab === 'part' ||
+      tab === 'part_template' ||
       tab === 'tool' ||
       tab === 'tool_properties' ||
       tab === 'tool_property' ||
@@ -3059,10 +3061,10 @@ export function App() {
             meUserId={authStatus.user?.id ?? ''}
             recentVisits={recentVisits}
             quickStartRatings={quickStartRatings}
-            onNavigate={(link) => {
+            onNavigate={(link: ChatDeepLinkPayload) => {
               void navigateDeepLink(link);
             }}
-            onOpenNotes={(noteId) => openNoteFromHistory(noteId)}
+            onOpenNotes={(noteId?: string | null) => openNoteFromHistory(noteId)}
             onOpenChat={() => openChatFromHistory()}
           />
         )}
@@ -3241,7 +3243,7 @@ export function App() {
 
         {tab === 'parts' && (
           <PartsPage
-            onOpen={async (id) => {
+            onOpen={async (id: string) => {
               setSelectedPartId(id);
               setTab('part');
             }}
@@ -3276,7 +3278,7 @@ export function App() {
 
         {tab === 'employees' && (
           <EmployeesPage
-            onOpen={async (id) => {
+            onOpen={async (id: string) => {
               setSelectedEmployeeId(id);
               setTab('employee');
             }}
@@ -3323,7 +3325,7 @@ export function App() {
                     : undefined
             }
             canEdit={caps.canEditOperations}
-            onOpen={(id) =>
+            onOpen={(id: string) =>
               void openStockDocument(
                 id,
                 tab === 'stock_receipts' || tab === 'stock_issues' || tab === 'stock_transfers' ? tab : 'stock_documents',
@@ -3334,7 +3336,7 @@ export function App() {
 
         {tab === 'stock_balances' && (
           <StockBalancesPage
-            onOpenDocument={(id) => void openStockDocument(id, 'stock_documents')}
+            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_documents')}
             onOpenNomenclature={openNomenclature}
           />
         )}
@@ -3342,7 +3344,7 @@ export function App() {
         {tab === 'stock_inventory' && (
           <StockInventoryPage
             canEdit={caps.canEditOperations}
-            onOpenDocument={(id) => void openStockDocument(id, 'stock_inventory')}
+            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_inventory')}
           />
         )}
 
@@ -3552,11 +3554,11 @@ export function App() {
             meUserId={authStatus.user?.id ?? ''}
             canEdit={authStatus.loggedIn && !viewMode}
             initialNoteId={historyInitialNoteId}
-            onNavigate={(link) => {
+            onNavigate={(link: ChatDeepLinkPayload) => {
               void navigateDeepLink(link);
             }}
             onSendToChat={sendNoteToChat}
-            onBurningCountChange={(count) => setNotesAlertCount(count)}
+            onBurningCountChange={(count: number) => setNotesAlertCount(count)}
           />
         )}
 
@@ -3587,7 +3589,7 @@ export function App() {
 
         {tab === 'auth' && (
           <AuthPage
-            onChanged={(s) => {
+            onChanged={(s: AuthStatus) => {
               setAuthStatus(s);
               if (s.loggedIn) setTab('history');
             }}

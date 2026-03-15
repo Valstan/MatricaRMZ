@@ -180,9 +180,9 @@ const FULL_STATE_SYNC_TABLES: string[] = [
   SyncTableName.UserPresence,
   SyncTableName.Notes,
   SyncTableName.NoteShares,
-  'erp_nomenclature',
-  'erp_reg_stock_balance',
-  'erp_reg_stock_movements',
+  SyncTableName.ErpNomenclature,
+  SyncTableName.ErpRegStockBalance,
+  SyncTableName.ErpRegStockMovements,
 ];
 
 // Moved to sync/progressEmitter.ts
@@ -612,7 +612,7 @@ async function fetchWithRetryLogged(
       backoffMs: 800,
       maxBackoffMs: 6000,
       jitterMs: 250,
-      retryOnStatuses: opts.retryOnStatuses,
+      ...(opts.retryOnStatuses != null ? { retryOnStatuses: opts.retryOnStatuses } : {}),
     });
     const dur = nowMs() - started;
     logSync(`${opts.label} attempt=ok status=${res.status} durMs=${dur} url=${url}`);
@@ -1418,6 +1418,9 @@ async function applyPulledChanges(
     [SyncTableName.UserPresence]: [],
     [SyncTableName.Notes]: [],
     [SyncTableName.NoteShares]: [],
+    [SyncTableName.ErpNomenclature]: [],
+    [SyncTableName.ErpRegStockBalance]: [],
+    [SyncTableName.ErpRegStockMovements]: [],
   };
   const warehouseNomenclatureRows: any[] = [];
   const warehouseBalanceRows: any[] = [];
@@ -1622,7 +1625,7 @@ async function applyPulledChanges(
           });
         }
         break;
-      case 'erp_nomenclature':
+      case SyncTableName.ErpNomenclature:
         {
           const payload = payloadRaw;
           warehouseNomenclatureRows.push({
@@ -1644,7 +1647,7 @@ async function applyPulledChanges(
           });
         }
         break;
-      case 'erp_reg_stock_balance':
+      case SyncTableName.ErpRegStockBalance:
         {
           const payload = payloadRaw;
           warehouseBalanceRows.push({
@@ -1658,7 +1661,7 @@ async function applyPulledChanges(
           });
         }
         break;
-      case 'erp_reg_stock_movements':
+      case SyncTableName.ErpRegStockMovements:
         {
           const payload = payloadRaw;
           warehouseMovementRows.push({
@@ -1925,7 +1928,7 @@ async function applyPulledChanges(
     opts.onProgress({
       stage: 'apply',
       service: 'sync',
-      table: table as SyncProgressEvent['table'],
+      ...(table != null ? { table } : {}),
       detail: `строк: ${count}`,
       counts: { batch: count },
     });
@@ -2487,15 +2490,17 @@ export async function runSync(
   const logInvalidPack = (
     reason: string,
     table: SyncTableName,
-    packs: Array<{ table: SyncTableName; rows: Record<string, unknown>[] }>,
+    packs: Array<{ table: SyncTableName; rows: unknown[] }>,
     useOperationsSummary = false,
   ) => {
     const pack = packs.find((p) => p.table === table);
-    const rows = pack?.rows ?? [];
-    const summary = table === SyncTableName.Operations ? summarizeOperationsDebug(rows as unknown[]) : summarizePackRowsDebug(rows as unknown[]);
+    const rows = (pack?.rows ?? []) as Record<string, unknown>[];
+    const summary = table === SyncTableName.Operations ? summarizeOperationsDebug(rows) : summarizePackRowsDebug(rows);
     logRecovery(reason, {
       total: summary.total,
-      ...(useOperationsSummary ? { operationTypes: summary.typeCount, sampleRows: summary.sample } : { signatures: summary.signatures, sampleRows: summary.sample }),
+    ...(useOperationsSummary && 'typeCount' in summary
+      ? { operationTypes: (summary as { typeCount: string }).typeCount, sampleRows: summary.sample }
+      : { signatures: (summary as { signatures: string }).signatures, sampleRows: summary.sample }),
     });
   };
   const summarizeOperationsDebug = (rows: unknown[]) => {

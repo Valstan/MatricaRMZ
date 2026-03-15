@@ -76,7 +76,7 @@ export function PartTemplatesPage(props: {
                 setStatus('Создание детали...');
                 const created = await window.matrica.parts.templates.create({ attributes: { name } });
                 if (!created.ok || !created.template?.id) {
-                  setStatus(`Ошибка: ${created.error ?? 'Не удалось создать деталь'}`);
+                  setStatus(`Ошибка: ${!created.ok ? created.error : 'Не удалось создать деталь'}`);
                   return;
                 }
                 setStatus('');

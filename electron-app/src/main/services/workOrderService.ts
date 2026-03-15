@@ -97,9 +97,12 @@ function distributeByKtu(
     return a.index - b.index;
   });
   for (let i = 0; i < weighted.length && remainder > 0; i += 1) {
-    weighted[i].floor += 1;
-    remainder -= 1;
-    distributed += 1;
+    const row = weighted[i];
+    if (row) {
+      row.floor += 1;
+      remainder -= 1;
+      distributed += 1;
+    }
   }
   for (const row of weighted) payoutsCents[row.index] = row.floor;
   return payoutsCents.map(fromCents);
@@ -208,13 +211,13 @@ function recalcPayload(payload: WorkOrderPayload): WorkOrderPayload {
   });
 
   const payoutValues = distributeByKtu(totalAmountRub, crew);
-  const payouts = crew.map((member, idx) => ({
+  const payouts = crew.map((member: { employeeId: string; employeeName: string; ktu: number; payoutFrozen: boolean; manualPayoutRub: number }, idx: number) => ({
     employeeId: member.employeeId,
     employeeName: member.employeeName,
     ktu: member.ktu,
     amountRub: payoutValues[idx] ?? 0,
   }));
-  const crewWithPayout = crew.map((member, idx) => ({
+  const crewWithPayout = crew.map((member: { employeeId: string; employeeName: string; ktu: number; payoutFrozen: boolean; manualPayoutRub: number }, idx: number) => ({
     ...member,
     payoutRub: payoutValues[idx] ?? 0,
     manualPayoutRub: member.payoutFrozen ? member.manualPayoutRub : undefined,
@@ -230,8 +233,8 @@ function recalcPayload(payload: WorkOrderPayload): WorkOrderPayload {
     totalAmountRub,
     basePerWorkerRub: crew.length > 0 ? fromCents(toCents(totalAmountRub / crew.length)) : 0,
     payouts,
-    partId: undefined,
-    partName: undefined,
+    partId: null,
+    partName: '',
   };
 }
 
@@ -472,4 +475,11 @@ export async function deleteWorkOrder(
     return { ok: false as const, error: String(e) };
   }
 }
+
+export const __workOrderTestUtils = {
+  recalcPayload,
+  distributeByKtu,
+  normalizeLine,
+  getWorkOrderPartNames,
+};
 

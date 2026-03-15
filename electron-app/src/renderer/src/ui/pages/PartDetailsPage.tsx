@@ -483,7 +483,7 @@ export function PartDetailsPage(props: {
 
     const result = await queueBrandLinkOperation({
       type: 'upsert',
-      clearDraftLinkId: link.linkId,
+      ...(link.linkId != null ? { clearDraftLinkId: link.linkId } : {}),
       payload: {
         partId: payload.partId,
         engineBrandId: payload.engineBrandId,
@@ -654,7 +654,7 @@ export function PartDetailsPage(props: {
     if (!clean) return null;
     const created = await window.matrica.parts.templates.create({ attributes: { name: clean } });
     if (!created?.ok || !created.template?.id) {
-      setTemplateStatus(`Ошибка: ${created?.error ?? 'Не удалось создать шаблон детали'}`);
+      setTemplateStatus(`Ошибка: ${!created?.ok && created ? created.error : 'Не удалось создать шаблон детали'}`);
       return null;
     }
     await loadTemplates();
@@ -711,11 +711,11 @@ export function PartDetailsPage(props: {
       if (existingName && existingName === normalized) {
         if (String(attrs.target_type_code ?? '') !== targetTypeCode) {
           const updated = await window.matrica.admin.entities.setAttr(String(row.id), 'target_type_code', targetTypeCode);
-          if (!updated.ok) return { ok: false, error: String(updated.error ?? 'Ошибка обновления правила') };
+          if (!updated.ok) return { ok: false, error: String(!updated.ok ? updated.error : 'Ошибка обновления правила') };
         }
         if (!attrs.priority) {
           const updated = await window.matrica.admin.entities.setAttr(String(row.id), 'priority', 100);
-          if (!updated.ok) return { ok: false, error: String(updated.error ?? 'Ошибка обновления приоритета') };
+          if (!updated.ok) return { ok: false, error: String(!updated.ok ? updated.error : 'Ошибка обновления приоритета') };
         }
         if (shouldReload) {
           await loadLinkRules();
@@ -724,7 +724,7 @@ export function PartDetailsPage(props: {
       }
     }
     const created = await window.matrica.admin.entities.create(String(ruleType.id));
-    if (!created.ok || !created.id) return { ok: false, error: String(created.error ?? 'Ошибка создания правила') };
+    if (!created.ok || !created.id) return { ok: false, error: String(!created.ok ? created.error : 'Ошибка создания правила') };
     const attrsUpdates = [
       await window.matrica.admin.entities.setAttr(created.id, 'field_name', fieldName),
       await window.matrica.admin.entities.setAttr(created.id, 'target_type_code', targetTypeCode),
@@ -732,7 +732,7 @@ export function PartDetailsPage(props: {
     ];
     for (const update of attrsUpdates) {
       if (!update.ok) {
-        return { ok: false, error: String(update.error ?? 'Ошибка настройки правила') };
+        return { ok: false, error: String(!update.ok ? update.error : 'Ошибка настройки правила') };
       }
     }
     if (shouldReload) {
@@ -793,7 +793,7 @@ export function PartDetailsPage(props: {
           kind: 'engine_brand',
           entityId: link.engineBrandId,
           label,
-          description: link.assemblyUnitNumber ? `Сборочная единица: ${link.assemblyUnitNumber}` : undefined,
+          ...(link.assemblyUnitNumber ? { description: `Сборочная единица: ${link.assemblyUnitNumber}` } : {}),
           targetTypeCode: 'engine_brand',
         });
       }
@@ -836,11 +836,11 @@ export function PartDetailsPage(props: {
           if (!id || id === directContractId) continue;
           const details = await window.matrica.admin.entities.get(id);
           const attrs = details?.attributes ?? {};
-          const sections = parseContractSections(attrs.contract_sections);
+          const sections = parseContractSections(attrs.contract_sections as Record<string, unknown>);
           const hasPartInSections =
             sections.primary.parts.some((partRow) => partRow.partId === currentPart.id) ||
             sections.addons.some((addon) => addon.parts.some((partRow) => partRow.partId === currentPart.id));
-          const executionParts = parseContractExecutionParts(attrs.contract_execution_parts);
+          const executionParts = parseContractExecutionParts(attrs.contract_execution_parts as Record<string, unknown>);
           const hasPartInExecution = executionParts.some((partRow) => partRow.partId === currentPart.id);
           if (!hasPartInSections && !hasPartInExecution) continue;
           addItem({
@@ -1556,7 +1556,7 @@ export function PartDetailsPage(props: {
 
     await load();
     isSavingAttributeQueueRef.current = false;
-    const finalResult = hasQueued ? { ok: true, queued: true } : { ok: true };
+    const finalResult = hasQueued ? { ok: true as const, queued: true } : { ok: true as const };
     setStatus(hasQueued ? 'Отправлено на утверждение (см. «Изменения»)' : 'Сохранено');
     setTimeout(() => setStatus(''), 2000);
     resolvePendingAttributeSaves(finalResult);
@@ -1685,7 +1685,7 @@ export function PartDetailsPage(props: {
         ['purchase_date', fromInputDate(purchaseDate)],
         ['supplier_id', supplierId || null],
         ['supplier', supplierLabel || supplier],
-        ...STATUS_CODES.flatMap((code) => [[code, statusFlags[code] ?? false], [statusDateCode(code), statusDates[code] ?? null]] as const),
+        ...STATUS_CODES.flatMap((code): [string, unknown][] => [[code, statusFlags[code] ?? false], [statusDateCode(code), statusDates[code] ?? null]]),
       ];
 
       const updates = candidates.filter(([code, nextValue]) => {

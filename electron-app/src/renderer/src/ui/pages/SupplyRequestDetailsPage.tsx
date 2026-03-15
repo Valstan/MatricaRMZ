@@ -401,22 +401,25 @@ export function SupplyRequestDetailsPage(props: {
       const details = await window.matrica.admin.entities.get(optionId);
       const unit = String(details?.attributes?.unit ?? '').trim();
       if (!unit) return opt;
-      const nextOptions = productOptions.map((p) =>
-        p.id === optionId
-          ? {
-              ...p,
-              unit,
-              hintText: joinOptionHint([p.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]),
-              searchText: joinOptionSearch([p.name, p.id, p.kind, unit]),
-            }
-          : p,
-      );
+      const nextOptions = productOptions.map((p) => {
+        if (p.id !== optionId) return p;
+        const hintText = joinOptionHint([p.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]);
+        const searchText = joinOptionSearch([p.name, p.id, p.kind, unit]);
+        return {
+          ...p,
+          unit,
+          ...(hintText ? { hintText } : {}),
+          ...(searchText ? { searchText } : {}),
+        };
+      });
       setProductOptions(nextOptions);
+      const hintText = joinOptionHint([opt.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]);
+      const searchText = joinOptionSearch([opt.name, opt.id, opt.kind, unit]);
       return {
         ...opt,
         unit,
-        hintText: joinOptionHint([opt.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]),
-        searchText: joinOptionSearch([opt.name, opt.id, opt.kind, unit]),
+        ...(hintText ? { hintText } : {}),
+        ...(searchText ? { searchText } : {}),
       };
     } catch {
       return opt;
@@ -1008,7 +1011,7 @@ export function SupplyRequestDetailsPage(props: {
                                   if (!enriched?.unit) return;
                                   updateRequestItem(
                                     idx,
-                                    (current) => (current.productId === next ? { ...current, unit: enriched.unit } : current),
+                                    (current) => (current.productId === next ? { ...current, unit: enriched.unit ?? '' } : current),
                                     false,
                                   );
                                 })();

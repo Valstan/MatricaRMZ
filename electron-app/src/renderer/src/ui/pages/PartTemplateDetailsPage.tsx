@@ -149,6 +149,7 @@ export function PartTemplateDetailsPage(props: {
       closeWithoutSave: () => {
         dirtyRef.current = false;
       },
+      copyToNew: async () => {},
     });
     return () => {
       props.registerCardCloseActions?.(null);

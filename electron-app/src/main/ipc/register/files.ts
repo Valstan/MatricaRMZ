@@ -19,7 +19,7 @@ export function registerFilesIpc(ctx: IpcContext) {
       if (!gate.ok) return gate;
 
       const parent = BrowserWindow.getFocusedWindow();
-      const opts = { title: 'Выберите файлы для загрузки', properties: ['openFile', 'multiSelections'] as const };
+      const opts = { title: 'Выберите файлы для загрузки', properties: ['openFile', 'multiSelections'] as ('openFile' | 'multiSelections')[] };
       const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
       const paths = (r.filePaths ?? []).map((p) => String(p)).filter(Boolean);
       if (paths.length === 0) return { ok: false, error: 'cancelled' };
@@ -39,7 +39,7 @@ export function registerFilesIpc(ctx: IpcContext) {
       if (!gate.ok) return gate;
 
       const dirParent = BrowserWindow.getFocusedWindow();
-      const dirOpts = { title: 'Выберите папку для скачивания файлов', properties: ['openDirectory', 'createDirectory'] as const };
+      const dirOpts = { title: 'Выберите папку для скачивания файлов', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
       const r = dirParent ? await dialog.showOpenDialog(dirParent, dirOpts) : await dialog.showOpenDialog(dirOpts);
       const p = r.filePaths?.[0] ? String(r.filePaths[0]) : '';
       if (!p) return { ok: false, error: 'cancelled' };

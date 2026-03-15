@@ -45,11 +45,11 @@ export async function partsList(
     const queryParams = new URLSearchParams();
     if (args?.q) queryParams.set('q', args.q);
     const normalizedLimit = args?.limit == null ? null : Number(args.limit);
-    if (Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
+    if (normalizedLimit != null && Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
       queryParams.set('limit', String(Math.min(Math.trunc(normalizedLimit), MAX_PARTS_LIST_LIMIT)));
     }
     const normalizedOffset = args?.offset == null ? null : Number(args.offset);
-    if (Number.isFinite(normalizedOffset) && normalizedOffset > 0) {
+    if (normalizedOffset != null && Number.isFinite(normalizedOffset) && normalizedOffset > 0) {
       queryParams.set('offset', String(Math.max(0, Math.trunc(normalizedOffset))));
     }
     if (args?.engineBrandId) queryParams.set('engineBrandId', String(args.engineBrandId));
@@ -185,11 +185,11 @@ export async function partTemplatesList(
     const queryParams = new URLSearchParams();
     if (args?.q) queryParams.set('q', args.q);
     const normalizedLimit = args?.limit == null ? null : Number(args.limit);
-    if (Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
+    if (normalizedLimit != null && Number.isFinite(normalizedLimit) && normalizedLimit > 0) {
       queryParams.set('limit', String(Math.min(Math.trunc(normalizedLimit), MAX_PARTS_LIST_LIMIT)));
     }
     const normalizedOffset = args?.offset == null ? null : Number(args.offset);
-    if (Number.isFinite(normalizedOffset) && normalizedOffset > 0) {
+    if (normalizedOffset != null && Number.isFinite(normalizedOffset) && normalizedOffset > 0) {
       queryParams.set('offset', String(Math.max(0, Math.trunc(normalizedOffset))));
     }
     const url = `/parts/templates${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
