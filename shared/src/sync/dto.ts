@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import { SyncTableName } from './tables.js';
+import {
+  erpNomenclatureRowSchema,
+  erpRegisterStockBalanceRowSchema,
+  erpRegisterStockMovementRowSchema,
+} from './erpDto.js';
 import { OperationTypeCode } from '../domain/enums.js';
 
 // Базовые поля синхронизации для всех таблиц.
@@ -114,6 +119,9 @@ export const syncRowSchemaByTable = {
   [SyncTableName.UserPresence]: userPresenceRowSchema,
   [SyncTableName.Notes]: noteRowSchema,
   [SyncTableName.NoteShares]: noteShareRowSchema,
+  [SyncTableName.ErpNomenclature]: erpNomenclatureRowSchema,
+  [SyncTableName.ErpRegStockBalance]: erpRegisterStockBalanceRowSchema,
+  [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({
