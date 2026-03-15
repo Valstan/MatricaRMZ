@@ -68,6 +68,7 @@ const PULL_TIMEOUT_MS = 180_000;
 const PULL_PAGE_SIZE = 2000;
 const FULL_STATE_PAGE_SIZE = 2000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
+let localDbRestartScheduled = false;
 const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.EntityTypes]: 1000,
   [SyncTableName.Entities]: 200,
@@ -197,6 +198,20 @@ function logSync(message: string) {
   } catch {
     // ignore
   }
+}
+
+function scheduleAppRestartAfterDbReset(reason: string) {
+  if (localDbRestartScheduled) return;
+  localDbRestartScheduled = true;
+  logSync(`local db restart scheduled reason=${reason}`);
+  setTimeout(() => {
+    try {
+      app.relaunch();
+    } catch (e) {
+      logSync(`local db relaunch failed: ${String(e)}`);
+    }
+    app.exit(0);
+  }, 300);
 }
 
 type SyncSchemaColumn = {
@@ -2553,6 +2568,7 @@ export async function runSync(
       if (compatibility.action === 'rebuild') {
         logSync(`schema rebuild: ${compatibility.reason ?? 'unknown'}`);
         await resetLocalDatabase(db, 'schema_mismatch');
+        scheduleAppRestartAfterDbReset('schema_mismatch');
         return {
           ok: false,
           pushed: 0,

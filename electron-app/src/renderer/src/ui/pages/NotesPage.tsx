@@ -44,6 +44,27 @@ function formatDate(ms: number | null) {
   return `${day} ${month} ${year}, ${hh}:${mm}`;
 }
 
+function normalizeRecipientUsers(rawUsers: ChatUserItem[], meUserId: string) {
+  const me = String(meUserId ?? '').trim();
+  const byId = new Map<string, ChatUserItem>();
+  for (const raw of rawUsers ?? []) {
+    const id = String(raw?.id ?? '').trim();
+    if (!id || id === me) continue;
+    const current = byId.get(id);
+    if (!current) {
+      byId.set(id, raw);
+      continue;
+    }
+    const hasCurrentDisplay = Boolean(String(current.chatDisplayName ?? '').trim());
+    const hasNextDisplay = Boolean(String(raw.chatDisplayName ?? '').trim());
+    if (!hasCurrentDisplay && hasNextDisplay) byId.set(id, raw);
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    return String(a.chatDisplayName ?? a.username ?? '').localeCompare(String(b.chatDisplayName ?? b.username ?? ''), 'ru');
+  });
+}
+
 function getTextFromBody(body: NoteBlock[]) {
   const lines: string[] = [];
   for (const b of body) {
@@ -106,8 +127,11 @@ export function NotesPage(props: {
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [shares, setShares] = useState<NoteShareItem[]>([]);
   const [users, setUsers] = useState<ChatUserItem[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState('');
   const [drafts, setDrafts] = useState<Record<string, NoteDraft>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [showHidden, setShowHidden] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [recipientPicker, setRecipientPicker] = useState<RecipientPickerState | null>(null);
@@ -116,6 +140,9 @@ export function NotesPage(props: {
   const [imageThumbs, setImageThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const recipientPickerRef = useRef<HTMLDivElement | null>(null);
   const reminderSentRef = useRef<Record<string, number>>({});
+  const autoSaveTimersRef = useRef<Record<string, number>>({});
+  const draftVersionRef = useRef<Record<string, number>>({});
+  const savingRef = useRef<Record<string, boolean>>({});
   const uploadFlow = useFileUploadFlow();
 
   async function refresh() {
@@ -129,8 +156,33 @@ export function NotesPage(props: {
   }
 
   async function refreshUsers() {
-    const r = await window.matrica.notes.usersList().catch(() => null);
-    if (r && (r as any).ok) setUsers((r as any).users as ChatUserItem[]);
+    setUsersLoading(true);
+    setUsersError('');
+    try {
+      const [notesUsersResult, chatUsersResult] = await Promise.all([
+        window.matrica.notes.usersList().catch(() => null),
+        window.matrica.chat.usersList().catch(() => null),
+      ]);
+      const mergedUsers: ChatUserItem[] = [];
+      const errors: string[] = [];
+      if (notesUsersResult && (notesUsersResult as any).ok && Array.isArray((notesUsersResult as any).users)) {
+        mergedUsers.push(...((notesUsersResult as any).users as ChatUserItem[]));
+      } else if ((notesUsersResult as any)?.error) {
+        errors.push(String((notesUsersResult as any).error));
+      }
+      if (chatUsersResult && (chatUsersResult as any).ok && Array.isArray((chatUsersResult as any).users)) {
+        mergedUsers.push(...((chatUsersResult as any).users as ChatUserItem[]));
+      } else if ((chatUsersResult as any)?.error) {
+        errors.push(String((chatUsersResult as any).error));
+      }
+      const normalized = normalizeRecipientUsers(mergedUsers, props.meUserId);
+      setUsers(normalized);
+      if (normalized.length === 0 && errors.length > 0) {
+        setUsersError(errors[0] ?? 'Не удалось загрузить список пользователей');
+      }
+    } finally {
+      setUsersLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -148,6 +200,14 @@ export function NotesPage(props: {
   useEffect(() => {
     const id = window.setInterval(() => setNow(nowMs()), 60_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of Object.values(autoSaveTimersRef.current)) {
+        window.clearTimeout(timer);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -286,6 +346,16 @@ export function NotesPage(props: {
   }, [recipientPicker]);
 
   useEffect(() => {
+    if (!recipientPicker) return;
+    const validIds = new Set(users.map((u) => u.id));
+    setRecipientPicker((prev) => {
+      if (!prev) return prev;
+      const selectedIds = prev.selectedIds.filter((id) => validIds.has(id));
+      return selectedIds.length === prev.selectedIds.length ? prev : { ...prev, selectedIds };
+    });
+  }, [users, recipientPicker]);
+
+  useEffect(() => {
     const me = String(props.meUserId ?? '').trim();
     if (!me) return;
     const dueSoon = notesVisible
@@ -309,13 +379,30 @@ export function NotesPage(props: {
     })();
   }, [notesVisible, drafts, now, props.meUserId]);
 
+  function clearAutoSaveTimer(id: string) {
+    const timer = autoSaveTimersRef.current[id];
+    if (timer == null) return;
+    window.clearTimeout(timer);
+    delete autoSaveTimersRef.current[id];
+  }
+
+  function queueAutoSave(id: string, delayMs = 700) {
+    clearAutoSaveTimer(id);
+    autoSaveTimersRef.current[id] = window.setTimeout(() => {
+      delete autoSaveTimersRef.current[id];
+      void saveDraft(id, 'auto');
+    }, delayMs);
+  }
+
   function updateDraft(id: string, next: Partial<NoteDraft>) {
     setDrafts((prev) => {
       const current = prev[id] ?? { id, title: '', body: [], importance: 'normal' as const, dueAt: null };
       const merged = { ...current, ...next };
       return { ...prev, [id]: { ...merged, title: makeAutoTitle(merged.body ?? []) } };
     });
+    draftVersionRef.current[id] = (draftVersionRef.current[id] ?? 0) + 1;
     setDirty((prev) => ({ ...prev, [id]: true }));
+    if (props.canEdit) queueAutoSave(id);
   }
 
   function setPerNoteStatus(noteId: string, text: string, tone: 'ok' | 'error') {
@@ -330,21 +417,43 @@ export function NotesPage(props: {
     }, 2800);
   }
 
-  async function saveDraft(id: string) {
+  async function saveDraft(id: string, mode: 'manual' | 'auto' = 'manual') {
     const draft = drafts[id];
     if (!draft) return;
-    const normalized = ensureTextBlock(draft.body ?? []);
-    const title = makeAutoTitle(normalized.body);
-    const r = await window.matrica.notes.upsert({
-      id,
-      title,
-      body: normalized.body,
-      importance: draft.importance,
-      dueAt: draft.dueAt ?? null,
-    });
-    if ((r as any)?.ok) {
-      setDirty((prev) => ({ ...prev, [id]: false }));
+    clearAutoSaveTimer(id);
+    if (savingRef.current[id]) {
+      queueAutoSave(id, mode === 'auto' ? 350 : 150);
+      return;
+    }
+    const startedVersion = draftVersionRef.current[id] ?? 0;
+    savingRef.current[id] = true;
+    setSaving((prev) => ({ ...prev, [id]: true }));
+    try {
+      const normalized = ensureTextBlock(draft.body ?? []);
+      const title = makeAutoTitle(normalized.body);
+      const r = await window.matrica.notes.upsert({
+        id,
+        title,
+        body: normalized.body,
+        importance: draft.importance,
+        dueAt: draft.dueAt ?? null,
+      });
+      if ((r as any)?.ok) {
+        const currentVersion = draftVersionRef.current[id] ?? 0;
+        if (currentVersion === startedVersion) {
+          setDirty((prev) => ({ ...prev, [id]: false }));
+        } else {
+          queueAutoSave(id, 350);
+        }
+      } else {
+        setPerNoteStatus(id, `Ошибка сохранения: ${String((r as any)?.error ?? 'unknown')}`, 'error');
+      }
       void refresh();
+    } catch (e) {
+      setPerNoteStatus(id, `Ошибка сохранения: ${String(e)}`, 'error');
+    } finally {
+      savingRef.current[id] = false;
+      setSaving((prev) => ({ ...prev, [id]: false }));
     }
   }
 
@@ -463,7 +572,7 @@ export function NotesPage(props: {
 
   function openRecipientPicker(noteId: string, mode: 'chat' | 'share') {
     setRecipientPicker({ noteId, mode, selectedIds: [] });
-    if (users.length === 0) void refreshUsers();
+    if (users.length === 0 || usersError) void refreshUsers();
   }
 
   function toggleRecipientSelection(userId: string) {
@@ -545,7 +654,11 @@ export function NotesPage(props: {
             <div style={{ opacity: 0.58, color: theme.colors.text }}>{line2 || ' '}</div>
             <div style={{ opacity: 0.34, color: theme.colors.text }}>{line3 || ' '}</div>
           </div>
-          {dirty[entry.id] ? <span style={{ color: 'var(--warn)', fontSize: 12, fontWeight: 700 }}>Есть несохраненные изменения</span> : null}
+          {saving[entry.id] ? (
+            <span style={{ color: 'var(--input-border-focus)', fontSize: 12, fontWeight: 700 }}>Сохраняется...</span>
+          ) : dirty[entry.id] ? (
+            <span style={{ color: 'var(--warn)', fontSize: 12, fontWeight: 700 }}>Изменения сохраняются автоматически</span>
+          ) : null}
         </button>
         {props.canEdit && sectionIndex >= 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
@@ -566,7 +679,7 @@ export function NotesPage(props: {
     if (!draft) return null;
     const share = note.shared ? note.share : null;
     const dueInfo = parseDueColor(draft?.dueAt ?? note.dueAt ?? null, now);
-    const noteUsers = users.filter((u) => u.id !== props.meUserId);
+    const noteUsers = users;
     const allRecipientIds = noteUsers.map((u) => u.id);
     const sharedWith = sharesByNoteId.get(note.id) ?? [];
     const noteImages = draft.body.filter((b): b is Extract<NoteBlock, { kind: 'image' }> => b.kind === 'image');
@@ -705,11 +818,6 @@ export function NotesPage(props: {
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, position: 'relative' }}>
-          {props.canEdit && (
-            <Button variant="primary" disabled={!dirty[note.id]} onClick={() => void saveDraft(note.id)}>
-              Сохранить
-            </Button>
-          )}
           <Button
             variant="ghost"
             onClick={() => {
@@ -765,17 +873,11 @@ export function NotesPage(props: {
               <div style={{ fontWeight: 700 }}>
                 {recipientPicker.mode === 'chat' ? 'Отправить в чат выбранным' : 'Поделиться заметкой с выбранными'}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <Button variant="ghost" onClick={() => selectAllRecipients(allRecipientIds)} disabled={allRecipientIds.length === 0}>
-                  Выбрать всех
-                </Button>
-                <Button variant="ghost" onClick={clearRecipientSelection} disabled={recipientPicker.selectedIds.length === 0}>
-                  Снять всех
-                </Button>
-              </div>
               <div style={{ maxHeight: 260, overflow: 'auto', border: `1px solid ${theme.colors.border}`, borderRadius: 8, padding: 8 }}>
-                {noteUsers.length === 0 ? (
-                  <div style={{ color: theme.colors.muted }}>Нет пользователей</div>
+                {usersLoading ? (
+                  <div style={{ color: theme.colors.muted }}>Загрузка пользователей...</div>
+                ) : noteUsers.length === 0 ? (
+                  <div style={{ color: theme.colors.muted }}>{usersError || 'Нет пользователей для выбора'}</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {noteUsers.map((u) => {
@@ -790,7 +892,13 @@ export function NotesPage(props: {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                <Button variant="ghost" onClick={() => selectAllRecipients(allRecipientIds)} disabled={allRecipientIds.length === 0}>
+                  Выбрать всех
+                </Button>
+                <Button variant="ghost" onClick={clearRecipientSelection} disabled={recipientPicker.selectedIds.length === 0}>
+                  Сброс выбора
+                </Button>
                 <Button variant="ghost" onClick={() => setRecipientPicker(null)}>
                   Отмена
                 </Button>

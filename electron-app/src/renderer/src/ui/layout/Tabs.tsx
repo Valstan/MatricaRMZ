@@ -483,6 +483,22 @@ export function Tabs(props: {
     });
   }
 
+  function activateGroup(groupId: MenuGroupId) {
+    if (groupId === 'history') {
+      props.onTab('history');
+      updateGroupPrefs({ activeGroup: null });
+      return;
+    }
+    const nextCollapsed = new Set(collapsedGroups);
+    nextCollapsed.delete(groupId);
+    updateGroupPrefs({
+      activeGroup: groupId,
+      collapsedGroups: Array.from(nextCollapsed),
+    });
+    const firstTab = visibleByGroup[groupId][0];
+    if (firstTab) props.onTab(firstTab);
+  }
+
   useEffect(() => {
     if (!preferredGroupByTab) return;
     if (activeGroup === preferredGroupByTab) return;
@@ -732,12 +748,7 @@ export function Tabs(props: {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    if (groupId === 'history') {
-                      props.onTab('history');
-                      updateGroupPrefs({ activeGroup: null });
-                      return;
-                    }
-                    toggleGroup(groupId);
+                    activateGroup(groupId);
                   }}
                   onContextMenu={(e) => openContextMenu({ kind: 'group', id: groupId }, e)}
                   style={
@@ -791,7 +802,7 @@ export function Tabs(props: {
                           gap: deptVisual.stackGap,
                         }
                   }
-                  title={isCollapsed ? 'Развернуть отдел' : 'Свернуть отдел'}
+                  title="Открыть отдел и первый раздел"
                 >
                 <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 2, minWidth: 0 }}>
                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }}>

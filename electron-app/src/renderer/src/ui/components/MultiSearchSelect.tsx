@@ -56,6 +56,12 @@ export function MultiSearchSelect(props: {
     setQuery('');
   }
 
+  function selectAllFiltered() {
+    const ids = dropdown.filtered.map((o) => o.id);
+    const combined = new Set([...safeValues, ...ids]);
+    props.onChange(Array.from(combined));
+  }
+
   return (
     <div ref={dropdown.rootRef} style={{ position: 'relative' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -161,7 +167,7 @@ export function MultiSearchSelect(props: {
                 overflow: 'hidden',
               }}
             >
-              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight, overflowY: 'auto' }}>
+              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight - 42, overflowY: 'auto' }}>
                 {dropdown.filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
                 {dropdown.filtered.map((o, idx) => {
                   const checked = safeValues.includes(o.id);
@@ -214,6 +220,32 @@ export function MultiSearchSelect(props: {
                   );
                 })}
               </div>
+              {dropdown.filtered.length > 0 && (
+                <div
+                  style={{
+                    padding: '6px 10px',
+                    borderTop: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={selectAllFiltered}
+                    style={{
+                      width: '100%',
+                      padding: '5px 10px',
+                      borderRadius: 8,
+                      border: '1px solid var(--button-ghost-border)',
+                      background: 'var(--button-ghost-bg)',
+                      cursor: 'pointer',
+                      color: 'var(--text)',
+                      fontSize: 12,
+                    }}
+                  >
+                    Выбрать всё
+                  </button>
+                </div>
+              )}
             </div>,
             document.body,
           )

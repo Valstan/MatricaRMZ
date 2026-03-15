@@ -197,7 +197,7 @@ function computePopupRect(field: ManagedField): PopupRect {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const width = Math.min(Math.max(rect.width, 240), Math.max(240, viewportWidth - padding * 2));
-  const estimatedHeight = 280;
+  const estimatedHeight = 200;
 
   let left = rect.left;
   if (left + width > viewportWidth - padding) left = viewportWidth - padding - width;
@@ -205,8 +205,8 @@ function computePopupRect(field: ManagedField): PopupRect {
 
   const spaceBelow = Math.max(0, viewportHeight - rect.bottom - gap - padding);
   const spaceAbove = Math.max(0, rect.top - gap - padding);
-  const preferTop = spaceBelow < Math.min(220, estimatedHeight) && spaceAbove > spaceBelow;
-  const maxHeight = Math.max(120, Math.min(320, preferTop ? spaceAbove : spaceBelow));
+  const preferTop = spaceBelow < Math.min(180, estimatedHeight) && spaceAbove > spaceBelow;
+  const maxHeight = Math.max(100, Math.min(220, preferTop ? spaceAbove : spaceBelow));
   const top = preferTop ? Math.max(padding, rect.top - maxHeight - gap) : Math.min(viewportHeight - padding - maxHeight, rect.bottom + gap);
 
   return { left, top, width, maxHeight };
@@ -292,6 +292,7 @@ export function GlobalInputAssist(props: { storageKey: string }) {
   const historyRef = useRef<HistoryMap>({});
   const popupRef = useRef<HTMLDivElement | null>(null);
   const activeFieldRef = useRef<ManagedField | null>(null);
+  const lastFocusTimeRef = useRef(0);
   const [popup, setPopup] = useState<PopupState | null>(null);
 
   useEffect(() => {
@@ -324,6 +325,7 @@ export function GlobalInputAssist(props: { storageKey: string }) {
         return;
       }
       activeFieldRef.current = target;
+      lastFocusTimeRef.current = Date.now();
       const hasValue = String(target.value ?? '').trim().length > 0;
       if (!hasValue) {
         setPopup(null);
@@ -363,16 +365,26 @@ export function GlobalInputAssist(props: { storageKey: string }) {
       }, 0);
     };
 
+    const onClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!isManagedField(target)) return;
+      if (activeFieldRef.current !== target) return;
+      if (Date.now() - lastFocusTimeRef.current < 300) return;
+      setPopup((prev) => (prev?.target === target ? null : buildPopupState(target, historyRef.current)));
+    };
+
     document.addEventListener('focusin', onFocusIn, true);
     document.addEventListener('input', onInput, true);
     document.addEventListener('change', onChange, true);
     document.addEventListener('focusout', onFocusOut, true);
+    document.addEventListener('click', onClick, true);
 
     return () => {
       document.removeEventListener('focusin', onFocusIn, true);
       document.removeEventListener('input', onInput, true);
       document.removeEventListener('change', onChange, true);
       document.removeEventListener('focusout', onFocusOut, true);
+      document.removeEventListener('click', onClick, true);
     };
   }, [props.storageKey]);
 
@@ -434,16 +446,13 @@ export function GlobalInputAssist(props: { storageKey: string }) {
         zIndex: 5200,
         background: palette.surface,
         border: `1px solid ${palette.border}`,
-        borderRadius: 12,
-        boxShadow: '0 18px 40px rgba(15, 23, 42, 0.22)',
+        borderRadius: 8,
+        boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
         overflow: 'hidden',
       }}
     >
-      <div style={{ padding: '10px 12px', borderBottom: `1px solid ${palette.border}`, background: palette.surfaceAlt }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: palette.text }}>Подсказки для поля</div>
-        <div style={{ marginTop: 2, fontSize: 12, color: palette.muted }}>
-          Значение уже выделено: можно сразу заменить, скопировать или выбрать из недавних.
-        </div>
+      <div style={{ padding: '4px 8px', borderBottom: `1px solid ${palette.border}`, background: palette.surfaceAlt }}>
+        <div style={{ fontSize: 11, color: palette.muted }}>Скопировать, заменить или выбрать из недавних</div>
       </div>
       <div style={{ maxHeight: popup.maxHeight, overflowY: 'auto' }}>
         {popup.items.map((item, idx) => {
@@ -456,12 +465,12 @@ export function GlobalInputAssist(props: { storageKey: string }) {
                 setFieldValue(popup.target, item.value);
                 popup.target.focus();
                 selectAll(popup.target);
-                setPopup(buildPopupState(popup.target, historyRef.current));
+                setPopup(null);
               }}
               style={{
                 width: '100%',
                 textAlign: 'left',
-                padding: '10px 12px',
+                padding: '5px 8px',
                 border: 'none',
                 borderBottom: idx === popup.items.length - 1 ? 'none' : `1px solid ${palette.border}`,
                 background: isCurrent ? palette.current : 'transparent',
@@ -489,8 +498,8 @@ export function GlobalInputAssist(props: { storageKey: string }) {
       <div
         style={{
           display: 'flex',
-          gap: 8,
-          padding: 10,
+          gap: 6,
+          padding: '4px 8px',
           borderTop: `1px solid ${palette.border}`,
           background: palette.surfaceAlt,
         }}
@@ -500,16 +509,17 @@ export function GlobalInputAssist(props: { storageKey: string }) {
           onClick={() => {
             void copyText(popup.value);
             popup.target.focus();
-            selectAll(popup.target);
+            setPopup(null);
           }}
           style={{
             flex: 1,
-            padding: '8px 10px',
-            borderRadius: 8,
+            padding: '4px 8px',
+            borderRadius: 6,
             border: `1px solid ${palette.border}`,
             background: palette.button,
             color: palette.text,
             cursor: 'pointer',
+            fontSize: 12,
           }}
         >
           Скопировать
@@ -524,12 +534,13 @@ export function GlobalInputAssist(props: { storageKey: string }) {
             }}
             style={{
               flex: 1,
-              padding: '8px 10px',
-              borderRadius: 8,
+              padding: '4px 8px',
+              borderRadius: 6,
               border: `1px solid ${palette.border}`,
               background: palette.accent,
               color: palette.text,
               cursor: 'pointer',
+              fontSize: 12,
             }}
           >
             Очистить

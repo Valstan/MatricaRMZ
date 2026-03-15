@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ReportCellValue,
   ReportFilterOption,
+  ReportFilterSpec,
   ReportOptionSource,
   ReportPresetDefinition,
   ReportPresetFilters,
@@ -20,15 +21,61 @@ import {
   buildDefaultFilters,
   buildReportMetricNotesHtml,
   csvDownload,
+  endOfDayMs,
   formatReportCell,
   formatReportTotals,
   fromInputDate,
   renderReportTableHtml,
+  startOfDayMs,
   textDownload,
   toInputDate,
 } from '../utils/reportUtils.js';
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
+
+const DATE_PERIOD_PRESETS: { label: string; title: string; days?: number; months?: number }[] = [
+  { label: 'Нед.', title: 'Неделя', days: 7 },
+  { label: '2 нед.', title: '2 недели', days: 14 },
+  { label: 'Мес.', title: 'Месяц', months: 1 },
+  { label: '2 мес.', title: '2 месяца', months: 2 },
+  { label: '3 мес.', title: '3 месяца', months: 3 },
+  { label: '½ года', title: 'Полгода', months: 6 },
+  { label: 'Год', title: 'Год', months: 12 },
+];
+
+const filterResetBtnStyle: React.CSSProperties = {
+  padding: '2px 6px',
+  border: '1px solid var(--button-ghost-border)',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--muted)',
+  cursor: 'pointer',
+  fontSize: 11,
+  lineHeight: 1,
+};
+
+const periodBtnStyle: React.CSSProperties = {
+  padding: '2px 6px',
+  border: '1px solid var(--button-ghost-border)',
+  borderRadius: 6,
+  background: 'var(--button-ghost-bg)',
+  color: 'var(--text)',
+  cursor: 'pointer',
+  fontSize: 11,
+};
+
+const selectedTagStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '1px 6px',
+  borderRadius: 4,
+  background: 'rgba(96, 165, 250, 0.14)',
+  color: 'var(--text)',
+  fontSize: 11,
+  maxWidth: 200,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
 
 export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: boolean; userId: string; onBack: () => void }) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
@@ -38,6 +85,8 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
   const [preview, setPreview] = useState<PreviewOk | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const autoBuildRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const buildPreviewRef = useRef<() => Promise<PreviewOk | null>>(async () => null);
 
   const activePreset = useMemo(
     () => presets.find((preset) => preset.id === props.presetId) ?? null,
@@ -52,17 +101,14 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     return filterSearchByPreset[activePreset.id] ?? {};
   }, [activePreset, filterSearchByPreset]);
 
+  const activePresetId = activePreset?.id;
+  const filtersKey = JSON.stringify(activeFilters);
+
   function patchFilter(key: string, value: unknown) {
     if (!activePreset) return;
     setFiltersByPreset((prev) => {
       const current = prev[activePreset.id] ?? buildDefaultFilters(activePreset);
-      return {
-        ...prev,
-        [activePreset.id]: {
-          ...current,
-          [key]: value,
-        },
-      };
+      return { ...prev, [activePreset.id]: { ...current, [key]: value } };
     });
   }
 
@@ -70,14 +116,33 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     if (!activePreset) return;
     setFilterSearchByPreset((prev) => {
       const current = prev[activePreset.id] ?? {};
-      return {
-        ...prev,
-        [activePreset.id]: {
-          ...current,
-          [key]: value,
-        },
-      };
+      return { ...prev, [activePreset.id]: { ...current, [key]: value } };
     });
+  }
+
+  function resetFilter(filter: ReportFilterSpec) {
+    if (!activePreset) return;
+    const defaults = buildDefaultFilters(activePreset);
+    if (filter.type === 'date_range') {
+      patchFilter(filter.startKey, defaults[filter.startKey] ?? null);
+      patchFilter(filter.endKey, defaults[filter.endKey] ?? null);
+    } else {
+      patchFilter(filter.key, defaults[filter.key] ?? (filter.type === 'multi_select' ? [] : ''));
+    }
+  }
+
+  function resetAllFilters() {
+    if (!activePreset) return;
+    setFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: buildDefaultFilters(activePreset) }));
+  }
+
+  function applyDatePreset(filter: Extract<ReportFilterSpec, { type: 'date_range' }>, preset: (typeof DATE_PERIOD_PRESETS)[number]) {
+    const now = new Date();
+    const start = new Date(now);
+    if (preset.months) start.setMonth(start.getMonth() - preset.months);
+    else if (preset.days) start.setDate(start.getDate() - preset.days);
+    patchFilter(filter.startKey, startOfDayMs(start));
+    patchFilter(filter.endKey, endOfDayMs(now));
   }
 
   async function loadPresetMeta() {
@@ -160,6 +225,19 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
       setBusy(false);
     }
   }
+
+  buildPreviewRef.current = buildPreview;
+
+  useEffect(() => {
+    if (!activePresetId) return;
+    if (autoBuildRef.current) clearTimeout(autoBuildRef.current);
+    autoBuildRef.current = setTimeout(() => {
+      void buildPreviewRef.current();
+    }, 400);
+    return () => {
+      if (autoBuildRef.current) clearTimeout(autoBuildRef.current);
+    };
+  }, [activePresetId, filtersKey]);
 
   async function openPreviewWindow() {
     const report = preview ?? (await buildPreview());
@@ -298,7 +376,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="ghost" onClick={props.onBack}>
-              К списку шаблонов
+              К списку Отчётов
             </Button>
             <Button variant="ghost" onClick={() => void loadPresetMeta()} disabled={busy}>
               Обновить
@@ -318,15 +396,25 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
           <div className="ui-muted">Выберите шаблон отчета.</div>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-              Для списочных фильтров можно начать вводить текст или вставить его из буфера, чтобы быстро найти нужный объект.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                Отчет формируется автоматически при изменении фильтров.
+              </div>
+              {activePreset.filters.length > 0 && (
+                <button type="button" onClick={resetAllFilters} disabled={busy} style={{ ...filterResetBtnStyle, padding: '3px 10px', fontSize: 12 }}>
+                  Сбросить все фильтры
+                </button>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
               {activePreset.filters.map((filter) => {
                 if (filter.type === 'date_range') {
                   return (
                     <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                      <div style={{ fontWeight: 700 }}>{filter.label}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+                      </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         <Input
                           type="date"
@@ -338,6 +426,13 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                           value={toInputDate(activeFilters[filter.endKey])}
                           onChange={(e) => patchFilter(filter.endKey, fromInputDate(e.target.value, 'end'))}
                         />
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {DATE_PERIOD_PRESETS.map((p) => (
+                          <button key={p.title} type="button" title={p.title} onClick={() => applyDatePreset(filter, p)} style={periodBtnStyle}>
+                            {p.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   );
@@ -351,6 +446,14 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                         onChange={(e) => patchFilter(filter.key, e.target.checked)}
                       />
                       <span>{filter.label}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); resetFilter(filter); }}
+                        title="Сбросить фильтр"
+                        style={filterResetBtnStyle}
+                      >
+                        ✕
+                      </button>
                     </label>
                   );
                 }
@@ -364,7 +467,10 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                   }));
                   return (
                     <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+                      </div>
                       <SearchSelect
                         value={value || null}
                         options={options}
@@ -379,9 +485,13 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                 }
                 const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
                 const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
+                const selectedLabels = options.filter((o) => selected.includes(o.value));
                 return (
                   <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                    <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+                    </div>
                     <MultiSearchSelect
                       values={selected}
                       options={options.map((option) => ({
@@ -396,15 +506,21 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                       onQueryChange={(next) => patchFilterSearch(filter.key, next)}
                       onChange={(next) => patchFilter(filter.key, next)}
                     />
+                    {selectedLabels.length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {selectedLabels.map((o) => (
+                          <span key={o.value} style={selectedTagStyle} title={o.label}>
+                            {o.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button onClick={() => void buildPreview()} disabled={busy}>
-                Сформировать
-              </Button>
               <Button variant="ghost" tone="info" onClick={() => void openPreviewWindow()} disabled={busy}>
                 Предпросмотр
               </Button>
@@ -428,7 +544,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
       <SectionCard title={preview ? `Результат: ${preview.title}` : 'Результат'}>
         {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', marginBottom: 8 }}>{status}</div> : null}
         {!preview ? (
-          <div className="ui-muted">Сформируйте отчет для просмотра данных.</div>
+          <div className="ui-muted">Отчет формируется автоматически при изменении фильтров.</div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {preview.subtitle ? <div className="ui-muted">{preview.subtitle}</div> : null}

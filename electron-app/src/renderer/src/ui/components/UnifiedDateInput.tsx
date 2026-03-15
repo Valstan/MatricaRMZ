@@ -188,6 +188,10 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
       calendarContainer={CalendarContainer}
       locale="ru"
       timeCaption="Время"
+      showMonthDropdown
+      showYearDropdown
+      scrollableYearDropdown
+      yearDropdownItemNumber={10}
       previousMonthButtonLabel="‹"
       nextMonthButtonLabel="›"
       previousYearButtonLabel="«"

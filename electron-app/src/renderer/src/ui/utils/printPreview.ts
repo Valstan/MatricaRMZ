@@ -17,6 +17,14 @@ export function escapeHtml(s: string) {
 export function openPrintPreview(opts: { title: string; subtitle?: string; sections: PrintSection[] }) {
   const title = escapeHtml(opts.title);
   const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : '';
+
+  const visibilityCss = opts.sections
+    .map((s) => {
+      const id = escapeHtml(s.id);
+      return `body:has(input[data-section="${id}"]:not(:checked)) [data-print-section="${id}"] { display: none !important; }`;
+    })
+    .join('\n    ');
+
   const controls = opts.sections
     .map((s) => {
       const checked = s.checked === false ? '' : 'checked';
@@ -29,7 +37,8 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
   const content = opts.sections
     .map((s) => {
       const html = s.html?.trim() ? s.html : `<div class="muted">Нет данных</div>`;
-      return `<section class="section" data-print-section="${escapeHtml(s.id)}">
+      const hidden = s.checked === false ? ' style="display:none"' : '';
+      return `<section class="section" data-print-section="${escapeHtml(s.id)}"${hidden}>
   <h2>${escapeHtml(s.title)}</h2>
   ${html}
 </section>`;
@@ -47,7 +56,7 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
     h2 { margin: 0 0 8px 0; font-size: 14px; }
     .subtitle { color: #6b7280; font-size: 12px; margin-bottom: 14px; }
     .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; align-items: center; }
-    .toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: #111827; }
+    .toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: #111827; cursor: pointer; }
     .action { margin-left: auto; }
     button { border: 1px solid #cbd5f5; background: #2563eb; color: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
     table { width: 100%; border-collapse: collapse; }
@@ -57,6 +66,7 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
     .section { margin-bottom: 16px; }
     .muted { color: #6b7280; }
     @media print { .no-print { display: none; } body { margin: 12mm; } }
+    ${visibilityCss}
   </style>
 </head>
 <body>
@@ -70,16 +80,16 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
   </div>
   ${content}
   <script>
-    const toggles = Array.from(document.querySelectorAll('input[data-section]'));
-    function applyVisibility() {
-      toggles.forEach((cb) => {
-        const id = cb.getAttribute('data-section');
-        const el = document.querySelector('[data-print-section="' + id + '"]');
-        if (el) el.style.display = cb.checked ? '' : 'none';
-      });
+    var toggles = document.querySelectorAll('input[data-section]');
+    function applyVis() {
+      for (var i = 0; i < toggles.length; i++) {
+        var cb = toggles[i];
+        var s = document.querySelector('[data-print-section="' + cb.getAttribute('data-section') + '"]');
+        if (s) s.style.display = cb.checked ? '' : 'none';
+      }
     }
-    toggles.forEach((cb) => cb.addEventListener('change', applyVisibility));
-    applyVisibility();
+    for (var j = 0; j < toggles.length; j++) toggles[j].addEventListener('change', applyVis);
+    applyVis();
   </script>
 </body>
 </html>`;
