@@ -26,6 +26,11 @@ import {
   noteRowSchema,
   noteShareRowSchema,
 } from './dto.js';
+import {
+  erpNomenclatureRowSchema,
+  erpRegisterStockBalanceRowSchema,
+  erpRegisterStockMovementRowSchema,
+} from './erpDto.js';
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -149,6 +154,49 @@ const NOTE_SHARE_FIELDS = withBase(
   { db: 'sortOrder', dto: 'sort_order' },
 );
 
+const ERP_NOMENCLATURE_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'code', dto: 'code' },
+  { db: 'name', dto: 'name' },
+  { db: 'itemType', dto: 'item_type' },
+  { db: 'groupId', dto: 'group_id' },
+  { db: 'unitId', dto: 'unit_id' },
+  { db: 'barcode', dto: 'barcode' },
+  { db: 'minStock', dto: 'min_stock' },
+  { db: 'maxStock', dto: 'max_stock' },
+  { db: 'defaultWarehouseId', dto: 'default_warehouse_id' },
+  { db: 'specJson', dto: 'spec_json' },
+  { db: 'isActive', dto: 'is_active' },
+  { db: 'createdAt', dto: 'created_at' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'deletedAt', dto: 'deleted_at' },
+] as const;
+
+const ERP_STOCK_BALANCE_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'partCardId', dto: 'part_card_id' },
+  { db: 'warehouseId', dto: 'warehouse_id' },
+  { db: 'qty', dto: 'qty' },
+  { db: 'reservedQty', dto: 'reserved_qty' },
+  { db: 'updatedAt', dto: 'updated_at' },
+] as const;
+
+const ERP_STOCK_MOVEMENT_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'warehouseId', dto: 'warehouse_id' },
+  { db: 'documentHeaderId', dto: 'document_header_id' },
+  { db: 'movementType', dto: 'movement_type' },
+  { db: 'qty', dto: 'qty' },
+  { db: 'direction', dto: 'direction' },
+  { db: 'counterpartyId', dto: 'counterparty_id' },
+  { db: 'reason', dto: 'reason' },
+  { db: 'performedAt', dto: 'performed_at' },
+  { db: 'performedBy', dto: 'performed_by' },
+  { db: 'createdAt', dto: 'created_at' },
+] as const;
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -241,6 +289,30 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: NOTE_SHARE_FIELDS,
     conflictTarget: ['noteId', 'recipientUserId'],
     dependsOn: [SyncTableName.Notes],
+  },
+  {
+    syncName: SyncTableName.ErpNomenclature,
+    ledgerName: SyncTableName.ErpNomenclature,
+    schema: erpNomenclatureRowSchema,
+    fields: ERP_NOMENCLATURE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.Entities],
+  },
+  {
+    syncName: SyncTableName.ErpRegStockBalance,
+    ledgerName: SyncTableName.ErpRegStockBalance,
+    schema: erpRegisterStockBalanceRowSchema,
+    fields: ERP_STOCK_BALANCE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpNomenclature],
+  },
+  {
+    syncName: SyncTableName.ErpRegStockMovements,
+    ledgerName: SyncTableName.ErpRegStockMovements,
+    schema: erpRegisterStockMovementRowSchema,
+    fields: ERP_STOCK_MOVEMENT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpNomenclature],
   },
 ] as const;
 
