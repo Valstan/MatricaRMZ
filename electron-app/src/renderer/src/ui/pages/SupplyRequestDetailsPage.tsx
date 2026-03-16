@@ -5,6 +5,7 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } f
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -16,6 +17,7 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch, mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
@@ -186,14 +188,14 @@ function printSupplyRequest(
     mode === 'short'
       ? `<tr>
   <th>№</th>
-  <th>Наименование</th>
+  <th>Товар</th>
   <th>Кол-во</th>
   <th>Ед.</th>
   <th>Примечание</th>
 </tr>`
       : `<tr>
   <th>№</th>
-  <th>Наименование</th>
+  <th>Товар</th>
   <th>Кол-во</th>
   <th>Ед.</th>
   <th>Примечание</th>
@@ -203,8 +205,8 @@ function printSupplyRequest(
 </tr>`;
   const emptyRow =
     mode === 'short'
-      ? '<tr><td colspan="5" class="muted">Нет позиций</td></tr>'
-      : '<tr><td colspan="8" class="muted">Нет позиций</td></tr>';
+      ? '<tr><td colspan="5" class="muted">Нет товаров</td></tr>'
+      : '<tr><td colspan="8" class="muted">Нет товаров</td></tr>';
   const itemsHtml = `<table>
   <thead>${headHtml}</thead>
   <tbody>${rowsHtml || emptyRow}</tbody>
@@ -215,7 +217,7 @@ function printSupplyRequest(
     ...(p.compiledAt ? { subtitle: `Дата: ${formatMoscowDate(p.compiledAt)}` } : {}),
     sections: [
       { id: 'main', title: 'Основное', html: mainHtml },
-      { id: 'items', title: 'Позиции', html: itemsHtml },
+      { id: 'items', title: 'Товары', html: itemsHtml },
       { id: 'sign', title: 'Подписи', html: footer },
     ],
   });
@@ -258,7 +260,17 @@ export function SupplyRequestDetailsPage(props: {
   const initialSessionJson = useRef<string>('');
   const sessionHadChanges = useRef<boolean>(false);
   const payloadRef = useRef<SupplyRequestPayload | null>(null);
-  const dragFromIdx = useRef<number | null>(null);
+  const itemRowKeysRef = useRef<string[]>([]);
+
+  function makeRowKey() {
+    return `supply-request-item-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  }
+
+  function syncItemRowKeys(items: SupplyRequestItem[]) {
+    const current = itemRowKeysRef.current.slice(0, items.length);
+    while (current.length < items.length) current.push(makeRowKey());
+    itemRowKeysRef.current = current;
+  }
 
   async function load() {
     setSaveStatus('Загрузка…');
@@ -269,6 +281,7 @@ export function SupplyRequestDetailsPage(props: {
     }
     setPayload(r.payload);
     payloadRef.current = r.payload;
+    syncItemRowKeys(r.payload.items ?? []);
     const json = JSON.stringify(r.payload);
     lastSavedJson.current = json;
     initialSessionJson.current = json;
@@ -456,6 +469,56 @@ export function SupplyRequestDetailsPage(props: {
     scheduleSave({ ...currentPayload, items }, markSessionChange);
   }
 
+  function replaceRequestItems(items: SupplyRequestItem[], options?: { rowKeys?: string[]; markSessionChange?: boolean }) {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const normalized = items.map((item, idx) => ({ ...ensureItem(item, idx + 1), lineNo: idx + 1 }));
+    itemRowKeysRef.current = options?.rowKeys?.slice(0, normalized.length) ?? itemRowKeysRef.current.slice(0, normalized.length);
+    syncItemRowKeys(normalized);
+    scheduleSave({ ...currentPayload, items: normalized }, options?.markSessionChange ?? true);
+  }
+
+  function moveRequestItem(from: number, to: number) {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const items = [...(currentPayload.items ?? [])];
+    const rowKeys = [...itemRowKeysRef.current];
+    if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
+    const [movedItem] = items.splice(from, 1);
+    const [movedKey] = rowKeys.splice(from, 1);
+    if (!movedItem || !movedKey) return;
+    items.splice(to, 0, movedItem);
+    rowKeys.splice(to, 0, movedKey);
+    setExpandedLine(null);
+    replaceRequestItems(items, { rowKeys });
+  }
+
+  function removeRequestItem(index: number) {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const items = [...(currentPayload.items ?? [])];
+    const rowKeys = [...itemRowKeysRef.current];
+    if (index < 0 || index >= items.length) return;
+    items.splice(index, 1);
+    rowKeys.splice(index, 1);
+    setExpandedLine((current) => {
+      if (current == null) return current;
+      if (current === index) return null;
+      return current > index ? current - 1 : current;
+    });
+    replaceRequestItems(items, { rowKeys });
+  }
+
+  function moveDelivery(itemIndex: number, from: number, to: number) {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const items = [...(currentPayload.items ?? [])];
+    const cur = ensureItem(items[itemIndex], itemIndex + 1);
+    const deliveries = moveArrayItem([...(cur.deliveries ?? [])], from, to);
+    items[itemIndex] = { ...cur, deliveries };
+    scheduleSave({ ...currentPayload, items });
+  }
+
   async function saveNow(next: SupplyRequestPayload) {
     if (!props.canEdit) return;
     try {
@@ -517,7 +580,7 @@ export function SupplyRequestDetailsPage(props: {
     push('departmentId', 'Подразделение', initial?.departmentId, cur?.departmentId);
     const itemsA = Array.isArray(initial?.items) ? initial.items : [];
     const itemsB = Array.isArray(cur?.items) ? cur.items : [];
-    if (itemsA.length !== itemsB.length) fields.push('Позиции');
+    if (itemsA.length !== itemsB.length) fields.push('Товары');
     const summaryRu = fields.length ? `Изменил: ${fields.join(', ')}` : 'Без изменений';
     return { fieldsChanged: fields, summaryRu };
   }
@@ -599,6 +662,8 @@ export function SupplyRequestDetailsPage(props: {
     return <div style={{ color: 'var(--subtle)' }}>{saveStatus || '...'}</div>;
   }
 
+  syncItemRowKeys(payload.items ?? []);
+
   const canTransitionSign =
     props.canSign &&
     payload.status === 'draft' &&
@@ -662,7 +727,7 @@ export function SupplyRequestDetailsPage(props: {
       {
         code: 'arrived_at',
         defaultOrder: 26,
-        label: 'Дата поступления деталей на завод',
+        label: 'Дата поступления товаров на завод',
         value: toInputDate(payload.arrivedAt ?? null),
         render: (
           <Input
@@ -717,6 +782,10 @@ export function SupplyRequestDetailsPage(props: {
     uiDefs,
   );
   const orderedPrintRows = mainFields.map((f) => [f.label, String(f.value ?? '')] as [string, string]);
+  const rightHeaderStyle: React.CSSProperties = { textAlign: 'right' };
+  const rightCellStyle: React.CSSProperties = { textAlign: 'right', whiteSpace: 'nowrap' };
+  const compactInputStyle: React.CSSProperties = { padding: '6px 8px', boxShadow: 'none' };
+  const numericInputStyle: React.CSSProperties = { ...compactInputStyle, textAlign: 'right' };
 
   return (
     <div>
@@ -890,27 +959,38 @@ export function SupplyRequestDetailsPage(props: {
       </SectionCard>
 
       <div style={{ marginTop: 14 }}>
-        <h2 style={{ margin: '8px 0' }}>Список деталей</h2>
+        <h2 style={{ margin: '8px 0' }}>Список товаров</h2>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <div style={{ flex: 1, color: 'var(--subtle)' }}>
-            Позиции заявки: наименование, заказано, пришло фактически, недовезли.
+            Товары заявки выровнены по колонкам: сначала основное наименование, справа фиксированные поля количества, единицы, примечания и поставки.
           </div>
         </div>
 
-        <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
-          <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="list-table-wrap list-table-wrap--single">
+          <table className="list-table list-table--single-mode work-order-table supply-request-items-table">
+            <colgroup>
+              {props.canEdit ? <col style={{ width: 74 }} /> : null}
+              <col style={{ width: 54 }} />
+              <col />
+              <col style={{ width: 124 }} />
+              <col style={{ width: 132 }} />
+              <col style={{ width: 220 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 178 }} />
+            </colgroup>
             <thead>
-              <tr style={{ background: 'var(--button-primary-bg)', color: 'var(--button-primary-text)' }}>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6, width: 34 }} />
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>№</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Наименование</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Заказано</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Ед.</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Примечание</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Пришло фактически</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }}>Недовезли</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', padding: 6 }} />
+              <tr>
+                {props.canEdit && <th style={{ textAlign: 'center' }}>Порядок</th>}
+                <th style={{ textAlign: 'left' }}>№</th>
+                <th style={{ textAlign: 'left' }}>Товар</th>
+                <th style={rightHeaderStyle}>Заказано</th>
+                <th style={{ textAlign: 'left' }}>Ед.</th>
+                <th style={{ textAlign: 'left' }}>Примечание</th>
+                <th style={rightHeaderStyle}>Пришло</th>
+                <th style={rightHeaderStyle}>Недовезли</th>
+                <th style={{ textAlign: 'center' }}>Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -924,73 +1004,39 @@ export function SupplyRequestDetailsPage(props: {
                     ? props.onOpenProduct
                     : null;
                 return (
-                  <React.Fragment key={idx}>
+                  <React.Fragment key={itemRowKeysRef.current[idx] ?? `supply-request-item-${idx}`}>
                     <tr
-                      onDragOver={(e) => {
-                        if (!props.canEdit) return;
-                        e.preventDefault();
-                      }}
-                      onDrop={(e) => {
-                        if (!props.canEdit) return;
-                        e.preventDefault();
-                        const from =
-                          dragFromIdx.current ??
-                          (() => {
-                            try {
-                              const raw = e.dataTransfer.getData('text/plain');
-                              const n = Number(raw);
-                              return Number.isFinite(n) ? n : null;
-                            } catch {
-                              return null;
-                            }
-                          })();
-                        if (from == null) return;
-                        const to = idx;
-                        if (from === to) return;
-                        const items = [...(payload.items ?? [])];
-                        if (!items[from] || !items[to]) return;
-                        const [moved] = items.splice(from, 1);
-                        if (!moved) return;
-                        items.splice(to, 0, moved);
-                        const renum = items.map((x, i) => ({ ...ensureItem(x, i + 1), lineNo: i + 1 }));
-                        scheduleSave({ ...payload, items: renum });
-                      }}
+                      style={expandedLine === idx ? { background: 'var(--list-row-bg-hover)' } : undefined}
                     >
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 34 }}>
-                        <span
-                          title="Перетащить строку"
-                          draggable={props.canEdit}
-                          onDragStart={(e) => {
-                            if (!props.canEdit) return;
-                            dragFromIdx.current = idx;
-                            try {
-                              e.dataTransfer.effectAllowed = 'move';
-                              e.dataTransfer.setData('text/plain', String(idx));
-                            } catch {
-                              // ignore
-                            }
-                          }}
-                          onDragEnd={() => {
-                            dragFromIdx.current = null;
-                          }}
-                          style={{
-                            cursor: props.canEdit ? 'grab' : 'default',
-                            userSelect: 'none',
-                            display: 'inline-block',
-                            padding: '2px 6px',
-                            borderRadius: 0,
-                            border: '1px solid var(--border)',
-                            color: 'var(--muted)',
-                            background: 'var(--surface)',
-                            fontSize: 12,
-                          }}
-                        >
-                          ⠿
-                        </span>
-                      </td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>{idx + 1}</td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+                      {props.canEdit && (
+                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'inline-flex', gap: 4 }}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={idx === 0}
+                              title="Поднять строку выше"
+                              onClick={() => moveRequestItem(idx, idx - 1)}
+                            >
+                              ↑
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={idx === (payload.items?.length ?? 0) - 1}
+                              title="Опустить строку ниже"
+                              onClick={() => moveRequestItem(idx, idx + 1)}
+                            >
+                              ↓
+                            </Button>
+                          </div>
+                        </td>
+                      )}
+                      <td>{idx + 1}</td>
+                      <td>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
                           <SearchSelectWithCreate
                             value={it.productId ?? ''}
                             options={productOptions}
@@ -1063,7 +1109,7 @@ export function SupplyRequestDetailsPage(props: {
                           )}
                         </div>
                       </td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 110 }}>
+                      <td style={rightCellStyle}>
                         <Input
                           type="number"
                           step={1}
@@ -1076,10 +1122,10 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...ensureItem(items[idx], idx + 1), qty: Number.isFinite(n) ? n : 0 };
                             scheduleSave({ ...payload, items });
                           }}
-                          style={{ padding: '6px 8px', boxShadow: 'none' }}
+                          style={numericInputStyle}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 160 }}>
+                      <td>
                         <SearchSelectWithCreate
                           value={unitOptions.find((o) => o.label === String(it.unit ?? ''))?.id ?? null}
                           options={unitOptions}
@@ -1106,7 +1152,7 @@ export function SupplyRequestDetailsPage(props: {
                           }}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6 }}>
+                      <td>
                         <Input
                           value={String(it.note ?? '')}
                           disabled={!props.canEdit}
@@ -1115,10 +1161,10 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...ensureItem(items[idx], idx + 1), note: e.target.value };
                             scheduleSave({ ...payload, items });
                           }}
-                          style={{ padding: '6px 8px', boxShadow: 'none' }}
+                          style={compactInputStyle}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 110 }}>
+                      <td style={rightCellStyle}>
                         <Input
                           type="number"
                           step={1}
@@ -1134,14 +1180,15 @@ export function SupplyRequestDetailsPage(props: {
                             items[idx] = { ...cur, deliveries: qty > 0 ? [{ deliveredAt, qty, note: '' }] : [] };
                             scheduleSave({ ...payload, items });
                           }}
-                          style={{ padding: '6px 8px', boxShadow: 'none' }}
+                          style={numericInputStyle}
                         />
                       </td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 86 }}>{remaining}</td>
-                      <td style={{ borderBottom: '1px solid var(--border)', padding: 6, width: 210 }}>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                      <td style={rightCellStyle}>{remaining}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                           <Button
                             variant="ghost"
+                            size="sm"
                             onClick={() => setExpandedLine((v) => (v === idx ? null : idx))}
                           >
                             Поставки
@@ -1149,12 +1196,9 @@ export function SupplyRequestDetailsPage(props: {
                           {props.canEdit && (
                             <Button
                               variant="ghost"
+                              size="sm"
                               onClick={() => {
-                                const items = [...(payload.items ?? [])];
-                                items.splice(idx, 1);
-                                const renum = items.map((x, i) => ({ ...ensureItem(x, i + 1), lineNo: i + 1 }));
-                                scheduleSave({ ...payload, items: renum });
-                                setExpandedLine((v) => (v === idx ? null : v));
+                                removeRequestItem(idx);
                               }}
                             >
                               Удалить
@@ -1165,7 +1209,7 @@ export function SupplyRequestDetailsPage(props: {
                     </tr>
                     {expandedLine === idx && (
                       <tr>
-                        <td colSpan={9} style={{ padding: 10, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                        <td colSpan={props.canEdit ? 9 : 8} style={{ padding: 10, background: 'var(--surface-2)' }}>
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
                             <div style={{ fontWeight: 700 }}>Фактические поставки</div>
                             <div style={{ flex: 1 }} />
@@ -1192,7 +1236,7 @@ export function SupplyRequestDetailsPage(props: {
                               key={di}
                               style={{
                                 display: 'grid',
-                                gridTemplateColumns: '160px 120px 1fr 120px',
+                                gridTemplateColumns: props.canEdit ? '160px 120px 1fr auto' : '160px 120px 1fr',
                                 gap: 10,
                                 alignItems: 'center',
                                 marginBottom: 6,
@@ -1212,7 +1256,7 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                style={{ padding: '6px 8px', boxShadow: 'none' }}
+                                style={compactInputStyle}
                               />
                               <Input
                                 type="number"
@@ -1229,7 +1273,7 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                style={{ padding: '6px 8px', boxShadow: 'none' }}
+                                style={numericInputStyle}
                               />
                               <Input
                                 value={String(d.note ?? '')}
@@ -1242,23 +1286,31 @@ export function SupplyRequestDetailsPage(props: {
                                   items[idx] = { ...cur, deliveries };
                                   scheduleSave({ ...payload, items });
                                 }}
-                                style={{ padding: '6px 8px', boxShadow: 'none' }}
+                                style={compactInputStyle}
                                 placeholder="Примечание…"
                               />
                               {props.canEdit ? (
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => {
-                                    const items = [...(payload.items ?? [])];
-                                    const cur = ensureItem(items[idx], idx + 1);
-                                    const deliveries = [...(cur.deliveries ?? [])];
-                                    deliveries.splice(di, 1);
-                                    items[idx] = { ...cur, deliveries };
-                                    scheduleSave({ ...payload, items });
-                                  }}
-                                >
-                                  Удалить
-                                </Button>
+                                <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                  <RowReorderButtons
+                                    canMoveUp={di > 0}
+                                    canMoveDown={di < (it.deliveries?.length ?? 0) - 1}
+                                    onMoveUp={() => moveDelivery(idx, di, di - 1)}
+                                    onMoveDown={() => moveDelivery(idx, di, di + 1)}
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                      const items = [...(payload.items ?? [])];
+                                      const cur = ensureItem(items[idx], idx + 1);
+                                      const deliveries = [...(cur.deliveries ?? [])];
+                                      deliveries.splice(di, 1);
+                                      items[idx] = { ...cur, deliveries };
+                                      scheduleSave({ ...payload, items });
+                                    }}
+                                  >
+                                    Удалить
+                                  </Button>
+                                </div>
                               ) : (
                                 <div />
                               )}
@@ -1273,8 +1325,8 @@ export function SupplyRequestDetailsPage(props: {
 
               {(payload.items ?? []).length === 0 && (
                 <tr>
-                  <td style={{ padding: 12, color: 'var(--subtle)' }} colSpan={8}>
-                    Позиции не добавлены
+                  <td style={{ padding: 12, color: 'var(--subtle)' }} colSpan={props.canEdit ? 9 : 8}>
+                    Товары не добавлены
                   </td>
                 </tr>
               )}
@@ -1296,10 +1348,11 @@ export function SupplyRequestDetailsPage(props: {
                   note: '',
                   deliveries: [],
                 };
+                itemRowKeysRef.current = [...itemRowKeysRef.current, makeRowKey()];
                 scheduleSave({ ...payload, items: [...(payload.items ?? []), nextItem] });
               }}
             >
-              Добавить позицию
+              Добавить товар
             </Button>
           </div>
         )}

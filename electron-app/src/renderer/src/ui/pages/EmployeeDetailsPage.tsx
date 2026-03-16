@@ -9,6 +9,7 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
@@ -17,6 +18,7 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
@@ -312,6 +314,11 @@ export function EmployeeDetailsPage(props: {
   useEffect(() => {
     void loadEmployee();
   }, [props.employeeId]);
+
+  function moveTransfer(from: number, to: number) {
+    dirtyRef.current = true;
+    setTransfers((prev) => moveArrayItem(prev, from, to));
+  }
 
   useEffect(() => {
     void loadDepartments();
@@ -1372,23 +1379,33 @@ export function EmployeeDetailsPage(props: {
       <SectionCard title="Переводы" style={{ border: '1px solid var(--border)' }}>
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
           {transfers.length === 0 && <div style={{ color: 'var(--subtle)' }}>Переводов нет</div>}
-          {transfers.map((t) => (
-            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
+          {transfers.map((t, idx) => (
+            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: props.canEdit ? 'repeat(auto-fit, minmax(min(160px, 100%), 1fr)) auto' : 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
               <div style={{ color: 'var(--text)' }}>{t.kind === 'department' ? 'Подразделение' : 'Должность'}</div>
               <div style={{ color: 'var(--subtle)' }}>{t.date ? formatMoscowDate(t.date) : '—'}</div>
               <div style={{ color: 'var(--text)' }}>{t.value || '—'}</div>
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  if (!props.canEdit) return;
-                  const next = transfers.filter((x) => x.id !== t.id);
-                  dirtyRef.current = true;
-                  setTransfers(next);
-                }}
-                disabled={!props.canEdit}
-              >
-                Удалить
-              </Button>
+              {props.canEdit ? (
+                <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  <RowReorderButtons
+                    canMoveUp={idx > 0}
+                    canMoveDown={idx < transfers.length - 1}
+                    onMoveUp={() => moveTransfer(idx, idx - 1)}
+                    onMoveDown={() => moveTransfer(idx, idx + 1)}
+                  />
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      if (!props.canEdit) return;
+                      const next = transfers.filter((x) => x.id !== t.id);
+                      dirtyRef.current = true;
+                      setTransfers(next);
+                    }}
+                    disabled={!props.canEdit}
+                  >
+                    Удалить
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

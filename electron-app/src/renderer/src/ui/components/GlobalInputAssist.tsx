@@ -331,7 +331,6 @@ export function GlobalInputAssist(props: { storageKey: string }) {
         setPopup(null);
         return;
       }
-      selectAll(target);
       if (isPickerField(target)) {
         setPopup(null);
         openPicker(target);

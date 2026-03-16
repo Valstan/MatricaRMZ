@@ -8,11 +8,13 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { FormField } from '../components/FormField.js';
 import { FormGrid } from '../components/FormGrid.js';
 import { Input } from '../components/Input.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { listAllParts } from '../utils/partsPagination.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -584,6 +586,31 @@ export function WorkOrderDetailsPage(props: {
     patch({ ...payload, workGroups });
   }
 
+  function moveCrewMember(from: number, to: number) {
+    if (!payload) return;
+    patch({ ...payload, crew: moveArrayItem(payload.crew, from, to) });
+  }
+
+  function moveWorkGroup(from: number, to: number) {
+    if (!payload) return;
+    patch({ ...payload, workGroups: moveArrayItem(payload.workGroups, from, to) });
+  }
+
+  function moveGroupLine(groupIdx: number, from: number, to: number) {
+    updateGroup(groupIdx, (current) => ({
+      ...current,
+      lines: moveArrayItem(current.lines, from, to).map((line, idx) => ({ ...line, lineNo: idx + 1 })),
+    }));
+  }
+
+  function moveFreeWorkLine(from: number, to: number) {
+    if (!payload) return;
+    patch({
+      ...payload,
+      freeWorks: moveArrayItem(payload.freeWorks, from, to).map((line, idx) => ({ ...line, lineNo: idx + 1 })),
+    });
+  }
+
   function addWorkGroup() {
     if (!payload) return;
     patch({
@@ -717,7 +744,7 @@ export function WorkOrderDetailsPage(props: {
             <col style={{ width: 130 }} />
             <col style={{ width: 190 }} />
             <col style={{ width: 140 }} />
-            {props.canEdit ? <col style={{ width: 90 }} /> : null}
+            {props.canEdit ? <col style={{ width: 160 }} /> : null}
           </colgroup>
           <thead>
             <tr>
@@ -828,9 +855,17 @@ export function WorkOrderDetailsPage(props: {
                 </td>
                 {props.canEdit && (
                   <td style={{ textAlign: 'center' }}>
-                    <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
-                      Удалить
-                    </Button>
+                    <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                      <RowReorderButtons
+                        canMoveUp={idx > 0}
+                        canMoveDown={idx < payload.crew.length - 1}
+                        onMoveUp={() => moveCrewMember(idx, idx - 1)}
+                        onMoveDown={() => moveCrewMember(idx, idx + 1)}
+                      />
+                      <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
+                        Удалить
+                      </Button>
+                    </div>
                   </td>
                 )}
               </tr>
@@ -915,7 +950,7 @@ export function WorkOrderDetailsPage(props: {
             const groupServiceOptions = serviceOptionsForPart(group.partId);
             return (
               <div key={group.groupId} style={{ border: '1px solid var(--border)', padding: 10, display: 'grid', gap: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto auto', gap: 8, alignItems: 'center' }}>
                   <SearchSelectWithCreate
                     value={group.partId}
                     options={partOptions}
@@ -956,6 +991,16 @@ export function WorkOrderDetailsPage(props: {
                     <span />
                   )}
                   {props.canEdit ? (
+                    <RowReorderButtons
+                      canMoveUp={groupIdx > 0}
+                      canMoveDown={groupIdx < payload.workGroups.length - 1}
+                      onMoveUp={() => moveWorkGroup(groupIdx, groupIdx - 1)}
+                      onMoveDown={() => moveWorkGroup(groupIdx, groupIdx + 1)}
+                    />
+                  ) : (
+                    <span />
+                  )}
+                  {props.canEdit ? (
                     <Button
                       variant="ghost"
                       style={{ color: 'var(--danger)' }}
@@ -981,7 +1026,7 @@ export function WorkOrderDetailsPage(props: {
                       <col style={{ width: 120 }} />
                       <col style={{ width: 150 }} />
                       <col style={{ width: 150 }} />
-                      {props.canEdit ? <col style={{ width: 90 }} /> : null}
+                      {props.canEdit ? <col style={{ width: 160 }} /> : null}
                     </colgroup>
                     <thead>
                       <tr>
@@ -1070,18 +1115,26 @@ export function WorkOrderDetailsPage(props: {
                           <td style={rightCellStyle}>{money(line.amountRub ?? 0)}</td>
                           {props.canEdit && (
                             <td style={{ textAlign: 'center' }}>
-                              <Button
-                                variant="ghost"
-                                style={{ color: 'var(--danger)' }}
-                                onClick={() =>
-                                  updateGroup(groupIdx, (current) => ({
-                                    ...current,
-                                    lines: current.lines.filter((_, idx) => idx !== lineIdx),
-                                  }))
-                                }
-                              >
-                                Удалить
-                              </Button>
+                              <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                <RowReorderButtons
+                                  canMoveUp={lineIdx > 0}
+                                  canMoveDown={lineIdx < group.lines.length - 1}
+                                  onMoveUp={() => moveGroupLine(groupIdx, lineIdx, lineIdx - 1)}
+                                  onMoveDown={() => moveGroupLine(groupIdx, lineIdx, lineIdx + 1)}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  style={{ color: 'var(--danger)' }}
+                                  onClick={() =>
+                                    updateGroup(groupIdx, (current) => ({
+                                      ...current,
+                                      lines: current.lines.filter((_, idx) => idx !== lineIdx),
+                                    }))
+                                  }
+                                >
+                                  Удалить
+                                </Button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -1134,7 +1187,7 @@ export function WorkOrderDetailsPage(props: {
               <col style={{ width: 120 }} />
               <col style={{ width: 150 }} />
               <col style={{ width: 150 }} />
-              {props.canEdit ? <col style={{ width: 90 }} /> : null}
+              {props.canEdit ? <col style={{ width: 160 }} /> : null}
             </colgroup>
             <thead>
               <tr>
@@ -1215,9 +1268,17 @@ export function WorkOrderDetailsPage(props: {
                   <td style={rightCellStyle}>{money(line.amountRub ?? 0)}</td>
                   {props.canEdit && (
                     <td style={{ textAlign: 'center' }}>
-                      <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) })}>
-                        Удалить
-                      </Button>
+                      <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                        <RowReorderButtons
+                          canMoveUp={idx > 0}
+                          canMoveDown={idx < payload.freeWorks.length - 1}
+                          onMoveUp={() => moveFreeWorkLine(idx, idx - 1)}
+                          onMoveDown={() => moveFreeWorkLine(idx, idx + 1)}
+                        />
+                        <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) })}>
+                          Удалить
+                        </Button>
+                      </div>
                     </td>
                   )}
                 </tr>

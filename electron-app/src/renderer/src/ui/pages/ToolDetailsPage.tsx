@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -12,6 +13,7 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 
 type Option = { id: string; label: string };
 type EmployeeOption = Option & { departmentId: string | null };
@@ -215,6 +217,11 @@ export function ToolDetailsPage(props: {
     void refreshMovements();
     void loadOptions();
   }, [props.toolId]);
+
+  function movePropertyRow(from: number, to: number) {
+    const next = moveArrayItem(properties, from, to);
+    void updateProperties(next);
+  }
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -719,16 +726,24 @@ export function ToolDetailsPage(props: {
                 />
               </div>
               {props.canEdit ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    const nextRows = properties.filter((_p, i) => i !== idx);
-                    void updateProperties(nextRows);
-                  }}
-                  style={{ color: 'var(--danger)', justifySelf: compactToolCardLayout ? 'start' : undefined }}
-                >
-                  Удалить
-                </Button>
+                <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', justifySelf: compactToolCardLayout ? 'start' : undefined }}>
+                  <RowReorderButtons
+                    canMoveUp={idx > 0}
+                    canMoveDown={idx < properties.length - 1}
+                    onMoveUp={() => movePropertyRow(idx, idx - 1)}
+                    onMoveDown={() => movePropertyRow(idx, idx + 1)}
+                  />
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      const nextRows = properties.filter((_p, i) => i !== idx);
+                      void updateProperties(nextRows);
+                    }}
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Удалить
+                  </Button>
+                </div>
               ) : (
                 <div />
               )}

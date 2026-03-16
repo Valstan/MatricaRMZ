@@ -9,6 +9,7 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
 import {
   buildLinkTypeOptions,
@@ -27,6 +28,7 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { invalidateListAllPartsCache } from '../utils/partsPagination.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -2142,6 +2144,11 @@ export function PartDetailsPage(props: {
     );
   }
 
+  function moveDimension(from: number, to: number) {
+    dirtyRef.current = true;
+    setDimensions((prev) => moveArrayItem(prev, from, to));
+  }
+
   function printPartCard() {
     if (!part) return;
     const mainRows: Array<[string, string]> = mainFields.map((f) => [f.label, String(f.value ?? '')]);
@@ -2295,7 +2302,7 @@ export function PartDetailsPage(props: {
             {dimensions.length === 0 ? (
               <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Размеры пока не заданы.</div>
             ) : null}
-            {dimensions.map((row) => (
+            {dimensions.map((row, idx) => (
               <div key={row.id} style={{ display: 'grid', gridTemplateColumns: props.canEdit ? '1fr 1fr auto' : '1fr 1fr', gap: 8, alignItems: 'center' }}>
                 <Input
                   value={row.name}
@@ -2316,16 +2323,24 @@ export function PartDetailsPage(props: {
                   }}
                 />
                 {props.canEdit ? (
-                  <Button
-                    variant="ghost"
-                    tone="danger"
-                    onClick={() => {
-                      dirtyRef.current = true;
-                      setDimensions((prev) => prev.filter((item) => item.id !== row.id));
-                    }}
-                  >
-                    Удалить
-                  </Button>
+                  <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <RowReorderButtons
+                      canMoveUp={idx > 0}
+                      canMoveDown={idx < dimensions.length - 1}
+                      onMoveUp={() => moveDimension(idx, idx - 1)}
+                      onMoveDown={() => moveDimension(idx, idx + 1)}
+                    />
+                    <Button
+                      variant="ghost"
+                      tone="danger"
+                      onClick={() => {
+                        dirtyRef.current = true;
+                        setDimensions((prev) => prev.filter((item) => item.id !== row.id));
+                      }}
+                    >
+                      Удалить
+                    </Button>
+                  </div>
                 ) : null}
               </div>
             ))}

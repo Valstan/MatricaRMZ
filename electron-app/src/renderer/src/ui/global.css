@@ -395,6 +395,11 @@ table.list-table.work-order-table td {
   text-overflow: clip;
 }
 
+table.list-table.supply-request-items-table th,
+table.list-table.supply-request-items-table td {
+  vertical-align: top;
+}
+
 table.list-table tbody tr {
   background: var(--list-row-bg);
   color: var(--list-row-text);

@@ -3,8 +3,10 @@ import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocum
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { lookupToSelectOptions, warehouseDocTypeLabel, WAREHOUSE_DOC_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
 type EditableLine = {
@@ -54,6 +56,10 @@ function createEmptyLine(index: number): EditableLine {
     adjustmentQty: '',
     reason: '',
   };
+}
+
+function normalizeLineOrder(lines: EditableLine[]): EditableLine[] {
+  return lines.map((line, index) => ({ ...line, lineNo: index + 1 }));
 }
 
 export function StockDocumentDetailsPage(props: {
@@ -179,6 +185,10 @@ export function StockDocumentDetailsPage(props: {
       }
     }
     return null;
+  }
+
+  function moveLine(from: number, to: number) {
+    setLines((prev) => normalizeLineOrder(moveArrayItem(prev, from, to)));
   }
 
   async function saveDocument() {
@@ -346,7 +356,7 @@ export function StockDocumentDetailsPage(props: {
               {!isInventory ? <th style={{ textAlign: 'left' }}>Кол-во</th> : null}
               <th style={{ textAlign: 'left' }}>Цена</th>
               <th style={{ textAlign: 'left' }}>Причина</th>
-              {canEditDocument ? <th style={{ textAlign: 'left' }}>Действие</th> : null}
+              {canEditDocument ? <th style={{ textAlign: 'center' }}>Действия</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -421,15 +431,21 @@ export function StockDocumentDetailsPage(props: {
                       <Input value={line.reason} disabled={!canEditDocument} onChange={(e) => updateLine(idx, { reason: e.target.value })} placeholder={isWriteoff ? 'Локальная причина / примечание' : 'Примечание'} />
                     </td>
                     {canEditDocument ? (
-                      <td>
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            setLines((prev) => prev.filter((_, lineIndex) => lineIndex !== idx).map((item, lineIndex) => ({ ...item, lineNo: lineIndex + 1 })))
-                          }
-                        >
-                          Удалить
-                        </Button>
+                      <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                          <RowReorderButtons
+                            canMoveUp={idx > 0}
+                            canMoveDown={idx < lines.length - 1}
+                            onMoveUp={() => moveLine(idx, idx - 1)}
+                            onMoveDown={() => moveLine(idx, idx + 1)}
+                          />
+                          <Button
+                            variant="ghost"
+                            onClick={() => setLines((prev) => normalizeLineOrder(prev.filter((_, lineIndex) => lineIndex !== idx)))}
+                          >
+                            Удалить
+                          </Button>
+                        </div>
                       </td>
                     ) : null}
                   </tr>

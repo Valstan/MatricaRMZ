@@ -12,6 +12,7 @@ import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { DataTable } from '../components/DataTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import {
   parseContractSections,
@@ -37,6 +38,7 @@ import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.j
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartsCache, listAllParts } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 
@@ -334,6 +336,10 @@ function SectionBlock(props: {
     update({ engineBrands: next });
   };
 
+  const moveEngineBrand = (from: number, to: number) => {
+    update({ engineBrands: moveArrayItem(section.engineBrands, from, to) });
+  };
+
   const updateEngineBrand = (idx: number, patch: Partial<ContractEngineBrandRow>) => {
     const next = [...section.engineBrands];
     const current = next[idx] ?? { engineBrandId: '', qty: 1, unitPrice: 0 };
@@ -354,6 +360,10 @@ function SectionBlock(props: {
   const removePart = (idx: number) => {
     const next = section.parts.filter((_, i) => i !== idx);
     update({ parts: next });
+  };
+
+  const movePart = (from: number, to: number) => {
+    update({ parts: moveArrayItem(section.parts, from, to) });
   };
 
   const updatePart = (idx: number, patch: Partial<ContractPartRow>) => {
@@ -464,7 +474,7 @@ function SectionBlock(props: {
                 <col style={{ width: 110 }} />
                 <col style={{ width: 130 }} />
                 <col style={{ width: 140 }} />
-                {canEdit && <col style={{ width: 44 }} />}
+                {canEdit && <col style={{ width: 124 }} />}
               </colgroup>
               <thead>
                 <tr>
@@ -472,7 +482,7 @@ function SectionBlock(props: {
                   <th className="num">Кол-во</th>
                   <th className="num">Цена</th>
                   <th className="num">Сумма</th>
-                  {canEdit && <th style={{ width: 40 }} />}
+                  {canEdit && <th style={{ textAlign: 'center', width: 120 }}>Действия</th>}
                 </tr>
               </thead>
               <tbody>
@@ -528,10 +538,18 @@ function SectionBlock(props: {
                         {formatRuNumber(rowSum(row.qty, row.unitPrice))}
                       </td>
                       {canEdit && (
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                          <Button variant="ghost" tone="danger" size="sm" onClick={() => removeEngineBrand(idx)}>
-                            ×
-                          </Button>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
+                          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                            <RowReorderButtons
+                              canMoveUp={idx > 0}
+                              canMoveDown={idx < section.engineBrands.length - 1}
+                              onMoveUp={() => moveEngineBrand(idx, idx - 1)}
+                              onMoveDown={() => moveEngineBrand(idx, idx + 1)}
+                            />
+                            <Button variant="ghost" tone="danger" size="sm" onClick={() => removeEngineBrand(idx)}>
+                              ×
+                            </Button>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -563,7 +581,7 @@ function SectionBlock(props: {
                 <col style={{ width: 110 }} />
                 <col style={{ width: 130 }} />
                 <col style={{ width: 140 }} />
-                {canEdit && <col style={{ width: 44 }} />}
+                {canEdit && <col style={{ width: 124 }} />}
               </colgroup>
               <thead>
                 <tr>
@@ -571,7 +589,7 @@ function SectionBlock(props: {
                   <th className="num">Кол-во</th>
                   <th className="num">Цена</th>
                   <th className="num">Сумма</th>
-                  {canEdit && <th style={{ width: 40 }} />}
+                  {canEdit && <th style={{ textAlign: 'center', width: 120 }}>Действия</th>}
                 </tr>
               </thead>
               <tbody>
@@ -627,10 +645,18 @@ function SectionBlock(props: {
                         {formatRuNumber(rowSum(row.qty, row.unitPrice))}
                       </td>
                       {canEdit && (
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                          <Button variant="ghost" tone="danger" size="sm" onClick={() => removePart(idx)}>
-                            ×
-                          </Button>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
+                          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                            <RowReorderButtons
+                              canMoveUp={idx > 0}
+                              canMoveDown={idx < section.parts.length - 1}
+                              onMoveUp={() => movePart(idx, idx - 1)}
+                              onMoveDown={() => movePart(idx, idx + 1)}
+                            />
+                            <Button variant="ghost" tone="danger" size="sm" onClick={() => removePart(idx)}>
+                              ×
+                            </Button>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -964,6 +990,11 @@ export function ContractDetailsPage(props: {
   function removeExecutionPart(idx: number) {
     dirtyRef.current = true;
     setExecutionParts((current) => current.filter((_, rowIdx) => rowIdx !== idx));
+  }
+
+  function moveExecutionPart(from: number, to: number) {
+    dirtyRef.current = true;
+    setExecutionParts((current) => moveArrayItem(current, from, to));
   }
 
   function addExecutionPartRow(partId: string) {
@@ -1405,14 +1436,14 @@ export function ContractDetailsPage(props: {
                     <col />
                     <col style={{ width: 120 }} />
                     <col style={{ width: 140 }} />
-                    {props.canEdit && <col style={{ width: 44 }} />}
+                    {props.canEdit && <col style={{ width: 124 }} />}
                   </colgroup>
                   <thead>
                     <tr>
                       <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Деталь</th>
                       <th className="num">План</th>
                       <th className="num">Исполнено</th>
-                      {props.canEdit && <th style={{ width: 40 }} />}
+                      {props.canEdit && <th style={{ textAlign: 'center', width: 120 }}>Действия</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1452,10 +1483,18 @@ export function ContractDetailsPage(props: {
                             />
                           </td>
                           {props.canEdit && (
-                            <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                              <Button variant="ghost" tone="danger" size="sm" onClick={() => removeExecutionPart(idx)}>
-                                ×
-                              </Button>
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
+                              <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                <RowReorderButtons
+                                  canMoveUp={idx > 0}
+                                  canMoveDown={idx < executionParts.length - 1}
+                                  onMoveUp={() => moveExecutionPart(idx, idx - 1)}
+                                  onMoveDown={() => moveExecutionPart(idx, idx + 1)}
+                                />
+                                <Button variant="ghost" tone="danger" size="sm" onClick={() => removeExecutionPart(idx)}>
+                                  ×
+                                </Button>
+                              </div>
                             </td>
                           )}
                         </tr>

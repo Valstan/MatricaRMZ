@@ -172,16 +172,6 @@ export function AttachmentsPanel(props: {
     }
   }
 
-  async function onDrop(e: React.DragEvent) {
-    if (!props.canUpload) return;
-    e.preventDefault();
-    // В Electron drag&drop не дает доступ к path, поэтому используем диалог
-    const pickResult = await window.matrica.files.pick();
-    if (pickResult.ok && pickResult.paths) {
-      await addFromPaths(pickResult.paths);
-    }
-  }
-
   async function toggleObsoleteFlag(fileId: string, nextObsolete: boolean) {
     if (!props.canUpload) return;
     try {
@@ -221,11 +211,6 @@ export function AttachmentsPanel(props: {
   return (
     <div
       style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}
-      onDragOver={(e) => {
-        if (!props.canUpload) return;
-        e.preventDefault();
-      }}
-      onDrop={onDrop}
     >
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <strong>{props.title ?? 'Вложения'}</strong>
@@ -448,7 +433,7 @@ export function AttachmentsPanel(props: {
               <tr>
                 <td colSpan={4} style={{ padding: 12, color: '#6b7280' }}>
                   {list.length === 0
-                    ? `Нет вложений. ${props.canUpload ? 'Перетащите файл сюда или нажмите “Добавить файл”.' : ''}`
+                    ? `Нет вложений. ${props.canUpload ? 'Нажмите “Добавить файл”, чтобы прикрепить документ.' : ''}`
                     : 'По выбранному фильтру файлы не найдены.'}
                 </td>
               </tr>
