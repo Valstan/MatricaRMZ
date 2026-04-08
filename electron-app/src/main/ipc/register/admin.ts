@@ -17,6 +17,7 @@ import {
 import {
   createEntity,
   detachIncomingLinksAndSoftDeleteEntity,
+  findDuplicateEntities,
   getEntityDetails,
   getIncomingLinksForEntity,
   listEntitiesByType,
@@ -158,6 +159,14 @@ export function registerAdminIpc(ctx: IpcContext) {
     if (!gate.ok) return gate;
     return setEntityAttribute(ctx.dataDb(), entityId, code, value);
   });
+  ipcMain.handle(
+    'admin:entities:findDuplicates',
+    async (_e, args: { entityTypeId: string; query: { name?: string; article?: string; price?: number }; excludeEntityId?: string }) => {
+      const gate = await requirePermOrResult(ctx, 'masterdata.view');
+      if (!gate.ok) return [];
+      return findDuplicateEntities(ctx.dataDb(), args.entityTypeId, args.query, args.excludeEntityId);
+    },
+  );
   ipcMain.handle('admin:entities:deleteInfo', async (_e, entityId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     const gate = await requirePermOrResult(ctx, 'masterdata.edit');

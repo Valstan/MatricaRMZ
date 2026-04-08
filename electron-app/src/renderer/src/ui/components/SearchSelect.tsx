@@ -1,15 +1,33 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 import { buildLookupHighlightParts, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
 
 export type SearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
 
+type SourceLabel = 'database' | 'current' | 'autocomplete';
+
 function formatCreateError(error: unknown): string {
   const raw = String(error ?? '').trim();
   if (!raw) return 'Не удалось создать элемент';
   return raw.replace(/^Error:\s*/i, '').trim() || 'Не удалось создать элемент';
 }
+
+function sourceBadge(label: SourceLabel): React.ReactNode {
+  const styles: Record<SourceLabel, React.CSSProperties> = {
+    database: { fontSize: 10, color: '#6b7280', background: '#f3f4f6', padding: '1px 5px', borderRadius: 4 },
+    current: { fontSize: 10, color: '#2563eb', background: '#dbeafe', padding: '1px 5px', borderRadius: 4 },
+    autocomplete: { fontSize: 10, color: '#059669', background: '#d1fae5', padding: '1px 5px', borderRadius: 4 },
+  };
+  const text: Record<SourceLabel, string> = {
+    database: 'БД',
+    current: 'Текущее',
+    autocomplete: 'Авто',
+  };
+  return <span style={styles[label]}>{text[label]}</span>;
+}
+
+const MAX_VISIBLE = 5;
 
 export function SearchSelect(props: {
   value: string | null;
@@ -32,15 +50,29 @@ export function SearchSelect(props: {
     if (!props.value) return null;
     return props.options.find((o) => o.id === props.value) ?? null;
   }, [props.options, props.value]);
+
   const normalizedQuery = useMemo(() => normalizeLookupText(dropdown.query), [dropdown.query]);
+
+  // Ранжированные результаты — максимум MAX_VISIBLE без прокрутки
   const similarMatches = useMemo(() => {
     if (!normalizedQuery) return [];
-    return rankLookupOptions(props.options, normalizedQuery).slice(0, 5);
+    return rankLookupOptions(props.options, normalizedQuery).slice(0, MAX_VISIBLE);
   }, [normalizedQuery, props.options]);
+
   const exactMatch = useMemo(
     () => props.options.find((option) => normalizeLookupText(option.label) === normalizedQuery) ?? null,
     [normalizedQuery, props.options],
   );
+
+  // Объединённый список для отображения (max 5, без прокрутки)
+  const visibleItems = useMemo(() => {
+    // Если есть exactMatch — показываем его первым
+    if (exactMatch) {
+      return [{ option: exactMatch, source: 'current' as SourceLabel }];
+    }
+    // Иначе — top ranked из БД
+    return similarMatches.map((o) => ({ option: o, source: 'database' as SourceLabel }));
+  }, [exactMatch, similarMatches]);
 
   function setQuery(next: string) {
     dropdown.setQuery(next);
@@ -55,10 +87,10 @@ export function SearchSelect(props: {
   }
 
   function pickByIndex(idx: number) {
-    const o = dropdown.filtered[idx];
-    if (!o) return;
-    props.onChange(o.id);
-    close(o.label);
+    const item = visibleItems[idx];
+    if (!item) return;
+    props.onChange(item.option.id);
+    close(item.option.label);
   }
 
   useEffect(() => {
@@ -79,6 +111,12 @@ export function SearchSelect(props: {
       props.query !== undefined ? props.query : String(dropdown.query ?? '').trim() ? dropdown.query : (selected?.label ?? '');
     if (dropdown.query !== next) dropdown.setQuery(next);
   }, [dropdown.open, dropdown.query, props.query, selected?.label]);
+
+  // Сброс activeIdx при изменении видимых элементов
+  useEffect(() => {
+    if (!dropdown.open) return;
+    dropdown.setActiveIdx(visibleItems.length > 0 ? 0 : -1);
+  }, [visibleItems.length, dropdown.open]);
 
   async function submitCreate() {
     if (!props.onCreate || createBusy) return;
@@ -106,6 +144,38 @@ export function SearchSelect(props: {
     close(label);
   }
 
+  // Обработка клавиш для видимых элементов
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!dropdown.open) { dropdown.setOpen(true); return; }
+      if (visibleItems.length === 0) return;
+      dropdown.setActiveIdx((p) => (p < 0 ? 0 : Math.min(visibleItems.length - 1, p + 1)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!dropdown.open) { dropdown.setOpen(true); return; }
+      if (visibleItems.length === 0) return;
+      dropdown.setActiveIdx((p) => (p <= 0 ? 0 : p - 1));
+    } else if (e.key === 'Enter') {
+      if (!dropdown.open) return;
+      e.preventDefault();
+      if (e.ctrlKey && props.onCreate && dropdown.query.trim()) {
+        void submitCreate();
+      } else if (dropdown.activeIdx >= 0 && dropdown.activeIdx < visibleItems.length) {
+        pickByIndex(dropdown.activeIdx);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  }, [disabled, dropdown, visibleItems.length, props.onCreate, exactMatch]);
+
+  // Рассчитываем высоту попапа: ~42px на элемент + ~52px на кнопку создания
+  const itemsHeight = visibleItems.length * 42;
+  const createBtnHeight = props.onCreate ? 52 : 0;
+  const totalPopupHeight = itemsHeight + createBtnHeight;
+
   return (
     <div ref={dropdown.rootRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', minWidth: 0 }}>
@@ -115,50 +185,10 @@ export function SearchSelect(props: {
           value={dropdown.query}
           placeholder={props.placeholder ?? '(не выбрано)'}
           disabled={disabled}
-          onFocus={() => {
-            if (disabled) return;
-            dropdown.setOpen(true);
-          }}
-          onClick={() => {
-            if (disabled) return;
-            dropdown.setOpen(true);
-          }}
-          onChange={(e) => {
-            if (disabled) return;
-            if (!dropdown.open) dropdown.setOpen(true);
-            setQuery(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (disabled) return;
-            if (e.key === 'ArrowDown') {
-              e.preventDefault();
-              if (!dropdown.open) {
-                dropdown.setOpen(true);
-                return;
-              }
-              if (!dropdown.filtered.length) return;
-              dropdown.setActiveIdx((p) => (p < 0 ? 0 : Math.min(dropdown.filtered.length - 1, p + 1)));
-            } else if (e.key === 'ArrowUp') {
-              e.preventDefault();
-              if (!dropdown.open) {
-                dropdown.setOpen(true);
-                return;
-              }
-              if (!dropdown.filtered.length) return;
-              dropdown.setActiveIdx((p) => (p <= 0 ? 0 : p - 1));
-            } else if (e.key === 'Enter') {
-              if (!dropdown.open) return;
-              e.preventDefault();
-              if (e.ctrlKey && props.onCreate && dropdown.query.trim()) {
-                void submitCreate();
-              } else if (dropdown.activeIdx >= 0) {
-                pickByIndex(dropdown.activeIdx);
-              }
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              close();
-            }
-          }}
+          onFocus={() => { if (disabled) return; dropdown.setOpen(true); }}
+          onClick={() => { if (disabled) return; dropdown.setOpen(true); }}
+          onChange={(e) => { if (disabled) return; if (!dropdown.open) dropdown.setOpen(true); setQuery(e.target.value); }}
+          onKeyDown={handleKeyDown}
           style={{
             flex: 1,
             minWidth: 0,
@@ -176,11 +206,7 @@ export function SearchSelect(props: {
         {!disabled && (
           <button
             type="button"
-            onClick={() => {
-              props.onChange(null);
-              props.onQueryChange?.('');
-              close('');
-            }}
+            onClick={() => { props.onChange(null); props.onQueryChange?.(''); close(''); }}
             style={{
               flexShrink: 0,
               padding: '8px 10px',
@@ -208,137 +234,125 @@ export function SearchSelect(props: {
                 left: dropdown.popupRect.left,
                 top: dropdown.popupRect.top,
                 width: dropdown.popupRect.width,
+                // Фиксированная высота — без прокрутки
+                height: Math.min(totalPopupHeight, dropdown.popupRect.maxHeight),
                 zIndex: 5000,
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 borderRadius: 12,
                 boxShadow: 'var(--chat-menu-shadow)',
                 overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
               }}
             >
-              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight, overflowY: 'auto' }}>
-                {dropdown.filtered.length === 0 && <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>}
-                {dropdown.filtered.map((o, idx) => {
-                  const active = props.value === o.id;
+              {/* Список подсказок — без прокрутки, max 5 */}
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                {visibleItems.length === 0 && !props.onCreate && (
+                  <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>
+                )}
+                {visibleItems.map((item, idx) => {
+                  const { option, source } = item;
+                  const active = props.value === option.id;
                   const focused = dropdown.activeIdx === idx;
-                  const highlightParts = buildLookupHighlightParts(o.label, dropdown.query);
-                  const hintParts = o.hintText ? buildLookupHighlightParts(o.hintText, dropdown.query) : null;
+                  const highlightParts = buildLookupHighlightParts(option.label, dropdown.query);
+                  const hintParts = option.hintText ? buildLookupHighlightParts(option.hintText, dropdown.query) : null;
                   return (
                     <div
-                      key={o.id}
+                      key={option.id}
                       data-idx={idx}
-                      onClick={() => {
-                        props.onChange(o.id);
-                        close(o.label);
-                      }}
-                      onMouseEnter={() => {
-                        dropdown.setActiveIdx(idx);
-                      }}
+                      onClick={() => { props.onChange(option.id); close(option.label); }}
+                      onMouseEnter={() => dropdown.setActiveIdx(idx)}
                       style={{
-                        padding: '10px 12px',
+                        padding: '8px 12px',
                         cursor: 'pointer',
-                        borderBottom: '1px solid var(--border)',
+                        borderBottom: props.onCreate ? '1px solid var(--border)' : 'none',
                         background: focused ? 'rgba(96, 165, 250, 0.18)' : active ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        minHeight: 38,
                       }}
                     >
-                      <div style={{ fontWeight: 700, color: 'var(--text)' }}>
-                        {highlightParts.map((part, partIdx) => (
-                          <span
-                            key={`${o.id}-part-${partIdx}`}
-                            style={part.matched ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
-                          >
-                            {part.text}
-                          </span>
-                        ))}
-                      </div>
-                      {hintParts && hintParts.some((part) => part.text) ? (
-                        <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)' }}>
-                          {hintParts.map((part, partIdx) => (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {highlightParts.map((part, partIdx) => (
                             <span
-                              key={`${o.id}-hint-${partIdx}`}
-                              style={part.matched ? { background: 'rgba(250, 204, 21, 0.2)', borderRadius: 3 } : undefined}
+                              key={`${option.id}-part-${partIdx}`}
+                              style={part.matched ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
                             >
                               {part.text}
                             </span>
                           ))}
                         </div>
-                      ) : null}
+                        {hintParts && hintParts.some((part) => part.text) ? (
+                          <div style={{ marginTop: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {hintParts.map((part, partIdx) => (
+                              <span
+                                key={`${option.id}-hint-${partIdx}`}
+                                style={part.matched ? { background: 'rgba(250, 204, 21, 0.2)', borderRadius: 3 } : undefined}
+                              >
+                                {part.text}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      {sourceBadge(source)}
                     </div>
                   );
                 })}
-                {props.onCreate && (
-                  <div style={{ borderTop: '1px dashed var(--border)', padding: '10px 12px' }}>
-                    <button
-                      type="button"
-                      onClick={() => void submitCreate()}
-                      disabled={createBusy || !dropdown.query.trim() || !!exactMatch}
-                      style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        border: '1px solid var(--input-border)',
-                        background: 'var(--input-bg)',
-                        color: 'var(--text)',
-                        cursor: createBusy ? 'default' : 'pointer',
-                      }}
-                    >
-                      {createBusy ? 'Создание…' : '+Создать и Вставить (Ctrl+Enter)'}
-                    </button>
-                    {exactMatch ? (
-                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--warning, #b45309)' }}>
-                        Такой элемент уже есть.
-                        <button
-                          type="button"
-                          onClick={() => {
-                            props.onChange(exactMatch.id);
-                            close(exactMatch.label);
-                          }}
-                          style={{
-                            marginLeft: 8,
-                            border: 'none',
-                            background: 'transparent',
-                            color: 'var(--accent, #2563eb)',
-                            cursor: 'pointer',
-                            padding: 0,
-                          }}
-                        >
-                          Выбрать: {exactMatch.label}
-                        </button>
-                      </div>
-                    ) : null}
-                    {!exactMatch && similarMatches.length > 0 ? (
-                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 4 }}>
-                        <div>Похожие варианты:</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {similarMatches.map((option) => (
-                            <button
-                              key={`suggestion-${option.id}`}
-                              type="button"
-                              onClick={() => {
-                                props.onChange(option.id);
-                                close(option.label);
-                              }}
-                              style={{
-                                border: '1px solid var(--border)',
-                                background: 'var(--surface2)',
-                                padding: '2px 6px',
-                                fontSize: 12,
-                                color: 'var(--text)',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {createError ? <div style={{ marginTop: 6, fontSize: 12, color: 'var(--danger)' }}>{createError}</div> : null}
-                    {props.createLabel && <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>{props.createLabel}</div>}
-                  </div>
-                )}
               </div>
+
+              {/* Кнопка «+Создать и Вставить» — закреплена внизу, всегда видна */}
+              {props.onCreate && (
+                <div style={{ borderTop: '1px dashed var(--border)', padding: '8px 10px', flexShrink: 0, background: 'var(--surface)' }}>
+                  <button
+                    type="button"
+                    onClick={() => void submitCreate()}
+                    disabled={createBusy || !dropdown.query.trim() || !!exactMatch}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: '1px solid var(--input-border)',
+                      background: (!dropdown.query.trim() || exactMatch) ? 'var(--surface2)' : 'var(--input-bg)',
+                      color: (!dropdown.query.trim() || exactMatch) ? 'var(--muted)' : 'var(--text)',
+                      cursor: createBusy || !dropdown.query.trim() || exactMatch ? 'default' : 'pointer',
+                      fontSize: 13,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {createBusy ? 'Создание…' : !dropdown.query.trim() ? 'Введите название и нажмите Ctrl+Enter' : '+Создать и Вставить (Ctrl+Enter)'}
+                  </button>
+                  {exactMatch ? (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--warning, #b45309)' }}>
+                      Такой элемент уже есть.{' '}
+                      <button
+                        type="button"
+                        onClick={() => { props.onChange(exactMatch.id); close(exactMatch.label); }}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: 'var(--accent, #2563eb)',
+                          cursor: 'pointer',
+                          padding: 0,
+                          fontSize: 11,
+                        }}
+                      >
+                        Выбрать: {exactMatch.label}
+                      </button>
+                    </div>
+                  ) : null}
+                  {!exactMatch && createError ? (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--danger)' }}>{createError}</div>
+                  ) : null}
+                  {props.createLabel && !exactMatch && !createError ? (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>{props.createLabel}</div>
+                  ) : null}
+                </div>
+              )}
             </div>,
             document.body,
           )
@@ -346,5 +360,3 @@ export function SearchSelect(props: {
     </div>
   );
 }
-
-

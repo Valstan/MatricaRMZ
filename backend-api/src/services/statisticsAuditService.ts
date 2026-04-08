@@ -206,8 +206,13 @@ async function ingestAuditBatch(batchSize: number, overlapMs: number): Promise<n
 async function recomputeDailySummary(dateValue: Date, cutoffHour: number) {
   const rangeStart = startOfDayMs(dateValue);
   const rangeEnd = dayAtHourMs(dateValue, cutoffHour);
+  // Заглядываем на сутки назад, чтобы захватить сессии, начавшиеся вечером предыдущего дня.
   const sessionFrom = rangeStart - 24 * 60 * 60 * 1000;
   const summaryDate = dayIso(dateValue);
+
+  // Максимальная реалистичная длительность рабочей сессии (14 часов).
+  // Если сессия без stop-события превышает это — обрезаем.
+  const MAX_SESSION_MS = 14 * 60 * 60 * 1000;
 
   const [allRows, sessionRows] = await Promise.all([
     db
@@ -305,6 +310,12 @@ async function recomputeDailySummary(dateValue: Date, cutoffHour: number) {
       return 1;
     });
 
+    // Находим последнее событие активности пользователя за диапазон —
+    // это более реалистичная верхняя граница, чем cutoff-час (21:00).
+    const lastActivityAt = allRows
+      .filter((r) => r.actor.toLowerCase() === key)
+      .reduce((max, r) => Math.max(max, Number(r.createdAt)), 0);
+
     let activeSessions = 0;
     let segmentStart: number | null = null;
     for (const event of events) {
@@ -319,18 +330,33 @@ async function recomputeDailySummary(dateValue: Date, cutoffHour: number) {
           activeSessions -= 1;
           if (activeSessions === 0 && segmentStart != null) {
             const end = Math.min(rangeEnd, event.at);
-            if (end > segmentStart) ensureActor(actor).onlineMs += end - segmentStart;
+            if (end > segmentStart) {
+              const duration = end - segmentStart;
+              // Реалистичный максимум на одну сессию
+              ensureActor(actor).onlineMs += Math.min(duration, MAX_SESSION_MS);
+            }
             segmentStart = null;
           }
         }
       }
     }
+    // Сессия не закрыта (нет app.session.stop).
+    // Вместо rangeEnd (21:00) используем последнюю активность или максимум MAX_SESSION_MS.
     if (segmentStart != null && segmentStart < rangeEnd) {
-      ensureActor(actor).onlineMs += rangeEnd - segmentStart;
+      const effectiveEnd = lastActivityAt > segmentStart
+        ? Math.min(rangeEnd, lastActivityAt + 5 * 60 * 1000) // последняя активность + 5 мин запас
+        : segmentStart + MAX_SESSION_MS;
+      const unclosedDuration = Math.min(effectiveEnd, rangeEnd) - segmentStart;
+      if (unclosedDuration > 0) {
+        ensureActor(actor).onlineMs += Math.min(unclosedDuration, MAX_SESSION_MS);
+      }
     }
   }
 
   for (const payload of byActor.values()) {
+    // Суточный максимум онлайн — 14 часов
+    const MAX_DAILY_ONLINE_MS = 14 * 60 * 60 * 1000;
+    if (payload.onlineMs > MAX_DAILY_ONLINE_MS) payload.onlineMs = MAX_DAILY_ONLINE_MS;
     if (payload.onlineMs < 0) payload.onlineMs = 0;
   }
 

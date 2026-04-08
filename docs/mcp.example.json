@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "vps-matricarmz": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "ssh-mcp",
+        "--host=a6fd55b8e0ae.vps.myjino.ru",
+        "--port=49412",
+        "--user=valstan",
+        "--key=C:\\Users\\<USER>\\.ssh\\id_rsa",
+        "--timeout=120000"
+      ]
+    }
+  }
+}

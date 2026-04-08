@@ -148,17 +148,7 @@ function getProgressBarStyle(row: Row): { style: React.CSSProperties; textColor:
     isOverdue: row.daysLeft != null && row.daysLeft < 0 && !row.isFullyExecuted,
   });
 
-  if (row.daysLeft != null && row.daysLeft < 0 && !row.isFullyExecuted) {
-    const pct = visual.execPct.toFixed(2);
-    return {
-      style: {
-        background: `linear-gradient(to right, rgba(239, 68, 68, 0.85) ${pct}%, rgba(239, 68, 68, 0.18) ${pct}%)`,
-      },
-      textColor: '#fff',
-      hoverable: false,
-    };
-  }
-
+  // Полностью исполнен — синий фон, белый текст
   if (row.isFullyExecuted) {
     return {
       style: { backgroundColor: 'rgba(59, 130, 246, 0.85)' },
@@ -167,18 +157,46 @@ function getProgressBarStyle(row: Row): { style: React.CSSProperties; textColor:
     };
   }
 
-  if (row.progressPct == null || row.dateMs == null || row.dueDateMs == null || row.dueDateMs <= row.dateMs) {
-    return { style: {}, textColor: '#6b7280', hoverable: true };
+  const isOverdue = row.daysLeft != null && row.daysLeft < 0;
+
+  // Контракт ещё не начат (0% исполнения) — белый фон, чёрные или красные буквы
+  if (row.progressPct == null || row.progressPct <= 0) {
+    return {
+      style: { backgroundColor: '#fff' },
+      textColor: isOverdue ? '#dc2626' : '#111827',
+      hoverable: true,
+    };
   }
 
+  // Частично исполнен — градиент: тёмная заполненная часть с белым текстом,
+  // незаполненная часть — белый фон с чёрными/красными буквами.
+  // Используем два слоя: gradient для фона + отдельный подход для текста.
+  // Поскольку текст один на всю ячейку, используем подход:
+  // если прогресс > 70% и лаг >= 30 — весь текст белый на тёмном фоне,
+  // иначе — прогресс-бар с transparent gradient поверх белого фона.
   const pct = visual.execPct.toFixed(2);
-  const textColor = visual.execPct > 70 && (visual.lag ?? 0) >= 30 ? '#fff' : '#374151';
+
+  // Если большая часть уже выполнена — тёмный фон на всю ячейку
+  if (visual.execPct > 70 && (visual.lag ?? 0) >= 30) {
+    return {
+      style: {
+        background: `linear-gradient(to right, ${visual.barColor} ${pct}%, ${visual.barColor}33 ${pct}%)`,
+      },
+      textColor: '#fff',
+      hoverable: false,
+    };
+  }
+
+  // Стандартный случай: прозрачный градиент поверх белого фона
+  // Текст — чёрный (или красный если просрочен) на белой части,
+  // но поскольку текст один — берём цвет для незаполненной части.
   return {
     style: {
-      background: `linear-gradient(to right, ${visual.barColor} ${pct}%, transparent ${pct}%)`,
+      backgroundColor: '#fff',
+      background: `linear-gradient(to right, ${visual.barColor}22 ${pct}%, transparent ${pct}%)`,
     },
-    textColor,
-    hoverable: false,
+    textColor: isOverdue ? '#dc2626' : '#111827',
+    hoverable: true,
   };
 }
 

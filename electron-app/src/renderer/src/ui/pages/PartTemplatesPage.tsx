@@ -87,7 +87,7 @@ export function PartTemplatesPage(props: {
               }
             }}
           >
-            Создать деталь
+            Создать новый шаблон детали
           </Button>
         ) : null}
         <div style={{ flex: 1 }}>

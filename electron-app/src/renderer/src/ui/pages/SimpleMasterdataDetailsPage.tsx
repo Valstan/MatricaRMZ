@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -11,9 +11,10 @@ import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { DuplicateWarningDialog } from '../components/DuplicateWarningDialog.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import type { FileRef } from '@matricarmz/shared';
+import type { DuplicateCandidate, FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { listAllParts } from '../utils/partsPagination.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -57,6 +58,12 @@ export function SimpleMasterdataDetailsPage(props: {
   const [storeTypeId, setStoreTypeId] = useState<string>('');
   const uploadFlow = useFileUploadFlow();
   const dirtyRef = useRef(false);
+
+  // Duplicate detection state
+  const [dupCandidates, setDupCandidates] = useState<DuplicateCandidate[]>([]);
+  const [dupDialogOpen, setDupDialogOpen] = useState(false);
+  const [pendingSaveAction, setPendingSaveAction] = useState<'save' | 'saveAndClose' | null>(null);
+  const dupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function normalizeStringArray(value: unknown): string[] {
     if (Array.isArray(value)) {
@@ -288,6 +295,145 @@ export function SimpleMasterdataDetailsPage(props: {
     }
   }
 
+  // --- Duplicate detection ---
+
+  const checkDuplicates = useCallback(async () => {
+    if (!entityTypeId || !props.canEdit) return;
+    const parsedPrice = price.trim() ? normalizeNumberValue(price) : undefined;
+    const queryName = name.trim();
+    const queryArticle = article.trim();
+    if (!queryName && !queryArticle) {
+      setDupCandidates([]);
+      return;
+    }
+    try {
+      const candidates = await window.matrica.admin.entities.findDuplicates({
+        entityTypeId,
+        query: { name: queryName || undefined, article: queryArticle || undefined, price: parsedPrice },
+        excludeEntityId: props.entityId,
+      });
+      setDupCandidates(candidates);
+    } catch {
+      // ignore errors during duplicate check
+    }
+  }, [entityTypeId, props.canEdit, props.entityId, name, article, price]);
+
+  // Debounced duplicate check on field changes
+  useEffect(() => {
+    if (!entityTypeId) return;
+    if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+    dupTimerRef.current = setTimeout(() => {
+      void checkDuplicates();
+    }, 600);
+    return () => {
+      if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+    };
+  }, [checkDuplicates, entityTypeId]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+    };
+  }, []);
+
+  async function checkDuplicatesBeforeSave(action: 'save' | 'saveAndClose') {
+    if (!entityTypeId) {
+      // No type info, just save
+      if (action === 'saveAndClose') await saveAllAndClose();
+      else await saveAll();
+      return;
+    }
+    // Run check immediately (don't wait for debounce)
+    const parsedPrice = price.trim() ? normalizeNumberValue(price) : undefined;
+    const queryName = name.trim();
+    const queryArticle = article.trim();
+    if (!queryName && !queryArticle) {
+      if (action === 'saveAndClose') await saveAllAndClose();
+      else await saveAll();
+      return;
+    }
+    try {
+      const candidates = await window.matrica.admin.entities.findDuplicates({
+        entityTypeId,
+        query: { name: queryName || undefined, article: queryArticle || undefined, price: parsedPrice },
+        excludeEntityId: props.entityId,
+      });
+      if (candidates.length > 0) {
+        setDupCandidates(candidates);
+        setPendingSaveAction(action);
+        setDupDialogOpen(true);
+        return;
+      }
+    } catch {
+      // ignore, proceed with save
+    }
+    // No duplicates found
+    if (action === 'saveAndClose') await saveAllAndClose();
+    else await saveAll();
+  }
+
+  async function handleDuplicateAction(action: 'cancel' | 'merge' | 'replace' | 'continue', candidateId?: string) {
+    setDupDialogOpen(false);
+    if (action === 'cancel') {
+      setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'merge' && candidateId) {
+      // Merge: copy all non-empty fields from new to existing, then delete new
+      try {
+        setStatus('Объединение…');
+        if (name.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'name', name.trim());
+        if (description.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'description', description.trim());
+        if (shop.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'shop', shop.trim());
+        if (article.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'article', article.trim());
+        if (unit.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'unit', unit.trim());
+        const p = normalizeNumberValue(price);
+        if (p != null) await window.matrica.admin.entities.setAttr(candidateId, 'price', p);
+        if (props.typeCode === 'service' && partIds.length > 0) {
+          await window.matrica.admin.entities.setAttr(candidateId, 'part_ids', partIds);
+        }
+        // Delete the new (empty or partially filled) entity
+        await window.matrica.admin.entities.softDelete(props.entityId);
+        setStatus('Объединено');
+        setTimeout(() => setStatus(''), 1200);
+        dirtyRef.current = false;
+        props.onClose();
+      } catch (e) {
+        setStatus(`Ошибка объединения: ${String(e)}`);
+      }
+      setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'replace' && candidateId) {
+      // Replace: delete old entity, save new data to current (new) entity
+      try {
+        setStatus('Замена…');
+        await window.matrica.admin.entities.softDelete(candidateId);
+        // Now save current entity's data (it already has the right entityId)
+        await saveAll();
+        setStatus('Заменено');
+        setTimeout(() => setStatus(''), 1200);
+        if (pendingSaveAction === 'saveAndClose') {
+          dirtyRef.current = false;
+          props.onClose();
+        }
+      } catch (e) {
+        setStatus(`Ошибка замены: ${String(e)}`);
+      }
+      setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'continue') {
+      // Save as new despite duplicates
+      if (pendingSaveAction === 'saveAndClose') await saveAllAndClose();
+      else await saveAll();
+      setPendingSaveAction(null);
+      return;
+    }
+    setPendingSaveAction(null);
+  }
+
   async function saveAll() {
     if (!props.canEdit) return;
     const errors: string[] = [];
@@ -316,7 +462,7 @@ export function SimpleMasterdataDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
-    await saveAll();
+    await checkDuplicatesBeforeSave('saveAndClose');
   }
 
   async function handleDelete() {
@@ -865,6 +1011,16 @@ export function SimpleMasterdataDetailsPage(props: {
         </SectionCard>
       
       {uploadFlow.renameDialog}
+      <DuplicateWarningDialog
+        open={dupDialogOpen}
+        candidates={dupCandidates}
+        newEntityData={{
+          name: name.trim() || undefined,
+          article: article.trim() || undefined,
+          price: price.trim() ? normalizeNumberValue(price) || undefined : undefined,
+        }}
+        onAction={handleDuplicateAction}
+      />
     </EntityCardShell>
   );
 }

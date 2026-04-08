@@ -5,8 +5,6 @@ import type { WorkOrderPayload, WorkOrderWorkGroup, WorkOrderWorkLine } from '@m
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
-import { FormField } from '../components/FormField.js';
-import { FormGrid } from '../components/FormGrid.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -914,33 +912,45 @@ export function WorkOrderDetailsPage(props: {
         ) : undefined
       }
     >
-      <SectionCard title="Основные реквизиты">
-        <FormGrid columns="repeat(auto-fit, minmax(min(260px, 100%), 1fr))" gap={10}>
-          <FormField label="Номер наряда" compact>
-            <Input value={String(payload.workOrderNumber)} disabled style={amountInputStyle} />
-          </FormField>
-          <FormField label="Дата наряда" compact>
-            <Input
-              type="date"
-              value={toInputDate(payload.orderDate)}
-              disabled={!props.canEdit}
-              onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
-            />
-          </FormField>
-        </FormGrid>
-      </SectionCard>
-
-      <SectionCard title="Итоги">
-        <FormGrid columns="repeat(auto-fit, minmax(min(260px, 100%), 1fr))" gap={10}>
-          <FormField label="Итог по наряду" compact>
-            <Input value={money(payload.totalAmountRub)} disabled style={amountInputStyle} />
-          </FormField>
-          <FormField label="База на человека" compact>
-            <Input value={money(payload.basePerWorkerRub)} disabled style={amountInputStyle} />
-          </FormField>
-        </FormGrid>
-        {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)', fontSize: 12 }}>{status}</div> : null}
-      </SectionCard>
+      {/* Реквизиты и итоги — одна компактная строка */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 16,
+        alignItems: 'center',
+        padding: '8px 12px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        marginBottom: 12,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>№</span>
+          <Input value={String(payload.workOrderNumber)} disabled style={{ ...amountInputStyle, width: 60 }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата</span>
+          <Input
+            type="date"
+            value={toInputDate(payload.orderDate)}
+            disabled={!props.canEdit}
+            onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
+            style={{ width: 150 }}
+          />
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Итог</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{money(payload.totalAmountRub)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>База/чел</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{money(payload.basePerWorkerRub)}</span>
+        </div>
+      </div>
+      {status && !status.startsWith('Сохранено') ? (
+        <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)', fontSize: 12, marginBottom: 8 }}>{status}</div>
+      ) : null}
 
       {crewSection}
 

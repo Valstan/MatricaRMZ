@@ -58,6 +58,7 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
   const { defs, byCode } = await getDefsByType(db, entityTypeId);
   const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
   const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
+  const priceDefId = byCode['price'] ?? null;
   const defIds = defs.map((d) => String(d.id));
   const entityIds = rows.map((row) => String(row.id));
 
@@ -99,6 +100,8 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
       .filter(Boolean)
       .join(' ')
       .trim();
+    const priceValue = priceDefId != null ? entityValues[priceDefId] : undefined;
+    const price = priceValue != null ? Number(priceValue) : undefined;
 
     out.push({
       id: entityId,
@@ -107,6 +110,7 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
       syncStatus: String(e.syncStatus),
       ...(displayName != null ? { displayName } : {}),
       ...(searchText ? { searchText } : {}),
+      ...(price != null && Number.isFinite(price) ? { price } : {}),
     });
   }
   // newest first
@@ -307,6 +311,144 @@ export async function getIncomingLinksForEntity(db: BetterSQLite3Database, entit
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+function normalizeLookupText(raw: string): string {
+  return String(raw)
+    .toLowerCase()
+    .trim()
+    .replace(/ё/g, 'е')
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .replace(/\s+/g, ' ');
+}
+
+function scoreLookupMatch(normalizedQuery: string, normalizedTarget: string): number {
+  if (!normalizedQuery || !normalizedTarget) return 0;
+  if (normalizedQuery === normalizedTarget) return 1000;
+  if (normalizedTarget.startsWith(normalizedQuery)) return 700 + Math.round((normalizedQuery.length / Math.max(1, normalizedTarget.length)) * 300);
+  if (normalizedTarget.includes(normalizedQuery)) return 500 + Math.round((normalizedQuery.length / Math.max(1, normalizedTarget.length)) * 200);
+  let qi = 0;
+  let matched = 0;
+  for (let ti = 0; ti < normalizedTarget.length && qi < normalizedQuery.length; ti++) {
+    if (normalizedQuery[qi] === normalizedTarget[ti]) { matched++; qi++; }
+  }
+  if (qi === 0) return 0;
+  const coverage = matched / normalizedQuery.length;
+  if (coverage >= 0.6) return Math.round(200 + coverage * 160);
+  return 0;
+}
+
+export type DuplicateCandidate = {
+  id: string;
+  displayName: string;
+  score: number;
+  attributes: Record<string, unknown>;
+};
+
+export async function findDuplicateEntities(
+  db: BetterSQLite3Database,
+  entityTypeId: string,
+  query: { name?: string; article?: string; price?: number },
+  excludeEntityId?: string,
+): Promise<DuplicateCandidate[]> {
+  const name = (query.name ?? '').trim();
+  const article = (query.article ?? '').trim();
+  const price = query.price;
+
+  if (!name && !article) return [];
+
+  const { byCode } = await getDefsByType(db, entityTypeId);
+  const nameDefId = byCode['name'] ?? null;
+  const articleDefId = byCode['article'] ?? null;
+  const priceDefId = byCode['price'] ?? null;
+
+  const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
+  const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
+
+  const relevantDefIds = [nameDefId, articleDefId, priceDefId].filter(Boolean) as string[];
+  if (relevantDefIds.length === 0) return [];
+
+  const allEntities = await db
+    .select()
+    .from(entities)
+    .where(and(eq(entities.typeId, entityTypeId), isNull(entities.deletedAt)))
+    .limit(5000);
+
+  if (allEntities.length === 0) return [];
+
+  const targetEntityIds = allEntities.map((e) => String(e.id)).filter((id) => id !== excludeEntityId);
+  if (targetEntityIds.length === 0) return [];
+
+  const valueRows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, targetEntityIds as any),
+        inArray(attributeValues.attributeDefId, relevantDefIds as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(50_000);
+
+  const valuesByEntity: Record<string, Record<string, unknown>> = {};
+  for (const row of valueRows as any[]) {
+    const entityId = String(row.entityId);
+    const defId = String(row.attributeDefId);
+    if (!valuesByEntity[entityId]) valuesByEntity[entityId] = {};
+    valuesByEntity[entityId][defId] = row.valueJson ? safeJsonParse(String(row.valueJson)) : null;
+  }
+
+  const normalizedQueryName = normalizeLookupText(name);
+  const normalizedQueryArticle = normalizeLookupText(article);
+
+  const candidates: DuplicateCandidate[] = [];
+
+  for (const e of allEntities) {
+    const entityId = String(e.id);
+    if (entityId === excludeEntityId) continue;
+
+    const entityValues = valuesByEntity[entityId] ?? {};
+    const labelDef = labelDefId != null ? entityValues[labelDefId] : null;
+    const displayName = labelDef != null && labelDef !== '' ? String(labelDef) : '(без названия)';
+
+    let score = 0;
+
+    if (nameDefId && entityValues[nameDefId] != null) {
+      const existingName = normalizeLookupText(String(entityValues[nameDefId]));
+      const nameScore = scoreLookupMatch(normalizedQueryName, existingName);
+      if (nameScore > 0) score = Math.max(score, nameScore);
+    }
+
+    if (articleDefId && article && entityValues[articleDefId] != null) {
+      const existingArticle = normalizeLookupText(String(entityValues[articleDefId]));
+      const articleScore = scoreLookupMatch(normalizedQueryArticle, existingArticle);
+      if (articleScore > 0) score = Math.max(score, Math.round((score + articleScore) / 2));
+      else if (score > 0) score = Math.round(score * 0.85);
+    }
+
+    if (priceDefId && price != null && entityValues[priceDefId] != null) {
+      const existingPrice = Number(entityValues[priceDefId]);
+      if (Number.isFinite(existingPrice) && Math.abs(existingPrice - price) < 0.01 && score > 0) {
+        score = Math.min(1000, score + 50);
+      }
+    }
+
+    if (score >= 300) {
+      const attrs: Record<string, unknown> = {};
+      if (nameDefId && entityValues[nameDefId] != null) attrs.name = entityValues[nameDefId];
+      if (articleDefId && entityValues[articleDefId] != null) attrs.article = entityValues[articleDefId];
+      if (priceDefId && entityValues[priceDefId] != null) attrs.price = entityValues[priceDefId];
+
+      candidates.push({ id: entityId, displayName, score, attributes: attrs });
+    }
+  }
+
+  return candidates.sort((a, b) => b.score - a.score).slice(0, 10);
 }
 
 export async function detachIncomingLinksAndSoftDeleteEntity(db: BetterSQLite3Database, entityId: string): Promise<{ ok: true; detached: number } | { ok: false; error: string }> {

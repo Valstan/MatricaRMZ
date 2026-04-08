@@ -39,22 +39,27 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
       const viewportW = window.innerWidth;
       const viewportH = window.innerHeight;
       const width = Math.min(rect.width, Math.max(160, viewportW - padding * 2));
-      const popupHeight = popupRef.current?.getBoundingClientRect().height ?? 300;
 
       let left = rect.left;
       if (left + width > viewportW - padding) left = viewportW - padding - width;
       if (left < padding) left = padding;
 
+      // Рассчитываем доступное пространство сверху и снизу
       const spaceBelow = Math.max(0, viewportH - rect.bottom - gap - padding);
       const spaceAbove = Math.max(0, rect.top - gap - padding);
-      const preferTop = spaceBelow < Math.min(220, popupHeight) && spaceAbove > spaceBelow;
-      const maxHeight = Math.max(120, Math.min(320, preferTop ? spaceAbove : spaceBelow));
-      const shownHeight = Math.min(popupHeight, maxHeight);
-      let top = preferTop ? rect.top - shownHeight - gap : rect.bottom + gap;
-      if (top < padding) top = padding;
-      if (top + shownHeight > viewportH - padding) top = viewportH - padding - shownHeight;
 
-      setPopupRect({ left, top, width, maxHeight });
+      // Если внизу мало места (< 200px), а сверху больше — показываем наверху
+      const preferTop = spaceBelow < 200 && spaceAbove > spaceBelow;
+
+      // Высота попапа фиксированная (задаётся из SearchSelect), но ограничиваем viewport
+      const maxAvailable = preferTop ? spaceAbove : spaceBelow;
+      let top = preferTop ? rect.top - gap : rect.bottom + gap;
+
+      // Ограничиваем в пределах viewport
+      if (top < padding) top = padding;
+      const effectiveMaxHeight = Math.max(120, maxAvailable);
+
+      setPopupRect({ left, top, width, maxHeight: effectiveMaxHeight });
     };
     update();
     rafId = requestAnimationFrame(update);

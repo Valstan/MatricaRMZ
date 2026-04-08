@@ -39,6 +39,14 @@ export type EntityListItem = {
   syncStatus: string;
   displayName?: string;
   searchText?: string;
+  price?: number;
+};
+
+export type DuplicateCandidate = {
+  id: string;
+  displayName: string;
+  score: number;
+  attributes: Record<string, unknown>;
 };
 
 export type EntityDetails = {
@@ -813,6 +821,7 @@ export type MatricaApi = {
       create: (entityTypeId: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       get: (id: string) => Promise<EntityDetails>;
       setAttr: (entityId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
+      findDuplicates: (args: { entityTypeId: string; query: { name?: string; article?: string; price?: number }; excludeEntityId?: string }) => Promise<DuplicateCandidate[]>;
       deleteInfo: (entityId: string) => Promise<EntityDeleteInfoResult>;
       detachLinksAndDelete: (entityId: string) => Promise<EntityDetachLinksAndDeleteResult>;
       softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
