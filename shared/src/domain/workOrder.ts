@@ -15,6 +15,12 @@ export type WorkOrderWorkLine = {
   qty: number;
   priceRub: number;
   amountRub: number;
+  // Дополнительные поля наряда
+  productNumber?: string;
+  engineId?: string | null;
+  engineNumber?: string;
+  engineBrandId?: string | null;
+  engineBrandName?: string;
 };
 
 export type WorkOrderAuditTrailItem = {

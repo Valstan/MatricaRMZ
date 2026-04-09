@@ -13,9 +13,8 @@ import type { SearchSelectOption } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
-import { listAllParts } from '../utils/partsPagination.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
-import { buildSearchOption, joinOptionHint, joinOptionSearch, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
+import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
 type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[] };
@@ -26,7 +25,7 @@ type EmployeeInfo = {
   departmentName?: string | null;
   position?: string | null;
 };
-type PartInfo = { id: string; name?: string; article?: string; templateName?: string };
+type EngineInfo = { id: string; engineNumber?: string; engineBrandId?: string | null; engineBrandName?: string };
 
 function normalizeLookupValue(value: string): string {
   return String(value || '')
@@ -35,15 +34,6 @@ function normalizeLookupValue(value: string): string {
     .replaceAll(/[^a-z0-9а-я\s_-]+/gi, ' ')
     .replaceAll(/\s+/g, ' ')
     .trim();
-}
-
-function partDisplayName(part: PartInfo | null | undefined): string {
-  if (!part) return '';
-  const direct = String(part.name ?? '').trim();
-  if (direct) return direct;
-  const article = String(part.article ?? '').trim();
-  if (article) return article;
-  return String(part.id ?? '').trim();
 }
 
 function toInputDate(ms: number | null | undefined) {
@@ -107,6 +97,11 @@ function normalizeLine(line: any, lineNo: number): WorkOrderWorkLine {
     qty,
     priceRub,
     amountRub: fromCents(toCents(qty * priceRub)),
+    productNumber: line?.productNumber ? String(line.productNumber) : undefined,
+    engineId: line?.engineId ? String(line.engineId) : null,
+    engineNumber: line?.engineNumber ? String(line.engineNumber) : undefined,
+    engineBrandId: line?.engineBrandId ? String(line.engineBrandId) : null,
+    engineBrandName: line?.engineBrandName ? String(line.engineBrandName) : undefined,
   };
 }
 
@@ -148,10 +143,6 @@ function distributeByKtu(
 
   for (const row of weighted) payoutsCents[row.index] = row.floor;
   return payoutsCents.map(fromCents);
-}
-
-function makeId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function recalcLocally(payload: WorkOrderPayload): WorkOrderPayload {
@@ -255,7 +246,7 @@ export function WorkOrderDetailsPage(props: {
   const [status, setStatus] = useState('');
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
-  const [parts, setParts] = useState<PartInfo[]>([]);
+  const [engines, setEngines] = useState<EngineInfo[]>([]);
   const dirtyRef = useRef(false);
 
   useEffect(() => {
@@ -316,14 +307,24 @@ export function WorkOrderDetailsPage(props: {
       }),
     [employees],
   );
-  const partOptions: LinkOpt[] = useMemo(() => mapPartRowsToSearchOptions(parts), [parts]);
+  const engineOptions: LinkOpt[] = useMemo(
+    () =>
+      engines.map((e) => {
+        const hint = joinOptionHint([e.engineNumber, e.engineBrandName]);
+        const search = joinOptionSearch([e.engineNumber || '', e.id, e.engineBrandName || '']);
+        return buildSearchOption({
+          id: e.id,
+          label: e.engineNumber || e.id,
+          ...(hint ? { hintText: hint } : {}),
+          ...(search ? { searchText: search } : {}),
+        });
+      }),
+    [engines],
+  );
 
   async function loadRefs() {
     try {
-      const [emps, partRes] = await Promise.all([
-        window.matrica.employees.list().catch(() => [] as any[]),
-        listAllParts(),
-      ]);
+      const emps = await window.matrica.employees.list().catch(() => [] as any[]);
       setEmployees(
         (emps as any[]).map((x) => ({
           id: String(x.id),
@@ -333,12 +334,6 @@ export function WorkOrderDetailsPage(props: {
           position: x.position ? String(x.position) : null,
         })),
       );
-      setParts((partRes.ok ? partRes.parts : []).map((p: any) => ({
-        id: String(p.id),
-        ...(p.name ? { name: String(p.name) } : {}),
-        ...(p.article ? { article: String(p.article) } : {}),
-        ...(p.templateName ? { templateName: String(p.templateName) } : {}),
-      })));
 
       const et = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
       const serviceType = (et as any[]).find((x) => String(x.code) === 'service');
@@ -361,10 +356,23 @@ export function WorkOrderDetailsPage(props: {
         }),
       );
       setServices(details.filter((x) => x.name.trim().length > 0));
+
+      // Загрузка двигателей
+      const engineList = await window.matrica.engines.list().catch(() => [] as any[]);
+      const engineInfo = (engineList as any[]).map((e) => {
+        const attrs = e?.attributes ?? {};
+        return {
+          id: String(e.id),
+          engineNumber: String(attrs.engine_number ?? ''),
+          engineBrandId: attrs.engine_brand_id ? String(attrs.engine_brand_id) : null,
+          engineBrandName: String(attrs.engine_brand ?? ''),
+        } as EngineInfo;
+      });
+      setEngines(engineInfo);
     } catch {
       setServices([]);
       setEmployees([]);
-      setParts([]);
+      setEngines([]);
     }
   }
 
@@ -429,24 +437,6 @@ export function WorkOrderDetailsPage(props: {
     setPayload(normalized);
   }
 
-  function servicesForPart(partId: string | null): ServiceInfo[] {
-    if (!partId) return [];
-    return services.filter((service) => service.partIds.length === 0 || service.partIds.includes(partId));
-  }
-
-  function serviceOptionsForPart(partId: string | null): LinkOpt[] {
-    return servicesForPart(partId).map((service) => {
-      const hint = joinOptionHint([service.unit && `Ед. ${service.unit}`, `Цена ${money(service.priceRub)}`]);
-      const search = joinOptionSearch([service.name, service.id, service.unit, service.priceRub, ...service.partIds]);
-      return buildSearchOption({
-        id: service.id,
-        label: `${service.name} (${service.unit || 'ед.'}, ${money(service.priceRub)})`,
-        ...(hint ? { hintText: hint } : {}),
-        ...(search ? { searchText: search } : {}),
-      });
-    });
-  }
-
   function findExistingServiceByLabel(label: string, partId: string | null): ServiceInfo | null {
     const key = normalizeLookupValue(label);
     if (!key) return null;
@@ -484,18 +474,6 @@ export function WorkOrderDetailsPage(props: {
     );
   }
 
-  function buildLineFromService(service: ServiceInfo, lineNo: number): WorkOrderWorkLine {
-    return {
-      lineNo,
-      serviceId: service.id,
-      serviceName: service.name,
-      unit: service.unit,
-      qty: 1,
-      priceRub: service.priceRub,
-      amountRub: fromCents(toCents(service.priceRub)),
-    };
-  }
-
   async function createServiceFromWorkOrder(label: string, partId: string | null): Promise<string | null> {
     if (!props.canEditMasterData) return null;
     const clean = label.trim();
@@ -523,32 +501,7 @@ export function WorkOrderDetailsPage(props: {
     if (partId) {
       await window.matrica.admin.entities.setAttr(created.id, 'part_ids', [partId]);
     }
-    const nextService: ServiceInfo = {
-      id: created.id,
-      name: clean,
-      unit: 'шт',
-      priceRub: 0,
-      partIds: partId ? [partId] : [],
-    };
-    setServices((prev) => [...prev, nextService].sort((a, b) => a.name.localeCompare(b.name, 'ru')));
     return created.id;
-  }
-
-  async function createPartFromWorkOrder(label: string): Promise<string | null> {
-    if (props.canCreateParts !== true) return null;
-    const clean = label.trim();
-    if (!clean) return null;
-    const created = await window.matrica.parts.create({ attributes: { name: clean } });
-    if (!created?.ok || !created?.part?.id) {
-      const err = !created?.ok && created && 'error' in created ? (created as { error: string }).error : 'unknown';
-      setStatus(`Ошибка создания детали: ${err}`);
-      return null;
-    }
-    const id = String(created.part.id);
-    setParts((prev) =>
-      [...prev, { id, name: clean }].sort((a, b) => partDisplayName(a).localeCompare(partDisplayName(b), 'ru')),
-    );
-    return id;
   }
 
   async function createEmployeeFromWorkOrder(label: string): Promise<string | null> {
@@ -578,27 +531,9 @@ export function WorkOrderDetailsPage(props: {
     return created.id;
   }
 
-  function updateGroup(groupIdx: number, updater: (group: WorkOrderWorkGroup) => WorkOrderWorkGroup) {
-    if (!payload) return;
-    const workGroups = payload.workGroups.map((group, idx) => (idx === groupIdx ? updater(group) : group));
-    patch({ ...payload, workGroups });
-  }
-
   function moveCrewMember(from: number, to: number) {
     if (!payload) return;
     patch({ ...payload, crew: moveArrayItem(payload.crew, from, to) });
-  }
-
-  function moveWorkGroup(from: number, to: number) {
-    if (!payload) return;
-    patch({ ...payload, workGroups: moveArrayItem(payload.workGroups, from, to) });
-  }
-
-  function moveGroupLine(groupIdx: number, from: number, to: number) {
-    updateGroup(groupIdx, (current) => ({
-      ...current,
-      lines: moveArrayItem(current.lines, from, to).map((line, idx) => ({ ...line, lineNo: idx + 1 })),
-    }));
   }
 
   function moveFreeWorkLine(from: number, to: number) {
@@ -609,19 +544,11 @@ export function WorkOrderDetailsPage(props: {
     });
   }
 
-  function addWorkGroup() {
-    if (!payload) return;
-    patch({
-      ...payload,
-      workGroups: [...payload.workGroups, { groupId: makeId('work-group'), partId: null, partName: '', lines: [] }],
-    });
-  }
-
   function addFreeWorkLine() {
     if (!payload) return;
     patch({
       ...payload,
-      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0 }],
+      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: null, engineNumber: '', engineBrandId: null, engineBrandName: '' }],
     });
   }
 
@@ -636,26 +563,17 @@ export function WorkOrderDetailsPage(props: {
 
     const linesTable = (lines: WorkOrderWorkLine[]) =>
       lines.length
-        ? `<table><thead><tr><th>Вид работ</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${lines
+        ? `<table><thead><tr><th>Вид работ</th><th>№ изделия</th><th>Двигатель</th><th>Марка</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${lines
             .map(
               (line) =>
-                `<tr><td>${escapeHtml(line.serviceName || '—')}</td><td>${escapeHtml(String(line.qty ?? 0))}</td><td>${escapeHtml(
+                `<tr><td>${escapeHtml(line.serviceName || '—')}</td><td>${escapeHtml(line.productNumber || '—')}</td><td>${escapeHtml(
+                  line.engineNumber || '—',
+                )}</td><td>${escapeHtml(line.engineBrandName || '—')}</td><td>${escapeHtml(String(line.qty ?? 0))}</td><td>${escapeHtml(
                   line.unit || '—',
                 )}</td><td>${escapeHtml(money(line.priceRub ?? 0))}</td><td>${escapeHtml(money(line.amountRub ?? 0))}</td></tr>`,
             )
             .join('')}</tbody></table>`
         : `<div class="muted">Нет данных</div>`;
-
-    const groupsHtml = current.workGroups.length
-      ? current.workGroups
-          .map(
-            (group, idx) =>
-              `<div style="margin:0 0 12px;"><div style="font-weight:700;margin-bottom:6px;">${escapeHtml(
-                `Изделие ${idx + 1}: ${group.partName || 'Без названия'}`,
-              )}</div>${linesTable(group.lines)}</div>`,
-          )
-          .join('')
-      : `<div class="muted">Нет данных</div>`;
 
     const crewHtml = current.crew.length
       ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Выплата</th><th>Заморозка</th></tr></thead><tbody>${current.crew
@@ -683,8 +601,7 @@ export function WorkOrderDetailsPage(props: {
           ]),
         },
         { id: 'crew', title: 'Бригада и выплаты', html: crewHtml },
-        { id: 'groups', title: 'Работы по изделиям', html: groupsHtml },
-        { id: 'free', title: 'Работы без привязки к изделию', html: linesTable(current.freeWorks) },
+        { id: 'works', title: 'Виды работ', html: linesTable(current.freeWorks) },
       ],
     });
   }
@@ -954,254 +871,26 @@ export function WorkOrderDetailsPage(props: {
 
       {crewSection}
 
-      <SectionCard className="entity-card-span-full" title="Работы по изделиям">
-        <div style={{ display: 'grid', gap: 10 }}>
-          {payload.workGroups.map((group, groupIdx) => {
-            const groupServiceOptions = serviceOptionsForPart(group.partId);
-            return (
-              <div key={group.groupId} style={{ border: '1px solid var(--border)', padding: 10, display: 'grid', gap: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto auto', gap: 8, alignItems: 'center' }}>
-                  <SearchSelectWithCreate
-                    value={group.partId}
-                    options={partOptions}
-                    disabled={!props.canEdit}
-                    canCreate={props.canCreateParts === true}
-                    createLabel="Новая деталь"
-                    onChange={(next) => {
-                      const part = parts.find((x) => x.id === next);
-                      updateGroup(groupIdx, (current) => {
-                        if (!part) return { ...current, partId: null, partName: '', lines: [] };
-                        const linkedServices = servicesForPart(part.id);
-                        return {
-                          ...current,
-                          partId: part.id,
-                          partName: partDisplayName(part),
-                          lines: linkedServices.map((service, idx) => buildLineFromService(service, idx + 1)),
-                        };
-                      });
-                    }}
-                    onCreate={async (label) => {
-                      const createdId = await createPartFromWorkOrder(label);
-                      if (!createdId) return null;
-                      updateGroup(groupIdx, (current) => ({
-                        ...current,
-                        partId: createdId,
-                        partName: label.trim(),
-                        lines: [],
-                      }));
-                      return createdId;
-                    }}
-                    placeholder="Выберите изделие"
-                  />
-                  {group.partId && props.onOpenPart ? (
-                    <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenPart?.(group.partId as string)}>
-                      Открыть
-                    </Button>
-                  ) : (
-                    <span />
-                  )}
-                  {props.canEdit ? (
-                    <RowReorderButtons
-                      canMoveUp={groupIdx > 0}
-                      canMoveDown={groupIdx < payload.workGroups.length - 1}
-                      onMoveUp={() => moveWorkGroup(groupIdx, groupIdx - 1)}
-                      onMoveDown={() => moveWorkGroup(groupIdx, groupIdx + 1)}
-                    />
-                  ) : (
-                    <span />
-                  )}
-                  {props.canEdit ? (
-                    <Button
-                      variant="ghost"
-                      style={{ color: 'var(--danger)' }}
-                      onClick={() =>
-                        patch({
-                          ...payload,
-                          workGroups: payload.workGroups.filter((_, idx) => idx !== groupIdx),
-                        })
-                      }
-                    >
-                      Удалить блок
-                    </Button>
-                  ) : (
-                    <span />
-                  )}
-                </div>
-
-                <div className="list-table-wrap list-table-wrap--single">
-                  <table className="list-table list-table--single-mode work-order-table">
-                    <colgroup>
-                      <col />
-                      <col style={{ width: 120 }} />
-                      <col style={{ width: 120 }} />
-                      <col style={{ width: 150 }} />
-                      <col style={{ width: 150 }} />
-                      {props.canEdit ? <col style={{ width: 160 }} /> : null}
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th style={{ textAlign: 'left' }}>Вид работ</th>
-                        <th style={{ textAlign: 'right' }}>Кол-во</th>
-                        <th style={{ textAlign: 'right' }}>Ед.</th>
-                        <th style={{ textAlign: 'right' }}>Цена</th>
-                        <th style={{ textAlign: 'right' }}>Сумма</th>
-                        {props.canEdit && <th style={{ textAlign: 'center' }}>Действия</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.lines.map((line, lineIdx) => (
-                        <tr key={`${group.groupId}-line-${lineIdx}`}>
-                          <td>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
-                              <SearchSelectWithCreate
-                                value={line.serviceId}
-                                options={groupServiceOptions}
-                                disabled={!props.canEdit}
-                                canCreate={props.canEditMasterData}
-                                createLabel="Новая услуга"
-                                onChange={(next) =>
-                                  updateGroup(groupIdx, (current) => ({
-                                    ...current,
-                                    lines: applyServiceSnapshotToLines(current.lines, lineIdx, next),
-                                  }))
-                                }
-                                onCreate={async (label) => {
-                                  const createdId = await createServiceFromWorkOrder(label, group.partId);
-                                  if (!createdId) return null;
-                                  updateGroup(groupIdx, (current) => ({
-                                    ...current,
-                                    lines: applyServiceSnapshotToLines(current.lines, lineIdx, createdId),
-                                  }));
-                                  return createdId;
-                                }}
-                                placeholder="Выберите вид работ"
-                              />
-                              {line.serviceId && props.onOpenService ? (
-                                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
-                                  Открыть
-                                </Button>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td style={rightCellStyle}>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min={0}
-                              value={String(line.qty ?? 0)}
-                              style={amountInputStyle}
-                              disabled={!props.canEdit}
-                              onChange={(e) =>
-                                updateGroup(groupIdx, (current) => ({
-                                  ...current,
-                                  lines: current.lines.map((currentLine, idx) =>
-                                    idx === lineIdx ? ({ ...currentLine, qty: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
-                                  ),
-                                }))
-                              }
-                            />
-                          </td>
-                          <td style={rightCellStyle}>
-                            <Input value={line.unit || ''} disabled style={amountInputStyle} />
-                          </td>
-                          <td style={rightCellStyle}>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min={0}
-                              value={String(line.priceRub ?? 0)}
-                              style={amountInputStyle}
-                              disabled={!props.canEdit}
-                              onChange={(e) =>
-                                updateGroup(groupIdx, (current) => ({
-                                  ...current,
-                                  lines: current.lines.map((currentLine, idx) =>
-                                    idx === lineIdx ? ({ ...currentLine, priceRub: safeNum(e.target.value, 0) } as WorkOrderWorkLine) : currentLine,
-                                  ),
-                                }))
-                              }
-                            />
-                          </td>
-                          <td style={rightCellStyle}>{money(line.amountRub ?? 0)}</td>
-                          {props.canEdit && (
-                            <td style={{ textAlign: 'center' }}>
-                              <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                                <RowReorderButtons
-                                  canMoveUp={lineIdx > 0}
-                                  canMoveDown={lineIdx < group.lines.length - 1}
-                                  onMoveUp={() => moveGroupLine(groupIdx, lineIdx, lineIdx - 1)}
-                                  onMoveDown={() => moveGroupLine(groupIdx, lineIdx, lineIdx + 1)}
-                                />
-                                <Button
-                                  variant="ghost"
-                                  style={{ color: 'var(--danger)' }}
-                                  onClick={() =>
-                                    updateGroup(groupIdx, (current) => ({
-                                      ...current,
-                                      lines: current.lines.filter((_, idx) => idx !== lineIdx),
-                                    }))
-                                  }
-                                >
-                                  Удалить
-                                </Button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                      {group.lines.length === 0 && (
-                        <tr>
-                          <td colSpan={props.canEdit ? 6 : 5} style={{ color: 'var(--muted)' }}>
-                            Работы для изделия не добавлены
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                {props.canEdit && (
-                  <div>
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
-                        updateGroup(groupIdx, (current) => ({
-                          ...current,
-                          lines: [...current.lines, { lineNo: current.lines.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0 }],
-                        }))
-                      }
-                    >
-                      + Добавить строку работ
-                    </Button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {payload.workGroups.length === 0 ? <div style={{ color: 'var(--muted)' }}>Блоки работ по изделиям не добавлены</div> : null}
-          {props.canEdit && (
-            <div>
-              <Button variant="ghost" onClick={addWorkGroup}>
-                Добавить работы по изделию +
-              </Button>
-            </div>
-          )}
-        </div>
-      </SectionCard>
-
-      <SectionCard className="entity-card-span-full" title="Работы без привязки к изделию">
+      <SectionCard className="entity-card-span-full" title="Виды работ">
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
-              <col />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 150 }} />
-              <col style={{ width: 150 }} />
-              {props.canEdit ? <col style={{ width: 160 }} /> : null}
+              <col style={{ width: 240 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 110 }} />
+              {props.canEdit ? <col style={{ width: 120 }} /> : null}
             </colgroup>
             <thead>
               <tr>
                 <th style={{ textAlign: 'left' }}>Вид работ</th>
+                <th style={{ textAlign: 'left' }}>Номер изделия</th>
+                <th style={{ textAlign: 'left' }}>Номер двигателя</th>
+                <th style={{ textAlign: 'left' }}>Марка двигателя</th>
                 <th style={{ textAlign: 'right' }}>Кол-во</th>
                 <th style={{ textAlign: 'right' }}>Ед.</th>
                 <th style={{ textAlign: 'right' }}>Цена</th>
@@ -1210,10 +899,12 @@ export function WorkOrderDetailsPage(props: {
               </tr>
             </thead>
             <tbody>
-              {payload.freeWorks.map((line, idx) => (
+              {payload.freeWorks.map((line, idx) => {
+                const engineInfo = engines.find((e) => e.id === line.engineId) || null;
+                return (
                 <tr key={`free-work-line-${idx}`}>
                   <td>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6, alignItems: 'start' }}>
                       <SearchSelectWithCreate
                         value={line.serviceId}
                         options={allServiceOptions}
@@ -1243,6 +934,46 @@ export function WorkOrderDetailsPage(props: {
                         </Button>
                       ) : null}
                     </div>
+                  </td>
+                  <td>
+                    <Input
+                      value={line.productNumber || ''}
+                      disabled={!props.canEdit}
+                      placeholder="№ изделия"
+                      onChange={(e) => {
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, productNumber: e.target.value } : item));
+                        patch({ ...payload, freeWorks });
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <SearchSelectWithCreate
+                      value={line.engineId || null}
+                      options={engineOptions}
+                      disabled={!props.canEdit}
+                      canCreate={false}
+                      createLabel=""
+                      placeholder="Выберите двигатель"
+                      onChange={(next) => {
+                        const eng = next ? engines.find((e) => e.id === next) : null;
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? {
+                          ...item,
+                          engineId: next || null,
+                          engineNumber: eng?.engineNumber || '',
+                          engineBrandId: eng?.engineBrandId || null,
+                          engineBrandName: eng?.engineBrandName || '',
+                        } : item));
+                        patch({ ...payload, freeWorks });
+                      }}
+                      onCreate={async () => null}
+                    />
+                  </td>
+                  <td>
+                    <Input
+                      value={engineInfo?.engineBrandName || line.engineBrandName || ''}
+                      disabled
+                      placeholder="—"
+                    />
                   </td>
                   <td style={rightCellStyle}>
                     <Input
@@ -1292,11 +1023,12 @@ export function WorkOrderDetailsPage(props: {
                     </td>
                   )}
                 </tr>
-              ))}
+                );
+              })}
               {payload.freeWorks.length === 0 && (
                 <tr>
-                  <td colSpan={props.canEdit ? 6 : 5} style={{ color: 'var(--muted)' }}>
-                    Работы без изделия не добавлены
+                  <td colSpan={props.canEdit ? 9 : 8} style={{ color: 'var(--muted)' }}>
+                    Работы не добавлены
                   </td>
                 </tr>
               )}
@@ -1306,7 +1038,7 @@ export function WorkOrderDetailsPage(props: {
         {props.canEdit && (
           <div>
             <Button variant="ghost" onClick={addFreeWorkLine}>
-              Добавить работы +
+              Добавить работу +
             </Button>
           </div>
         )}
