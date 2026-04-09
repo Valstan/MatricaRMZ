@@ -75,7 +75,7 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
     ${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}
     <div class="controls">
       ${controls}
-      <button class="action" onclick="window.print()">Отправить на принтер</button>
+      <button class="action" id="printBtn">Отправить на принтер</button>
     </div>
   </div>
   ${content}
@@ -90,6 +90,8 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
     }
     for (var j = 0; j < toggles.length; j++) toggles[j].addEventListener('change', applyVis);
     applyVis();
+    var printBtn = document.getElementById('printBtn');
+    if (printBtn) printBtn.addEventListener('click', function() { window.print(); });
   </script>
 </body>
 </html>`;
@@ -99,5 +101,9 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
   w.document.open();
   w.document.write(html);
   w.document.close();
-  setTimeout(() => w.focus(), 200);
+  setTimeout(() => {
+    const printBtn = w.document.getElementById('printBtn');
+    if (printBtn) printBtn.addEventListener('click', () => w.print());
+    w.focus();
+  }, 200);
 }

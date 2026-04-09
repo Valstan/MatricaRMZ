@@ -964,7 +964,7 @@ export function RepairChecklistPanel(props: {
 </head>
 <body>
   <div class="no-print" style="margin:12px;">
-    <button onclick="window.print()">Печать</button>
+    <button id="printBtn">Печать</button>
   </div>
   <div class="doc">
     <h1>${panelTitle}</h1>
@@ -1005,7 +1005,11 @@ export function RepairChecklistPanel(props: {
     w.document.open();
     w.document.write(html);
     w.document.close();
-    setTimeout(() => w.focus(), 200);
+    setTimeout(() => {
+      const printBtn = w.document.getElementById('printBtn');
+      if (printBtn) printBtn.addEventListener('click', () => w.print());
+      w.focus();
+    }, 200);
   }
 
   return (
