@@ -813,34 +813,33 @@ export function SupplyRequestDetailsPage(props: {
           }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
+          extraActionsLeft={
+            props.canPrint ? (
+              <>
+                <Button
+                  variant="ghost"
+                  tone="info"
+                  onClick={() => {
+                    printSupplyRequest(payload, departmentLabel, 'short', orderedPrintRows);
+                  }}
+                >
+                  Распечатать (кратко)
+                </Button>
+                <Button
+                  variant="ghost"
+                  tone="info"
+                  onClick={() => {
+                    printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows);
+                  }}
+                >
+                  Распечатать (полно)
+                </Button>
+              </>
+            ) : null
+          }
         />
       </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        {props.canPrint && (
-          <>
-            <Button
-              variant="ghost"
-              tone="info"
-              onClick={() => {
-                printSupplyRequest(payload, departmentLabel, 'short', orderedPrintRows);
-              }}
-            >
-              Распечатать (кратко)
-            </Button>
-            <Button
-              variant="ghost"
-              tone="info"
-              onClick={() => {
-                printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows);
-              }}
-            >
-              Распечатать (полно)
-            </Button>
-          </>
-        )}
-        <div style={{ flex: 1 }} />
-        {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div>}
-      </div>
+      {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12, padding: '0 0 4px' }}>{saveStatus}</div>}
       {payload ? (
         <div style={{ marginTop: 6, color: 'var(--subtle)', fontSize: 12 }}>
           Подразделение: <span style={{ color: 'var(--text)', fontWeight: 700 }}>{departmentLabel || payload.departmentId || '-'}</span>

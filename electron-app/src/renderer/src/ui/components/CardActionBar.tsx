@@ -11,6 +11,8 @@ export type CardActionBarProps = {
   onDelete?: (() => void) | undefined;
   deleteLabel?: string | undefined;
   onClose?: (() => void) | undefined;
+  extraActionsLeft?: React.ReactNode | undefined;
+  extraActionsCenter?: React.ReactNode | undefined;
 };
 
 export function CardActionBar(props: CardActionBarProps) {
@@ -49,6 +51,7 @@ export function CardActionBar(props: CardActionBarProps) {
               Сохранить и выйти
             </Button>
           )}
+          {props.extraActionsLeft}
         </div>
         <div
           style={{
@@ -65,6 +68,7 @@ export function CardActionBar(props: CardActionBarProps) {
               Сброс
             </Button>
           )}
+          {props.extraActionsCenter}
           {props.onPrint && (
             <Button variant="ghost" tone="info" title="Распечатать карточку" onClick={props.onPrint}>
               Распечатать
