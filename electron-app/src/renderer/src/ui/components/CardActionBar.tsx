@@ -3,6 +3,7 @@ import { Button } from './Button.js';
 
 export type CardActionBarProps = {
   canEdit: boolean;
+  cardLabel?: string | undefined;
   onCopyToNew?: (() => void) | undefined;
   onSave?: (() => void) | undefined;
   onSaveAndClose?: (() => void) | undefined;
@@ -35,7 +36,12 @@ export function CardActionBar(props: CardActionBarProps) {
           gap: 6,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8, flex: '0 0 auto' }}>
+          {props.cardLabel && (
+            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', whiteSpace: 'nowrap', marginRight: 6 }}>
+              {props.cardLabel}
+            </span>
+          )}
           {props.canEdit && props.onCopyToNew && (
             <Button variant="ghost" title="Создать новую карточку с этими же данными" onClick={props.onCopyToNew}>
               Скопировать в новую карточку

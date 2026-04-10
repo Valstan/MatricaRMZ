@@ -792,6 +792,7 @@ export function SupplyRequestDetailsPage(props: {
       <div style={{ borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
         <CardActionBar
           canEdit={props.canEdit}
+          cardLabel="Заявка"
           onCopyToNew={() => {
             void (async () => {
               const r = await window.matrica.supplyRequests.create();

@@ -615,6 +615,7 @@ export function WorkOrderDetailsPage(props: {
   const cardActionBar = (
     <CardActionBar
       canEdit={props.canEdit}
+      cardLabel="Наряд"
       onCopyToNew={() => {
         void (async () => {
           if (!payload) return;
@@ -811,23 +812,9 @@ export function WorkOrderDetailsPage(props: {
 
   return (
     <EntityCardShell
-      title={`Наряд №${payload.workOrderNumber}`}
+      title=""
       layout="two-column"
       cardActions={cardActionBar}
-      actions={
-        props.canEdit ? (
-          <Button
-            variant="outline"
-            tone="info"
-            size="sm"
-            onClick={() => {
-              void flushSave(payload);
-            }}
-          >
-            Сохранить
-          </Button>
-        ) : undefined
-      }
     >
       {/* Реквизиты и итоги — одна компактная строка */}
       <div style={{
@@ -875,21 +862,21 @@ export function WorkOrderDetailsPage(props: {
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
-              <col style={{ width: 240 }} />
+              <col style={{ width: 480 }} />
+              <col style={{ width: 120 }} />
               <col style={{ width: 140 }} />
-              <col style={{ width: 160 }} />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 90 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 80 }} />
               <col style={{ width: 90 }} />
               <col style={{ width: 100 }} />
-              <col style={{ width: 110 }} />
-              {props.canEdit ? <col style={{ width: 120 }} /> : null}
+              {props.canEdit ? <col style={{ width: 110 }} /> : null}
             </colgroup>
             <thead>
               <tr>
                 <th style={{ textAlign: 'left' }}>Вид работ</th>
-                <th style={{ textAlign: 'left' }}>Номер изделия</th>
-                <th style={{ textAlign: 'left' }}>Номер двигателя</th>
+                <th style={{ textAlign: 'left' }}>№ изделия</th>
+                <th style={{ textAlign: 'left' }}>№ двигателя</th>
                 <th style={{ textAlign: 'left' }}>Марка двигателя</th>
                 <th style={{ textAlign: 'right' }}>Кол-во</th>
                 <th style={{ textAlign: 'right' }}>Ед.</th>

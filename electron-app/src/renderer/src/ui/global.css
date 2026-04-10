@@ -17,9 +17,9 @@ body {
 
 :root {
   --ui-space-1: 4px;
-  --ui-space-2: 8px;
-  --ui-space-3: 12px;
-  --ui-space-4: 16px;
+  --ui-space-2: 4px;
+  --ui-space-3: 8px;
+  --ui-space-4: 10px;
   --ui-space-5: 20px;
   --ui-title-size: 18px;
   --ui-section-size: 15px;
@@ -1074,7 +1074,7 @@ table.list-table.list-table--catalog {
   display: flex;
   align-items: center;
   gap: var(--ui-space-2);
-  margin-bottom: var(--ui-space-2);
+  margin-bottom: 2px;
 }
 
 .ui-section-title {

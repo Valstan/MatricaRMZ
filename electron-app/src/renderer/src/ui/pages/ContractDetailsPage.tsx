@@ -1229,6 +1229,7 @@ export function ContractDetailsPage(props: {
       cardActions={
         <CardActionBar
           canEdit={props.canEditMasterData}
+          cardLabel="Контракт"
           onCopyToNew={() => {
             void (async () => {
               const contractTypeId = entityTypes.find((t) => t.code === 'contract')?.id;
