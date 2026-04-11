@@ -652,14 +652,14 @@ export function WorkOrderDetailsPage(props: {
   );
 
   const crewSection = (
-    <SectionCard className="entity-card-span-full" title="Состав бригады и КТУ">
+    <SectionCard className="entity-card-span-full">
       <div className="list-table-wrap list-table-wrap--single">
-        <table className="list-table list-table--single-mode work-order-table">
+        <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%', tableLayout: 'auto' as const }}>
           <colgroup>
-            <col />
-            <col style={{ width: 130 }} />
-            <col style={{ width: 190 }} />
-            <col style={{ width: 140 }} />
+            <col style={{ width: 'auto' }} />
+            <col style={{ width: 100 }} />
+            <col style={{ width: 150 }} />
+            <col style={{ width: 120 }} />
             {props.canEdit ? <col style={{ width: 160 }} /> : null}
           </colgroup>
           <thead>
@@ -858,18 +858,18 @@ export function WorkOrderDetailsPage(props: {
 
       {crewSection}
 
-      <SectionCard className="entity-card-span-full" title="Виды работ">
+      <SectionCard className="entity-card-span-full">
         <div className="list-table-wrap list-table-wrap--single">
-          <table className="list-table list-table--single-mode work-order-table">
+          <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%', tableLayout: 'auto' as const }}>
             <colgroup>
-              <col style={{ width: 480 }} />
-              <col style={{ width: 120 }} />
+              <col style={{ width: 'auto' }} />
+              <col style={{ width: 110 }} />
               <col style={{ width: 140 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 80 }} />
-              <col style={{ width: 80 }} />
-              <col style={{ width: 90 }} />
-              <col style={{ width: 100 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 75 }} />
+              <col style={{ width: 65 }} />
+              <col style={{ width: 85 }} />
+              <col style={{ width: 95 }} />
               {props.canEdit ? <col style={{ width: 110 }} /> : null}
             </colgroup>
             <thead>
