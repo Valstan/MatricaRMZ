@@ -1203,12 +1203,14 @@ type NormalizedWorkOrderReportLine = {
 type NormalizedWorkOrderReportCrewMember = {
   employeeId: string;
   employeeName: string;
+  personnelNumber: string;
   ktu: number;
   payoutRub: number;
 };
 
 type PayrollSummaryBucket = {
   employeeName: string;
+  personnelNumber: string;
   departmentName: string;
   lines: number;
   totalKtu: number;
@@ -1247,7 +1249,10 @@ function normalizeWorkOrderReportLines(payload: any): NormalizedWorkOrderReportL
   ];
 }
 
-function normalizeWorkOrderReportCrew(payload: any): NormalizedWorkOrderReportCrewMember[] {
+function normalizeWorkOrderReportCrew(
+  payload: any,
+  personnelByEmployeeId?: Map<string, string>,
+): NormalizedWorkOrderReportCrewMember[] {
   const payoutFallbackByKey = new Map<string, { employeeName: string; ktu: number; payoutRub: number }>();
   if (Array.isArray(payload?.payouts)) {
     for (const item of payload.payouts) {
@@ -1278,9 +1283,13 @@ function normalizeWorkOrderReportCrew(payload: any): NormalizedWorkOrderReportCr
               : member?.payoutRub ?? fallback?.payoutRub,
           ),
         );
+        const personnelNumber = employeeId && personnelByEmployeeId?.has(employeeId)
+          ? personnelByEmployeeId.get(employeeId)!
+          : '';
         return {
           employeeId,
           employeeName: employeeName || fallback?.employeeName || '(не указан)',
+          personnelNumber,
           ktu: Math.max(0.01, toNumber(member?.ktu) || fallback?.ktu || 1),
           payoutRub,
         } satisfies NormalizedWorkOrderReportCrewMember;
@@ -1293,6 +1302,9 @@ function normalizeWorkOrderReportCrew(payload: any): NormalizedWorkOrderReportCr
         .map((item: any) => ({
           employeeId: normalizeText(item?.employeeId, ''),
           employeeName: normalizeText(item?.employeeName, '(не указан)'),
+          personnelNumber: item?.employeeId && personnelByEmployeeId?.has(item.employeeId)
+            ? personnelByEmployeeId.get(item.employeeId)!
+            : '',
           ktu: Math.max(0.01, toNumber(item?.ktu) || 1),
           payoutRub: Math.max(0, toNumber(item?.amountRub)),
         }))
@@ -1381,6 +1393,13 @@ async function buildWorkOrderPayrollReport(
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const employeeFilter = asArray(filters?.employeeIds);
+  const snapshot = await loadSnapshot(db);
+  const personnelByEmployeeId = new Map<string, string>();
+  for (const employeeId of getIdsByType(snapshot, 'employee')) {
+    const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
+    const pn = normalizeText(attrs.personnel_number, '');
+    if (pn) personnelByEmployeeId.set(employeeId, pn);
+  }
   const sourceOps = await db
     .select()
     .from(operations)
@@ -1388,7 +1407,7 @@ async function buildWorkOrderPayrollReport(
     .limit(120_000);
 
   const rows: Array<Record<string, ReportCellValue>> = [];
-  const totalsByEmployee = new Map<string, { employeeName: string; workOrders: number; amountRub: number }>();
+  const totalsByEmployee = new Map<string, { employeeName: string; personnelNumber: string; workOrders: number; amountRub: number }>();
   const seenEmployeeWorkOrderKeys = new Set<string>();
   const totalWorkOrderKeys = new Set<string>();
 
@@ -1399,7 +1418,7 @@ async function buildWorkOrderPayrollReport(
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;
 
-    const crew = normalizeWorkOrderReportCrew(payload);
+    const crew = normalizeWorkOrderReportCrew(payload, personnelByEmployeeId);
     if (crew.length === 0) continue;
     const workOrderKey = String(op.id ?? payload.operationId ?? `${payload.workOrderNumber ?? 'work-order'}-${orderDate}`);
 
@@ -1410,13 +1429,15 @@ async function buildWorkOrderPayrollReport(
       const amountRub = Math.max(0, toNumber(member.payoutRub));
       rows.push({
         employeeName: employeeLabel,
+        personnelNumber: member.personnelNumber || null,
         workOrderNumber: toNumber(payload.workOrderNumber) || null,
         orderDate,
         ktu: Math.max(0.01, toNumber(member.ktu) || 1),
         amountRub,
       });
-      const employeeTotals = totalsByEmployee.get(employeeKey) ?? { employeeName: employeeLabel, workOrders: 0, amountRub: 0 };
+      const employeeTotals = totalsByEmployee.get(employeeKey) ?? { employeeName: employeeLabel, personnelNumber: member.personnelNumber, workOrders: 0, amountRub: 0 };
       if (!employeeTotals.employeeName || employeeTotals.employeeName === '(не указан)') employeeTotals.employeeName = employeeLabel;
+      if (!employeeTotals.personnelNumber && member.personnelNumber) employeeTotals.personnelNumber = member.personnelNumber;
       employeeTotals.amountRub += amountRub;
       const employeeWorkOrderKey = `${employeeKey}::${workOrderKey}`;
       if (!seenEmployeeWorkOrderKeys.has(employeeWorkOrderKey)) {
@@ -1470,7 +1491,7 @@ async function buildWorkOrderPayrollSummaryReport(
   const departmentFilter = asArray(filters?.departmentIds);
   const snapshot = await loadSnapshot(db);
   const departmentOptions = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
-  const employeeMetaById = new Map<string, { employeeName: string; departmentId: string; departmentName: string }>();
+  const employeeMetaById = new Map<string, { employeeName: string; personnelNumber: string; departmentId: string; departmentName: string }>();
 
   for (const employeeId of getIdsByType(snapshot, 'employee')) {
     const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
@@ -1483,7 +1504,13 @@ async function buildWorkOrderPayrollSummaryReport(
         .join(' ')
         .trim() || employeeId,
     );
-    employeeMetaById.set(employeeId, { employeeName, departmentId, departmentName });
+    const personnelNumber = normalizeText(attrs.personnel_number, '');
+    employeeMetaById.set(employeeId, { employeeName, personnelNumber, departmentId, departmentName });
+  }
+
+  const personnelByEmployeeId = new Map<string, string>();
+  for (const [eid, meta] of employeeMetaById) {
+    if (meta.personnelNumber) personnelByEmployeeId.set(eid, meta.personnelNumber);
   }
 
   const sourceOps = await db
@@ -1502,7 +1529,7 @@ async function buildWorkOrderPayrollSummaryReport(
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;
 
-    const crew = normalizeWorkOrderReportCrew(payload);
+    const crew = normalizeWorkOrderReportCrew(payload, personnelByEmployeeId);
     if (crew.length === 0) continue;
     const workOrderKey = String(op.id ?? payload.operationId ?? `${payload.workOrderNumber ?? 'work-order'}-${orderDate}`);
 
@@ -1514,16 +1541,19 @@ async function buildWorkOrderPayrollSummaryReport(
 
       const departmentName = meta?.departmentName || '(не указано)';
       const employeeName = normalizeText(member.employeeName, meta?.employeeName || '(не указан)');
+      const personnelNumber = member.personnelNumber || meta?.personnelNumber || '';
       const employeeKey = member.employeeId || `name:${employeeName.toLowerCase()}`;
       const bucketKey = `${departmentName}::${employeeKey}`;
       const bucket = buckets.get(bucketKey) ?? {
         employeeName,
+        personnelNumber,
         departmentName,
         lines: 0,
         totalKtu: 0,
         amountRub: 0,
         workOrderKeys: new Set<string>(),
       };
+      if (!bucket.personnelNumber && personnelNumber) bucket.personnelNumber = personnelNumber;
       bucket.lines += 1;
       bucket.totalKtu += Math.max(0.01, toNumber(member.ktu) || 1);
       bucket.amountRub += Math.max(0, toNumber(member.payoutRub));
@@ -1541,6 +1571,7 @@ async function buildWorkOrderPayrollSummaryReport(
       return {
         departmentName: bucket.departmentName || '(не указано)',
         employeeName: bucket.employeeName || '(не указан)',
+        personnelNumber: bucket.personnelNumber || null,
         workOrders,
         lines: bucket.lines,
         totalKtu,

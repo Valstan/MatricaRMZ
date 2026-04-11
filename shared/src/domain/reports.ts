@@ -381,6 +381,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
     columns: [
       { key: 'employeeName', label: 'Сотрудник' },
+      { key: 'personnelNumber', label: 'Таб. №' },
       { key: 'workOrderNumber', label: '№ наряда', kind: 'number', align: 'right' },
       { key: 'orderDate', label: 'Дата наряда', kind: 'date' },
       { key: 'ktu', label: 'КТУ', kind: 'number', align: 'right' },
@@ -399,6 +400,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     columns: [
       { key: 'departmentName', label: 'Подразделение' },
       { key: 'employeeName', label: 'Сотрудник' },
+      { key: 'personnelNumber', label: 'Таб. №' },
       { key: 'workOrders', label: 'Наряды, шт', kind: 'number', align: 'right' },
       { key: 'lines', label: 'Начисления, шт', kind: 'number', align: 'right' },
       { key: 'totalKtu', label: 'КТУ суммарно', kind: 'number', align: 'right' },
