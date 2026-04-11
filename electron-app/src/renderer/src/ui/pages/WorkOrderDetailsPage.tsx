@@ -654,7 +654,7 @@ export function WorkOrderDetailsPage(props: {
   const crewSection = (
     <SectionCard className="entity-card-span-full">
       <div className="list-table-wrap list-table-wrap--single">
-        <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%', tableLayout: 'auto' as const }}>
+        <table className="list-table list-table--single-mode work-order-table">
           <colgroup>
             <col style={{ width: 'auto' }} />
             <col style={{ width: 100 }} />
@@ -860,7 +860,7 @@ export function WorkOrderDetailsPage(props: {
 
       <SectionCard className="entity-card-span-full">
         <div className="list-table-wrap list-table-wrap--single">
-          <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%', tableLayout: 'auto' as const }}>
+          <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
               <col style={{ width: 'auto' }} />
               <col style={{ width: 110 }} />

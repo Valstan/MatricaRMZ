@@ -29,9 +29,9 @@ body {
   --ui-list-font-size: 14px;
   --ui-card-font-size: 14px;
   --entity-card-min-width: 520px;
-  --ui-content-max-width: 1600px;
+  --ui-content-max-width: min(95vw, 1400px);
   --ui-content-block-min-width: 420px;
-  --ui-content-block-max-width: 920px;
+  --ui-content-block-max-width: min(95vw, 1200px);
   --ui-datepicker-scale: 2;
   --ui-datepicker-font-size: 14px;
   --ui-button-sm-padding: 4px 8px;
@@ -384,13 +384,13 @@ table.list-table.work-order-table {
   width: 100%;
   max-width: 100%;
   margin-inline: 0;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 table.list-table.work-order-table th,
 table.list-table.work-order-table td {
   max-width: none;
-  white-space: normal;
+  white-space: nowrap;
   overflow: visible;
   text-overflow: clip;
 }
@@ -1052,16 +1052,10 @@ table.list-table.list-table--catalog {
 }
 
 .ui-content-viewport > * {
-  width: min(100%, var(--ui-content-max-width));
+  width: var(--ui-content-max-width);
   max-width: 100%;
   margin-inline: auto;
   min-width: 0;
-}
-
-.ui-content-viewport > .entity-card-shell {
-  width: 100% !important;
-  max-width: 100% !important;
-  margin-inline: 0;
 }
 
 .ui-content-block {
