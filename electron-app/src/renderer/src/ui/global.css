@@ -384,7 +384,7 @@ table.list-table.work-order-table {
   width: 100%;
   max-width: 100%;
   margin-inline: 0;
-  table-layout: auto;
+  table-layout: fixed;
 }
 
 table.list-table.work-order-table th,
@@ -1056,6 +1056,13 @@ table.list-table.list-table--catalog {
   max-width: 100%;
   margin-inline: auto;
   min-width: 0;
+}
+
+/* Карточки с большим количеством колонок растягиваются на всю ширину */
+.ui-content-viewport > .entity-card-shell {
+  width: min(98vw, 1600px) !important;
+  max-width: 100%;
+  margin-inline: auto;
 }
 
 .ui-content-block {
