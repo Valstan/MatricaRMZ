@@ -1058,6 +1058,12 @@ table.list-table.list-table--catalog {
   min-width: 0;
 }
 
+.ui-content-viewport > .entity-card-shell {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-inline: 0;
+}
+
 .ui-content-block {
   width: min(100%, var(--ui-content-block-max-width));
   max-width: 100%;

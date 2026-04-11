@@ -11,7 +11,7 @@ export function EntityCardShell(props: {
   const layout = props.layout ?? 'stack';
   const showHeader = props.title && String(props.title).trim().length > 0;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, width: '100%', minWidth: 0 }}>
+    <div className="entity-card-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, width: '100%', minWidth: 0, maxWidth: '100%' }}>
       {props.cardActions && (
         <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
           {props.cardActions}
