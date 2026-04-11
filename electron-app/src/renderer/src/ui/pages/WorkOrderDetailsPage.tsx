@@ -576,13 +576,14 @@ export function WorkOrderDetailsPage(props: {
         : `<div class="muted">Нет данных</div>`;
 
     const crewHtml = current.crew.length
-      ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Выплата</th><th>Заморозка</th></tr></thead><tbody>${current.crew
-          .map(
-            (member) =>
-              `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td><td>${escapeHtml(
-                money(member.payoutRub ?? 0),
-              )}</td><td>${member.payoutFrozen ? 'Да' : 'Нет'}</td></tr>`,
-          )
+      ? `<table><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Выплата</th><th>Заморозка</th></tr></thead><tbody>${current.crew
+          .map((member) => {
+            const emp = employees.find((e) => e.id === member.employeeId);
+            const tabNum = emp?.personnelNumber || '';
+            return `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(tabNum || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td><td>${escapeHtml(
+              money(member.payoutRub ?? 0),
+            )}</td><td>${member.payoutFrozen ? 'Да' : 'Нет'}</td></tr>`;
+          })
           .join('')}</tbody></table>`
       : `<div class="muted">Нет данных</div>`;
 
