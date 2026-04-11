@@ -654,13 +654,13 @@ export function WorkOrderDetailsPage(props: {
   const crewSection = (
     <SectionCard className="entity-card-span-full">
       <div className="list-table-wrap list-table-wrap--single">
-        <table className="list-table list-table--single-mode work-order-table">
+        <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
           <colgroup>
-            <col style={{ width: 'auto' }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 150 }} />
-            <col style={{ width: 120 }} />
-            {props.canEdit ? <col style={{ width: 160 }} /> : null}
+            <col />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '12%' }} />
+            {props.canEdit ? <col style={{ width: '18%' }} /> : null}
           </colgroup>
           <thead>
             <tr>
@@ -863,14 +863,14 @@ export function WorkOrderDetailsPage(props: {
           <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
             <colgroup>
               <col />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '5%' }} />
               <col style={{ width: '8%' }} />
-              <col style={{ width: '9%' }} />
-              {props.canEdit ? <col style={{ width: '11%' }} /> : null}
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '4%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '8%' }} />
+              {props.canEdit ? <col style={{ width: '10%' }} /> : null}
             </colgroup>
             <thead>
               <tr>
