@@ -812,12 +812,14 @@ export function WorkOrderDetailsPage(props: {
   );
 
   return (
-    <>
-    <EntityCardShell
-      title=""
-      layout="stack"
-      cardActions={cardActionBar}
-    >
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+      {/* Верхняя компактная часть: реквизиты + бригада */}
+      <div style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}>
+        <EntityCardShell
+          title=""
+          layout="stack"
+          cardActions={cardActionBar}
+        >
       {/* Реквизиты и итоги — одна компактная строка */}
       <div style={{
         display: 'flex',
@@ -829,6 +831,8 @@ export function WorkOrderDetailsPage(props: {
         border: '1px solid var(--border)',
         borderRadius: 8,
         marginBottom: 12,
+        maxWidth: 'var(--ui-content-block-max-width)',
+        marginInline: 'auto',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>№</span>
@@ -860,10 +864,11 @@ export function WorkOrderDetailsPage(props: {
 
       {crewSection}
     </EntityCardShell>
+      </div>
 
-    {/* Виды работ — отдельный блок на всю ширину, как в Заявках */}
-    <div style={{ marginTop: 14 }}>
-      <SectionCard>
+      {/* Виды работ — отдельный широкий блок */}
+      <div className="entity-card-shell" style={{ marginTop: 12, flexShrink: 0 }}>
+        <SectionCard>
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
             <colgroup>
@@ -1036,7 +1041,7 @@ export function WorkOrderDetailsPage(props: {
         )}
       </SectionCard>
     </div>
-    </>
+    </div>
   );
 }
 
