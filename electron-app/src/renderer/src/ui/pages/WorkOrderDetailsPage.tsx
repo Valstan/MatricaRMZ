@@ -89,7 +89,7 @@ function normalizeStringArray(value: unknown): string[] {
 function normalizeLine(line: any, lineNo: number): WorkOrderWorkLine {
   const qty = Math.max(0, safeNum(line?.qty, 0));
   const priceRub = Math.max(0, safeNum(line?.priceRub, 0));
-  return {
+  const result: WorkOrderWorkLine = {
     lineNo,
     serviceId: line?.serviceId ? String(line.serviceId) : null,
     serviceName: String(line?.serviceName ?? ''),
@@ -97,12 +97,13 @@ function normalizeLine(line: any, lineNo: number): WorkOrderWorkLine {
     qty,
     priceRub,
     amountRub: fromCents(toCents(qty * priceRub)),
-    productNumber: line?.productNumber ? String(line.productNumber) : undefined,
-    engineId: line?.engineId ? String(line.engineId) : null,
-    engineNumber: line?.engineNumber ? String(line.engineNumber) : undefined,
-    engineBrandId: line?.engineBrandId ? String(line.engineBrandId) : null,
-    engineBrandName: line?.engineBrandName ? String(line.engineBrandName) : undefined,
   };
+  if (line?.productNumber) result.productNumber = String(line.productNumber);
+  if (line?.engineId) result.engineId = String(line.engineId);
+  if (line?.engineNumber) result.engineNumber = String(line.engineNumber);
+  if (line?.engineBrandId) result.engineBrandId = String(line.engineBrandId);
+  if (line?.engineBrandName) result.engineBrandName = String(line.engineBrandName);
+  return result;
 }
 
 function distributeByKtu(
