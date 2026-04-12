@@ -814,30 +814,8 @@ export function SupplyRequestDetailsPage(props: {
           }}
           onDelete={() => void handleDelete()}
           onClose={() => props.requestClose?.()}
-          extraActionsLeft={
-            props.canPrint ? (
-              <>
-                <Button
-                  variant="ghost"
-                  tone="info"
-                  onClick={() => {
-                    printSupplyRequest(payload, departmentLabel, 'short', orderedPrintRows);
-                  }}
-                >
-                  Распечатать (кратко)
-                </Button>
-                <Button
-                  variant="ghost"
-                  tone="info"
-                  onClick={() => {
-                    printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows);
-                  }}
-                >
-                  Распечатать (полно)
-                </Button>
-              </>
-            ) : null
-          }
+          onPrint={() => printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows)}
+          deleteLabel="Удалить заявку"
         />
       </div>
       {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12, padding: '0 0 4px' }}>{saveStatus}</div>}
