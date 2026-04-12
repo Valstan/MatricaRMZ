@@ -360,15 +360,12 @@ export function WorkOrderDetailsPage(props: {
 
       // Загрузка двигателей
       const engineList = await window.matrica.engines.list().catch(() => [] as any[]);
-      const engineInfo = (engineList as any[]).map((e) => {
-        const attrs = e?.attributes ?? {};
-        return {
-          id: String(e.id),
-          engineNumber: String(attrs.engine_number ?? ''),
-          engineBrandId: attrs.engine_brand_id ? String(attrs.engine_brand_id) : null,
-          engineBrandName: String(attrs.engine_brand ?? ''),
-        } as EngineInfo;
-      });
+      const engineInfo = (engineList as any[]).map((e) => ({
+        id: String(e.id),
+        engineNumber: String(e.engineNumber ?? ''),
+        engineBrandId: e.engineBrandId ? String(e.engineBrandId) : null,
+        engineBrandName: String(e.engineBrand ?? ''),
+      } as EngineInfo));
       setEngines(engineInfo);
     } catch {
       setServices([]);
