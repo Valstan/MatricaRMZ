@@ -812,9 +812,10 @@ export function WorkOrderDetailsPage(props: {
   );
 
   return (
+    <>
     <EntityCardShell
       title=""
-      layout="two-column"
+      layout="stack"
       cardActions={cardActionBar}
     >
       {/* Реквизиты и итоги — одна компактная строка */}
@@ -858,8 +859,11 @@ export function WorkOrderDetailsPage(props: {
       ) : null}
 
       {crewSection}
+    </EntityCardShell>
 
-      <SectionCard className="entity-card-span-full">
+    {/* Виды работ — отдельный блок на всю ширину, как в Заявках */}
+    <div style={{ marginTop: 14 }}>
+      <SectionCard>
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
             <colgroup>
@@ -1031,7 +1035,8 @@ export function WorkOrderDetailsPage(props: {
           </div>
         )}
       </SectionCard>
-    </EntityCardShell>
+    </div>
+    </>
   );
 }
 
