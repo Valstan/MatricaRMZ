@@ -868,8 +868,8 @@ export function WorkOrderDetailsPage(props: {
       </div>
 
       {/* Виды работ — отдельный широкий блок */}
-      <div className="entity-card-shell" style={{ marginTop: 12, flexShrink: 0 }}>
-        <SectionCard>
+      <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>
+        <SectionCard className="entity-card-span-full work-order-works-panel">
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
             <colgroup>

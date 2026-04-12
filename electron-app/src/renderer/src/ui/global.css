@@ -1065,6 +1065,19 @@ table.list-table.list-table--catalog {
   margin-inline: auto;
 }
 
+/* Блок видов работ в наряде — на всю ширину без ограничений */
+.work-order-works-panel {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-inline: 0 !important;
+  justify-self: stretch;
+}
+
+.work-order-works-panel.ui-content-block {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
 .ui-content-block {
   width: min(100%, var(--ui-content-block-max-width));
   max-width: 100%;
