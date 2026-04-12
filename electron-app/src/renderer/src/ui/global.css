@@ -381,10 +381,10 @@ table.list-table.list-table--single-mode td {
 }
 
 table.list-table.work-order-table {
-  width: 100%;
+  width: max-content;
   max-width: 100%;
   margin-inline: 0;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 table.list-table.work-order-table th,
@@ -1065,16 +1065,17 @@ table.list-table.list-table--catalog {
   margin-inline: auto;
 }
 
-/* Блок видов работ в наряде — на всю ширину без ограничений */
+/* Блок видов работ в наряде — по ширине контента, не больше */
 .work-order-works-panel {
-  width: 100% !important;
+  width: fit-content !important;
   max-width: 100% !important;
-  margin-inline: 0 !important;
-  justify-self: stretch;
+  min-width: 900px;
+  margin-inline: auto !important;
+  justify-self: center;
 }
 
 .work-order-works-panel.ui-content-block {
-  width: 100% !important;
+  width: fit-content !important;
   max-width: 100% !important;
 }
 

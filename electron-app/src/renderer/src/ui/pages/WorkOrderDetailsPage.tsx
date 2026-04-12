@@ -871,17 +871,17 @@ export function WorkOrderDetailsPage(props: {
       <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>
         <SectionCard className="entity-card-span-full work-order-works-panel">
         <div className="list-table-wrap list-table-wrap--single">
-          <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
+          <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
               <col />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '6%' }} />
-              <col style={{ width: '4%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '8%' }} />
-              {props.canEdit ? <col style={{ width: '10%' }} /> : null}
+              <col style={{ width: '100px' }} />
+              <col style={{ width: '130px' }} />
+              <col style={{ width: '140px' }} />
+              <col style={{ width: '65px' }} />
+              <col style={{ width: '50px' }} />
+              <col style={{ width: '80px' }} />
+              <col style={{ width: '100px' }} />
+              {props.canEdit ? <col style={{ width: '140px' }} /> : null}
             </colgroup>
             <thead>
               <tr>
