@@ -84,6 +84,7 @@ describe('report presets regressions', () => {
     ]);
     expect(preset('work_order_payroll')?.columns.map((column) => column.key)).toEqual([
       'employeeName',
+      'personnelNumber',
       'workOrderNumber',
       'orderDate',
       'ktu',
@@ -92,6 +93,7 @@ describe('report presets regressions', () => {
     expect(preset('work_order_payroll_summary')?.columns.map((column) => column.key)).toEqual([
       'departmentName',
       'employeeName',
+      'personnelNumber',
       'workOrders',
       'lines',
       'totalKtu',
