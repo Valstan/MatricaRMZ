@@ -82,6 +82,65 @@ export type TabsLayoutPrefs = {
   activeGroup?: MenuGroupId | null;
 };
 
+/** Maps detail tabs to their parent menu tab so the correct section button stays highlighted. */
+const PARENT_TAB: Record<string, MenuTabId> = {
+  engine: 'engines',
+  engine_brand: 'engine_brands',
+  work_order: 'work_orders',
+  part: 'parts',
+  part_template: 'part_templates',
+  tool: 'tools',
+  tool_property: 'tool_properties',
+  tool_properties: 'tool_properties',
+  employee: 'employees',
+  contract: 'contracts',
+  counterparty: 'counterparties',
+  product: 'products',
+  service: 'services',
+  nomenclature_item: 'nomenclature',
+  stock_document: 'stock_documents',
+  request: 'requests',
+  report_preset: 'reports',
+};
+
+// Pre-computed set for O(1) lookup
+const menuTabSet = new Set<MenuTabId>([
+  'history',
+  'masterdata',
+  'contracts',
+  'changes',
+  'engines',
+  'engine_brands',
+  'counterparties',
+  'requests',
+  'work_orders',
+  'parts',
+  'tools',
+  'products',
+  'services',
+  'nomenclature',
+  'stock_balances',
+  'stock_documents',
+  'part_templates',
+  'stock_receipts',
+  'stock_issues',
+  'stock_transfers',
+  'stock_inventory',
+  'employees',
+  'reports',
+  'audit',
+  'admin',
+  'auth',
+  'notes',
+  'settings',
+]);
+
+function resolveMenuTab(tab: string): MenuTabId | null {
+  const parent = PARENT_TAB[tab];
+  if (parent) return parent;
+  return menuTabSet.has(tab as MenuTabId) ? (tab as MenuTabId) : null;
+}
+
 type ContextTarget =
   | { kind: 'tab'; id: MenuTabId }
   | { kind: 'group'; id: MenuGroupId };
@@ -325,8 +384,9 @@ export function Tabs(props: {
     [groupsWithTabs, hiddenGroupsSet],
   );
   const preferredGroupByTab = useMemo(() => {
-    if (!menuState.visibleOrdered.includes(props.tab as MenuTabId)) return null;
-    return groupForTab(props.tab as MenuTabId);
+    const menuTab = resolveMenuTab(props.tab);
+    if (!menuTab || !menuState.visibleOrdered.includes(menuTab)) return null;
+    return groupForTab(menuTab);
   }, [menuState.visibleOrdered, props.tab]);
   const activeGroup = useMemo<MenuGroupId | null>(() => {
     const byLayoutRaw = props.layout?.activeGroup;
@@ -556,7 +616,7 @@ export function Tabs(props: {
   }
 
   function tabButton(id: MenuTabId, label: string, opts?: { onContextMenu?: (e: React.MouseEvent) => void }) {
-    const active = props.tab === id;
+    const active = resolveMenuTab(props.tab) === id;
     const notesCount = id === 'notes' ? Math.max(0, Number(props.notesAlertCount ?? 0)) : 0;
     const parentGroup = groupForTab(id);
     const parentVisual = GROUP_VISUALS[parentGroup];
