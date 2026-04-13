@@ -12,6 +12,7 @@ import { formatMoscowDate } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 
@@ -486,27 +487,6 @@ export function ToolDetailsPage(props: {
     });
   }
 
-  async function exportPdf() {
-    setStatus('Генерация PDF...');
-    const r = await window.matrica.tools.exportPdf(props.toolId).catch(() => null);
-    if (!r || !(r as any).ok) {
-      setStatus(`Ошибка: ${(r as any)?.error ?? 'не удалось создать PDF'}`);
-      return;
-    }
-    const contentBase64 = (r as any).contentBase64;
-    const fileName = (r as any).fileName;
-    const mime = (r as any).mime;
-    const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus('Готово.');
-  }
-
   const baseRowGridTemplate = stackedToolCardLayout ? '1fr' : 'minmax(140px, 220px) minmax(0, 1fr)';
   const propertyRowGridTemplate = compactToolCardLayout
     ? '1fr'
@@ -518,43 +498,62 @@ export function ToolDetailsPage(props: {
     ? '1fr'
     : 'minmax(110px, 140px) minmax(160px, 1fr) minmax(220px, 1fr)';
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
-        <CardActionBar
-          canEdit={props.canEdit}
-          onCopyToNew={() => {
-            void (async () => {
-              const r = await window.matrica.tools.create();
-              if (r?.ok && r.id) {
-                await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
-                await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
-              }
-            })();
-          }}
-          onSaveAndClose={() => { void saveAllFields().then(() => props.onBack()); }}
-          onReset={() => {
-            void (async () => {
-              await refresh();
-              await refreshMovements();
+  const cardActionBar = (
+    <CardActionBar
+      canEdit={props.canEdit}
+      cardLabel="Инструмент"
+      onCopyToNew={() => {
+        void (async () => {
+          const r = await window.matrica.tools.create();
+          if (r?.ok && r.id) {
+            await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
+            await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+          }
+        })();
+      }}
+      onSaveAndClose={() => { void saveAllFields().then(() => props.onBack()); }}
+      onReset={() => {
+        void (async () => {
+          await refresh();
+          await refreshMovements();
+          dirtyRef.current = false;
+        })();
+      }}
+      onPrint={printToolCard}
+      onClose={() => {
+        void (async () => {
+          if (dirtyRef.current) {
+            if (confirm('Сохранить изменения перед выходом?')) {
+              await saveAllFields();
+            } else {
               dirtyRef.current = false;
-            })();
-          }}
-          onClose={() => props.requestClose?.()}
-        />
-      </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <strong>Карточка инструмента</strong>
-        <span style={{ flex: 1 }} />
-        <Button tone="info" onClick={printToolCard}>
-          Распечатать карточку
-        </Button>
-        <Button tone="neutral" onClick={() => void exportPdf()}>
-          Экспорт в PDF
-        </Button>
-      </div>
+            }
+          }
+          props.onBack();
+        })();
+      }}
+      onDelete={() => {
+        void (async () => {
+          if (!confirm('Удалить инструмент?')) return;
+          const r = await window.matrica.tools.delete(props.toolId);
+          if (!r.ok) {
+            setStatus(`Ошибка удаления: ${r.error}`);
+            return;
+          }
+          props.onBack();
+        })();
+      }}
+      deleteLabel="Удалить инструмент"
+    />
+  );
 
-      {status && <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
+  return (
+    <EntityCardShell
+      title=""
+      layout="two-column"
+      cardActions={cardActionBar}
+      status={status ? <span style={{ fontSize: 12, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', marginLeft: 8 }}>{status}</span> : undefined}
+    >
 
       <SectionCard>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
@@ -961,6 +960,6 @@ export function ToolDetailsPage(props: {
           return { ok: true as const };
         }}
       />
-    </div>
+    </EntityCardShell>
   );
 }
