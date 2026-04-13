@@ -8,7 +8,6 @@ import type { CardCloseActions } from '../cardCloseTypes.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
-import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { DuplicateWarningDialog } from '../components/DuplicateWarningDialog.js';
@@ -16,8 +15,7 @@ import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { DuplicateCandidate, FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
-import { listAllParts } from '../utils/partsPagination.js';
-import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
+import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
 
@@ -52,8 +50,6 @@ export function SimpleMasterdataDetailsPage(props: {
   const [defsLoaded, setDefsLoaded] = useState(false);
   const [unitOptions, setUnitOptions] = useState<SearchSelectOption[]>([]);
   const [storeOptions, setStoreOptions] = useState<SearchSelectOption[]>([]);
-  const [partOptions, setPartOptions] = useState<SearchSelectOption[]>([]);
-  const [partIds, setPartIds] = useState<string[]>([]);
   const [unitTypeId, setUnitTypeId] = useState<string>('');
   const [storeTypeId, setStoreTypeId] = useState<string>('');
   const uploadFlow = useFileUploadFlow();
@@ -64,25 +60,6 @@ export function SimpleMasterdataDetailsPage(props: {
   const [dupDialogOpen, setDupDialogOpen] = useState(false);
   const [pendingSaveAction, setPendingSaveAction] = useState<'save' | 'saveAndClose' | null>(null);
   const dupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function normalizeStringArray(value: unknown): string[] {
-    if (Array.isArray(value)) {
-      return value.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
-    }
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) return [];
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
-        }
-      } catch {
-        // ignore parse errors and fallback to empty
-      }
-    }
-    return [];
-  }
 
   async function load() {
     try {
@@ -96,12 +73,10 @@ export function SimpleMasterdataDetailsPage(props: {
       setArticle(String(attrs.article ?? ''));
       setUnit(String(attrs.unit ?? ''));
       setPrice(attrs.price != null ? String(attrs.price) : '');
-      setPartIds(normalizeStringArray(attrs.part_ids));
       const nextPhotos = Array.isArray(attrs.photos) ? attrs.photos.filter(isFileRef) : [];
       setPhotos(nextPhotos);
       setMainPhotoId(nextPhotos[0]?.id ?? null);
       dirtyRef.current = false;
-      setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -181,13 +156,6 @@ export function SimpleMasterdataDetailsPage(props: {
           const rows = await window.matrica.admin.entities.listByEntityType(String(storeType.id));
           setStoreOptions(mapEntityRowsToSearchOptions(rows));
         }
-        const partRes = await listAllParts();
-        if (!alive) return;
-        if (partRes.ok) {
-          setPartOptions(mapPartRowsToSearchOptions(partRes.parts as Array<{ id: string; name?: string; article?: string; templateName?: string }>));
-        } else {
-          setPartOptions([]);
-        }
       } catch {
         // ignore
       }
@@ -216,19 +184,21 @@ export function SimpleMasterdataDetailsPage(props: {
 
   useEffect(() => {
     if (!props.canEdit || !entityTypeId || !defsLoaded || coreDefsReady) return;
+    const isService = props.typeCode === 'service';
     const desired = [
       { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
       { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 20 },
-      { code: 'shop', name: 'Магазин', dataType: 'text', sortOrder: 30 },
-      { code: 'article', name: 'Артикул', dataType: 'text', sortOrder: 40 },
+      ...(isService ? [] : [
+        { code: 'shop', name: 'Магазин', dataType: 'text', sortOrder: 30 },
+        { code: 'article', name: 'Артикул', dataType: 'text', sortOrder: 40 },
+      ]),
       { code: 'unit', name: 'Ед. измерения', dataType: 'text', sortOrder: 50 },
       { code: 'price', name: 'Цена', dataType: 'number', sortOrder: 60 },
-      { code: 'attachments', name: 'Вложения', dataType: 'json', sortOrder: 300 },
-      { code: 'photos', name: 'Фото', dataType: 'json', sortOrder: 310 },
+      { code: 'attachments', name: 'Файлы', dataType: 'json', sortOrder: 300 },
+      ...(isService ? [] : [
+        { code: 'photos', name: 'Фото', dataType: 'json', sortOrder: 310 },
+      ]),
     ];
-    if (props.typeCode === 'service') {
-      desired.push({ code: 'part_ids', name: 'Привязка к деталям', dataType: 'json', sortOrder: 70 });
-    }
     void ensureAttributeDefs(entityTypeId, desired, defs).then((next) => {
       if (next.length !== defs.length) setDefs(next);
       setCoreDefsReady(true);
@@ -390,9 +360,6 @@ export function SimpleMasterdataDetailsPage(props: {
         if (unit.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'unit', unit.trim());
         const p = normalizeNumberValue(price);
         if (p != null) await window.matrica.admin.entities.setAttr(candidateId, 'price', p);
-        if (props.typeCode === 'service' && partIds.length > 0) {
-          await window.matrica.admin.entities.setAttr(candidateId, 'part_ids', partIds);
-        }
         // Delete the new (empty or partially filled) entity
         await window.matrica.admin.entities.softDelete(props.entityId);
         setStatus('Объединено');
@@ -450,9 +417,6 @@ export function SimpleMasterdataDetailsPage(props: {
       errors.push('Цена должна быть числом');
     } else {
       await trySave(() => saveField('price', parsedPrice));
-    }
-    if (props.typeCode === 'service') {
-      await trySave(() => saveField('part_ids', partIds));
     }
     dirtyRef.current = false;
     if (errors.length > 0) {
@@ -512,9 +476,6 @@ export function SimpleMasterdataDetailsPage(props: {
           if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
           const p = normalizeNumberValue(price);
           if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
-          if (props.typeCode === 'service' && partIds.length > 0) {
-            await window.matrica.admin.entities.setAttr(created.id, 'part_ids', partIds);
-          }
         }
       },
     });
@@ -526,7 +487,6 @@ export function SimpleMasterdataDetailsPage(props: {
     article,
     unit,
     price,
-    partIds.join(','),
     props.canEdit,
     props.typeCode,
     entityTypeId,
@@ -757,6 +717,8 @@ export function SimpleMasterdataDetailsPage(props: {
     />
   );
 
+  const isService = props.typeCode === 'service';
+
   const mainFields = orderFieldsByDefs(
     [
       {
@@ -797,7 +759,7 @@ export function SimpleMasterdataDetailsPage(props: {
           />
         ),
       },
-      {
+      ...(isService ? [] : [{
         code: 'shop',
         defaultOrder: 30,
         label: 'Магазин',
@@ -849,6 +811,7 @@ export function SimpleMasterdataDetailsPage(props: {
           />
         ),
       },
+      ]),
       {
         code: 'unit',
         defaultOrder: 50,
@@ -894,35 +857,15 @@ export function SimpleMasterdataDetailsPage(props: {
           />
         ),
       },
-      ...(props.typeCode === 'service'
-        ? [
-            {
-              code: 'part_ids',
-              defaultOrder: 70,
-              label: 'Привязка к деталям',
-              value: partIds.length,
-              render: (
-                <MultiSearchSelect
-                  values={partIds}
-                  options={partOptions}
-                  disabled={!props.canEdit}
-                  placeholder="Выберите детали"
-                  onChange={(next) => {
-                    dirtyRef.current = true;
-                    setPartIds(next);
-                  }}
-                />
-              ),
-            },
-          ]
-        : []),
-      { code: 'photos', defaultOrder: 300, label: 'Фото', value: photos.length, render: photosBlock },
+      ...(isService ? [] : [
+        { code: 'photos', defaultOrder: 300, label: 'Фото', value: photos.length, render: photosBlock },
+      ]),
       { code: 'attachments', defaultOrder: 310, label: 'Файлы', value: Array.isArray(attachments) ? attachments.length : 0, render: attachmentsBlock },
     ],
     defs,
   );
 
-  const headerTitle = name.trim() ? name.trim() : props.title;
+  const headerTitle = isService ? '' : (name.trim() ? name.trim() : props.title);
 
   return (
     <EntityCardShell
@@ -931,6 +874,7 @@ export function SimpleMasterdataDetailsPage(props: {
       cardActions={
         <CardActionBar
           canEdit={props.canEdit}
+          cardLabel={isService ? 'Услуга' : undefined}
           onSave={() => {
             void saveAll().catch(() => undefined);
           }}
@@ -946,9 +890,6 @@ export function SimpleMasterdataDetailsPage(props: {
                 if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
                 const p = normalizeNumberValue(price);
                 if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
-                if (props.typeCode === 'service' && partIds.length > 0) {
-                  await window.matrica.admin.entities.setAttr(created.id, 'part_ids', partIds);
-                }
               }
             })();
           }}
