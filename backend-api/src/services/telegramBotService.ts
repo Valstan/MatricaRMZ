@@ -4,6 +4,23 @@ const MAX_TEXT_LEN = 4000;
 let missingTokenWarned = false;
 const loginToChatIdCache = new Map<string, string>();
 
+function parseBoolEnv(raw: string | undefined, fallback: boolean): boolean {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (!v) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(v)) return true;
+  if (['0', 'false', 'no', 'off'].includes(v)) return false;
+  return fallback;
+}
+
+/**
+ * Глобальное включение интеграции с Telegram (api.telegram.org).
+ * При `false` не выполняются опрос getUpdates и отправка сообщений — без лишней нагрузки при блокировке сети.
+ * По умолчанию `true` (обратная совместимость).
+ */
+export function isTelegramIntegrationEnabled(): boolean {
+  return parseBoolEnv(process.env.MATRICA_TELEGRAM_ENABLED, true);
+}
+
 function normalizeLogin(raw: string): string | null {
   const value = String(raw ?? '').trim();
   if (!value) return null;
@@ -11,6 +28,7 @@ function normalizeLogin(raw: string): string | null {
 }
 
 function getToken(): string | null {
+  if (!isTelegramIntegrationEnabled()) return null;
   const token = String(process.env.MATRICA_TELEGRAM_BOT_TOKEN ?? '').trim();
   if (token) return token;
   if (!missingTokenWarned) {
@@ -32,6 +50,9 @@ function normalizeUserLogin(raw: string): string {
 }
 
 async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; timeoutSec?: number }) {
+  if (!isTelegramIntegrationEnabled()) {
+    return { ok: true as const, updates: [] as any[] };
+  }
   const token = getToken();
   if (!token) return { ok: false as const, error: 'токен не указан' };
   const offset = Number(args?.offset ?? 0);
@@ -75,6 +96,7 @@ export function getCachedChatIdByLogin(rawLogin: string) {
 }
 
 async function resolveChatIdByLogin(login: string): Promise<string | null> {
+  if (!isTelegramIntegrationEnabled()) return null;
   const normalized = normalizeUserLogin(login);
   if (!normalized) return null;
   const cached = loginToChatIdCache.get(normalized);
@@ -86,6 +108,9 @@ async function resolveChatIdByLogin(login: string): Promise<string | null> {
 }
 
 export async function sendTelegramMessage(args: { toLogin: string; text: string; replyMarkup?: unknown }) {
+  if (!isTelegramIntegrationEnabled()) {
+    return { ok: false as const, error: 'Telegram отключён (MATRICA_TELEGRAM_ENABLED=false)' };
+  }
   const token = getToken();
   if (!token) return { ok: false as const, error: 'токен не указан' };
   const normalizedLogin = normalizeLogin(args.toLogin);
@@ -135,6 +160,9 @@ export async function sendTelegramMessage(args: { toLogin: string; text: string;
 }
 
 export async function sendTelegramMessageToChat(args: { chatId: string | number; text: string; replyMarkup?: unknown }) {
+  if (!isTelegramIntegrationEnabled()) {
+    return { ok: false as const, error: 'Telegram отключён (MATRICA_TELEGRAM_ENABLED=false)' };
+  }
   const token = getToken();
   if (!token) return { ok: false as const, error: 'токен не указан' };
   const chatId = String(args.chatId ?? '').trim();
@@ -163,6 +191,9 @@ export async function sendTelegramMessageToChat(args: { chatId: string | number;
 }
 
 export async function answerTelegramCallbackQuery(args: { callbackQueryId: string; text?: string }) {
+  if (!isTelegramIntegrationEnabled()) {
+    return { ok: false as const, error: 'Telegram отключён (MATRICA_TELEGRAM_ENABLED=false)' };
+  }
   const token = getToken();
   if (!token) return { ok: false as const, error: 'токен не указан' };
   const callbackQueryId = String(args.callbackQueryId ?? '').trim();

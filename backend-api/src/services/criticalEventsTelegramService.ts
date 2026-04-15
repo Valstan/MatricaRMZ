@@ -1,6 +1,11 @@
 import { listEmployeesAuth } from './employeeAuthService.js';
 import { listCriticalEvents, type CriticalEventRecord } from './criticalEventsService.js';
-import { getCachedChatIdByLogin, sendTelegramMessage, sendTelegramMessageToChat } from './telegramBotService.js';
+import {
+  getCachedChatIdByLogin,
+  isTelegramIntegrationEnabled,
+  sendTelegramMessage,
+  sendTelegramMessageToChat,
+} from './telegramBotService.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 
@@ -115,6 +120,12 @@ export function startCriticalEventsTelegramService() {
   }
 
   if (started) return;
+
+  if (!isTelegramIntegrationEnabled()) {
+    logInfo('critical events telegram notifier disabled (MATRICA_TELEGRAM_ENABLED=false)', {}, { critical: true });
+    return;
+  }
+
   started = true;
 
   const enabled = parseBool(process.env.MATRICA_CRITICAL_TELEGRAM_ENABLED, true);

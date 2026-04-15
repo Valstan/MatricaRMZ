@@ -7,6 +7,7 @@ describe('telegramBotService', () => {
   const originalFetch = globalThis.fetch;
 
   beforeAll(async () => {
+    process.env.MATRICA_TELEGRAM_ENABLED = 'true';
     process.env.MATRICA_TELEGRAM_BOT_TOKEN = 'test-token';
     const mod = await import('../services/telegramBotService.js');
     sendTelegramMessage = mod.sendTelegramMessage;

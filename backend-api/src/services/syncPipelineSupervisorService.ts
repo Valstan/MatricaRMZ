@@ -4,6 +4,7 @@ import {
   answerTelegramCallbackQuery,
   fetchTelegramUpdates,
   getCachedChatIdByLogin,
+  isTelegramIntegrationEnabled,
   sendTelegramMessage,
   sendTelegramMessageToChat,
 } from './telegramBotService.js';
@@ -198,7 +199,8 @@ export function startSyncPipelineSupervisorService() {
   const timeZone = String(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_TZ ?? DEFAULT_TZ);
   const dailyTime = parseTime(String(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_TIME ?? DEFAULT_DAILY_TIME)) ?? DEFAULT_DAILY_TIME;
   const sendOkSummary = parseBool(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_OK_SUMMARY, false);
-  const actionsEnabled = parseBool(process.env.MATRICA_SYNC_PIPELINE_TELEGRAM_ACTIONS_ENABLED, true);
+  const telegramEnabled = isTelegramIntegrationEnabled();
+  const actionsEnabled = parseBool(process.env.MATRICA_SYNC_PIPELINE_TELEGRAM_ACTIONS_ENABLED, true) && telegramEnabled;
   const botPollSilentCounterLogMs = parseNumber(
     process.env.MATRICA_SYNC_PIPELINE_BOT_POLL_COUNTER_LOG_MS,
     BOT_POLL_SILENT_COUNTER_LOG_MS,
@@ -260,6 +262,7 @@ export function startSyncPipelineSupervisorService() {
     mirrorPipelineAlertToCriticalEvents(health, 'nightly');
     const shouldSend = health.status !== 'ok' || sendOkSummary;
     if (!shouldSend) return;
+    if (!telegramEnabled) return;
     const text = formatPipelineMessage(health, 'nightly');
     const sent = await sendToSuperadmin(text, true);
     if (!sent.ok) {
@@ -432,6 +435,7 @@ export function startSyncPipelineSupervisorService() {
     dailyTime,
     sendOkSummary,
     actionsEnabled,
+    telegramEnabled,
     botPollSilentCounterLogMs,
   });
 }
