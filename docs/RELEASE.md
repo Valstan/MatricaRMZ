@@ -24,6 +24,8 @@ corepack pnpm run release:auto
 
 `release:auto` автоматически подхватывает env из `backend-api/.env` (если файл существует), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
 
+Если версия уже выставлена вручную (например `node scripts/bump-version.mjs --set 1.12.0`) и не нужно увеличивать `RELEASE` скриптом, перед `release:auto` задайте `MATRICA_RELEASE_SKIP_VERSION_BUMP=true` (иначе `pnpm version:bump` поднимет последнюю цифру).
+
 ## Что делает `release:auto`
 - Коммитит рабочее дерево (если есть изменения).
 - Выравнивает версии пакетов с `VERSION` (или повышает `RELEASE`, если тег уже существует).

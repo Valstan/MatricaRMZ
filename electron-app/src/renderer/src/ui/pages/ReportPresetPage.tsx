@@ -126,8 +126,18 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     if (filter.type === 'date_range') {
       patchFilter(filter.startKey, defaults[filter.startKey] ?? null);
       patchFilter(filter.endKey, defaults[filter.endKey] ?? null);
-    } else {
-      patchFilter(filter.key, defaults[filter.key] ?? (filter.type === 'multi_select' ? [] : ''));
+    } else if (filter.type === 'multi_select') {
+      patchFilter(filter.key, Array.isArray(defaults[filter.key]) ? (defaults[filter.key] as string[]) : []);
+    } else if (filter.type === 'number') {
+      const d = defaults[filter.key];
+      patchFilter(filter.key, typeof d === 'number' ? d : filter.defaultValue ?? 0);
+    } else if (filter.type === 'text') {
+      const d = defaults[filter.key];
+      patchFilter(filter.key, typeof d === 'string' ? d : filter.defaultValue ?? '');
+    } else if (filter.type === 'checkbox') {
+      patchFilter(filter.key, Boolean(defaults[filter.key]));
+    } else if (filter.type === 'select') {
+      patchFilter(filter.key, defaults[filter.key] ?? filter.options[0]?.value ?? '');
     }
   }
 
@@ -455,6 +465,46 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                         ✕
                       </button>
                     </label>
+                  );
+                }
+                if (filter.type === 'number') {
+                  const raw = activeFilters[filter.key];
+                  const num = typeof raw === 'number' ? raw : Number(raw);
+                  const safe = Number.isFinite(num) ? num : filter.defaultValue ?? 0;
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+                      </div>
+                      <Input
+                        type="number"
+                        min={filter.min}
+                        max={filter.max}
+                        step={filter.step ?? 1}
+                        value={String(safe)}
+                        onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
+                        disabled={busy}
+                      />
+                    </div>
+                  );
+                }
+                if (filter.type === 'text') {
+                  const textVal = String(activeFilters[filter.key] ?? filter.defaultValue ?? '');
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+                      </div>
+                      <Input
+                        type="text"
+                        value={textVal}
+                        placeholder={filter.placeholder}
+                        onChange={(e) => patchFilter(filter.key, e.target.value)}
+                        disabled={busy}
+                      />
+                    </div>
                   );
                 }
                 if (filter.type === 'select') {

@@ -14,6 +14,7 @@ export function DuplicateWarningDialog(props: {
   if (!props.open || props.candidates.length === 0) return null;
 
   const top = props.candidates[0];
+  if (!top) return null;
   const isExactMatch = top.score >= 950;
   const isHighMatch = top.score >= 700;
 
@@ -110,16 +111,16 @@ export function DuplicateWarningDialog(props: {
                 </span>
               </div>
               <div style={{ marginTop: 6, display: 'flex', gap: 12, fontSize: 12, color: '#6b7280', flexWrap: 'wrap' }}>
-                {c.attributes.name && (
+                {typeof c.attributes.name === 'string' && c.attributes.name.trim() !== '' ? (
                   <span>
-                    <strong>Название:</strong> {String(c.attributes.name)}
+                    <strong>Название:</strong> {c.attributes.name}
                   </span>
-                )}
-                {c.attributes.article && (
+                ) : null}
+                {typeof c.attributes.article === 'string' && c.attributes.article.trim() !== '' ? (
                   <span>
-                    <strong>Артикул:</strong> {String(c.attributes.article)}
+                    <strong>Артикул:</strong> {c.attributes.article}
                   </span>
-                )}
+                ) : null}
                 {c.attributes.price != null && formatPrice(c.attributes.price) && (
                   <span>
                     <strong>Цена:</strong> {formatPrice(c.attributes.price)}

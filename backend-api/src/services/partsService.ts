@@ -1285,7 +1285,7 @@ async function listPartBrandLinksInternal(args?: { partIds?: string[]; partId?: 
   const result: PartEngineBrandLink[] = [];
   for (const row of entityRows) {
     const link = parsedByEntity.get(row.id);
-    if (!link?.partId || !link.engineBrandId || !link.assemblyUnitNumber) continue;
+    if (!link?.partId || !link.engineBrandId) continue;
     if (normalizedPartId && link.partId !== normalizedPartId) continue;
     if (normalizedEngineBrandId && link.engineBrandId !== normalizedEngineBrandId) continue;
     if (normalizedPartIds && !normalizedPartIds.has(link.partId)) continue;
@@ -1294,12 +1294,17 @@ async function listPartBrandLinksInternal(args?: { partIds?: string[]; partId?: 
       id: row.id,
       partId: link.partId,
       engineBrandId: link.engineBrandId,
-      assemblyUnitNumber: link.assemblyUnitNumber,
+      assemblyUnitNumber: link.assemblyUnitNumber ?? '',
       quantity: Number(link.quantity ?? 0),
     });
   }
 
   return result;
+}
+
+/** Все связи деталь↔марка для аналитики/прогноза (включая строки без номера сборочной единицы). */
+export async function listAllPartEngineBrandLinksForForecast(): Promise<PartEngineBrandLink[]> {
+  return listPartBrandLinksInternal();
 }
 
 export async function listParts(args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string; templateId?: string }): Promise<

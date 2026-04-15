@@ -277,9 +277,13 @@ export function SimpleMasterdataDetailsPage(props: {
       return;
     }
     try {
+      const dupQuery: { name?: string; article?: string; price?: number } = {};
+      if (queryName) dupQuery.name = queryName;
+      if (queryArticle) dupQuery.article = queryArticle;
+      if (parsedPrice != null) dupQuery.price = parsedPrice;
       const candidates = await window.matrica.admin.entities.findDuplicates({
         entityTypeId,
-        query: { name: queryName || undefined, article: queryArticle || undefined, price: parsedPrice },
+        query: dupQuery,
         excludeEntityId: props.entityId,
       });
       setDupCandidates(candidates);
@@ -324,9 +328,13 @@ export function SimpleMasterdataDetailsPage(props: {
       return;
     }
     try {
+      const dupQuery: { name?: string; article?: string; price?: number } = {};
+      if (queryName) dupQuery.name = queryName;
+      if (queryArticle) dupQuery.article = queryArticle;
+      if (parsedPrice != null) dupQuery.price = parsedPrice;
       const candidates = await window.matrica.admin.entities.findDuplicates({
         entityTypeId,
-        query: { name: queryName || undefined, article: queryArticle || undefined, price: parsedPrice },
+        query: dupQuery,
         excludeEntityId: props.entityId,
       });
       if (candidates.length > 0) {
@@ -955,11 +963,18 @@ export function SimpleMasterdataDetailsPage(props: {
       <DuplicateWarningDialog
         open={dupDialogOpen}
         candidates={dupCandidates}
-        newEntityData={{
-          name: name.trim() || undefined,
-          article: article.trim() || undefined,
-          price: price.trim() ? normalizeNumberValue(price) || undefined : undefined,
-        }}
+        newEntityData={(() => {
+          const d: { name?: string; article?: string; price?: number } = {};
+          const nt = name.trim();
+          const at = article.trim();
+          if (nt) d.name = nt;
+          if (at) d.article = at;
+          if (price.trim()) {
+            const p = normalizeNumberValue(price);
+            if (p != null) d.price = p;
+          }
+          return d;
+        })()}
         onAction={handleDuplicateAction}
       />
     </EntityCardShell>

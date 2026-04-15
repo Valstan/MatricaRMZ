@@ -104,31 +104,31 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:presetPreview', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return buildReportByPreset(ctx.dataDb(), args);
+    return buildReportByPreset(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
   ipcMain.handle('reports:presetPdf', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportReportPresetPdf(ctx.dataDb(), args);
+    return exportReportPresetPdf(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
   ipcMain.handle('reports:presetCsv', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportReportPresetCsv(ctx.dataDb(), args);
+    return exportReportPresetCsv(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
   ipcMain.handle('reports:preset1cXml', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportReportPreset1cXml(ctx.dataDb(), args);
+    return exportReportPreset1cXml(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
   ipcMain.handle('reports:presetPrint', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return printReportPreset(ctx.dataDb(), args);
+    return printReportPreset(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
   ipcMain.handle('reports:favoritesGet', async (_e, args?: { userId?: string }) => {

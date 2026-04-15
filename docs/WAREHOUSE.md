@@ -39,6 +39,12 @@
 - `POST /warehouse/documents/:id/post`
 - `POST /warehouse/documents/:id/cancel`
 - `GET /warehouse/movements`
+- `POST /warehouse/forecast/assembly-7d` — stateless прогноз сборки (не пишет в ledger; вход: цель/склады/марки/план поступлений). Реализация: `backend-api/src/services/warehouseForecastService.ts`
+
+## Аудит и прогноз (read-only)
+- Отчёт `warehouse_stock_path_audit` в разделе «Отчёты» показывает случаи двойного учёта одной детали по `nomenclature_id` (зеркало `part`) и `part_card_id` на одном складе.
+- Отчёт `assembly_forecast_7d` строит 7‑дневный план расхода по текущим остаткам **номенклатуры** и связям деталь↔марка; редактируемый план поступлений хранится только в фильтре JSON на клиенте.
+- Чистая логика подбора/прогноза вынесена в `shared/src/domain/assemblyForecast.ts` (используется и в Electron, и на backend).
 
 ## Документный lifecycle
 - Новый/редактируемый складской документ живет в статусе `draft`.

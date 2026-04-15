@@ -56,7 +56,12 @@
 - `services_pricelist` — прайс-лист услуг с ценами и привязкой к деталям
 - `products_catalog` — каталог товаров с артикулами, единицами и ценами
 - `parts_compatibility` — совместимость деталей по маркам двигателей
+- `warehouse_stock_path_audit` — read-only аудит остатков: зеркальная номенклатура (`spec_json` `source=part`) vs `part_card_id`
+- `assembly_forecast_7d` — прогноз сборки двигателей на 7 суток по остаткам номенклатуры и связям деталь↔марка (план поступлений — JSON в фильтре, локально)
 - `counterparties_summary` — сводка по контрагентам (контракты, двигатели, сумма, прогресс)
+
+## Типы фильтров UI
+- Помимо `date_range`, `multi_select`, `select`, `checkbox` поддерживаются `number` и `text` (используются в `assembly_forecast_7d`).
 
 ## Новые фильтры (актуально)
 - `contractIds` (multi-select)
@@ -71,6 +76,10 @@
 - `status` (`all` / `in_inventory` / `retired`)
 - `onlyLinkedParts` (checkbox)
 - `supplierIds` (multi-select)
+- `warehouseIds` (multi-select, `optionsSource: warehouses`)
+- `targetEnginesPerDay` (number)
+- `sleeveSearch` (text)
+- `incomingPlanJson` (text, JSON массив `{ dayOffset, nomenclatureId, qty }[]`)
 
 ## Отчет по зарплате сотрудников
 - `work_order_payroll` агрегирует выплаты из нарядов по сотрудникам за выбранный период.

@@ -15,7 +15,9 @@ export type ReportPresetId =
   | 'parts_compatibility'
   | 'counterparties_summary'
   | 'engine_movements'
-  | 'engines_list';
+  | 'engines_list'
+  | 'warehouse_stock_path_audit'
+  | 'assembly_forecast_7d';
 
 export type ReportFilterOption = {
   value: string;
@@ -24,7 +26,7 @@ export type ReportFilterOption = {
   searchText?: string;
 };
 
-export type ReportOptionSource = 'contracts' | 'brands' | 'counterparties' | 'employees' | 'departments';
+export type ReportOptionSource = 'contracts' | 'brands' | 'counterparties' | 'employees' | 'departments' | 'warehouses';
 
 export type ReportFilterSpec =
   | {
@@ -51,6 +53,22 @@ export type ReportFilterSpec =
       type: 'checkbox';
       key: string;
       label: string;
+    }
+  | {
+      type: 'number';
+      key: string;
+      label: string;
+      min?: number;
+      max?: number;
+      step?: number;
+      defaultValue?: number;
+    }
+  | {
+      type: 'text';
+      key: string;
+      label: string;
+      placeholder?: string;
+      defaultValue?: string;
     };
 
 export type ReportColumn = {
@@ -592,6 +610,64 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
       { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
       { key: 'isScrap', label: 'Утиль' },
+    ],
+  },
+  {
+    id: 'warehouse_stock_path_audit',
+    title: 'Склад: аудит двойного учёта (номенклатура vs деталь)',
+    description:
+      'Read-only диагностика: строки `erp_reg_stock_balance`, где одна и та же деталь может учитываться и по `nomenclature_id` (зеркало part), и по `part_card_id`, либо присутствует только один из контуров.',
+    filters: [{ type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = все)', optionsSource: 'warehouses' }],
+    columns: [
+      { key: 'issueKind', label: 'Тип' },
+      { key: 'warehouseId', label: 'Склад (id)' },
+      { key: 'partId', label: 'Деталь (id)' },
+      { key: 'partLabel', label: 'Деталь' },
+      { key: 'nomenclatureQty', label: 'Остаток по номенклатуре', kind: 'number', align: 'right' },
+      { key: 'partCardQty', label: 'Остаток по part_card_id', kind: 'number', align: 'right' },
+      { key: 'note', label: 'Примечание' },
+    ],
+  },
+  {
+    id: 'assembly_forecast_7d',
+    title: 'Склад: прогноз сборки двигателей (7 дней)',
+    description:
+      'Прогнозирует сборку по текущим остаткам номенклатуры (зеркало детали = id номенклатуры) и связям деталь↔марка. План поступлений хранится локально в фильтре JSON и не пишется в ledger.',
+    filters: [
+      { type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = сумма по всем)', optionsSource: 'warehouses' },
+      { type: 'multi_select', key: 'brandIds', label: 'Марки (пусто = все из связей)', optionsSource: 'brands' },
+      {
+        type: 'number',
+        key: 'targetEnginesPerDay',
+        label: 'Целевой выпуск двигателей в сутки',
+        min: 0,
+        max: 500,
+        step: 1,
+        defaultValue: 4,
+      },
+      {
+        type: 'text',
+        key: 'sleeveSearch',
+        label: 'Fallback: поиск гильзы (подстрока в названии/артикуле)',
+        placeholder: 'например: гильз или 740',
+        defaultValue: '',
+      },
+      {
+        type: 'text',
+        key: 'incomingPlanJson',
+        label: 'План поступлений (JSON массив: dayOffset, nomenclatureId, qty)',
+        placeholder: '[{"dayOffset":0,"nomenclatureId":"...","qty":10}]',
+        defaultValue: '[]',
+      },
+    ],
+    columns: [
+      { key: 'dayLabel', label: 'День' },
+      { key: 'engineBrand', label: 'Марка двигателя' },
+      { key: 'plannedEngines', label: 'Кол-во двигателей', kind: 'number', align: 'right' },
+      { key: 'status', label: 'Статус' },
+      { key: 'requiredComponentsSummary', label: 'Расход комплектующих (факт за день)' },
+      { key: 'deficitsSummary', label: 'Дефицит' },
+      { key: 'alternativeBrands', label: 'Альтернативные марки' },
     ],
   },
 ];

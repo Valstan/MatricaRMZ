@@ -44,6 +44,11 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   withoutIgk: 'Без ИГК, шт.',
   withSeparateAccount: 'С отдельным счетом, шт.',
   withoutSeparateAccount: 'Без отдельного счета, шт.',
+  dualPathRows: 'Двойной учёт, шт.',
+  nomOnlyRows: 'Только номенклатура, шт.',
+  partOnlyRows: 'Только part_card, шт.',
+  forecastRows: 'Строк прогноза, шт.',
+  plannedEngines: 'Двигателей в плане, шт.',
 };
 
 const REPORT_METRIC_NOTES: Record<string, string> = {
@@ -181,6 +186,15 @@ export function buildDefaultFilters(preset: ReportPresetDefinition): ReportPrese
     }
     if (filter.type === 'select') {
       out[filter.key] = filter.options[0]?.value ?? '';
+      continue;
+    }
+    if (filter.type === 'number') {
+      const fallback = filter.defaultValue ?? 0;
+      out[filter.key] = Number.isFinite(fallback) ? fallback : 0;
+      continue;
+    }
+    if (filter.type === 'text') {
+      out[filter.key] = filter.defaultValue ?? '';
     }
   }
   return out;

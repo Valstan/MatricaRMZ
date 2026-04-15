@@ -16,6 +16,7 @@ import {
   postWarehouseDocument,
   upsertWarehouseNomenclature,
 } from '../services/warehouseService.js';
+import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
@@ -270,4 +271,48 @@ warehouseRouter.get('/movements', requirePermission(PermissionCode.ErpRegistersV
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
+});
+
+warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const schema = z.object({
+    targetEnginesPerDay: z.coerce.number().int().min(0).max(500),
+    horizonDays: z.coerce.number().int().min(1).max(14).optional(),
+    warehouseIds: z.array(z.string().min(1)).optional(),
+    brandIds: z.array(z.string().min(1)).optional(),
+    sleeveSearch: z.string().optional(),
+    incomingPlan: z
+      .array(
+        z.object({
+          dayOffset: z.coerce.number().int().min(0).max(13),
+          nomenclatureId: z.string().min(1),
+          qty: z.coerce.number().int().min(0).max(1_000_000),
+        }),
+      )
+      .optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const forecast = await computeAssemblyForecastFromServer({
+      targetEnginesPerDay: parsed.data.targetEnginesPerDay,
+      ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
+      ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
+      ...(parsed.data.brandIds !== undefined ? { brandIds: parsed.data.brandIds } : {}),
+      ...(parsed.data.sleeveSearch !== undefined ? { sleeveSearch: parsed.data.sleeveSearch } : {}),
+      ...(parsed.data.incomingPlan !== undefined ? { incomingPlan: parsed.data.incomingPlan } : {}),
+    });
+    const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
+    const rows = forecast.rows.map((r) => ({
+      dayLabel: r.dayLabel,
+      engineBrand: r.engineBrand,
+      plannedEngines: r.plannedEngines,
+      status: statusRu(r.status),
+      requiredComponentsSummary: r.requiredComponentsSummary,
+      deficitsSummary: r.deficitsSummary,
+      alternativeBrands: r.alternativeBrands,
+    }));
+    return res.json({ ok: true, rows, warnings: forecast.warnings });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });

@@ -42,6 +42,7 @@
 - Клиентский release для автообновлений становится видимым клиенту только после публикации installer-метаданных в ledger с корректными `version`, `fileName`, `size`, `sha256`.
 
 ## Последние важные изменения
+- Склад и отчёты: пресеты `warehouse_stock_path_audit` и `assembly_forecast_7d`, доменная логика прогноза в `shared/src/domain/assemblyForecast.ts`, stateless API `POST /warehouse/forecast/assembly-7d` (без записи в ledger).
 - Детали (карточки `part`) отображаются в складской номенклатуре как зеркальные строки `erp_nomenclature`: тот же UUID, тип **Изделие**, группа **Детали** (`spec_json.source === "part"`). Синхронизация на сервере при загрузке списка номенклатуры и после create/update/delete детали; правка только из карточки детали.
 - Для ИИ-сессий зафиксирован приоритет **OpenSSH (`ssh matricarmz`, конфиг в `~/.ssh`)** над MCP для гибкости прод-операций; MCP оставлен как запасной канал, детали в `docs/MCP_SETUP_WINDOWS.md` §8.
 - Клиентский sync recovery усилен: если сервер требует rebuild локальной SQLite-базы из-за `schema_mismatch`, клиент теперь планирует полный relaunch вместо продолжения работы с уже закрытым DB connection.

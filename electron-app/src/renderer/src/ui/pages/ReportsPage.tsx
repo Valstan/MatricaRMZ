@@ -536,6 +536,40 @@ export function ReportsPage(props: { canExport: boolean }) {
                     </label>
                   );
                 }
+                if (filter.type === 'number') {
+                  const raw = activeFilters[filter.key];
+                  const num = typeof raw === 'number' ? raw : Number(raw);
+                  const safe = Number.isFinite(num) ? num : filter.defaultValue ?? 0;
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <Input
+                        type="number"
+                        min={filter.min}
+                        max={filter.max}
+                        step={filter.step ?? 1}
+                        value={String(safe)}
+                        onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
+                        disabled={busy}
+                      />
+                    </div>
+                  );
+                }
+                if (filter.type === 'text') {
+                  const textVal = String(activeFilters[filter.key] ?? filter.defaultValue ?? '');
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <Input
+                        type="text"
+                        value={textVal}
+                        placeholder={filter.placeholder}
+                        onChange={(e) => patchFilter(filter.key, e.target.value)}
+                        disabled={busy}
+                      />
+                    </div>
+                  );
+                }
                 if (filter.type === 'select') {
                   const value = String(activeFilters[filter.key] ?? filter.options[0]?.value ?? '');
                   const options = filter.options.map((option) => ({

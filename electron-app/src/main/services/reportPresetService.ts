@@ -5,9 +5,13 @@ import { BrowserWindow } from 'electron';
 import {
   REPORT_PRESET_DEFINITIONS,
   STATUS_CODES,
+  computeAssemblyForecast,
   computeObjectProgress,
   effectiveContractDueAt,
+  mergeBrandKits,
+  parseAssemblyIncomingPlanJson,
   parseContractSections,
+  tryParseWarehousePartNomenclatureMirror,
   type ReportCellValue,
   type ReportColumn,
   type ReportFilterOption,
@@ -23,8 +27,9 @@ import {
   type ReportPresetPrintResult,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
+import { httpAuthed } from './httpClient.js';
 import { prependUtf8Bom } from './reportCsvEncoding.js';
 import { resolveEngineShippingState } from './reportEngineShippingState.js';
 
@@ -35,6 +40,10 @@ type Snapshot = {
 };
 
 type OkPreview = Extract<ReportPresetPreviewResult, { ok: true }>;
+type ReportBuildContext = {
+  sysDb?: BetterSQLite3Database;
+  apiBaseUrl?: string;
+};
 
 type DefectSupplyPresetRow = {
   contractId: string;
@@ -90,6 +99,11 @@ const TOTAL_LABEL_MAP: Record<string, string> = {
   withoutIgk: 'Без ИГК, шт.',
   withSeparateAccount: 'С отдельным счетом, шт.',
   withoutSeparateAccount: 'Без отдельного счета, шт.',
+  dualPathRows: 'Двойной учёт, шт.',
+  nomOnlyRows: 'Только номенклатура, шт.',
+  partOnlyRows: 'Только part_card, шт.',
+  forecastRows: 'Строк прогноза, шт.',
+  plannedEngines: 'Двигателей в плане, шт.',
 };
 const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   employees: 'Количество сотрудников, по которым есть начисления в выбранном периоде.',
@@ -124,6 +138,11 @@ const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   withSeparateAccount: 'Количество контрактов с заполненным отдельным счетом.',
   withoutSeparateAccount: 'Количество контрактов без отдельного счета.',
   avgAmountRub: 'Средняя цена позиции в отчете.',
+  dualPathRows: 'Строки, где остаток одновременно ведётся по номенклатуре-зеркалу и по part_card_id.',
+  nomOnlyRows: 'Строки, где остаток есть только по номенклатуре-зеркалу детали.',
+  partOnlyRows: 'Строки, где остаток есть только по part_card_id без зеркальной номенклатуры.',
+  forecastRows: 'Количество строк таблицы прогноза (по дням и маркам).',
+  plannedEngines: 'Суммарно запланированных двигателей к сборке по строкам прогноза.',
 };
 
 function labelTotalKey(key: string): string {
@@ -162,6 +181,20 @@ function formatTotalsGuide(totals: Record<string, unknown>): string {
     .filter(Boolean);
   if (rows.length === 0) return '';
   return `<div class="metrics-guide"><b>Что означают показатели:</b><ul>${rows.join('')}</ul></div>`;
+}
+
+function formatHttpError(r: { status: number; json?: unknown; text?: unknown }): string {
+  const jsonObj = r?.json && typeof r.json === 'object' ? (r.json as Record<string, unknown>) : null;
+  const jsonErr = jsonObj ? (jsonObj.error ?? jsonObj.message ?? null) : null;
+  const msg =
+    typeof jsonErr === 'string'
+      ? jsonErr
+      : jsonErr != null
+        ? JSON.stringify(jsonErr)
+        : typeof r.text === 'string' && r.text.trim()
+          ? r.text.trim()
+          : '';
+  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
 }
 
 function resolveContractLabel(contractId: string, fallbackMap: Map<string, string>): string {
@@ -2233,6 +2266,318 @@ async function buildEnginesListReport(
   };
 }
 
+async function buildWarehouseStockPathAuditReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const warehouseFilter = asArray(filters?.warehouseIds);
+  const balanceRows = await db.select().from(erpRegStockBalance);
+  const nomenRows = await db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt));
+  const nomSpecById = new Map<string, string | null>();
+  for (const row of nomenRows as any[]) {
+    nomSpecById.set(String(row.id), row.specJson != null ? String(row.specJson) : null);
+  }
+
+  type Agg = { nom: number; part: number };
+  const agg = new Map<string, Agg>();
+  const whKey = (wh: string, partId: string) => `${wh}__${partId}`;
+
+  function addNomSide(wh: string, partId: string, qty: number, reservedQty: number) {
+    const avail = Math.max(0, Math.floor(Number(qty) - Number(reservedQty || 0)));
+    if (!partId) return;
+    const k = whKey(wh, partId);
+    const cur = agg.get(k) ?? { nom: 0, part: 0 };
+    cur.nom += avail;
+    agg.set(k, cur);
+  }
+  function addPartSide(wh: string, partId: string, qty: number, reservedQty: number) {
+    const avail = Math.max(0, Math.floor(Number(qty) - Number(reservedQty || 0)));
+    if (!partId) return;
+    const k = whKey(wh, partId);
+    const cur = agg.get(k) ?? { nom: 0, part: 0 };
+    cur.part += avail;
+    agg.set(k, cur);
+  }
+
+  for (const raw of balanceRows as any[]) {
+    const wh = String(raw.warehouseId ?? 'default');
+    if (warehouseFilter.length > 0 && !warehouseFilter.includes(wh)) continue;
+    const qty = Number(raw.qty ?? 0);
+    const reservedQty = Number(raw.reservedQty ?? 0);
+    const nomenclatureId = raw.nomenclatureId ? String(raw.nomenclatureId) : '';
+    const partCardId = raw.partCardId ? String(raw.partCardId) : '';
+    if (nomenclatureId) {
+      const specJson = nomSpecById.get(nomenclatureId) ?? null;
+      const mirror = tryParseWarehousePartNomenclatureMirror(specJson);
+      const pid = mirror?.partId ?? '';
+      if (pid) addNomSide(wh, pid, qty, reservedQty);
+    }
+    if (partCardId) addPartSide(wh, partCardId, qty, reservedQty);
+  }
+
+  const snapshot = await loadSnapshot(db);
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let dual = 0;
+  let nomOnly = 0;
+  let partOnly = 0;
+
+  for (const [key, v] of agg.entries()) {
+    const sep = key.indexOf('__');
+    const wh = sep >= 0 ? key.slice(0, sep) : '';
+    const partId = sep >= 0 ? key.slice(sep + 2) : key;
+    const partAttrs = snapshot.attrsByEntity.get(partId) ?? {};
+    const label = normalizeText(partAttrs.name, normalizeText(partAttrs.article, partId));
+    if (v.nom > 0 && v.part > 0) {
+      dual++;
+      rows.push({
+        issueKind: 'двойной_учёт',
+        warehouseId: wh,
+        partId,
+        partLabel: label,
+        nomenclatureQty: v.nom,
+        partCardQty: v.part,
+        note: 'Остаток есть и по зеркальной номенклатуре (spec source=part), и по part_card_id',
+      });
+    } else if (v.nom > 0) {
+      nomOnly++;
+      rows.push({
+        issueKind: 'только_номенклатура',
+        warehouseId: wh,
+        partId,
+        partLabel: label,
+        nomenclatureQty: v.nom,
+        partCardQty: 0,
+        note: 'Остаток по зеркальной номенклатуре без part_card_id на этом складе',
+      });
+    } else if (v.part > 0) {
+      partOnly++;
+      rows.push({
+        issueKind: 'только_part_card',
+        warehouseId: wh,
+        partId,
+        partLabel: label,
+        nomenclatureQty: 0,
+        partCardQty: v.part,
+        note: 'Остаток по part_card_id без зеркальной номенклатуры/остатка по ней',
+      });
+    }
+  }
+
+  rows.sort(
+    (a, b) =>
+      String(a.issueKind ?? '').localeCompare(String(b.issueKind ?? ''), 'ru') ||
+      String(a.partLabel ?? '').localeCompare(String(b.partLabel ?? ''), 'ru'),
+  );
+
+  const preset = getPreset('warehouse_stock_path_audit');
+  return {
+    ok: true,
+    presetId: 'warehouse_stock_path_audit',
+    title: preset.title,
+    subtitle: warehouseFilter.length ? `Отфильтровано складов: ${warehouseFilter.length}` : 'Все склады',
+    columns: preset.columns,
+    rows,
+    totals: { dualPathRows: dual, nomOnlyRows: nomOnly, partOnlyRows: partOnly },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildAssemblyForecast7dReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  async function viaApi(): Promise<{ report: OkPreview } | { skip: true } | { error: string }> {
+    const apiBaseUrl = String(ctx?.apiBaseUrl ?? '').trim();
+    if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
+    const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
+    const warehouseIds = asArray(filters?.warehouseIds);
+    const brandIds = asArray(filters?.brandIds);
+    const sleeveSearch = String(filters?.sleeveSearch ?? '');
+    const incomingPlan = parseAssemblyIncomingPlanJson(filters?.incomingPlanJson);
+    const payload = {
+      targetEnginesPerDay,
+      horizonDays: 7,
+      ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
+      ...(brandIds.length > 0 ? { brandIds } : {}),
+      ...(sleeveSearch.trim() ? { sleeveSearch } : {}),
+      ...(incomingPlan.length > 0 ? { incomingPlan } : {}),
+    };
+    try {
+      const r = await httpAuthed(
+        ctx.sysDb,
+        apiBaseUrl,
+        '/warehouse/forecast/assembly-7d',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        { timeoutMs: 45_000 },
+      );
+      if (!r.ok) return { error: `Не удалось получить прогноз от backend: ${formatHttpError(r)}` };
+      if (!r.json || typeof r.json !== 'object' || (r.json as Record<string, unknown>).ok !== true) {
+        return { error: 'API прогноза вернул некорректный ответ' };
+      }
+      const body = r.json as Record<string, unknown>;
+      const rowsRaw = Array.isArray(body.rows) ? body.rows : [];
+      const rows = rowsRaw.map((row) => {
+        const r0 = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+        return {
+          dayLabel: normalizeText(r0.dayLabel, ''),
+          engineBrand: normalizeText(r0.engineBrand, ''),
+          plannedEngines: Math.max(0, toNumber(r0.plannedEngines)),
+          status: normalizeText(r0.status, ''),
+          requiredComponentsSummary: normalizeText(r0.requiredComponentsSummary, ''),
+          deficitsSummary: normalizeText(r0.deficitsSummary, ''),
+          alternativeBrands: normalizeText(r0.alternativeBrands, ''),
+        } as Record<string, ReportCellValue>;
+      });
+      const warnings = Array.isArray(body.warnings) ? body.warnings.map((w) => String(w)).filter(Boolean) : [];
+      const preset = getPreset('assembly_forecast_7d');
+      const subtitleParts = [
+        `Цель: ${targetEnginesPerDay}/сутки`,
+        warehouseIds.length ? `Склады: ${warehouseIds.length}` : 'Склады: все (сумма)',
+        ...warnings,
+      ];
+      return {
+        report: {
+          ok: true,
+          presetId: 'assembly_forecast_7d',
+          title: preset.title,
+          subtitle: subtitleParts.join(' | '),
+          columns: preset.columns,
+          rows,
+          totals: {
+            forecastRows: rows.length,
+            plannedEngines: rows.reduce((acc, row) => acc + toNumber(row.plannedEngines), 0),
+          },
+          generatedAt: Date.now(),
+        },
+      };
+    } catch (e) {
+      return { error: `Ошибка вызова API прогноза: ${String(e)}` };
+    }
+  }
+
+  const remote = await viaApi();
+  if ('report' in remote) return remote.report;
+  if ('error' in remote) return { ok: false, error: remote.error };
+
+  const snapshot = await loadSnapshot(db);
+  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const brandFilter = asArray(filters?.brandIds);
+  const warehouseFilter = asArray(filters?.warehouseIds);
+  const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
+  const sleeveSearch = String(filters?.sleeveSearch ?? '');
+  const incomingLines = parseAssemblyIncomingPlanJson(filters?.incomingPlanJson);
+
+  const balanceRows = await db.select().from(erpRegStockBalance);
+  const stockMap = new Map<string, number>();
+  for (const raw of balanceRows as any[]) {
+    const wh = String(raw.warehouseId ?? 'default');
+    if (warehouseFilter.length > 0 && !warehouseFilter.includes(wh)) continue;
+    const nid = raw.nomenclatureId ? String(raw.nomenclatureId) : '';
+    if (!nid) continue;
+    const avail = Math.max(0, Math.floor(Number(raw.qty ?? 0) - Number(raw.reservedQty ?? 0)));
+    stockMap.set(nid, (stockMap.get(nid) ?? 0) + avail);
+  }
+
+  const compatRows: Array<{
+    partId: string;
+    brandId: string;
+    brandLabel: string;
+    partName: string;
+    article: string;
+    qtyPerEngine: number;
+  }> = [];
+  const seenPartBrandPairs = new Set<string>();
+
+  for (const linkId of getIdsByType(snapshot, 'part_engine_brand')) {
+    const linkAttrs = snapshot.attrsByEntity.get(linkId) ?? {};
+    const partId = normalizeText(linkAttrs.part_id, '');
+    const brandId = normalizeText(linkAttrs.engine_brand_id, '');
+    if (!partId || !brandId) continue;
+    if (brandFilter.length > 0 && !brandFilter.includes(brandId)) continue;
+    seenPartBrandPairs.add(`${partId}::${brandId}`);
+    const partAttrs = snapshot.attrsByEntity.get(partId) ?? {};
+    compatRows.push({
+      partId,
+      brandId,
+      brandLabel: brandOptions.get(brandId) ?? normalizeText(partAttrs.engine_brand, brandId),
+      partName: normalizeText(partAttrs.name, partId),
+      article: normalizeText(partAttrs.article, ''),
+      qtyPerEngine: Math.max(0, toNumber(linkAttrs.quantity)),
+    });
+  }
+
+  for (const partId of getIdsByType(snapshot, 'part')) {
+    const attrs = snapshot.attrsByEntity.get(partId) ?? {};
+    const brandIds = asArray(attrs.engine_brand_ids);
+    if (brandIds.length === 0) continue;
+    const qtyMapRaw = attrs.engine_brand_qty_map;
+    const qtyMap = qtyMapRaw && typeof qtyMapRaw === 'object' && !Array.isArray(qtyMapRaw) ? (qtyMapRaw as Record<string, unknown>) : {};
+    for (const brandId of brandIds) {
+      if (!brandId) continue;
+      if (brandFilter.length > 0 && !brandFilter.includes(brandId)) continue;
+      const pairKey = `${partId}::${brandId}`;
+      if (seenPartBrandPairs.has(pairKey)) continue;
+      compatRows.push({
+        partId,
+        brandId,
+        brandLabel: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        partName: normalizeText(attrs.name, partId),
+        article: normalizeText(attrs.article, ''),
+        qtyPerEngine: Math.max(0, toNumber(qtyMap[brandId])),
+      });
+    }
+  }
+
+  const filteredCompat = compatRows.filter((r) => r.qtyPerEngine > 0);
+  const kits = mergeBrandKits(filteredCompat);
+
+  const forecast = computeAssemblyForecast({
+    horizonDays: 7,
+    targetEnginesPerDay,
+    warehouseId: warehouseFilter.length === 1 ? warehouseFilter[0]! : null,
+    kits,
+    stockByNomenclatureId: stockMap,
+    incomingLines,
+    sleeveSearch,
+  });
+
+  const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
+  const rows = forecast.rows.map((r) => ({
+    dayLabel: r.dayLabel,
+    engineBrand: r.engineBrand,
+    plannedEngines: r.plannedEngines,
+    status: statusRu(r.status),
+    requiredComponentsSummary: r.requiredComponentsSummary,
+    deficitsSummary: r.deficitsSummary,
+    alternativeBrands: r.alternativeBrands,
+  }));
+
+  const preset = getPreset('assembly_forecast_7d');
+  const subtitleParts = [
+    `Цель: ${targetEnginesPerDay}/сутки`,
+    warehouseFilter.length ? `Склады: ${warehouseFilter.length}` : 'Склады: все (сумма)',
+    ...(forecast.warnings.length ? forecast.warnings : []),
+  ];
+  return {
+    ok: true,
+    presetId: 'assembly_forecast_7d',
+    title: preset.title,
+    subtitle: subtitleParts.join(' | '),
+    columns: preset.columns,
+    rows,
+    totals: {
+      forecastRows: rows.length,
+      plannedEngines: rows.reduce((acc, row) => acc + toNumber(row.plannedEngines), 0),
+    },
+    generatedAt: Date.now(),
+  };
+}
+
 export async function getReportPresetList(db: BetterSQLite3Database): Promise<ReportPresetListResult> {
   try {
     const snapshot = await loadSnapshot(db);
@@ -2245,6 +2590,7 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
+        warehouses: buildOptions(snapshot, 'warehouse_ref'),
       },
     };
   } catch (e) {
@@ -2255,6 +2601,7 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
 export async function buildReportByPreset(
   db: BetterSQLite3Database,
   args: ReportPresetPreviewRequest,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   try {
     switch (args.presetId) {
@@ -2292,6 +2639,10 @@ export async function buildReportByPreset(
         return buildEngineMovementsReport(db, args.filters);
       case 'engines_list':
         return buildEnginesListReport(db, args.filters);
+      case 'warehouse_stock_path_audit':
+        return buildWarehouseStockPathAuditReport(db, args.filters);
+      case 'assembly_forecast_7d':
+        return buildAssemblyForecast7dReport(db, args.filters, ctx);
       default:
         return { ok: false, error: `Неизвестный пресет: ${String(args.presetId)}` };
     }
@@ -2433,8 +2784,9 @@ function buildFileBaseName(presetId: ReportPresetId): string {
 export async function exportReportPresetPdf(
   db: BetterSQLite3Database,
   args: ReportPresetPreviewRequest,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPdfResult> {
-  const report = await buildReportByPreset(db, args);
+  const report = await buildReportByPreset(db, args, ctx);
   if (!report.ok) return report;
   const html = renderReportHtml(report);
   const win = await renderHtmlWindow(html);
@@ -2454,8 +2806,9 @@ export async function exportReportPresetPdf(
 export async function exportReportPresetCsv(
   db: BetterSQLite3Database,
   args: ReportPresetPreviewRequest,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetCsvResult> {
-  const report = await buildReportByPreset(db, args);
+  const report = await buildReportByPreset(db, args, ctx);
   if (!report.ok) return report;
   return {
     ok: true,
@@ -2468,8 +2821,9 @@ export async function exportReportPresetCsv(
 export async function exportReportPreset1cXml(
   db: BetterSQLite3Database,
   args: ReportPresetPreviewRequest,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPreset1cXmlResult> {
-  const report = await buildReportByPreset(db, args);
+  const report = await buildReportByPreset(db, args, ctx);
   if (!report.ok) return report;
   return {
     ok: true,
@@ -2482,8 +2836,9 @@ export async function exportReportPreset1cXml(
 export async function printReportPreset(
   db: BetterSQLite3Database,
   args: ReportPresetPreviewRequest,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPrintResult> {
-  const report = await buildReportByPreset(db, args);
+  const report = await buildReportByPreset(db, args, ctx);
   if (!report.ok) return report;
   const html = renderReportHtml(report);
   const win = await renderHtmlWindow(html);

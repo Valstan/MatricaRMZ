@@ -239,8 +239,12 @@ async function main() {
     return;
   }
 
-  // Bump version
-  run(`${PNPM} version:bump`);
+  const skipBump = String(process.env.MATRICA_RELEASE_SKIP_VERSION_BUMP ?? '').trim() === 'true';
+  if (skipBump) {
+    console.log('MATRICA_RELEASE_SKIP_VERSION_BUMP=true: skipping pnpm version:bump (use when VERSION is already set, e.g. --set 1.12.0).');
+  } else {
+    run(`${PNPM} version:bump`);
+  }
   const version = await readVersion();
   if (!version) throw new Error('VERSION is empty after bump');
   const tag = `v${version}`;

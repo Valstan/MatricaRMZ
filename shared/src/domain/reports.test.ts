@@ -20,6 +20,8 @@ describe('report presets regressions', () => {
     expect(ids.has('products_catalog')).toBe(true);
     expect(ids.has('parts_compatibility')).toBe(true);
     expect(ids.has('counterparties_summary')).toBe(true);
+    expect(ids.has('warehouse_stock_path_audit')).toBe(true);
+    expect(ids.has('assembly_forecast_7d')).toBe(true);
   });
 
   it('keeps employee roster wiring for department and employment filters', () => {
@@ -70,6 +72,24 @@ describe('report presets regressions', () => {
       'assemblyUnitNumber',
       'qtyPerEngine',
       'supplierName',
+    ]);
+    expect(preset('warehouse_stock_path_audit')?.columns.map((column) => column.key)).toEqual([
+      'issueKind',
+      'warehouseId',
+      'partId',
+      'partLabel',
+      'nomenclatureQty',
+      'partCardQty',
+      'note',
+    ]);
+    expect(preset('assembly_forecast_7d')?.columns.map((column) => column.key)).toEqual([
+      'dayLabel',
+      'engineBrand',
+      'plannedEngines',
+      'status',
+      'requiredComponentsSummary',
+      'deficitsSummary',
+      'alternativeBrands',
     ]);
   });
 
