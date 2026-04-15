@@ -574,33 +574,33 @@ export function WorkOrderDetailsPage(props: {
         : `<div class="muted">Нет данных</div>`;
 
     const crewHtml = current.crew.length
-      ? `<table><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Выплата</th><th>Заморозка</th></tr></thead><tbody>${current.crew
+      ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th></tr></thead><tbody>${current.crew
           .map((member) => {
-            const emp = employees.find((e) => e.id === member.employeeId);
-            const tabNum = emp?.personnelNumber || '';
-            return `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(tabNum || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td><td>${escapeHtml(
+            return `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td><td>${escapeHtml(
               money(member.payoutRub ?? 0),
             )}</td><td>${member.payoutFrozen ? 'Да' : 'Нет'}</td></tr>`;
           })
           .join('')}</tbody></table>`
       : `<div class="muted">Нет данных</div>`;
 
+    const worksHtml = `${linesTable(current.freeWorks)}<div class="wo-print-works-footer" style="margin-top:10px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:13px;"><strong>Итог:</strong> ${escapeHtml(
+      money(current.totalAmountRub || 0),
+    )}</div>`;
+
     openPrintPreview({
       title: `Наряд №${current.workOrderNumber || '—'}`,
-      subtitle: current.orderDate ? `Дата: ${formatMoscowDate(current.orderDate)}` : 'Дата: —',
+      subtitle: current.orderDate ? `Дата создания: ${formatMoscowDate(current.orderDate)}` : 'Дата создания: —',
       sections: [
         {
           id: 'main',
           title: 'Основное',
           html: keyValueTable([
             ['Номер наряда', String(current.workOrderNumber || '—')],
-            ['Дата', current.orderDate ? formatMoscowDate(current.orderDate) : '—'],
-            ['Итог', money(current.totalAmountRub || 0)],
-            ['База на человека', money(current.basePerWorkerRub || 0)],
+            ['Дата создания', current.orderDate ? formatMoscowDate(current.orderDate) : '—'],
           ]),
         },
         { id: 'crew', title: 'Бригада и выплаты', html: crewHtml },
-        { id: 'works', title: 'Виды работ', html: linesTable(current.freeWorks) },
+        { id: 'works', title: 'Виды работ', html: worksHtml },
       ],
     });
   }
@@ -665,7 +665,7 @@ export function WorkOrderDetailsPage(props: {
             <tr>
               <th style={{ textAlign: 'left' }}>Сотрудник</th>
               <th style={{ textAlign: 'right' }}>КТУ</th>
-              <th style={{ textAlign: 'right' }}>Выплата</th>
+              <th style={{ textAlign: 'right' }}>Начислено</th>
               <th style={{ textAlign: 'right' }}>Заморозить</th>
               {props.canEdit && <th style={{ textAlign: 'center' }}>Действия</th>}
             </tr>
@@ -801,10 +801,6 @@ export function WorkOrderDetailsPage(props: {
             + Добавить сотрудника
           </Button>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, color: 'var(--muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
-          <span>Итог: {money(payload.totalAmountRub)}</span>
-          <span>База на человека: {money(payload.basePerWorkerRub)}</span>
-        </div>
       </div>
     </SectionCard>
   );
@@ -818,26 +814,28 @@ export function WorkOrderDetailsPage(props: {
           layout="stack"
           cardActions={cardActionBar}
         >
-      {/* Реквизиты и итоги — одна компактная строка */}
-      <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 16,
-        alignItems: 'center',
-        padding: '8px 12px',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        marginBottom: 12,
-        maxWidth: 'var(--ui-content-block-max-width)',
-        marginInline: 'auto',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {/* Реквизиты: только номер и дата создания */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 'var(--ui-space-4, 10px)',
+          alignItems: 'center',
+          padding: 'var(--ui-space-3, 8px) var(--ui-space-4, 10px)',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          marginBottom: 'var(--ui-space-3, 8px)',
+          maxWidth: 'var(--ui-content-block-max-width)',
+          marginInline: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>№</span>
           <Input value={String(payload.workOrderNumber)} disabled style={{ ...amountInputStyle, width: 60 }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата создания</span>
           <Input
             type="date"
             value={toInputDate(payload.orderDate)}
@@ -845,15 +843,6 @@ export function WorkOrderDetailsPage(props: {
             onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
             style={{ width: 150 }}
           />
-        </div>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Итог</span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{money(payload.totalAmountRub)}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>База/чел</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{money(payload.basePerWorkerRub)}</span>
         </div>
       </div>
       {status && !status.startsWith('Сохранено') ? (
@@ -1031,12 +1020,27 @@ export function WorkOrderDetailsPage(props: {
           </table>
         </div>
         {props.canEdit && (
-          <div>
+          <div style={{ marginTop: 'var(--ui-space-2, 4px)' }}>
             <Button variant="ghost" onClick={addFreeWorkLine}>
               Добавить работу +
             </Button>
           </div>
         )}
+        <div
+          className="wo-works-total"
+          style={{
+            marginTop: 'var(--ui-space-3, 8px)',
+            paddingTop: 'var(--ui-space-3, 8px)',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 'var(--ui-space-3, 8px)',
+          }}
+        >
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Итог</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{money(payload.totalAmountRub)}</span>
+        </div>
       </SectionCard>
     </div>
     </div>

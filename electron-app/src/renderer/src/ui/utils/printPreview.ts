@@ -65,7 +65,13 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
     ul { margin: 0; padding-left: 18px; }
     .section { margin-bottom: 16px; }
     .muted { color: #6b7280; }
-    @media print { .no-print { display: none; } body { margin: 12mm; } }
+    @media print {
+      .no-print { display: none !important; }
+      body { margin: 12mm; color: #0b1220; }
+      .section { break-inside: avoid-page; page-break-inside: avoid; }
+      .wo-print-works-footer { break-inside: avoid-page; page-break-inside: avoid; margin-top: 10px; }
+      table { break-inside: auto; }
+    }
     ${visibilityCss}
   </style>
 </head>

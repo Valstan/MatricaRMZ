@@ -38,6 +38,12 @@ export function MultiSearchSelect(props: {
     input.select();
   }, [dropdown.open]);
 
+  useEffect(() => {
+    if (!dropdown.open) return;
+    if (!dropdown.filtered.length) return;
+    dropdown.setActiveIdx((i) => Math.min(Math.max(0, i), dropdown.filtered.length - 1));
+  }, [dropdown.filtered.length, dropdown.open, dropdown.setActiveIdx]);
+
   function setQuery(next: string) {
     dropdown.setQuery(next);
     props.onQueryChange?.(next);
@@ -157,7 +163,9 @@ export function MultiSearchSelect(props: {
               style={{
                 position: 'fixed',
                 left: dropdown.popupRect.left,
-                top: dropdown.popupRect.top,
+                ...(dropdown.popupRect.placement === 'above'
+                  ? { bottom: dropdown.popupRect.bottom }
+                  : { top: dropdown.popupRect.top }),
                 width: dropdown.popupRect.width,
                 zIndex: 5000,
                 background: 'var(--surface)',

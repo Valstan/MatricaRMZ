@@ -7,7 +7,11 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(-1);
-  const [popupRect, setPopupRect] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
+  const [popupRect, setPopupRect] = useState<
+    | { left: number; width: number; maxHeight: number; placement: 'below'; top: number }
+    | { left: number; width: number; maxHeight: number; placement: 'above'; bottom: number }
+    | null
+  >(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -48,18 +52,20 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
       const spaceBelow = Math.max(0, viewportH - rect.bottom - gap - padding);
       const spaceAbove = Math.max(0, rect.top - gap - padding);
 
-      // Если внизу мало места (< 200px), а сверху больше — показываем наверху
-      const preferTop = spaceBelow < 200 && spaceAbove > spaceBelow;
+      // Если до нижнего края viewport мало места (< 250px), а сверху больше — якорим попап сверху поля
+      const preferTop = spaceBelow < 250 && spaceAbove > spaceBelow;
 
-      // Высота попапа фиксированная (задаётся из SearchSelect), но ограничиваем viewport
       const maxAvailable = preferTop ? spaceAbove : spaceBelow;
-      let top = preferTop ? rect.top - gap : rect.bottom + gap;
-
-      // Ограничиваем в пределах viewport
-      if (top < padding) top = padding;
       const effectiveMaxHeight = Math.max(120, maxAvailable);
 
-      setPopupRect({ left, top, width, maxHeight: effectiveMaxHeight });
+      if (preferTop) {
+        const bottom = viewportH - rect.top + gap;
+        setPopupRect({ left, width, maxHeight: effectiveMaxHeight, placement: 'above', bottom });
+      } else {
+        let top = rect.bottom + gap;
+        if (top < padding) top = padding;
+        setPopupRect({ left, width, maxHeight: effectiveMaxHeight, placement: 'below', top });
+      }
     };
     update();
     rafId = requestAnimationFrame(update);
@@ -74,16 +80,8 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
 
   useEffect(() => {
     if (!open) return;
-    if (!filtered.length) {
-      setActiveIdx(-1);
-      return;
-    }
-    setActiveIdx((prev) => {
-      if (prev < 0) return 0;
-      if (prev >= filtered.length) return filtered.length - 1;
-      return prev;
-    });
-  }, [filtered, open]);
+    if (!filtered.length) setActiveIdx(-1);
+  }, [filtered.length, open]);
 
   useEffect(() => {
     if (!open || activeIdx < 0) return;

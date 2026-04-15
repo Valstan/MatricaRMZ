@@ -27,7 +27,12 @@ function sourceBadge(label: SourceLabel): React.ReactNode {
   return <span style={styles[label]}>{text[label]}</span>;
 }
 
-const MAX_VISIBLE = 5;
+/** Сколько подсказок участвует в ранжировании (данные из переданного массива options). */
+const MAX_RANKED_OPTIONS = 15;
+/** Видимая высота списка — ~5 строк, остальное через прокрутку. */
+const VISIBLE_ROWS_CAP = 5;
+const ROW_APPROX_PX = 42;
+const listViewportMaxPx = VISIBLE_ROWS_CAP * ROW_APPROX_PX;
 
 export function SearchSelect(props: {
   value: string | null;
@@ -53,10 +58,9 @@ export function SearchSelect(props: {
 
   const normalizedQuery = useMemo(() => normalizeLookupText(dropdown.query), [dropdown.query]);
 
-  // Ранжированные результаты — максимум MAX_VISIBLE без прокрутки
   const similarMatches = useMemo(() => {
     if (!normalizedQuery) return [];
-    return rankLookupOptions(props.options, normalizedQuery).slice(0, MAX_VISIBLE);
+    return rankLookupOptions(props.options, normalizedQuery).slice(0, MAX_RANKED_OPTIONS);
   }, [normalizedQuery, props.options]);
 
   const exactMatch = useMemo(
@@ -64,7 +68,6 @@ export function SearchSelect(props: {
     [normalizedQuery, props.options],
   );
 
-  // Объединённый список для отображения (max 5, без прокрутки)
   const visibleItems = useMemo(() => {
     // Если есть exactMatch — показываем его первым
     if (exactMatch) {
@@ -112,11 +115,16 @@ export function SearchSelect(props: {
     if (dropdown.query !== next) dropdown.setQuery(next);
   }, [dropdown.open, dropdown.query, props.query, selected?.label]);
 
-  // Сброс activeIdx при изменении видимых элементов
   useEffect(() => {
     if (!dropdown.open) return;
-    dropdown.setActiveIdx(visibleItems.length > 0 ? 0 : -1);
-  }, [visibleItems.length, dropdown.open]);
+    dropdown.setActiveIdx((idx) => {
+      if (visibleItems.length === 0) return -1;
+      if (exactMatch) return 0;
+      if (idx < 0) return 0;
+      if (idx >= visibleItems.length) return visibleItems.length - 1;
+      return idx;
+    });
+  }, [dropdown.open, dropdown.setActiveIdx, exactMatch, visibleItems.length]);
 
   async function submitCreate() {
     if (!props.onCreate || createBusy) return;
@@ -169,12 +177,9 @@ export function SearchSelect(props: {
       e.preventDefault();
       close();
     }
-  }, [disabled, dropdown, visibleItems.length, props.onCreate, exactMatch]);
+  }, [disabled, dropdown, visibleItems, props.onCreate, exactMatch]);
 
-  // Рассчитываем высоту попапа: ~42px на элемент + ~52px на кнопку создания
-  const itemsHeight = visibleItems.length * 42;
   const createBtnHeight = props.onCreate ? 52 : 0;
-  const totalPopupHeight = itemsHeight + createBtnHeight;
 
   return (
     <div ref={dropdown.rootRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
@@ -232,10 +237,15 @@ export function SearchSelect(props: {
               style={{
                 position: 'fixed',
                 left: dropdown.popupRect.left,
-                top: dropdown.popupRect.top,
+                ...(dropdown.popupRect.placement === 'above'
+                  ? { bottom: dropdown.popupRect.bottom }
+                  : { top: dropdown.popupRect.top }),
                 width: dropdown.popupRect.width,
-                // Фиксированная высота — без прокрутки
-                height: Math.min(totalPopupHeight, dropdown.popupRect.maxHeight),
+                maxHeight: dropdown.popupRect.maxHeight,
+                height: Math.min(
+                  createBtnHeight + Math.min(listViewportMaxPx, Math.max(ROW_APPROX_PX, dropdown.popupRect.maxHeight - createBtnHeight - 6)),
+                  dropdown.popupRect.maxHeight,
+                ),
                 zIndex: 5000,
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
@@ -246,8 +256,15 @@ export function SearchSelect(props: {
                 flexDirection: 'column',
               }}
             >
-              {/* Список подсказок — без прокрутки, max 5 */}
-              <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div
+                ref={dropdown.listRef}
+                style={{
+                  flex: '1 1 auto',
+                  minHeight: 0,
+                  maxHeight: Math.min(listViewportMaxPx, Math.max(ROW_APPROX_PX, dropdown.popupRect.maxHeight - createBtnHeight - 6)),
+                  overflowY: 'auto',
+                }}
+              >
                 {visibleItems.length === 0 && !props.onCreate && (
                   <div style={{ padding: 12, color: 'var(--muted)' }}>Ничего не найдено</div>
                 )}
@@ -304,7 +321,7 @@ export function SearchSelect(props: {
                 })}
               </div>
 
-              {/* Кнопка «+Создать и Вставить» — закреплена внизу, всегда видна */}
+              {/* Кнопка «+Создать и Вставить» — закреплена внизу попапа */}
               {props.onCreate && (
                 <div style={{ borderTop: '1px dashed var(--border)', padding: '8px 10px', flexShrink: 0, background: 'var(--surface)' }}>
                   <button
