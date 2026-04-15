@@ -200,6 +200,9 @@ export function startSyncPipelineSupervisorService() {
   const dailyTime = parseTime(String(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_TIME ?? DEFAULT_DAILY_TIME)) ?? DEFAULT_DAILY_TIME;
   const sendOkSummary = parseBool(process.env.MATRICA_SYNC_PIPELINE_NIGHTLY_OK_SUMMARY, false);
   const telegramEnabled = isTelegramIntegrationEnabled();
+  if (!telegramEnabled) {
+    logInfo('sync pipeline: Telegram отключён (MATRICA_TELEGRAM_ENABLED=false), опрос бота и ночные уведомления в TG не используются');
+  }
   const actionsEnabled = parseBool(process.env.MATRICA_SYNC_PIPELINE_TELEGRAM_ACTIONS_ENABLED, true) && telegramEnabled;
   const botPollSilentCounterLogMs = parseNumber(
     process.env.MATRICA_SYNC_PIPELINE_BOT_POLL_COUNTER_LOG_MS,
