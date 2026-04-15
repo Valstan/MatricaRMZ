@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NomenclatureItemType, WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
+import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -11,6 +12,8 @@ export function NomenclatureDetailsPage(props: {
   id: string;
   canEdit: boolean;
   onClose: () => void;
+  /** Зеркальная позиция детали в номенклатуре — открыть карточку детали (Производство) */
+  onOpenLinkedPart?: (partId: string) => void | Promise<void>;
 }) {
   const { lookups, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
@@ -76,10 +79,37 @@ export function NomenclatureDetailsPage(props: {
 
   const totalQty = useMemo(() => balances.reduce((sum, row) => sum + Number(row.qty ?? 0), 0), [balances]);
 
+  const partMirror = useMemo(() => tryParseWarehousePartNomenclatureMirror(row?.specJson ?? null), [row?.specJson]);
+  const canEditNomenclatureFields = props.canEdit && !partMirror;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {partMirror ? (
+        <div
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: 12,
+            background: 'var(--panel-bg, #f9fafb)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 10,
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ flex: '1 1 240px', fontSize: 14, color: 'var(--text)' }}>
+            Эта строка номенклатуры — зеркало карточки детали из раздела «Производство». Код и наименование подтягиваются из детали; шаблон детали задаётся в карточке детали.
+          </div>
+          {props.onOpenLinkedPart ? (
+            <Button type="button" onClick={() => void props.onOpenLinkedPart?.(partMirror.partId)}>
+              Открыть деталь
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div style={{ display: 'flex', gap: 8 }}>
-        {props.canEdit ? (
+        {canEditNomenclatureFields ? (
           <Button
             onClick={async () => {
               const result = await window.matrica.warehouse.nomenclatureUpsert({
@@ -108,7 +138,7 @@ export function NomenclatureDetailsPage(props: {
             Сохранить
           </Button>
         ) : null}
-        {props.canEdit ? (
+        {canEditNomenclatureFields ? (
           <Button
             variant="ghost"
             style={{ color: 'var(--danger)' }}
@@ -136,11 +166,11 @@ export function NomenclatureDetailsPage(props: {
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 10 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, alignItems: 'center' }}>
           <div>Код</div>
-          <Input value={code} disabled={!props.canEdit} onChange={(e) => setCode(e.target.value)} />
+          <Input value={code} disabled={!canEditNomenclatureFields} onChange={(e) => setCode(e.target.value)} />
           <div>Наименование</div>
-          <Input value={name} disabled={!props.canEdit} onChange={(e) => setName(e.target.value)} />
+          <Input value={name} disabled={!canEditNomenclatureFields} onChange={(e) => setName(e.target.value)} />
           <div>Тип</div>
-          <select value={itemType} disabled={!props.canEdit} onChange={(e) => setItemType(e.target.value)} style={{ padding: '8px 10px' }}>
+          <select value={itemType} disabled={!canEditNomenclatureFields} onChange={(e) => setItemType(e.target.value)} style={{ padding: '8px 10px' }}>
             {WAREHOUSE_ITEM_TYPE_OPTIONS.filter((item) => item.id).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
@@ -150,7 +180,7 @@ export function NomenclatureDetailsPage(props: {
           <div>Группа</div>
           <SearchSelect
             value={groupId}
-            disabled={!props.canEdit}
+            disabled={!canEditNomenclatureFields}
             options={lookupToSelectOptions(lookups.nomenclatureGroups)}
             placeholder="Группа номенклатуры"
             onChange={setGroupId}
@@ -158,32 +188,32 @@ export function NomenclatureDetailsPage(props: {
           <div>Единица измерения</div>
           <SearchSelect
             value={unitId}
-            disabled={!props.canEdit}
+            disabled={!canEditNomenclatureFields}
             options={lookupToSelectOptions(lookups.units)}
             placeholder="Единица измерения"
             onChange={setUnitId}
           />
           <div>Штрихкод</div>
-          <Input value={barcode} disabled={!props.canEdit} onChange={(e) => setBarcode(e.target.value)} />
+          <Input value={barcode} disabled={!canEditNomenclatureFields} onChange={(e) => setBarcode(e.target.value)} />
           <div>Мин. остаток</div>
-          <Input value={minStock} type="number" disabled={!props.canEdit} onChange={(e) => setMinStock(e.target.value)} />
+          <Input value={minStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMinStock(e.target.value)} />
           <div>Макс. остаток</div>
-          <Input value={maxStock} type="number" disabled={!props.canEdit} onChange={(e) => setMaxStock(e.target.value)} />
+          <Input value={maxStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMaxStock(e.target.value)} />
           <div>Склад по умолчанию</div>
           <SearchSelect
             value={defaultWarehouseId}
-            disabled={!props.canEdit}
+            disabled={!canEditNomenclatureFields}
             options={lookupToSelectOptions(lookups.warehouses)}
             placeholder="Склад по умолчанию"
             onChange={setDefaultWarehouseId}
           />
           <div>Активность</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={isActive} disabled={!props.canEdit} onChange={(e) => setIsActive(e.target.checked)} />
+            <input type="checkbox" checked={isActive} disabled={!canEditNomenclatureFields} onChange={(e) => setIsActive(e.target.checked)} />
             Активна
           </label>
           <div>Спецификация (JSON)</div>
-          <textarea value={specJson} disabled={!props.canEdit} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
+          <textarea value={specJson} disabled={!canEditNomenclatureFields} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
         </div>
       </div>
 

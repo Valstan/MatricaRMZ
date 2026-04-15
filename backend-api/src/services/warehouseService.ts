@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
+import { PART_TEMPLATE_ID_ATTR_CODE, WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import {
@@ -66,6 +67,13 @@ type PlannedMovement = {
   reason: string | null;
   counterpartyId: string | null;
 };
+
+const PART_DETAILS_GROUP_NAME = 'Детали';
+
+function nomenclatureRowIsLinkedPart(specJson: string | null | undefined): boolean {
+  const spec = parseJsonObject(specJson ?? null);
+  return strField(spec, 'source') === WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART;
+}
 
 function nowMs() {
   return Date.now();
@@ -204,7 +212,178 @@ function ensureDefaultWarehouse(rows: LookupOption[]): LookupOption[] {
   return [{ id: 'default', label: 'Основной склад', code: 'default' }, ...rows];
 }
 
+async function ensurePartNomenclatureGroup(): Promise<string | null> {
+  const ts = nowMs();
+  const typeRows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, 'nomenclature_group'), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  const typeId = typeRows[0]?.id ? String(typeRows[0].id) : '';
+  if (!typeId) return null;
+
+  const attrRows = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)));
+  const nameDefId = attrRows.find((row) => String(row.code) === 'name')?.id;
+  const kindDefId = attrRows.find((row) => String(row.code) === 'kind')?.id;
+  if (!nameDefId) return null;
+
+  const rows = await db
+    .select({ id: entities.id, valueJson: attributeValues.valueJson })
+    .from(entities)
+    .innerJoin(attributeValues, and(eq(attributeValues.entityId, entities.id), eq(attributeValues.attributeDefId, nameDefId as any)))
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt), isNull(attributeValues.deletedAt)));
+  const existing = rows.find((row) => parseJsonScalar(row.valueJson) === PART_DETAILS_GROUP_NAME);
+  if (existing?.id) return String(existing.id);
+
+  const entityId = randomUUID();
+  await db.insert(entities).values({
+    id: entityId,
+    typeId: typeId as any,
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'synced',
+  });
+  await db.insert(attributeValues).values({
+    id: randomUUID(),
+    entityId: entityId as any,
+    attributeDefId: nameDefId as any,
+    valueJson: JSON.stringify(PART_DETAILS_GROUP_NAME),
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'synced',
+  });
+  if (kindDefId) {
+    await db.insert(attributeValues).values({
+      id: randomUUID(),
+      entityId: entityId as any,
+      attributeDefId: kindDefId as any,
+      valueJson: JSON.stringify('Продукция'),
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+    });
+  }
+  return entityId;
+}
+
+async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string | null }) {
+  const typeRows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, 'part'), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  const partTypeId = typeRows[0]?.id ? String(typeRows[0].id) : '';
+  if (!partTypeId) return;
+
+  const partDefs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, partTypeId as any), isNull(attributeDefs.deletedAt)));
+  const nameDefId = partDefs.find((row) => String(row.code) === 'name')?.id;
+  const articleDefId = partDefs.find((row) => String(row.code) === 'article')?.id;
+  const templateDefId = partDefs.find((row) => String(row.code) === PART_TEMPLATE_ID_ATTR_CODE)?.id;
+  if (!nameDefId) return;
+
+  const partRows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, partTypeId as any), isNull(entities.deletedAt)));
+  if (!partRows.length) return;
+
+  const partIds = partRows.map((row) => String(row.id));
+  const defIds = [nameDefId, articleDefId, templateDefId].filter((v): v is string => Boolean(v)).map((v) => String(v));
+  const valRows =
+    defIds.length > 0
+      ? await db
+          .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.entityId, partIds as any), inArray(attributeValues.attributeDefId, defIds as any), isNull(attributeValues.deletedAt)))
+      : [];
+  const attrsByPart = new Map<string, Record<string, string | null>>();
+  const codeByDefId = new Map(
+    partDefs
+      .filter((row) => defIds.includes(String(row.id)))
+      .map((row) => [String(row.id), String(row.code)] as const),
+  );
+  for (const row of valRows) {
+    const partId = String(row.entityId);
+    const code = codeByDefId.get(String(row.attributeDefId));
+    if (!code) continue;
+    const bag = attrsByPart.get(partId) ?? {};
+    bag[code] = parseJsonScalar(row.valueJson);
+    attrsByPart.set(partId, bag);
+  }
+
+  const existingRows =
+    partIds.length > 0
+      ? await db
+          .select()
+          .from(erpNomenclature)
+          .where(and(inArray(erpNomenclature.id, partIds as any), isNull(erpNomenclature.deletedAt)))
+      : [];
+  const existingById = new Map(existingRows.map((row) => [String(row.id), row]));
+
+  const ts = nowMs();
+  for (const partId of partIds) {
+    const attrs = attrsByPart.get(partId) ?? {};
+    const name = String(attrs.name ?? '').trim() || `Деталь ${partId.slice(0, 8)}`;
+    const article = String(attrs.article ?? '').trim();
+    const templateId = String(attrs[PART_TEMPLATE_ID_ATTR_CODE] ?? '').trim();
+    const specJson = JSON.stringify({
+      source: WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART,
+      partId,
+      ...(templateId ? { templateId } : {}),
+      ...(article ? { article } : {}),
+    });
+    const code = article || `DET-${partId.slice(0, 8).toUpperCase()}`;
+    const existing = existingById.get(partId);
+    const upsertRes = await upsertWarehouseNomenclature({
+      id: partId,
+      code,
+      name,
+      itemType: 'product',
+      groupId: args.detailsGroupId ?? null,
+      unitId: existing?.unitId ?? null,
+      barcode: existing?.barcode ?? null,
+      minStock: existing?.minStock ?? null,
+      maxStock: existing?.maxStock ?? null,
+      defaultWarehouseId: existing?.defaultWarehouseId ?? null,
+      specJson,
+      isActive: true,
+      _syncFromPart: true,
+    });
+    if (!upsertRes.ok) {
+      // eslint-disable-next-line no-console
+      console.warn('[warehouse] part→nomenclature mirror failed', partId, upsertRes.error);
+    }
+  }
+
+  const activePartSet = new Set(partIds);
+  const mirrorCandidates = await db
+    .select({ id: erpNomenclature.id, specJson: erpNomenclature.specJson })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt));
+  for (const row of mirrorCandidates) {
+    if (!nomenclatureRowIsLinkedPart(row.specJson)) continue;
+    const spec = parseJsonObject(row.specJson);
+    const pid = strField(spec, 'partId') ?? String(row.id);
+    if (activePartSet.has(pid)) continue;
+    const delRes = await deleteWarehouseNomenclature({ id: String(row.id), allowLinkedPartMirror: true });
+    if (!delRes.ok) {
+      // eslint-disable-next-line no-console
+      console.warn('[warehouse] failed to retire part nomenclature mirror', row.id, delRes.error);
+    }
+  }
+}
+
 async function listWarehouseReferenceData() {
+  await ensurePartNomenclatureGroup();
   const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows] = await Promise.all([
     listMasterdataLookup('warehouse_ref'),
     listMasterdataLookup('nomenclature_group'),
@@ -325,6 +504,8 @@ export async function listWarehouseNomenclature(args?: {
   isActive?: boolean;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
+    const detailsGroupId = await ensurePartNomenclatureGroup();
+    await syncPartsToWarehouseNomenclature({ detailsGroupId });
     const refs = await listWarehouseReferenceData();
     const search = String(args?.search ?? '').trim().toLowerCase();
     const rows = await db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt)).orderBy(asc(erpNomenclature.name));
@@ -363,9 +544,25 @@ export async function upsertWarehouseNomenclature(args: {
   defaultWarehouseId?: string | null;
   specJson?: string | null;
   isActive?: boolean;
+  /** Внутренний вызов: зеркало карточки детали в номенклатуре склада */
+  _syncFromPart?: boolean;
 }): Promise<Result<{ id: string }>> {
   try {
     const id = String(args.id || randomUUID());
+    if (!args._syncFromPart) {
+      const prevRows = await db
+        .select({ specJson: erpNomenclature.specJson })
+        .from(erpNomenclature)
+        .where(and(eq(erpNomenclature.id, id), isNull(erpNomenclature.deletedAt)))
+        .limit(1);
+      if (prevRows[0] && nomenclatureRowIsLinkedPart(prevRows[0].specJson)) {
+        return {
+          ok: false,
+          error:
+            'Позиция привязана к детали (Производство). Редактируйте карточку детали — складская номенклатура обновится автоматически.',
+        };
+      }
+    }
     const ts = nowMs();
     const normalized = {
       code: String(args.code).trim(),
@@ -420,8 +617,21 @@ export async function upsertWarehouseNomenclature(args: {
   }
 }
 
-export async function deleteWarehouseNomenclature(args: { id: string }): Promise<Result<{ id: string }>> {
+export async function deleteWarehouseNomenclature(args: {
+  id: string;
+  /** Внутренний вызов при удалении детали — снять только зеркало в erp_nomenclature */
+  allowLinkedPartMirror?: boolean;
+}): Promise<Result<{ id: string }>> {
   try {
+    if (!args.allowLinkedPartMirror) {
+      const prevRows = await db.select({ specJson: erpNomenclature.specJson }).from(erpNomenclature).where(eq(erpNomenclature.id, args.id)).limit(1);
+      if (prevRows[0] && nomenclatureRowIsLinkedPart(prevRows[0].specJson)) {
+        return {
+          ok: false,
+          error: 'Нельзя удалить зеркальную позицию детали из склада. Удалите деталь в разделе Производство или скройте деталь там.',
+        };
+      }
+    }
     const ts = nowMs();
     await db.update(erpNomenclature).set({ isActive: false, deletedAt: ts, updatedAt: ts }).where(eq(erpNomenclature.id, args.id));
     const saved = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, args.id)).limit(1);
@@ -1056,4 +1266,10 @@ export async function listWarehouseMovements(args?: {
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** Полная пересборка зеркал деталей в `erp_nomenclature` (группа «Детали», тип изделие). */
+export async function refreshPartWarehouseNomenclatureLinks(): Promise<void> {
+  const gid = await ensurePartNomenclatureGroup();
+  await syncPartsToWarehouseNomenclature({ detailsGroupId: gid });
 }

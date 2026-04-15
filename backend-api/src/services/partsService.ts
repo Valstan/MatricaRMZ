@@ -27,6 +27,7 @@ import { db } from '../database/db.js';
 import { changeRequests, rowOwners, attributeDefs, attributeValues, auditLog, entities, entityTypes } from '../database/schema.js';
 import type { AuthUser } from '../auth/jwt.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
+import { refreshPartWarehouseNomenclatureLinks } from './warehouseService.js';
 
 function nowMs() {
   return Date.now();
@@ -2424,6 +2425,8 @@ export async function createPart(args: { actor: AuthUser; attributes?: Record<st
       })
       .onConflictDoNothing();
 
+    await refreshPartWarehouseNomenclatureLinks().catch(() => undefined);
+
     return { ok: true, part: { id, createdAt: ts, updatedAt: ts } };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -2647,6 +2650,10 @@ export async function updatePartAttribute(args: {
       await ensureExistingPartTemplateAssignments();
     }
 
+    if (attrCode === 'name' || attrCode === 'article' || attrCode === PART_TEMPLATE_ID_ATTR_CODE) {
+      await refreshPartWarehouseNomenclatureLinks().catch(() => undefined);
+    }
+
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -2803,6 +2810,8 @@ export async function deletePart(args: { partId: string; actor: AuthUser }): Pro
         ts,
       },
     ]);
+
+    await refreshPartWarehouseNomenclatureLinks().catch(() => undefined);
 
     return { ok: true };
   } catch (e) {

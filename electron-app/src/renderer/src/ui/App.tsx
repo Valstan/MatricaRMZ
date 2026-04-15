@@ -3580,6 +3580,7 @@ export function App() {
             key={selectedNomenclatureId}
             id={selectedNomenclatureId}
             canEdit={caps.canEditMasterData}
+            onOpenLinkedPart={openPart}
             onClose={() => {
               setSelectedNomenclatureId(null);
               setTabState('nomenclature');
@@ -3592,6 +3593,7 @@ export function App() {
             key={selectedStockDocumentId}
             id={selectedStockDocumentId}
             canEdit={caps.canEditOperations}
+            canCreateParts={caps.canCreateParts}
             onClose={() => {
               setSelectedStockDocumentId(null);
               setTabState(stockDocumentParentTab);

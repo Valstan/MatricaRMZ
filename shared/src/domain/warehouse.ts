@@ -48,6 +48,33 @@ export type NomenclatureItem = {
   deletedAt: number | null;
 };
 
+/** Значение `source` в `spec_json` номенклатуры для зеркала карточки детали (см. backend warehouseService). */
+export const WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART = 'part' as const;
+
+export type WarehouseNomenclaturePartMirrorSpec = {
+  source: typeof WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART;
+  partId: string;
+  templateId?: string;
+  article?: string;
+};
+
+export function tryParseWarehousePartNomenclatureMirror(specJson: string | null | undefined): WarehouseNomenclaturePartMirrorSpec | null {
+  if (!specJson || !String(specJson).trim()) return null;
+  try {
+    const parsed = JSON.parse(String(specJson)) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const obj = parsed as Record<string, unknown>;
+    if (obj.source !== WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART) return null;
+    const partId = typeof obj.partId === 'string' && obj.partId.trim() ? obj.partId.trim() : '';
+    if (!partId) return null;
+    const templateId = typeof obj.templateId === 'string' && obj.templateId.trim() ? obj.templateId.trim() : undefined;
+    const article = typeof obj.article === 'string' && obj.article.trim() ? obj.article.trim() : undefined;
+    return { source: WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART, partId, ...(templateId ? { templateId } : {}), ...(article ? { article } : {}) };
+  } catch {
+    return null;
+  }
+}
+
 export type StockBalance = {
   id: string;
   nomenclatureId: string | null;

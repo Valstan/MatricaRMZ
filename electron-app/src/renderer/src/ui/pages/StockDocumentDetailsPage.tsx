@@ -65,6 +65,8 @@ function normalizeLineOrder(lines: EditableLine[]): EditableLine[] {
 export function StockDocumentDetailsPage(props: {
   id: string;
   canEdit: boolean;
+  /** Быстрое создание детали (шаблон подставится автоматически по имени, как в Производстве) */
+  canCreateParts?: boolean;
   onClose: () => void;
 }) {
   const { lookups, nomenclature, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData({ loadNomenclature: true });
@@ -380,6 +382,21 @@ export function StockDocumentDetailsPage(props: {
                         disabled={!canEditDocument}
                         options={nomenclatureOptions}
                         placeholder="Номенклатура"
+                        {...(props.canCreateParts
+                          ? {
+                              createLabel: 'Создать деталь и выбрать',
+                              onCreate: async (label: string) => {
+                                const trimmed = label.trim();
+                                if (!trimmed) return null;
+                                const r = await window.matrica.parts.create({ attributes: { name: trimmed } });
+                                if (!r?.ok || !r.part?.id) {
+                                  throw new Error(String((r as { error?: string })?.error ?? 'Не удалось создать деталь'));
+                                }
+                                await refreshRefs();
+                                return String(r.part.id);
+                              },
+                            }
+                          : {})}
                         onChange={(value) => updateLine(idx, { nomenclatureId: value })}
                       />
                     </td>
