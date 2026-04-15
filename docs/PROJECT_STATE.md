@@ -34,7 +34,7 @@
 ## Текущее состояние
 - Основная точка входа для новой ИИ-сессии: `docs/README.md`.
 - Локальная разработка на Windows 11 считается штатной; рабочие шаги и ENV описаны в `docs/WINDOWS_DEVELOPMENT.md`.
-- Управление VPS из Cursor идет через MCP `ssh-mcp`; рабочая конфигурация и типичные ошибки описаны в `docs/MCP_SETUP_WINDOWS.md`.
+- Управление прод-VPS из Cursor для ИИ-агента: **предпочтительно SSH в терминале** по Host-алиасу из `%USERPROFILE%\.ssh\config` (например `matricarmz`); MCP `vps-matricarmz` (`ssh-mcp`) — дополнительный канал. Обоснование и примеры: `docs/MCP_SETUP_WINDOWS.md` §8 и `docs/WINDOWS_DEVELOPMENT.md` §8.
 - Прод-контур backend работает в режиме dual-instance: `matricarmz-backend-primary.service` (`:3001`) + `matricarmz-backend-secondary.service` (`:3002`) за nginx upstream.
 - Singleton background jobs (sync-pipeline supervisor, critical notifier, schedulers) должны запускаться только на `primary`; `secondary` обслуживает только API.
 - Завершение ИИ-сессии теперь должно доводить не только git-репозиторий, но и прод-контур до актуального состояния: push в GitHub, выравнивание VPS checkout, deploy при необходимости, и выпуск нового Windows-клиентского релиза при риске несовместимости с продом.
@@ -42,6 +42,7 @@
 - Клиентский release для автообновлений становится видимым клиенту только после публикации installer-метаданных в ledger с корректными `version`, `fileName`, `size`, `sha256`.
 
 ## Последние важные изменения
+- Для ИИ-сессий зафиксирован приоритет **OpenSSH (`ssh matricarmz`, конфиг в `~/.ssh`)** над MCP для гибкости прод-операций; MCP оставлен как запасной канал, детали в `docs/MCP_SETUP_WINDOWS.md` §8.
 - Клиентский sync recovery усилен: если сервер требует rebuild локальной SQLite-базы из-за `schema_mismatch`, клиент теперь планирует полный relaunch вместо продолжения работы с уже закрытым DB connection.
 - Раздел отчетов переведен на новый UX-контур: каталог с `Избранным` и историей последних отчетов, отдельные страницы шаблонов, а также новый экспорт отчетов в 1С XML.
 - Release welcome-flow уточнен: новый приветственный текст релиза теперь должен суммировать 3 последних приветственных описания и добавлять главное описание текущей закрываемой сессии; welcome-окно клиента переведено на спокойный teleprompter-style сценарий чтения.

@@ -100,7 +100,7 @@
 ## С чего знакомиться с проектом
 - Краткая актуальная память проекта и важные изменения: [`PROJECT_STATE.md`](PROJECT_STATE.md)
 - Общая карта проекта, запуск, ENV, логи и ключевые команды: [`OPERATIONS.md`](OPERATIONS.md)
-- Локальная разработка на Windows 11 + MCP-доступ к VPS: [`WINDOWS_DEVELOPMENT.md`](WINDOWS_DEVELOPMENT.md)
+- Локальная разработка на Windows 11 + доступ к VPS (SSH с Host из `~/.ssh/config`, MCP опционально): [`WINDOWS_DEVELOPMENT.md`](WINDOWS_DEVELOPMENT.md)
 - Быстрая настройка MCP на Windows 11: [`MCP_SETUP_WINDOWS.md`](MCP_SETUP_WINDOWS.md)
 - Если есть инцидент с синком/деплоем: [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
 - Если задача про обновления/релизы: [`RELEASE.md`](RELEASE.md)

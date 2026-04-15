@@ -7,7 +7,7 @@
 - Рекомендуемый Node.js: `22.x LTS`, чтобы совпадать с VPS (`v22.22.0`).
 - Пакетный менеджер: `pnpm@10.26.1` через `corepack`.
 - IDE: Cursor / VS Code.
-- Удаленный доступ к серверу: MCP-сервер `vps-matricarmz` в Cursor.
+- Удаленный доступ к серверу: **OpenSSH** с Host-алиасом из `%USERPROFILE%\.ssh\config` (например `matricarmz`) — основной канал для агента в терминале; MCP `vps-matricarmz` — опционально, см. `docs/MCP_SETUP_WINDOWS.md` §8.
 
 ## 2. Первый запуск
 
@@ -91,21 +91,28 @@ corepack pnpm run release:ledger-publish -- 1.2.3
 
 Для полного пайплайна с Windows можно установить [GitHub CLI](https://cli.github.com/).
 
-## 8. Работа с VPS через MCP
+## 8. Работа с VPS (SSH и MCP)
 
-Для серверных операций в Cursor используем MCP `vps-matricarmz`, а не ручной SSH в процессе агентной разработки.
+**ИИ-агент в Cursor:** для операций на прод-VPS предпочтительно вызывать команды через **SSH** с использованием Host из локального `~/.ssh/config` (типичный алиас в этом проекте — `matricarmz`: нестандартный порт, пользователь `valstan`, ключ из профиля). Так проще повторять runbook-команды, смотреть полные логи и не упираться в таймауты MCP.
 
-Типичные сценарии:
+Пример:
 
-- проверить статус backend
-- посмотреть логи
-- выполнить миграции
-- перезапустить `systemd` сервисы
-- проверить содержимое `/home/valstan/MatricaRMZ`
+```powershell
+ssh matricarmz "systemctl is-active matricarmz-backend-primary.service matricarmz-backend-secondary.service"
+```
+
+**MCP `vps-matricarmz`:** остаётся удобным дополнением (настройка, типичные ошибки, `exec` / `sudo-exec`) — см. `docs/MCP_SETUP_WINDOWS.md`, в том числе §8 «SSH vs MCP».
+
+Типичные сценарии на сервере:
+
+- проверить статус backend;
+- посмотреть логи (`journalctl`, nginx);
+- выполнить миграции;
+- перезапустить `systemd` сервисы;
+- проверить содержимое `/home/valstan/MatricaRMZ`.
 
 На момент подготовки этой среды:
 
-- MCP-сервер доступен;
 - на VPS есть `node v22.22.0` и `pnpm 10.26.1`;
 - репозиторий находится в `/home/valstan/MatricaRMZ`.
 
