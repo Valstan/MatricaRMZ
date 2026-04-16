@@ -110,6 +110,7 @@ export function StockDocumentDetailsPage(props: {
   const [reason, setReason] = useState('');
   const [counterpartyId, setCounterpartyId] = useState<string | null>(null);
   const [lines, setLines] = useState<EditableLine[]>([]);
+  const isIncoming = INCOMING_DOC_TYPES.includes(docType);
 
   const load = useCallback(async () => {
     try {
@@ -155,7 +156,6 @@ export function StockDocumentDetailsPage(props: {
   const isTransfer = docType === 'stock_transfer';
   const isInventory = docType === 'stock_inventory';
   const isWriteoff = docType === 'stock_writeoff';
-  const isIncoming = INCOMING_DOC_TYPES.includes(docType);
 
   const totals = useMemo(
     () =>

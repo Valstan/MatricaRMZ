@@ -267,6 +267,13 @@
       "when": 1776345600000,
       "tag": "0038_warehouse_incoming_planned",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1776369000000,
+      "tag": "0039_recover_directories_nomenclature_phase1",
+      "breakpoints": true
     }
   ]
 }
