@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `erp_engine_assembly_bom` (
   `sync_status` text NOT NULL DEFAULT 'synced',
   `last_server_seq` integer
 );
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `erp_engine_assembly_bom_lines` (
   `id` text PRIMARY KEY NOT NULL,
@@ -29,17 +30,23 @@ CREATE TABLE IF NOT EXISTS `erp_engine_assembly_bom_lines` (
   `sync_status` text NOT NULL DEFAULT 'synced',
   `last_server_seq` integer
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS `erp_engine_assembly_bom_engine_version_uq`
   ON `erp_engine_assembly_bom` (`engine_nomenclature_id`, `version`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `erp_engine_assembly_bom_engine_idx`
   ON `erp_engine_assembly_bom` (`engine_nomenclature_id`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `erp_engine_assembly_bom_status_idx`
   ON `erp_engine_assembly_bom` (`status`);
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS `erp_engine_assembly_bom_lines_bom_idx`
   ON `erp_engine_assembly_bom_lines` (`bom_id`);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `erp_engine_assembly_bom_lines_component_idx`
   ON `erp_engine_assembly_bom_lines` (`component_nomenclature_id`);
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `erp_engine_assembly_bom_lines_variant_component_uq`
   ON `erp_engine_assembly_bom_lines` (`bom_id`, `variant_group`, `component_nomenclature_id`);
