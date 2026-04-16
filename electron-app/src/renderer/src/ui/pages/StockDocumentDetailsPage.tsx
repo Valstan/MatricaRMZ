@@ -110,6 +110,7 @@ export function StockDocumentDetailsPage(props: {
   const [reason, setReason] = useState('');
   const [counterpartyId, setCounterpartyId] = useState<string | null>(null);
   const [lines, setLines] = useState<EditableLine[]>([]);
+  const [incomingSaveStatus, setIncomingSaveStatus] = useState<'draft' | 'planned'>('draft');
   const isIncoming = INCOMING_DOC_TYPES.includes(docType);
 
   const load = useCallback(async () => {
@@ -137,6 +138,11 @@ export function StockDocumentDetailsPage(props: {
       setReason(nextDocument.header.reason ?? '');
       setCounterpartyId(nextDocument.header.counterpartyId ?? null);
       setLines((nextDocument.lines ?? []).map((line, index) => toEditableLine(line, index)));
+      if (INCOMING_DOC_TYPES.includes((nextDocument.header.docType ?? 'stock_receipt') as WarehouseDocumentType)) {
+        setIncomingSaveStatus(nextDocument.header.status === 'planned' ? 'planned' : 'draft');
+      } else {
+        setIncomingSaveStatus('draft');
+      }
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -150,7 +156,8 @@ export function StockDocumentDetailsPage(props: {
   useEffect(() => {
     if (!isIncoming) return;
     if (docType === 'inventory_opening' && sourceType !== 'opening_balance') setSourceType('opening_balance');
-  }, [docType, isIncoming, sourceType]);
+    if (!['draft', 'planned'].includes(incomingSaveStatus)) setIncomingSaveStatus('draft');
+  }, [docType, incomingSaveStatus, isIncoming, sourceType]);
 
   const canEditDocument = props.canEdit && document?.header.status === 'draft';
   const isTransfer = docType === 'stock_transfer';
@@ -290,6 +297,17 @@ export function StockDocumentDetailsPage(props: {
     });
     if (!result?.ok) {
       setStatus(`Ошибка: ${String(result?.error ?? 'не удалось сохранить документ')}`);
+      return;
+    }
+    if (isIncoming && incomingSaveStatus === 'planned') {
+      const planResult = await window.matrica.warehouse.documentPlan(props.id);
+      if (!planResult?.ok) {
+        setStatus(`Ошибка: ${String(planResult?.error ?? 'документ сохранён, но не удалось перевести в planned')}`);
+        await load();
+        return;
+      }
+      setStatus('Документ сохранен и переведен в статус planned.');
+      await load();
       return;
     }
     setStatus('Документ сохранен.');
@@ -450,6 +468,18 @@ export function StockDocumentDetailsPage(props: {
           ) : null}
           {isIncoming ? <div>Договор (опц.)</div> : null}
           {isIncoming ? <Input value={contractId} disabled={!canEditDocument} onChange={(e) => setContractId(e.target.value)} placeholder="ID/номер договора" /> : null}
+          {isIncoming ? <div>Режим прихода</div> : null}
+          {isIncoming ? (
+            <select
+              value={incomingSaveStatus}
+              disabled={!canEditDocument}
+              onChange={(e) => setIncomingSaveStatus(e.target.value === 'planned' ? 'planned' : 'draft')}
+              style={{ padding: '8px 10px' }}
+            >
+              <option value="draft">Черновик</option>
+              <option value="planned">Запланировано</option>
+            </select>
+          ) : null}
           <div>Контрагент</div>
           <SearchSelect
             value={counterpartyId}

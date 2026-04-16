@@ -589,6 +589,92 @@ function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
 
+function collectAssemblyCompatRowsFromSnapshot(snapshot: Snapshot, brandFilter?: Set<string>): Array<{
+  partId: string;
+  brandId: string;
+  brandLabel: string;
+  partName: string;
+  article: string;
+  qtyPerEngine: number;
+}> {
+  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const compatRows: Array<{
+    partId: string;
+    brandId: string;
+    brandLabel: string;
+    partName: string;
+    article: string;
+    qtyPerEngine: number;
+  }> = [];
+  const seenPartBrandPairs = new Set<string>();
+
+  for (const linkId of getIdsByType(snapshot, 'part_engine_brand')) {
+    const linkAttrs = snapshot.attrsByEntity.get(linkId) ?? {};
+    const partId = normalizeText(linkAttrs.part_id, '');
+    const brandId = normalizeText(linkAttrs.engine_brand_id, '');
+    if (!partId || !brandId) continue;
+    if (brandFilter && !brandFilter.has(brandId)) continue;
+    seenPartBrandPairs.add(`${partId}::${brandId}`);
+    const partAttrs = snapshot.attrsByEntity.get(partId) ?? {};
+    compatRows.push({
+      partId,
+      brandId,
+      brandLabel: brandOptions.get(brandId) ?? normalizeText(partAttrs.engine_brand, brandId),
+      partName: normalizeText(partAttrs.name, partId),
+      article: normalizeText(partAttrs.article, ''),
+      qtyPerEngine: Math.max(0, toNumber(linkAttrs.quantity)),
+    });
+  }
+
+  for (const partId of getIdsByType(snapshot, 'part')) {
+    const attrs = snapshot.attrsByEntity.get(partId) ?? {};
+    const brandIds = asArray(attrs.engine_brand_ids);
+    if (brandIds.length === 0) continue;
+    const qtyMapRaw = attrs.engine_brand_qty_map;
+    const qtyMap = qtyMapRaw && typeof qtyMapRaw === 'object' && !Array.isArray(qtyMapRaw) ? (qtyMapRaw as Record<string, unknown>) : {};
+    for (const brandId of brandIds) {
+      if (!brandId) continue;
+      if (brandFilter && !brandFilter.has(brandId)) continue;
+      const pairKey = `${partId}::${brandId}`;
+      if (seenPartBrandPairs.has(pairKey)) continue;
+      compatRows.push({
+        partId,
+        brandId,
+        brandLabel: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        partName: normalizeText(attrs.name, partId),
+        article: normalizeText(attrs.article, ''),
+        qtyPerEngine: Math.max(0, toNumber(qtyMap[brandId])),
+      });
+    }
+  }
+  return compatRows.filter((row) => row.qtyPerEngine > 0);
+}
+
+function buildAssemblyBrandOptions(snapshot: Snapshot): ReportFilterOption[] {
+  const linkedBrandIds = new Set(collectAssemblyCompatRowsFromSnapshot(snapshot).map((row) => row.brandId));
+  return buildOptions(snapshot, 'engine_brand').filter((option) => linkedBrandIds.has(option.value));
+}
+
+function buildAssemblySleeveOptions(snapshot: Snapshot): ReportFilterOption[] {
+  const kits = mergeBrandKits(collectAssemblyCompatRowsFromSnapshot(snapshot));
+  const seen = new Set<string>();
+  const out: ReportFilterOption[] = [];
+  for (const kit of kits) {
+    for (const part of kit.parts) {
+      if (part.role !== 'sleeve') continue;
+      const id = String(part.nomenclatureId);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        value: id,
+        label: part.partLabel || id,
+        searchText: joinOptionSearch([part.partLabel, part.partId, part.nomenclatureId, kit.brandLabel]),
+      });
+    }
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+}
+
 function buildCounterpartyOptions(snapshot: Snapshot): ReportFilterOption[] {
   const ids = getIdsByTypeCodes(snapshot, ['counterparty', 'customer']);
   return ids
@@ -2393,15 +2479,15 @@ async function buildAssemblyForecast7dReport(
     const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
     const warehouseIds = asArray(filters?.warehouseIds);
     const brandIds = asArray(filters?.brandIds);
+    const sleeveNomenclatureId = String(filters?.sleeveNomenclatureId ?? '').trim();
     const sleeveSearch = String(filters?.sleeveSearch ?? '');
-    const incomingPlan = parseAssemblyIncomingPlanJson(filters?.incomingPlanJson);
     const payload = {
       targetEnginesPerDay,
       horizonDays: 7,
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
       ...(brandIds.length > 0 ? { brandIds } : {}),
+      ...(sleeveNomenclatureId ? { sleeveNomenclatureId } : {}),
       ...(sleeveSearch.trim() ? { sleeveSearch } : {}),
-      ...(incomingPlan.length > 0 ? { incomingPlan } : {}),
     };
     try {
       const r = await httpAuthed(
@@ -2465,10 +2551,10 @@ async function buildAssemblyForecast7dReport(
   if ('error' in remote) return { ok: false, error: remote.error };
 
   const snapshot = await loadSnapshot(db);
-  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const brandFilter = asArray(filters?.brandIds);
   const warehouseFilter = asArray(filters?.warehouseIds);
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
+  const sleeveNomenclatureId = String(filters?.sleeveNomenclatureId ?? '').trim();
   const sleeveSearch = String(filters?.sleeveSearch ?? '');
   const incomingLines = parseAssemblyIncomingPlanJson(filters?.incomingPlanJson);
 
@@ -2483,58 +2569,9 @@ async function buildAssemblyForecast7dReport(
     stockMap.set(nid, (stockMap.get(nid) ?? 0) + avail);
   }
 
-  const compatRows: Array<{
-    partId: string;
-    brandId: string;
-    brandLabel: string;
-    partName: string;
-    article: string;
-    qtyPerEngine: number;
-  }> = [];
-  const seenPartBrandPairs = new Set<string>();
-
-  for (const linkId of getIdsByType(snapshot, 'part_engine_brand')) {
-    const linkAttrs = snapshot.attrsByEntity.get(linkId) ?? {};
-    const partId = normalizeText(linkAttrs.part_id, '');
-    const brandId = normalizeText(linkAttrs.engine_brand_id, '');
-    if (!partId || !brandId) continue;
-    if (brandFilter.length > 0 && !brandFilter.includes(brandId)) continue;
-    seenPartBrandPairs.add(`${partId}::${brandId}`);
-    const partAttrs = snapshot.attrsByEntity.get(partId) ?? {};
-    compatRows.push({
-      partId,
-      brandId,
-      brandLabel: brandOptions.get(brandId) ?? normalizeText(partAttrs.engine_brand, brandId),
-      partName: normalizeText(partAttrs.name, partId),
-      article: normalizeText(partAttrs.article, ''),
-      qtyPerEngine: Math.max(0, toNumber(linkAttrs.quantity)),
-    });
-  }
-
-  for (const partId of getIdsByType(snapshot, 'part')) {
-    const attrs = snapshot.attrsByEntity.get(partId) ?? {};
-    const brandIds = asArray(attrs.engine_brand_ids);
-    if (brandIds.length === 0) continue;
-    const qtyMapRaw = attrs.engine_brand_qty_map;
-    const qtyMap = qtyMapRaw && typeof qtyMapRaw === 'object' && !Array.isArray(qtyMapRaw) ? (qtyMapRaw as Record<string, unknown>) : {};
-    for (const brandId of brandIds) {
-      if (!brandId) continue;
-      if (brandFilter.length > 0 && !brandFilter.includes(brandId)) continue;
-      const pairKey = `${partId}::${brandId}`;
-      if (seenPartBrandPairs.has(pairKey)) continue;
-      compatRows.push({
-        partId,
-        brandId,
-        brandLabel: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
-        partName: normalizeText(attrs.name, partId),
-        article: normalizeText(attrs.article, ''),
-        qtyPerEngine: Math.max(0, toNumber(qtyMap[brandId])),
-      });
-    }
-  }
-
-  const filteredCompat = compatRows.filter((r) => r.qtyPerEngine > 0);
-  const kits = mergeBrandKits(filteredCompat);
+  const brandFilterSet = brandFilter.length > 0 ? new Set(brandFilter) : undefined;
+  const compatRows = collectAssemblyCompatRowsFromSnapshot(snapshot, brandFilterSet);
+  const kits = mergeBrandKits(compatRows);
 
   const forecast = computeAssemblyForecast({
     horizonDays: 7,
@@ -2543,6 +2580,7 @@ async function buildAssemblyForecast7dReport(
     kits,
     stockByNomenclatureId: stockMap,
     incomingLines,
+    ...(sleeveNomenclatureId ? { sleeveNomenclatureId } : {}),
     sleeveSearch,
   });
 
@@ -2587,6 +2625,8 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
       optionSets: {
         contracts: buildOptions(snapshot, 'contract'),
         brands: buildOptions(snapshot, 'engine_brand'),
+        assemblyBrands: buildAssemblyBrandOptions(snapshot),
+        assemblySleeves: buildAssemblySleeveOptions(snapshot),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),

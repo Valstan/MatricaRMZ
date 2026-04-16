@@ -137,7 +137,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     } else if (filter.type === 'checkbox') {
       patchFilter(filter.key, Boolean(defaults[filter.key]));
     } else if (filter.type === 'select') {
-      patchFilter(filter.key, defaults[filter.key] ?? filter.options[0]?.value ?? '');
+      patchFilter(filter.key, defaults[filter.key] ?? filter.options?.[0]?.value ?? '');
     }
   }
 
@@ -188,6 +188,27 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
   useEffect(() => {
     void loadPresetMeta();
   }, []);
+
+  useEffect(() => {
+    if (!activePreset) return;
+    setFiltersByPreset((prev) => {
+      const current = prev[activePreset.id] ?? buildDefaultFilters(activePreset);
+      let changed = false;
+      const next: ReportPresetFilters = { ...current };
+      for (const filter of activePreset.filters) {
+        if (filter.type !== 'multi_select' || !filter.selectAllByDefault) continue;
+        const currentValues = Array.isArray(next[filter.key]) ? (next[filter.key] as unknown[]).map(String).filter(Boolean) : [];
+        if (currentValues.length > 0) continue;
+        const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+        const allValues = options.map((option) => String(option.value)).filter(Boolean);
+        if (allValues.length === 0) continue;
+        next[filter.key] = allValues;
+        changed = true;
+      }
+      if (!changed) return prev;
+      return { ...prev, [activePreset.id]: next };
+    });
+  }, [activePreset, optionSets]);
 
   useEffect(() => {
     setPreview(null);
@@ -508,8 +529,9 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                   );
                 }
                 if (filter.type === 'select') {
-                  const value = String(activeFilters[filter.key] ?? filter.options[0]?.value ?? '');
-                  const options = filter.options.map((option) => ({
+                  const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+                  const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
+                  const options = sourceOptions.map((option) => ({
                     id: option.value,
                     label: option.label,
                     ...(option.hintText ? { hintText: option.hintText } : {}),
@@ -528,7 +550,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                         disabled={busy}
                         query={activeFilterSearch[filter.key] ?? ''}
                         onQueryChange={(next) => patchFilterSearch(filter.key, next)}
-                        onChange={(next) => patchFilter(filter.key, next ?? filter.options[0]?.value ?? '')}
+                        onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
                       />
                     </div>
                   );

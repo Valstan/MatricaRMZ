@@ -11,6 +11,7 @@ type ForecastRequest = {
   horizonDays?: number;
   warehouseIds?: string[];
   brandIds?: string[];
+  sleeveNomenclatureId?: string;
   sleeveSearch?: string;
   incomingPlan?: Array<{ dayOffset: number; nomenclatureId: string; qty: number }>;
 };
@@ -113,6 +114,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(args.targetEnginesPerDay ?? 0)));
   const warehouseIds = Array.isArray(args.warehouseIds) ? args.warehouseIds.map(String) : undefined;
   const brandFilter = Array.isArray(args.brandIds) ? new Set(args.brandIds.map(String)) : null;
+  const sleeveNomenclatureId = String(args.sleeveNomenclatureId ?? '').trim();
   const sleeveSearch = String(args.sleeveSearch ?? '');
   const incomingLines = parseAssemblyIncomingPlanJson(args.incomingPlan ?? []);
   const dbIncomingLines = await loadPlannedIncomingLines({
@@ -175,6 +177,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     kits,
     stockByNomenclatureId: stock,
     incomingLines: mergedIncomingLines,
+    ...(sleeveNomenclatureId ? { sleeveNomenclatureId } : {}),
     sleeveSearch,
   });
 }

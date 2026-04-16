@@ -26,7 +26,15 @@ export type ReportFilterOption = {
   searchText?: string;
 };
 
-export type ReportOptionSource = 'contracts' | 'brands' | 'counterparties' | 'employees' | 'departments' | 'warehouses';
+export type ReportOptionSource =
+  | 'contracts'
+  | 'brands'
+  | 'counterparties'
+  | 'employees'
+  | 'departments'
+  | 'warehouses'
+  | 'assemblyBrands'
+  | 'assemblySleeves';
 
 export type ReportFilterSpec =
   | {
@@ -42,12 +50,15 @@ export type ReportFilterSpec =
       label: string;
       optionsSource?: ReportOptionSource;
       options?: ReportFilterOption[];
+      /** Если true — UI предзаполнит фильтр всеми доступными значениями. */
+      selectAllByDefault?: boolean;
     }
   | {
       type: 'select';
       key: string;
       label: string;
-      options: ReportFilterOption[];
+      optionsSource?: ReportOptionSource;
+      options?: ReportFilterOption[];
     }
   | {
       type: 'checkbox';
@@ -632,10 +643,22 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'assembly_forecast_7d',
     title: 'Склад: прогноз сборки двигателей (7 дней)',
     description:
-      'Прогнозирует сборку по текущим остаткам номенклатуры (зеркало детали = id номенклатуры) и связям деталь↔марка. План поступлений хранится локально в фильтре JSON и не пишется в ledger.',
+      'Прогнозирует сборку по текущим остаткам номенклатуры (зеркало детали = id номенклатуры), связям деталь↔марка и плановым приходам из складских документов в статусе planned.',
     filters: [
-      { type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = сумма по всем)', optionsSource: 'warehouses' },
-      { type: 'multi_select', key: 'brandIds', label: 'Марки (пусто = все из связей)', optionsSource: 'brands' },
+      {
+        type: 'multi_select',
+        key: 'warehouseIds',
+        label: 'Склады',
+        optionsSource: 'warehouses',
+        selectAllByDefault: true,
+      },
+      {
+        type: 'multi_select',
+        key: 'brandIds',
+        label: 'Марки (из связей деталь↔марка)',
+        optionsSource: 'assemblyBrands',
+        selectAllByDefault: true,
+      },
       {
         type: 'number',
         key: 'targetEnginesPerDay',
@@ -646,18 +669,10 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         defaultValue: 4,
       },
       {
-        type: 'text',
-        key: 'sleeveSearch',
-        label: 'Fallback: поиск гильзы (подстрока в названии/артикуле)',
-        placeholder: 'например: гильз или 740',
-        defaultValue: '',
-      },
-      {
-        type: 'text',
-        key: 'incomingPlanJson',
-        label: 'План поступлений (JSON массив: dayOffset, nomenclatureId, qty)',
-        placeholder: '[{"dayOffset":0,"nomenclatureId":"...","qty":10}]',
-        defaultValue: '[]',
+        type: 'select',
+        key: 'sleeveNomenclatureId',
+        label: 'Fallback: гильза (опционально)',
+        optionsSource: 'assemblySleeves',
       },
     ],
     columns: [

@@ -219,7 +219,7 @@ function buildDefaultFilters(preset: ReportPresetDefinition): ReportPresetFilter
       continue;
     }
     if (filter.type === 'select') {
-      out[filter.key] = filter.options[0]?.value ?? '';
+      out[filter.key] = filter.options?.[0]?.value ?? '';
     }
   }
   return out;
@@ -571,8 +571,9 @@ export function ReportsPage(props: { canExport: boolean }) {
                   );
                 }
                 if (filter.type === 'select') {
-                  const value = String(activeFilters[filter.key] ?? filter.options[0]?.value ?? '');
-                  const options = filter.options.map((option) => ({
+                  const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+                  const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
+                  const options = sourceOptions.map((option) => ({
                     id: option.value,
                     label: option.label,
                     ...(option.hintText ? { hintText: option.hintText } : {}),
@@ -588,7 +589,7 @@ export function ReportsPage(props: { canExport: boolean }) {
                         disabled={busy}
                         query={activeFilterSearch[filter.key] ?? ''}
                         onQueryChange={(next) => patchFilterSearch(filter.key, next)}
-                        onChange={(next) => patchFilter(filter.key, next ?? filter.options[0]?.value ?? '')}
+                        onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
                       />
                     </div>
                   );

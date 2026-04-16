@@ -35,6 +35,8 @@ export type AssemblyForecastComputeInput = {
   /** Текущие доступные остатки по nomenclatureId (уже с учётом reserved при необходимости на стороне вызывающего). */
   stockByNomenclatureId: ReadonlyMap<string, number>;
   incomingLines: AssemblyForecastIncomingLine[];
+  /** Точная fallback-привязка к гильзе по id номенклатуры (зеркало детали). */
+  sleeveNomenclatureId?: string;
   /** Подстрока для fallback-драйвера «гильза»: фильтр по названию/артикулу детали-гильзы. */
   sleeveSearch: string;
 };
@@ -189,9 +191,15 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   if (kits.length === 0) warnings.push('Нет комплектов по маркам (проверьте связи деталь↔марка и количество на двигатель).');
 
   const sleeveNeedle = String(input.sleeveSearch || '').trim().toLowerCase();
-  const sleeveKits = sleeveNeedle
-    ? kits.filter((k) => k.parts.some((p) => p.role === 'sleeve' && `${p.partLabel}`.toLowerCase().includes(sleeveNeedle)))
-    : [];
+  const sleeveNomenclatureId = String(input.sleeveNomenclatureId ?? '').trim();
+  const sleeveKits = sleeveNomenclatureId
+    ? kits.filter((k) => k.parts.some((p) => p.role === 'sleeve' && p.nomenclatureId === sleeveNomenclatureId))
+    : sleeveNeedle
+      ? kits.filter((k) => k.parts.some((p) => p.role === 'sleeve' && `${p.partLabel}`.toLowerCase().includes(sleeveNeedle)))
+      : [];
+  if ((sleeveNomenclatureId || sleeveNeedle) && sleeveKits.length === 0) {
+    warnings.push('Fallback-гильза не найдена в связях деталь↔марка.');
+  }
 
   const rows: AssemblyForecastDayRow[] = [];
   const stock = cloneStockMap(input.stockByNomenclatureId);

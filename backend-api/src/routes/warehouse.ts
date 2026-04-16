@@ -440,6 +440,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     horizonDays: z.coerce.number().int().min(1).max(14).optional(),
     warehouseIds: z.array(z.string().min(1)).optional(),
     brandIds: z.array(z.string().min(1)).optional(),
+    sleeveNomenclatureId: z.string().min(1).optional(),
     sleeveSearch: z.string().optional(),
     incomingPlan: z
       .array(
@@ -459,6 +460,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
       ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
       ...(parsed.data.brandIds !== undefined ? { brandIds: parsed.data.brandIds } : {}),
+      ...(parsed.data.sleeveNomenclatureId !== undefined ? { sleeveNomenclatureId: parsed.data.sleeveNomenclatureId } : {}),
       ...(parsed.data.sleeveSearch !== undefined ? { sleeveSearch: parsed.data.sleeveSearch } : {}),
       ...(parsed.data.incomingPlan !== undefined ? { incomingPlan: parsed.data.incomingPlan } : {}),
     });

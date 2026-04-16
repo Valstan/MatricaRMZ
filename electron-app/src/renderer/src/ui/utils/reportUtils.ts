@@ -185,7 +185,7 @@ export function buildDefaultFilters(preset: ReportPresetDefinition): ReportPrese
       continue;
     }
     if (filter.type === 'select') {
-      out[filter.key] = filter.options[0]?.value ?? '';
+      out[filter.key] = filter.options?.[0]?.value ?? '';
       continue;
     }
     if (filter.type === 'number') {
