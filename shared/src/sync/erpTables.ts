@@ -1,6 +1,8 @@
 export const ErpSyncTableName = {
   Nomenclature: 'erp_nomenclature',
   NomenclatureEngineBrand: 'erp_nomenclature_engine_brand',
+  EngineAssemblyBom: 'erp_engine_assembly_bom',
+  EngineAssemblyBomLines: 'erp_engine_assembly_bom_lines',
   EngineInstances: 'erp_engine_instances',
   PartTemplates: 'erp_part_templates',
   PartCards: 'erp_part_cards',

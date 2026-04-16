@@ -24,6 +24,8 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomLines,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -288,6 +290,14 @@ const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Reco
   [LedgerTableName.ErpNomenclature]: {
     drizzle: erpNomenclature,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, r),
+  },
+  [LedgerTableName.ErpEngineAssemblyBom]: {
+    drizzle: erpEngineAssemblyBom,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBom, r),
+  },
+  [LedgerTableName.ErpEngineAssemblyBomLines]: {
+    drizzle: erpEngineAssemblyBomLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomLines, r),
   },
   [LedgerTableName.ErpRegStockBalance]: {
     drizzle: erpRegStockBalance,

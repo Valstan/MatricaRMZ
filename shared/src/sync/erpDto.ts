@@ -92,6 +92,32 @@ export const erpEngineInstanceRowSchema = z.object({
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
 });
 
+export const erpEngineAssemblyBomRowSchema = z.object({
+  ...baseErpFields,
+  name: z.string().min(1),
+  engine_nomenclature_id: z.string().uuid(),
+  version: z.number().int().min(1),
+  status: z.enum(['draft', 'active', 'archived']),
+  is_default: z.boolean(),
+  notes: z.string().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+export const erpEngineAssemblyBomLineRowSchema = z.object({
+  ...baseErpFields,
+  bom_id: z.string().uuid(),
+  component_nomenclature_id: z.string().uuid(),
+  component_type: z.enum(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']),
+  qty_per_unit: z.number().min(0),
+  variant_group: z.string().nullable().optional(),
+  is_required: z.boolean(),
+  priority: z.number().int(),
+  notes: z.string().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
 export const erpRegisterStockBalanceRowSchema = z.object({
   id: z.string().uuid(),
   nomenclature_id: z.string().uuid().nullable().optional(),
@@ -128,6 +154,8 @@ export const erpJournalDocumentRowSchema = z.object({
 export const erpSyncRowSchemaByTable = {
   [ErpSyncTableName.Nomenclature]: erpNomenclatureRowSchema,
   [ErpSyncTableName.NomenclatureEngineBrand]: erpNomenclatureEngineBrandRowSchema,
+  [ErpSyncTableName.EngineAssemblyBom]: erpEngineAssemblyBomRowSchema,
+  [ErpSyncTableName.EngineAssemblyBomLines]: erpEngineAssemblyBomLineRowSchema,
   [ErpSyncTableName.EngineInstances]: erpEngineInstanceRowSchema,
   [ErpSyncTableName.PartTemplates]: erpPartTemplateRowSchema,
   [ErpSyncTableName.PartCards]: erpPartCardRowSchema,

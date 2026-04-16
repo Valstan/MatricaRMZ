@@ -64,6 +64,13 @@
       "when": 1773302400000,
       "tag": "0008_warehouse_three_level_split",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776372600000,
+      "tag": "0009_engine_assembly_bom",
+      "breakpoints": true
     }
   ]
 }

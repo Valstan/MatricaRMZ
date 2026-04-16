@@ -120,6 +120,8 @@ const StockBalancesPage = lazyPage('./pages/StockBalancesPage.tsx', 'StockBalanc
 const StockDocumentsPage = lazyPage('./pages/StockDocumentsPage.tsx', 'StockDocumentsPage');
 const StockDocumentDetailsPage = lazyPage('./pages/StockDocumentDetailsPage.tsx', 'StockDocumentDetailsPage');
 const StockInventoryPage = lazyPage('./pages/StockInventoryPage.tsx', 'StockInventoryPage');
+const EngineAssemblyBomPage = lazyPage('./pages/EngineAssemblyBomPage.tsx', 'EngineAssemblyBomPage');
+const EngineAssemblyBomDetailsPage = lazyPage('./pages/EngineAssemblyBomDetailsPage.tsx', 'EngineAssemblyBomDetailsPage');
 const SimpleMasterdataDetailsPage = lazyPage('./pages/SimpleMasterdataDetailsPage.tsx', 'SimpleMasterdataDetailsPage');
 const SettingsPage = lazyPage('./pages/SettingsPage.tsx', 'SettingsPage');
 const NotesPage = lazyPage('./pages/NotesPage.tsx', 'NotesPage');
@@ -291,6 +293,8 @@ function appTabTitle(tab: string): string {
     services: 'Услуги',
     service: 'Карточка услуги',
     nomenclature: 'Номенклатура',
+    engine_assembly_bom: 'BOM двигателей',
+    engine_assembly_bom_item: 'Карточка BOM двигателя',
     nomenclature_item: 'Карточка номенклатуры',
     stock_balances: 'Остатки',
     stock_receipts: 'Приход',
@@ -324,6 +328,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   product: 'products',
   service: 'services',
   nomenclature_item: 'nomenclature',
+  engine_assembly_bom_item: 'engine_assembly_bom',
   stock_document: 'stock_documents',
   report_preset: 'reports',
 };
@@ -343,6 +348,7 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'product',
   'service',
   'nomenclature_item',
+  'engine_assembly_bom_item',
   'stock_document',
   'report_preset',
 ];
@@ -421,6 +427,7 @@ export function App() {
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedNomenclatureId, setSelectedNomenclatureId] = useState<string | null>(null);
   const [selectedStockDocumentId, setSelectedStockDocumentId] = useState<string | null>(null);
+  const [selectedEngineAssemblyBomId, setSelectedEngineAssemblyBomId] = useState<string | null>(null);
   const [stockDocumentParentTab, setStockDocumentParentTab] = useState<StockDocumentParentTab>('stock_documents');
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
@@ -1265,7 +1272,7 @@ export function App() {
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canViewMasterData
-      ? (['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'] as const)
+      ? (['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'] as const)
       : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
@@ -1292,6 +1299,7 @@ export function App() {
     | 'product'
     | 'service'
     | 'nomenclature_item'
+    | 'engine_assembly_bom_item'
     | 'stock_document'
     | 'counterparty'
     | 'report_preset'
@@ -1313,6 +1321,7 @@ export function App() {
     products: 'Товары',
     services: 'Услуги',
     nomenclature: 'Номенклатура',
+    engine_assembly_bom: 'BOM двигателей',
     stock_balances: 'Остатки',
     stock_documents: 'Документы',
     stock_receipts: 'Приход',
@@ -1519,6 +1528,7 @@ export function App() {
       tab === 'product' ||
       tab === 'service' ||
       tab === 'nomenclature_item' ||
+      tab === 'engine_assembly_bom_item' ||
       tab === 'stock_document' ||
       tab === 'report_preset'
     )
@@ -1697,6 +1707,11 @@ export function App() {
     setTab('nomenclature_item');
   }
 
+  async function openEngineAssemblyBom(id: string) {
+    setSelectedEngineAssemblyBomId(id);
+    setTab('engine_assembly_bom_item');
+  }
+
   async function openStockDocument(id: string, parentTab: StockDocumentParentTab = 'stock_documents') {
     setStockDocumentParentTab(parentTab);
     setSelectedStockDocumentId(id);
@@ -1860,6 +1875,8 @@ export function App() {
       services: 'Услуги',
       service: 'Карточка услуги',
       nomenclature: 'Номенклатура',
+      engine_assembly_bom: 'BOM двигателей',
+      engine_assembly_bom_item: 'Карточка BOM двигателя',
       nomenclature_item: 'Карточка номенклатуры',
       stock_balances: 'Остатки',
       stock_receipts: 'Приход',
@@ -1892,6 +1909,7 @@ export function App() {
       product: 'Товары',
       service: 'Услуги',
       nomenclature_item: 'Номенклатура',
+      engine_assembly_bom_item: 'BOM двигателей',
       stock_document: 'Складские документы',
       report_preset: 'Отчёты',
     };
@@ -1920,6 +1938,7 @@ export function App() {
     if (tab === 'product' && selectedProductId) crumbs.push(`ID ${shortId(selectedProductId)}`);
     if (tab === 'service' && selectedServiceId) crumbs.push(`ID ${shortId(selectedServiceId)}`);
     if (tab === 'nomenclature_item' && selectedNomenclatureId) crumbs.push(`ID ${shortId(selectedNomenclatureId)}`);
+    if (tab === 'engine_assembly_bom_item' && selectedEngineAssemblyBomId) crumbs.push(`ID ${shortId(selectedEngineAssemblyBomId)}`);
     if (tab === 'stock_document' && selectedStockDocumentId) crumbs.push(`ID ${shortId(selectedStockDocumentId)}`);
     if (tab === 'report_preset' && selectedReportPresetId) crumbs.push(`Шаблон: ${selectedReportPresetId}`);
 
@@ -2321,6 +2340,10 @@ export function App() {
                   ? 'Матрица РМЗ — Номенклатура'
                   : tab === 'nomenclature_item'
                     ? 'Матрица РМЗ — Карточка номенклатуры'
+                    : tab === 'engine_assembly_bom'
+                      ? 'Матрица РМЗ — BOM двигателей'
+                      : tab === 'engine_assembly_bom_item'
+                        ? 'Матрица РМЗ — Карточка BOM двигателя'
                     : tab === 'stock_balances'
                       ? 'Матрица РМЗ — Остатки склада'
                       : tab === 'stock_receipts'
@@ -3367,6 +3390,13 @@ export function App() {
           />
         )}
 
+        {tab === 'engine_assembly_bom' && (
+          <EngineAssemblyBomPage
+            canEdit={caps.canEditMasterData}
+            onOpen={openEngineAssemblyBom}
+          />
+        )}
+
         {(tab === 'stock_receipts' || tab === 'stock_issues' || tab === 'stock_transfers' || tab === 'stock_documents') && (
           <StockDocumentsPage
             defaultDocType={
@@ -3584,6 +3614,18 @@ export function App() {
           />
         )}
 
+        {tab === 'engine_assembly_bom_item' && selectedEngineAssemblyBomId && (
+          <EngineAssemblyBomDetailsPage
+            key={selectedEngineAssemblyBomId}
+            id={selectedEngineAssemblyBomId}
+            canEdit={caps.canEditMasterData}
+            onClose={() => {
+              setSelectedEngineAssemblyBomId(null);
+              setTabState('engine_assembly_bom');
+            }}
+          />
+        )}
+
         {tab === 'stock_document' && selectedStockDocumentId && (
           <StockDocumentDetailsPage
             key={selectedStockDocumentId}
@@ -3707,6 +3749,10 @@ export function App() {
 
         {tab === 'nomenclature_item' && !selectedNomenclatureId && (
           <div style={{ color: 'var(--muted)' }}>Выберите номенклатуру из списка.</div>
+        )}
+
+        {tab === 'engine_assembly_bom_item' && !selectedEngineAssemblyBomId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите BOM-спецификацию из списка.</div>
         )}
 
         {tab === 'stock_document' && !selectedStockDocumentId && (

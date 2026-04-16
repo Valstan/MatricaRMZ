@@ -26,6 +26,8 @@ import {
   entities,
   entityTypes,
   erpEngineInstances,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomLines,
   erpNomenclature,
   erpNomenclatureEngineBrand,
   ledgerTxIndex,
@@ -57,6 +59,14 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpNomenclatureEngineBrand]: {
     drizzle: erpNomenclatureEngineBrand,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclatureEngineBrand, r),
+  },
+  [SyncTableName.ErpEngineAssemblyBom]: {
+    drizzle: erpEngineAssemblyBom,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBom, r),
+  },
+  [SyncTableName.ErpEngineAssemblyBomLines]: {
+    drizzle: erpEngineAssemblyBomLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomLines, r),
   },
   [SyncTableName.ErpEngineInstances]: {
     drizzle: erpEngineInstances,

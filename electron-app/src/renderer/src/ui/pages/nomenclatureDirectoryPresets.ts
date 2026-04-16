@@ -1,7 +1,9 @@
-type NomenclatureCreateConfig = {
+import type { NomenclatureItemType } from '@matricarmz/shared';
+
+export type NomenclatureCreateConfig = {
   codePrefix: string;
   name: string;
-  itemType: string;
+  itemType: NomenclatureItemType;
   category: string;
 };
 
@@ -73,7 +75,7 @@ export const SERVICES_PRESET: NomenclatureDirectoryPreset = {
   createConfig: {
     codePrefix: 'SRV',
     name: 'Новая услуга',
-    itemType: 'service',
+    itemType: 'product',
     category: 'service',
   },
 };

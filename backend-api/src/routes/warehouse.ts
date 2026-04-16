@@ -24,6 +24,16 @@ import {
   upsertWarehouseNomenclatureEngineBrand,
   upsertWarehouseNomenclature,
 } from '../services/warehouseService.js';
+import {
+  activateWarehouseAssemblyBomAsDefault,
+  archiveWarehouseAssemblyBom,
+  buildWarehouseBomExpandedForecast,
+  getWarehouseAssemblyBom,
+  getWarehouseAssemblyBomPrintPayload,
+  listWarehouseAssemblyBomHistory,
+  listWarehouseAssemblyBoms,
+  upsertWarehouseAssemblyBom,
+} from '../services/warehouseBomService.js';
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
 
 export const warehouseRouter = Router();
@@ -258,6 +268,132 @@ warehouseRouter.delete('/engine-instances/:id', requirePermission(PermissionCode
   return res.json(result);
 });
 
+warehouseRouter.get('/assembly-bom', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const schema = z.object({
+    engineNomenclatureId: z.string().uuid().optional(),
+    status: z.enum(['draft', 'active', 'archived']).optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listWarehouseAssemblyBoms({
+    ...(parsed.data.engineNomenclatureId ? { engineNomenclatureId: parsed.data.engineNomenclatureId } : {}),
+    ...(parsed.data.status ? { status: parsed.data.status } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/assembly-bom/:id', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getWarehouseAssemblyBom({ id });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(1),
+    engineNomenclatureId: z.string().uuid(),
+    version: z.coerce.number().int().min(1).optional(),
+    status: z.enum(['draft', 'active', 'archived']).optional(),
+    isDefault: z.boolean().optional(),
+    notes: z.string().nullable().optional(),
+    lines: z
+      .array(
+        z.object({
+          id: z.string().uuid().optional(),
+          componentNomenclatureId: z.string().uuid(),
+          componentType: z.enum(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']).optional(),
+          qtyPerUnit: z.coerce.number().int().min(0),
+          variantGroup: z.string().nullable().optional(),
+          isRequired: z.boolean().optional(),
+          priority: z.coerce.number().int().optional(),
+          notes: z.string().nullable().optional(),
+        }),
+      )
+      .default([]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await upsertWarehouseAssemblyBom({
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    name: parsed.data.name,
+    engineNomenclatureId: parsed.data.engineNomenclatureId,
+    ...(parsed.data.version !== undefined ? { version: parsed.data.version } : {}),
+    ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+    ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
+    ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
+    lines: parsed.data.lines.map((line) => ({
+      ...(line.id ? { id: line.id } : {}),
+      componentNomenclatureId: line.componentNomenclatureId,
+      ...(line.componentType !== undefined ? { componentType: line.componentType } : {}),
+      qtyPerUnit: line.qtyPerUnit,
+      ...(line.variantGroup !== undefined ? { variantGroup: line.variantGroup } : {}),
+      ...(line.isRequired !== undefined ? { isRequired: line.isRequired } : {}),
+      ...(line.priority !== undefined ? { priority: line.priority } : {}),
+      ...(line.notes !== undefined ? { notes: line.notes } : {}),
+    })),
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/assembly-bom/:id/activate-default', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await activateWarehouseAssemblyBomAsDefault({
+    id,
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/assembly-bom/:id/archive', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await archiveWarehouseAssemblyBom({
+    id,
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/assembly-bom/:engineNomenclatureId/history', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const engineNomenclatureId = String(req.params.engineNomenclatureId || '').trim();
+  if (!engineNomenclatureId) return res.status(400).json({ ok: false, error: 'engineNomenclatureId обязателен' });
+  const result = await listWarehouseAssemblyBomHistory({ engineNomenclatureId });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/assembly-bom/:id/print', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getWarehouseAssemblyBomPrintPayload({ id });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
 warehouseRouter.get('/documents/:id', requirePermission(PermissionCode.ErpDocumentsView), async (req, res) => {
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
@@ -439,18 +575,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     targetEnginesPerDay: z.coerce.number().int().min(0).max(500),
     horizonDays: z.coerce.number().int().min(1).max(14).optional(),
     warehouseIds: z.array(z.string().min(1)).optional(),
-    brandIds: z.array(z.string().min(1)).optional(),
-    sleeveNomenclatureId: z.string().min(1).optional(),
-    sleeveSearch: z.string().optional(),
-    incomingPlan: z
-      .array(
-        z.object({
-          dayOffset: z.coerce.number().int().min(0).max(13),
-          nomenclatureId: z.string().min(1),
-          qty: z.coerce.number().int().min(0).max(1_000_000),
-        }),
-      )
-      .optional(),
+    engineNomenclatureIds: z.array(z.string().uuid()).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -459,10 +584,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       targetEnginesPerDay: parsed.data.targetEnginesPerDay,
       ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
       ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
-      ...(parsed.data.brandIds !== undefined ? { brandIds: parsed.data.brandIds } : {}),
-      ...(parsed.data.sleeveNomenclatureId !== undefined ? { sleeveNomenclatureId: parsed.data.sleeveNomenclatureId } : {}),
-      ...(parsed.data.sleeveSearch !== undefined ? { sleeveSearch: parsed.data.sleeveSearch } : {}),
-      ...(parsed.data.incomingPlan !== undefined ? { incomingPlan: parsed.data.incomingPlan } : {}),
+      ...(parsed.data.engineNomenclatureIds !== undefined ? { engineNomenclatureIds: parsed.data.engineNomenclatureIds } : {}),
     });
     const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
     const rows = forecast.rows.map((r) => ({
@@ -478,6 +600,32 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+warehouseRouter.get('/forecast/bom', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const schema = z.object({
+    engineId: z.string().uuid(),
+    targetEnginesPerDay: z.coerce.number().int().min(0).max(500).optional(),
+    horizonDays: z.coerce.number().int().min(1).max(14).optional(),
+    warehouseIds: z
+      .union([z.array(z.string().min(1)), z.string().min(1)])
+      .optional()
+      .transform((value) => {
+        if (!value) return undefined;
+        if (Array.isArray(value)) return value;
+        return value.split(',').map((item) => item.trim()).filter(Boolean);
+      }),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await buildWarehouseBomExpandedForecast({
+    engineId: parsed.data.engineId,
+    ...(parsed.data.targetEnginesPerDay !== undefined ? { targetEnginesPerDay: parsed.data.targetEnginesPerDay } : {}),
+    ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
+    ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
 });
 
 warehouseRouter.get('/forecast/incoming', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {

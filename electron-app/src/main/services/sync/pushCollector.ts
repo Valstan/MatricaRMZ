@@ -38,6 +38,8 @@ const CLIENT_TABLES: Record<SyncTableName, any> = {
   [SyncTableName.NoteShares]: noteShares,
   [SyncTableName.ErpNomenclature]: null,
   [SyncTableName.ErpNomenclatureEngineBrand]: null,
+  [SyncTableName.ErpEngineAssemblyBom]: null,
+  [SyncTableName.ErpEngineAssemblyBomLines]: null,
   [SyncTableName.ErpEngineInstances]: null,
   [SyncTableName.ErpRegStockBalance]: null,
   [SyncTableName.ErpRegStockMovements]: null,

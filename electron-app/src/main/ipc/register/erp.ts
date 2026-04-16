@@ -18,8 +18,16 @@ import {
   warehouseDocumentGet,
   warehouseDocumentPlan,
   warehouseLookupsGet,
+  warehouseAssemblyBomActivateDefault,
+  warehouseAssemblyBomArchive,
+  warehouseAssemblyBomGet,
+  warehouseAssemblyBomHistory,
+  warehouseAssemblyBomList,
+  warehouseAssemblyBomPrint,
+  warehouseAssemblyBomUpsert,
   warehouseDocumentPost,
   warehouseDocumentsList,
+  warehouseForecastBomGet,
   warehouseForecastIncomingGet,
   warehouseMovementsList,
   warehouseNomenclatureDelete,
@@ -277,4 +285,63 @@ export function registerErpIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as any;
     return warehouseForecastIncomingGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
+
+  ipcMain.handle('warehouse:assemblyBom:list', async (_e, args?: { engineNomenclatureId?: string; status?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:get', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:activateDefault', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomActivateDefault(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:archive', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomArchive(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:history', async (_e, args: { engineNomenclatureId: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(args?.engineNomenclatureId || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:print', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomPrint(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle(
+    'warehouse:forecast:bom:get',
+    async (_e, args: { engineId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+      if (!gate.ok) return gate as any;
+      return warehouseForecastBomGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
 }

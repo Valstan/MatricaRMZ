@@ -26,6 +26,8 @@ export type TabId =
   | 'stock_documents'
   | 'stock_document'
   | 'stock_inventory'
+  | 'engine_assembly_bom'
+  | 'engine_assembly_bom_item'
   | 'contracts'
   | 'contract'
   | 'requests'
@@ -71,6 +73,7 @@ export type MenuTabId = Exclude<
   | 'tool_property'
   | 'tool_properties'
   | 'report_preset'
+  | 'engine_assembly_bom_item'
 >;
 export type TabsLayoutPrefs = {
   order?: MenuTabId[];
@@ -99,6 +102,7 @@ const PARENT_TAB: Record<string, MenuTabId> = {
   service: 'services',
   nomenclature_item: 'nomenclature',
   stock_document: 'stock_documents',
+  engine_assembly_bom_item: 'engine_assembly_bom',
   request: 'requests',
   report_preset: 'reports',
 };
@@ -126,6 +130,7 @@ const menuTabSet = new Set<MenuTabId>([
   'stock_issues',
   'stock_transfers',
   'stock_inventory',
+  'engine_assembly_bom',
   'employees',
   'reports',
   'audit',
@@ -168,7 +173,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
   production: ['engines', 'engine_brands', 'parts', 'part_templates'],
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
-  warehouse: ['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
+  warehouse: ['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
   control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'admin'],
@@ -225,6 +230,7 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   products: { icon: '📦', subtitle: 'Товары и номенклатура', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
   services: { icon: '🧰', subtitle: 'Услуги и операции', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
   nomenclature: { icon: '🗃️', subtitle: 'Единый каталог ТМЦ', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
+  engine_assembly_bom: { icon: '🧮', subtitle: 'Матрица комплектования двигателей', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   stock_balances: { icon: '📊', subtitle: 'Остатки по складам', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
   stock_receipts: { icon: '📥', subtitle: 'Документы поступления', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%)' },
   stock_issues: { icon: '📤', subtitle: 'Документы расхода', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
@@ -454,6 +460,7 @@ export function Tabs(props: {
     products: 'Товары',
     services: 'Услуги',
     nomenclature: 'Номенклатура',
+    engine_assembly_bom: 'BOM двигателей',
     stock_balances: 'Остатки',
     stock_documents: 'Документы',
     part_templates: 'Справочник деталей',

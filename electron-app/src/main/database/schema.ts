@@ -460,6 +460,58 @@ export const erpNomenclatureEngineBrand = sqliteTable(
   }),
 );
 
+export const erpEngineAssemblyBom = sqliteTable(
+  'erp_engine_assembly_bom',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    engineNomenclatureId: text('engine_nomenclature_id').notNull(),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('draft'),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    notes: text('notes'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    engineVersionUq: uniqueIndex('erp_engine_assembly_bom_engine_version_uq').on(t.engineNomenclatureId, t.version),
+    engineIdx: index('erp_engine_assembly_bom_engine_idx').on(t.engineNomenclatureId),
+    statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
+  }),
+);
+
+export const erpEngineAssemblyBomLines = sqliteTable(
+  'erp_engine_assembly_bom_lines',
+  {
+    id: text('id').primaryKey(),
+    bomId: text('bom_id').notNull(),
+    componentNomenclatureId: text('component_nomenclature_id').notNull(),
+    componentType: text('component_type').notNull().default('other'),
+    qtyPerUnit: integer('qty_per_unit').notNull().default(1),
+    variantGroup: text('variant_group'),
+    isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(true),
+    priority: integer('priority').notNull().default(100),
+    notes: text('notes'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    bomIdx: index('erp_engine_assembly_bom_lines_bom_idx').on(t.bomId),
+    componentIdx: index('erp_engine_assembly_bom_lines_component_idx').on(t.componentNomenclatureId),
+    bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq').on(
+      t.bomId,
+      t.variantGroup,
+      t.componentNomenclatureId,
+    ),
+  }),
+);
+
 export const erpEngineInstances = sqliteTable(
   'erp_engine_instances',
   {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { WarehouseNomenclatureListItem } from '@matricarmz/shared';
+import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -8,7 +8,7 @@ import { buildNomenclatureCode } from '../utils/nomenclatureCode.js';
 type CreateConfig = {
   codePrefix: string;
   name: string;
-  itemType: string;
+  itemType: NomenclatureItemType;
   category: string;
 };
 
@@ -72,8 +72,12 @@ export function NomenclatureDirectoryPage(props: {
                 directoryKind: props.directoryKind,
                 isActive: true,
               });
-              if (!created?.ok || !created.id) {
-                setStatus(`Ошибка: ${String(created?.error ?? 'не удалось создать')}`);
+              if (!created?.ok) {
+                setStatus(`Ошибка: ${String(created.error ?? 'не удалось создать')}`);
+                return;
+              }
+              if (!created.id) {
+                setStatus('Ошибка: не удалось создать');
                 return;
               }
               await refresh();

@@ -5,11 +5,9 @@ import { BrowserWindow } from 'electron';
 import {
   REPORT_PRESET_DEFINITIONS,
   STATUS_CODES,
-  computeAssemblyForecast,
   computeObjectProgress,
   effectiveContractDueAt,
   mergeBrandKits,
-  parseAssemblyIncomingPlanJson,
   parseContractSections,
   tryParseWarehousePartNomenclatureMirror,
   type ReportCellValue,
@@ -27,11 +25,12 @@ import {
   type ReportPresetPrintResult,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBom, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 import { httpAuthed } from './httpClient.js';
 import { prependUtf8Bom } from './reportCsvEncoding.js';
 import { resolveEngineShippingState } from './reportEngineShippingState.js';
+import { renderWorkOrderPayrollFullHtml } from '../../renderer/src/ui/utils/workOrderPayrollReportLayoutHtml.js';
 
 type Snapshot = {
   entityTypeIdByCode: Map<string, string>;
@@ -650,11 +649,6 @@ function collectAssemblyCompatRowsFromSnapshot(snapshot: Snapshot, brandFilter?:
   return compatRows.filter((row) => row.qtyPerEngine > 0);
 }
 
-function buildAssemblyBrandOptions(snapshot: Snapshot): ReportFilterOption[] {
-  const linkedBrandIds = new Set(collectAssemblyCompatRowsFromSnapshot(snapshot).map((row) => row.brandId));
-  return buildOptions(snapshot, 'engine_brand').filter((option) => linkedBrandIds.has(option.value));
-}
-
 function buildAssemblySleeveOptions(snapshot: Snapshot): ReportFilterOption[] {
   const kits = mergeBrandKits(collectAssemblyCompatRowsFromSnapshot(snapshot));
   const seen = new Set<string>();
@@ -665,10 +659,11 @@ function buildAssemblySleeveOptions(snapshot: Snapshot): ReportFilterOption[] {
       const id = String(part.nomenclatureId);
       if (!id || seen.has(id)) continue;
       seen.add(id);
+      const searchText = joinOptionSearch([part.partLabel, part.partId, part.nomenclatureId, kit.brandLabel]);
       out.push({
         value: id,
         label: part.partLabel || id,
-        searchText: joinOptionSearch([part.partLabel, part.partId, part.nomenclatureId, kit.brandLabel]),
+        ...(searchText ? { searchText } : {}),
       });
     }
   }
@@ -1575,6 +1570,72 @@ async function buildWorkOrderPayrollReport(
       toNumber(b.workOrderNumber) - toNumber(a.workOrderNumber),
   );
 
+  const payrollAccrualTotalRub = Math.round(rows.reduce((acc, row) => acc + toNumber(row.amountRub), 0) * 100) / 100;
+
+  const payrollWorkLines: Array<{
+    orderDateMs: number;
+    workOrderNumber: number | null;
+    workLabel: string;
+    qty: number;
+    priceRub: number;
+    amountRub: number;
+  }> = [];
+  const seenWorkLineOps = new Set<string>();
+
+  for (const op of sourceOps as any[]) {
+    const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
+    if (!payload || payload.kind !== 'work_order') continue;
+    const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
+    if (period.startMs != null && orderDate < period.startMs) continue;
+    if (orderDate > period.endMs) continue;
+
+    const crew = normalizeWorkOrderReportCrew(payload, personnelByEmployeeId);
+    if (crew.length === 0) continue;
+    const hasIncludedMember = crew.some(
+      (member) => employeeFilter.length === 0 || (member.employeeId && employeeFilter.includes(member.employeeId)),
+    );
+    if (!hasIncludedMember) continue;
+
+    const opKey = String(op.id ?? payload.operationId ?? `${payload.workOrderNumber ?? 'wo'}-${orderDate}`);
+    if (seenWorkLineOps.has(opKey)) continue;
+    seenWorkLineOps.add(opKey);
+
+    const works = normalizeWorkOrderReportLines(payload);
+    const fallbackWorkLabel = resolveWorkOrderTargetLabel(payload);
+    const normalizedWorks =
+      works.length > 0
+        ? works
+        : [
+            {
+              serviceName: fallbackWorkLabel || '(без названия)',
+              qty: 1,
+              amountRub: Math.max(0, toNumber(payload.totalAmountRub)),
+            },
+          ];
+
+    const woNum = toNumber(payload.workOrderNumber) || null;
+    for (const work of normalizedWorks) {
+      const qty = Math.max(0, toNumber(work.qty));
+      const amountRub = Math.max(0, toNumber(work.amountRub));
+      const priceRub = qty > 0 ? amountRub / qty : 0;
+      payrollWorkLines.push({
+        orderDateMs: orderDate,
+        workOrderNumber: woNum,
+        workLabel: normalizeText(work?.serviceName, '(без названия)'),
+        qty,
+        priceRub,
+        amountRub,
+      });
+    }
+  }
+
+  payrollWorkLines.sort(
+    (a, b) =>
+      b.orderDateMs - a.orderDateMs ||
+      (b.workOrderNumber ?? 0) - (a.workOrderNumber ?? 0) ||
+      String(a.workLabel).localeCompare(String(b.workLabel), 'ru'),
+  );
+
   const preset = getPreset('work_order_payroll');
   return {
     ok: true,
@@ -1583,10 +1644,12 @@ async function buildWorkOrderPayrollReport(
     subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
     columns: preset.columns,
     rows,
+    payrollWorkLines,
+    payrollAccrualTotalRub,
     totals: {
       employees: totalsByEmployee.size,
       workOrders: totalWorkOrderKeys.size,
-      amountRub: rows.reduce((acc, row) => acc + toNumber(row.amountRub), 0),
+      amountRub: payrollAccrualTotalRub,
     },
     totalsByGroup: Array.from(totalsByEmployee.entries())
       .map(([, totals]) => ({
@@ -2478,16 +2541,12 @@ async function buildAssemblyForecast7dReport(
     if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
     const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
     const warehouseIds = asArray(filters?.warehouseIds);
-    const brandIds = asArray(filters?.brandIds);
-    const sleeveNomenclatureId = String(filters?.sleeveNomenclatureId ?? '').trim();
-    const sleeveSearch = String(filters?.sleeveSearch ?? '');
+    const engineNomenclatureIds = asArray(filters?.engineNomenclatureIds);
     const payload = {
       targetEnginesPerDay,
       horizonDays: 7,
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
-      ...(brandIds.length > 0 ? { brandIds } : {}),
-      ...(sleeveNomenclatureId ? { sleeveNomenclatureId } : {}),
-      ...(sleeveSearch.trim() ? { sleeveSearch } : {}),
+      ...(engineNomenclatureIds.length > 0 ? { engineNomenclatureIds } : {}),
     };
     try {
       const r = await httpAuthed(
@@ -2549,71 +2608,32 @@ async function buildAssemblyForecast7dReport(
   const remote = await viaApi();
   if ('report' in remote) return remote.report;
   if ('error' in remote) return { ok: false, error: remote.error };
+  return { ok: false, error: 'Локальный fallback отключен: отчет использует BOM-прогноз только через backend API.' };
+}
 
-  const snapshot = await loadSnapshot(db);
-  const brandFilter = asArray(filters?.brandIds);
-  const warehouseFilter = asArray(filters?.warehouseIds);
-  const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
-  const sleeveNomenclatureId = String(filters?.sleeveNomenclatureId ?? '').trim();
-  const sleeveSearch = String(filters?.sleeveSearch ?? '');
-  const incomingLines = parseAssemblyIncomingPlanJson(filters?.incomingPlanJson);
-
-  const balanceRows = await db.select().from(erpRegStockBalance);
-  const stockMap = new Map<string, number>();
-  for (const raw of balanceRows as any[]) {
-    const wh = String(raw.warehouseId ?? 'default');
-    if (warehouseFilter.length > 0 && !warehouseFilter.includes(wh)) continue;
-    const nid = raw.nomenclatureId ? String(raw.nomenclatureId) : '';
-    if (!nid) continue;
-    const avail = Math.max(0, Math.floor(Number(raw.qty ?? 0) - Number(raw.reservedQty ?? 0)));
-    stockMap.set(nid, (stockMap.get(nid) ?? 0) + avail);
+async function buildAssemblyBomEngineOptions(db: BetterSQLite3Database): Promise<ReportFilterOption[]> {
+  const rows = await db
+    .select({
+      engineId: erpEngineAssemblyBom.engineNomenclatureId,
+      name: erpNomenclature.name,
+      code: erpNomenclature.code,
+    })
+    .from(erpEngineAssemblyBom)
+    .leftJoin(erpNomenclature, eq(erpNomenclature.id, erpEngineAssemblyBom.engineNomenclatureId))
+    .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
+  const unique = new Map<string, ReportFilterOption>();
+  for (const row of rows) {
+    const id = String(row.engineId ?? '').trim();
+    if (!id || unique.has(id)) continue;
+    const label = String(row.name ?? '').trim() || id;
+    const code = String(row.code ?? '').trim();
+    unique.set(id, {
+      value: id,
+      label: code ? `${label} (${code})` : label,
+      ...(code ? { searchText: `${label} ${code} ${id}` } : { searchText: `${label} ${id}` }),
+    });
   }
-
-  const brandFilterSet = brandFilter.length > 0 ? new Set(brandFilter) : undefined;
-  const compatRows = collectAssemblyCompatRowsFromSnapshot(snapshot, brandFilterSet);
-  const kits = mergeBrandKits(compatRows);
-
-  const forecast = computeAssemblyForecast({
-    horizonDays: 7,
-    targetEnginesPerDay,
-    warehouseId: warehouseFilter.length === 1 ? warehouseFilter[0]! : null,
-    kits,
-    stockByNomenclatureId: stockMap,
-    incomingLines,
-    ...(sleeveNomenclatureId ? { sleeveNomenclatureId } : {}),
-    sleeveSearch,
-  });
-
-  const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
-  const rows = forecast.rows.map((r) => ({
-    dayLabel: r.dayLabel,
-    engineBrand: r.engineBrand,
-    plannedEngines: r.plannedEngines,
-    status: statusRu(r.status),
-    requiredComponentsSummary: r.requiredComponentsSummary,
-    deficitsSummary: r.deficitsSummary,
-    alternativeBrands: r.alternativeBrands,
-  }));
-
-  const preset = getPreset('assembly_forecast_7d');
-  const subtitleParts = [
-    `Цель: ${targetEnginesPerDay}/сутки`,
-    warehouseFilter.length ? `Склады: ${warehouseFilter.length}` : 'Склады: все (сумма)',
-    ...(forecast.warnings.length ? forecast.warnings : []),
-  ];
-  return {
-    ok: true,
-    presetId: 'assembly_forecast_7d',
-    title: preset.title,
-    subtitle: subtitleParts.join(' | '),
-    columns: preset.columns,
-    rows,
-    totals: {
-      forecastRows: rows.length,
-      plannedEngines: rows.reduce((acc, row) => acc + toNumber(row.plannedEngines), 0),
-    },
-    generatedAt: Date.now(),
-  };
+  return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
 
 export async function getReportPresetList(db: BetterSQLite3Database): Promise<ReportPresetListResult> {
@@ -2625,7 +2645,7 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
       optionSets: {
         contracts: buildOptions(snapshot, 'contract'),
         brands: buildOptions(snapshot, 'engine_brand'),
-        assemblyBrands: buildAssemblyBrandOptions(snapshot),
+        assemblyBrands: await buildAssemblyBomEngineOptions(db),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
@@ -2770,6 +2790,9 @@ export function buildReport1cXml(report: OkPreview): string {
 }
 
 export function renderReportHtml(report: OkPreview): string {
+  if (report.presetId === 'work_order_payroll') {
+    return renderWorkOrderPayrollFullHtml(report);
+  }
   const headers = report.columns.map((c) => `<th style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`).join('');
   const rows = report.rows
     .map((row) => {

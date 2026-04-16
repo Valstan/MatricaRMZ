@@ -968,6 +968,67 @@ export const erpNomenclatureEngineBrand = pgTable(
   }),
 );
 
+export const erpEngineAssemblyBom = pgTable(
+  'erp_engine_assembly_bom',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    engineNomenclatureId: uuid('engine_nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('draft'),
+    isDefault: boolean('is_default').notNull().default(false),
+    notes: text('notes'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    engineVersionUq: uniqueIndex('erp_engine_assembly_bom_engine_version_uq')
+      .on(t.engineNomenclatureId, t.version)
+      .where(sql`${t.deletedAt} is null`),
+    engineIdx: index('erp_engine_assembly_bom_engine_idx').on(t.engineNomenclatureId),
+    statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
+    activeDefaultEngineUq: uniqueIndex('erp_engine_assembly_bom_active_default_engine_uq')
+      .on(t.engineNomenclatureId)
+      .where(sql`${t.deletedAt} is null and ${t.status} = 'active' and ${t.isDefault} = true`),
+  }),
+);
+
+export const erpEngineAssemblyBomLines = pgTable(
+  'erp_engine_assembly_bom_lines',
+  {
+    id: uuid('id').primaryKey(),
+    bomId: uuid('bom_id')
+      .notNull()
+      .references(() => erpEngineAssemblyBom.id),
+    componentNomenclatureId: uuid('component_nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    componentType: text('component_type').notNull().default('other'),
+    qtyPerUnit: integer('qty_per_unit').notNull().default(1),
+    variantGroup: text('variant_group'),
+    isRequired: boolean('is_required').notNull().default(true),
+    priority: integer('priority').notNull().default(100),
+    notes: text('notes'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    bomIdx: index('erp_engine_assembly_bom_lines_bom_idx').on(t.bomId),
+    componentIdx: index('erp_engine_assembly_bom_lines_component_idx').on(t.componentNomenclatureId),
+    bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq')
+      .on(t.bomId, t.variantGroup, t.componentNomenclatureId)
+      .where(sql`${t.deletedAt} is null`),
+  }),
+);
+
 export const erpEngineInstances = pgTable(
   'erp_engine_instances',
   {

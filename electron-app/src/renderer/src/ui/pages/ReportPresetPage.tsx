@@ -15,21 +15,21 @@ import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { openPrintPreview } from '../utils/printPreview.js';
 import {
   binaryDownloadBase64,
   buildDefaultFilters,
-  buildReportMetricNotesHtml,
+  buildReportPrintPreviewSections,
   csvDownload,
   endOfDayMs,
   formatReportCell,
   formatReportTotals,
   fromInputDate,
-  renderReportTableHtml,
   startOfDayMs,
   textDownload,
   toInputDate,
 } from '../utils/reportUtils.js';
+import { renderWorkOrderPayrollFormInnerHtml } from '../utils/workOrderPayrollReportLayoutHtml.js';
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
 
@@ -273,43 +273,10 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
   async function openPreviewWindow() {
     const report = preview ?? (await buildPreview());
     if (!report) return;
-    const sections = [
-      { id: 'table', title: 'Данные отчета', html: renderReportTableHtml(report) },
-      {
-        id: 'totals',
-        title: 'Итого по отчету',
-        html:
-          report.totals && Object.keys(report.totals).length > 0
-            ? `<ul>${formatReportTotals(report.totals)
-                .map((line) => `<li>${escapeHtml(line)}</li>`)
-                .join('')}</ul>`
-            : '<div class="muted">Нет итогов</div>',
-      },
-      {
-        id: 'groups',
-        title: 'Итоги по группам (ключевые метрики)',
-        html:
-          report.totalsByGroup && report.totalsByGroup.length > 0
-            ? `<ul>${report.totalsByGroup
-                .map((row) => `<li>${escapeHtml(row.group)}: ${escapeHtml(formatReportTotals(row.totals).join(', '))}</li>`)
-                .join('')}</ul>`
-            : '<div class="muted">Нет группировок</div>',
-      },
-      {
-        id: 'metric-notes',
-        title: 'Пояснение метрик',
-        html:
-          report.totals && Object.keys(report.totals).length > 0
-            ? buildReportMetricNotesHtml(report.totals).length > 0
-              ? `<ul>${buildReportMetricNotesHtml(report.totals).join('')}</ul>`
-              : '<div class="muted">Нет пояснений</div>'
-            : '<div class="muted">Нет данных</div>',
-      },
-    ];
     openPrintPreview({
       title: report.title,
       ...(report.subtitle ? { subtitle: report.subtitle } : {}),
-      sections,
+      sections: buildReportPrintPreviewSections(report),
     });
   }
 
@@ -620,40 +587,46 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {preview.subtitle ? <div className="ui-muted">{preview.subtitle}</div> : null}
-            <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
-              <table className="list-table">
-                <thead>
-                  <tr>
-                    {preview.columns.map((column) => (
-                      <th key={column.key} style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}>
-                        {column.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.map((row, idx) => (
-                    <tr key={`report-row-${idx}`}>
-                      {preview.columns.map((column) => (
-                        <td key={`${idx}-${column.key}`} style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}>
-                          {formatReportCell(column.kind ?? 'text', (row[column.key] ?? null) as ReportCellValue, column.key)}
-                        </td>
+            {preview.presetId === 'work_order_payroll' ? (
+              <div className="work-order-payroll-onscreen" dangerouslySetInnerHTML={{ __html: renderWorkOrderPayrollFormInnerHtml(preview) }} />
+            ) : (
+              <>
+                <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
+                  <table className="list-table">
+                    <thead>
+                      <tr>
+                        {preview.columns.map((column) => (
+                          <th key={column.key} style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}>
+                            {column.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row, idx) => (
+                        <tr key={`report-row-${idx}`}>
+                          {preview.columns.map((column) => (
+                            <td key={`${idx}-${column.key}`} style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}>
+                              {formatReportCell(column.kind ?? 'text', (row[column.key] ?? null) as ReportCellValue, column.key)}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
-                  ))}
-                  {preview.rows.length === 0 && (
-                    <tr>
-                      <td colSpan={preview.columns.length}>Нет данных</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {preview.totals && Object.keys(preview.totals).length > 0 ? (
-              <div style={{ fontWeight: 700 }}>
-                Итого по отчету: {formatReportTotals(preview.totals).join(', ')}
-              </div>
-            ) : null}
+                      {preview.rows.length === 0 && (
+                        <tr>
+                          <td colSpan={preview.columns.length}>Нет данных</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {preview.totals && Object.keys(preview.totals).length > 0 ? (
+                  <div style={{ fontWeight: 700 }}>
+                    Итого по отчету: {formatReportTotals(preview.totals).join(', ')}
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
         )}
       </SectionCard>

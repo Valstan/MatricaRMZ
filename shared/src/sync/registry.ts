@@ -28,6 +28,8 @@ import {
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
+  erpEngineAssemblyBomLineRowSchema,
+  erpEngineAssemblyBomRowSchema,
   erpNomenclatureRowSchema,
   erpNomenclatureEngineBrandRowSchema,
   erpRegisterStockBalanceRowSchema,
@@ -208,6 +210,38 @@ const ERP_ENGINE_INSTANCE_FIELDS: readonly FieldMapping[] = [
   { db: 'lastServerSeq', dto: 'last_server_seq' },
 ] as const;
 
+const ERP_ENGINE_ASSEMBLY_BOM_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'name', dto: 'name' },
+  { db: 'engineNomenclatureId', dto: 'engine_nomenclature_id' },
+  { db: 'version', dto: 'version' },
+  { db: 'status', dto: 'status' },
+  { db: 'isDefault', dto: 'is_default' },
+  { db: 'notes', dto: 'notes' },
+  { db: 'createdAt', dto: 'created_at' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'deletedAt', dto: 'deleted_at' },
+  { db: 'syncStatus', dto: 'sync_status' },
+  { db: 'lastServerSeq', dto: 'last_server_seq' },
+] as const;
+
+const ERP_ENGINE_ASSEMBLY_BOM_LINE_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'bomId', dto: 'bom_id' },
+  { db: 'componentNomenclatureId', dto: 'component_nomenclature_id' },
+  { db: 'componentType', dto: 'component_type' },
+  { db: 'qtyPerUnit', dto: 'qty_per_unit' },
+  { db: 'variantGroup', dto: 'variant_group' },
+  { db: 'isRequired', dto: 'is_required' },
+  { db: 'priority', dto: 'priority' },
+  { db: 'notes', dto: 'notes' },
+  { db: 'createdAt', dto: 'created_at' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'deletedAt', dto: 'deleted_at' },
+  { db: 'syncStatus', dto: 'sync_status' },
+  { db: 'lastServerSeq', dto: 'last_server_seq' },
+] as const;
+
 const ERP_STOCK_BALANCE_FIELDS: readonly FieldMapping[] = [
   { db: 'id', dto: 'id' },
   { db: 'nomenclatureId', dto: 'nomenclature_id' },
@@ -341,6 +375,22 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_NOMENCLATURE_ENGINE_BRAND_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.ErpNomenclature, SyncTableName.Entities],
+  },
+  {
+    syncName: SyncTableName.ErpEngineAssemblyBom,
+    ledgerName: SyncTableName.ErpEngineAssemblyBom,
+    schema: erpEngineAssemblyBomRowSchema,
+    fields: ERP_ENGINE_ASSEMBLY_BOM_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpNomenclature],
+  },
+  {
+    syncName: SyncTableName.ErpEngineAssemblyBomLines,
+    ledgerName: SyncTableName.ErpEngineAssemblyBomLines,
+    schema: erpEngineAssemblyBomLineRowSchema,
+    fields: ERP_ENGINE_ASSEMBLY_BOM_LINE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpEngineAssemblyBom, SyncTableName.ErpNomenclature],
   },
   {
     syncName: SyncTableName.ErpEngineInstances,

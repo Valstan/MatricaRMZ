@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { SyncTableName } from './tables.js';
 import {
   erpEngineInstanceRowSchema,
+  erpEngineAssemblyBomLineRowSchema,
+  erpEngineAssemblyBomRowSchema,
   erpNomenclatureRowSchema,
   erpNomenclatureEngineBrandRowSchema,
   erpRegisterStockBalanceRowSchema,
@@ -123,6 +125,8 @@ export const syncRowSchemaByTable = {
   [SyncTableName.NoteShares]: noteShareRowSchema,
   [SyncTableName.ErpNomenclature]: erpNomenclatureRowSchema,
   [SyncTableName.ErpNomenclatureEngineBrand]: erpNomenclatureEngineBrandRowSchema,
+  [SyncTableName.ErpEngineAssemblyBom]: erpEngineAssemblyBomRowSchema,
+  [SyncTableName.ErpEngineAssemblyBomLines]: erpEngineAssemblyBomLineRowSchema,
   [SyncTableName.ErpEngineInstances]: erpEngineInstanceRowSchema,
   [SyncTableName.ErpRegStockBalance]: erpRegisterStockBalanceRowSchema,
   [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,

@@ -548,6 +548,10 @@ import type {
   AiAgentOllamaHealthResponse,
 } from '../domain/aiAgent.js';
 import type {
+  EngineAssemblyBomDetails,
+  EngineAssemblyBomExpandedRow,
+  EngineAssemblyBomListItem,
+  EngineAssemblyBomUpsertInput,
   EngineInstanceListItem,
   EngineInstanceStatus,
   NomenclatureEngineBrandLink,
@@ -1293,6 +1297,22 @@ export type MatricaApi = {
     documentPlan: (id: string) => Promise<{ ok: true; id: string; planned?: boolean } | { ok: false; error: string }>;
     documentPost: (id: string) => Promise<{ ok: true; id: string; posted?: boolean } | { ok: false; error: string }>;
     documentCancel: (id: string) => Promise<{ ok: true; id: string; status: 'cancelled' } | { ok: false; error: string }>;
+    assemblyBomList: (args?: {
+      engineNomenclatureId?: string;
+      status?: string;
+    }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
+    assemblyBomGet: (id: string) => Promise<{ ok: true; bom: EngineAssemblyBomDetails } | { ok: false; error: string }>;
+    assemblyBomUpsert: (args: EngineAssemblyBomUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    assemblyBomActivateDefault: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    assemblyBomArchive: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    assemblyBomHistory: (args: { engineNomenclatureId: string }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
+    assemblyBomPrint: (id: string) => Promise<{ ok: true; payload: EngineAssemblyBomDetails } | { ok: false; error: string }>;
+    forecastBomGet: (args: {
+      engineId: string;
+      targetEnginesPerDay?: number;
+      horizonDays?: number;
+      warehouseIds?: string[];
+    }) => Promise<{ ok: true; rows: EngineAssemblyBomExpandedRow[]; warnings?: string[] } | { ok: false; error: string }>;
     forecastIncomingGet: (args: WarehouseForecastIncomingFilter) => Promise<{ ok: true; rows: WarehouseForecastIncomingRow[] } | { ok: false; error: string }>;
     movementsList: (args?: {
       nomenclatureId?: string;

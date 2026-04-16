@@ -604,6 +604,146 @@ export async function warehouseForecastIncomingGet(
   }
 }
 
+export async function warehouseAssemblyBomList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { engineNomenclatureId?: string; status?: string },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.engineNomenclatureId) qp.set('engineNomenclatureId', args.engineNomenclatureId);
+    if (args?.status) qp.set('status', args.status);
+    const path = `/warehouse/assembly-bom${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; bom: Record<string, unknown> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/assembly-bom';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomActivateDefault(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}/activate-default`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomArchive(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}/archive`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomHistory(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  engineNomenclatureId: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(engineNomenclatureId)}/history`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomPrint(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}/print`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; payload: Record<string, unknown> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseForecastBomGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] },
+) {
+  try {
+    const qp = new URLSearchParams();
+    qp.set('engineId', args.engineId);
+    if (args.targetEnginesPerDay !== undefined) qp.set('targetEnginesPerDay', String(Math.trunc(args.targetEnginesPerDay)));
+    if (args.horizonDays !== undefined) qp.set('horizonDays', String(Math.trunc(args.horizonDays)));
+    if (args.warehouseIds && args.warehouseIds.length > 0) qp.set('warehouseIds', args.warehouseIds.join(','));
+    const path = `/warehouse/forecast/bom?${qp.toString()}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; warnings?: string[] };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseMovementsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

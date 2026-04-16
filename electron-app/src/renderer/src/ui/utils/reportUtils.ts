@@ -1,7 +1,9 @@
 import type { ReportCellValue, ReportFilterSpec, ReportPresetDefinition, ReportPresetFilters, ReportPresetPreviewResult } from '@matricarmz/shared';
 
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from './dateUtils.js';
+import type { PrintSection } from './printPreview.js';
 import { escapeHtml } from './printPreview.js';
+import { renderWorkOrderPayrollFormInnerHtml } from './workOrderPayrollReportLayoutHtml.js';
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
 
@@ -255,4 +257,44 @@ export function renderReportTableHtml(report: PreviewOk) {
           .join('')
       : `<tr><td colspan="${report.columns.length}">Нет данных</td></tr>`;
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+/** Секции окна предпросмотра печати: для `work_order_payroll` — только печатная форма без сводных блоков. */
+export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection[] {
+  if (report.presetId === 'work_order_payroll') {
+    return [{ id: 'payroll-form', title: 'Печатная форма', html: renderWorkOrderPayrollFormInnerHtml(report) }];
+  }
+  return [
+    { id: 'table', title: 'Данные отчета', html: renderReportTableHtml(report) },
+    {
+      id: 'totals',
+      title: 'Итого по отчету',
+      html:
+        report.totals && Object.keys(report.totals).length > 0
+          ? `<ul>${formatReportTotals(report.totals)
+              .map((line) => `<li>${escapeHtml(line)}</li>`)
+              .join('')}</ul>`
+          : '<div class="muted">Нет итогов</div>',
+    },
+    {
+      id: 'groups',
+      title: 'Итоги по группам (ключевые метрики)',
+      html:
+        report.totalsByGroup && report.totalsByGroup.length > 0
+          ? `<ul>${report.totalsByGroup
+              .map((row) => `<li>${escapeHtml(row.group)}: ${escapeHtml(formatReportTotals(row.totals).join(', '))}</li>`)
+              .join('')}</ul>`
+          : '<div class="muted">Нет группировок</div>',
+    },
+    {
+      id: 'metric-notes',
+      title: 'Пояснение метрик',
+      html:
+        report.totals && Object.keys(report.totals).length > 0
+          ? buildReportMetricNotesHtml(report.totals).length > 0
+            ? `<ul>${buildReportMetricNotesHtml(report.totals).join('')}</ul>`
+            : '<div class="muted">Нет пояснений</div>'
+          : '<div class="muted">Нет данных</div>',
+    },
+  ];
 }

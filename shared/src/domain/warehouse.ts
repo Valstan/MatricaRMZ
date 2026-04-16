@@ -341,6 +341,10 @@ export type WarehouseDocumentListItem = {
   warehouseId: string | null;
   warehouseName: string | null;
   reason: string | null;
+  expectedDate?: number | null;
+  sourceType?: WarehouseIncomingSourceType | null;
+  sourceRef?: string | null;
+  contractId?: string | null;
   reasonLabel?: string | null;
   counterpartyId: string | null;
   counterpartyName: string | null;
@@ -463,5 +467,100 @@ export type NomenclatureEngineBrandLink = {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+};
+
+export const EngineAssemblyBomStatus = {
+  Draft: 'draft',
+  Active: 'active',
+  Archived: 'archived',
+} as const;
+
+export type EngineAssemblyBomStatus = (typeof EngineAssemblyBomStatus)[keyof typeof EngineAssemblyBomStatus];
+
+export const EngineAssemblyBomComponentType = {
+  Sleeve: 'sleeve',
+  Piston: 'piston',
+  Ring: 'ring',
+  Jacket: 'jacket',
+  Head: 'head',
+  Other: 'other',
+} as const;
+
+export type EngineAssemblyBomComponentType = (typeof EngineAssemblyBomComponentType)[keyof typeof EngineAssemblyBomComponentType];
+
+export type EngineAssemblyBomLine = {
+  id: string;
+  bomId: string;
+  componentNomenclatureId: string;
+  componentType: EngineAssemblyBomComponentType | string;
+  qtyPerUnit: number;
+  variantGroup: string | null;
+  isRequired: boolean;
+  priority: number;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+export type EngineAssemblyBom = {
+  id: string;
+  name: string;
+  engineNomenclatureId: string;
+  version: number;
+  status: EngineAssemblyBomStatus | string;
+  isDefault: boolean;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+export type EngineAssemblyBomListItem = EngineAssemblyBom & {
+  engineNomenclatureCode: string | null;
+  engineNomenclatureName: string | null;
+  linesCount: number;
+};
+
+export type EngineAssemblyBomDetails = {
+  header: EngineAssemblyBomListItem;
+  lines: EngineAssemblyBomLine[];
+};
+
+export type EngineAssemblyBomLineInput = {
+  id?: string;
+  componentNomenclatureId: string;
+  componentType?: EngineAssemblyBomComponentType | string;
+  qtyPerUnit: number;
+  variantGroup?: string | null;
+  isRequired?: boolean;
+  priority?: number;
+  notes?: string | null;
+};
+
+export type EngineAssemblyBomUpsertInput = {
+  id?: string;
+  name: string;
+  engineNomenclatureId: string;
+  version?: number;
+  status?: EngineAssemblyBomStatus | string;
+  isDefault?: boolean;
+  notes?: string | null;
+  lines: EngineAssemblyBomLineInput[];
+};
+
+export type EngineAssemblyBomExpandedRow = {
+  componentNomenclatureId: string;
+  componentNomenclatureCode: string | null;
+  componentNomenclatureName: string | null;
+  componentType: EngineAssemblyBomComponentType | string;
+  qtyPerUnit: number;
+  requiredQty: number;
+  stockQty: number;
+  plannedIncomingQty: number;
+  deficitQty: number;
+  variantGroup: string | null;
+  isRequired: boolean;
+  priority: number;
 };
 

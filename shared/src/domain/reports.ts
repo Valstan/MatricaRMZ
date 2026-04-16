@@ -116,6 +116,17 @@ export type ReportPresetPreviewRequest = {
   filters?: ReportPresetFilters;
 };
 
+/** Строка «видов работ» для печатной формы `work_order_payroll` (не колонки CSV/XML). */
+export type WorkOrderPayrollWorkLine = {
+  /** Дата строки наряда (дата наряда). */
+  orderDateMs: number;
+  workOrderNumber: number | null;
+  workLabel: string;
+  qty: number;
+  priceRub: number;
+  amountRub: number;
+};
+
 export type ReportPresetPreviewResult =
   | {
       ok: true;
@@ -126,6 +137,10 @@ export type ReportPresetPreviewResult =
       rows: ReportRow[];
       totals?: ReportTotals;
       totalsByGroup?: Array<{ group: string; totals: ReportTotals }>;
+      /** Детализация работ по нарядам для печати `work_order_payroll`. */
+      payrollWorkLines?: WorkOrderPayrollWorkLine[];
+      /** Сумма «Начислено»: Σ amountRub по строкам отчёта (та же база, что итог по начислениям). */
+      payrollAccrualTotalRub?: number;
       generatedAt: number;
     }
   | { ok: false; error: string };
@@ -403,7 +418,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {
     id: 'work_order_payroll',
     title: 'Наряды: зарплата сотрудников',
-    description: 'Одна строка на сотрудника и конкретный наряд за выбранный период.',
+    description:
+      'Одна строка на сотрудника и конкретный наряд за выбранный период; печатная форма включает таблицу начислений и перечень видов работ по нарядам.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
       { type: 'multi_select', key: 'employeeIds', label: 'Сотрудники', optionsSource: 'employees' },
@@ -643,7 +659,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'assembly_forecast_7d',
     title: 'Склад: прогноз сборки двигателей (7 дней)',
     description:
-      'Прогнозирует сборку по текущим остаткам номенклатуры (зеркало детали = id номенклатуры), связям деталь↔марка и плановым приходам из складских документов в статусе planned.',
+      'Прогнозирует сборку по активным default BOM-матрицам (двигатель -> компоненты), с учетом остатков и плановых приходов из складских документов в статусе planned.',
     filters: [
       {
         type: 'multi_select',
@@ -654,8 +670,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
       {
         type: 'multi_select',
-        key: 'brandIds',
-        label: 'Марки (из связей деталь↔марка)',
+        key: 'engineNomenclatureIds',
+        label: 'Двигатели (из активных BOM)',
         optionsSource: 'assemblyBrands',
         selectAllByDefault: true,
       },
@@ -667,12 +683,6 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         max: 500,
         step: 1,
         defaultValue: 4,
-      },
-      {
-        type: 'select',
-        key: 'sleeveNomenclatureId',
-        label: 'Fallback: гильза (опционально)',
-        optionsSource: 'assemblySleeves',
       },
     ],
     columns: [
