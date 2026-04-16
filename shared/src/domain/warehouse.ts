@@ -47,6 +47,8 @@ export type NomenclatureItem = {
   name: string;
   itemType: NomenclatureItemType;
   category?: WarehouseNomenclatureType | string;
+  directoryKind?: WarehouseDirectoryKind | null;
+  directoryRefId?: string | null;
   groupId: string | null;
   unitId: string | null;
   barcode: string | null;
@@ -61,6 +63,16 @@ export type NomenclatureItem = {
   updatedAt: number;
   deletedAt: number | null;
 };
+
+export const WarehouseDirectoryKind = {
+  EngineBrand: 'engine_brand',
+  Part: 'part',
+  Tool: 'tool',
+  Good: 'good',
+  Service: 'service',
+} as const;
+
+export type WarehouseDirectoryKind = (typeof WarehouseDirectoryKind)[keyof typeof WarehouseDirectoryKind];
 
 /** Значение `source` в `spec_json` номенклатуры для зеркала карточки детали (см. backend warehouseService). */
 export const WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART = 'part' as const;
@@ -144,6 +156,7 @@ export type WarehouseNomenclatureFilter = {
   id?: string;
   search?: string;
   itemType?: NomenclatureItemType;
+  directoryKind?: WarehouseDirectoryKind | string;
   groupId?: string;
   isActive?: boolean;
   /** Пагинация на сервере (по умолчанию backend подставляет безопасный лимит). */

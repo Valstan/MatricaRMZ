@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EngineInstanceListItem, NomenclatureItemType, WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
-import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -12,8 +11,6 @@ export function NomenclatureDetailsPage(props: {
   id: string;
   canEdit: boolean;
   onClose: () => void;
-  /** Зеркальная позиция детали в номенклатуре — открыть карточку детали (Производство) */
-  onOpenLinkedPart?: (partId: string) => void | Promise<void>;
 }) {
   const { lookups, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
@@ -93,35 +90,10 @@ export function NomenclatureDetailsPage(props: {
 
   const totalQty = useMemo(() => balances.reduce((sum, row) => sum + Number(row.qty ?? 0), 0), [balances]);
 
-  const partMirror = useMemo(() => tryParseWarehousePartNomenclatureMirror(row?.specJson ?? null), [row?.specJson]);
-  const canEditNomenclatureFields = props.canEdit && !partMirror;
+  const canEditNomenclatureFields = props.canEdit;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {partMirror ? (
-        <div
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: 12,
-            background: 'var(--panel-bg, #f9fafb)',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 10,
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ flex: '1 1 240px', fontSize: 14, color: 'var(--text)' }}>
-            Эта строка номенклатуры — зеркало карточки детали из раздела «Производство». Код и наименование подтягиваются из детали; шаблон детали задаётся в карточке детали.
-          </div>
-          {props.onOpenLinkedPart ? (
-            <Button type="button" onClick={() => void props.onOpenLinkedPart?.(partMirror.partId)}>
-              Открыть деталь
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
       <div style={{ display: 'flex', gap: 8 }}>
         {canEditNomenclatureFields ? (
           <Button

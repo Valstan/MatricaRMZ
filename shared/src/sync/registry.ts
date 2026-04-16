@@ -163,6 +163,8 @@ const ERP_NOMENCLATURE_FIELDS: readonly FieldMapping[] = [
   { db: 'name', dto: 'name' },
   { db: 'itemType', dto: 'item_type' },
   { db: 'category', dto: 'category' },
+  { db: 'directoryKind', dto: 'directory_kind' },
+  { db: 'directoryRefId', dto: 'directory_ref_id' },
   { db: 'groupId', dto: 'group_id' },
   { db: 'unitId', dto: 'unit_id' },
   { db: 'barcode', dto: 'barcode' },

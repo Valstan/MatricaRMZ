@@ -42,6 +42,7 @@
 - Клиентский release для автообновлений становится видимым клиенту только после публикации installer-метаданных в ledger с корректными `version`, `fileName`, `size`, `sha256`.
 
 ## Последние важные изменения
+- Запущена phase-1 подготовка рефакторинга `Directories -> Nomenclature`: в `erp_nomenclature` добавлены поля происхождения (`directory_kind`, `directory_ref_id`), добавлены таблицы `directory_engine_brands` / `directory_parts` / `directory_tools` / `directory_goods` / `directory_services`, добавлен dry-run `backend-api/src/scripts/dryRunDirectoriesToNomenclature.ts`, а зеркальный режим `part -> nomenclature` переведен под feature-flag `MATRICA_WAREHOUSE_PART_MIRROR_MODE` (`directory` по умолчанию, `legacy` для старого поведения).
 - Склад и отчёты: пресеты `warehouse_stock_path_audit` и `assembly_forecast_7d`, доменная логика прогноза в `shared/src/domain/assemblyForecast.ts`, stateless API `POST /warehouse/forecast/assembly-7d` (без записи в ledger).
 - Детали (карточки `part`) отображаются в складской номенклатуре как зеркальные строки `erp_nomenclature`: тот же UUID, тип **Изделие**, группа **Детали** (`spec_json.source === "part"`). Синхронизация на сервере при загрузке списка номенклатуры и после create/update/delete детали; правка только из карточки детали.
 - Для ИИ-сессий зафиксирован приоритет **OpenSSH (`ssh matricarmz`, конфиг в `~/.ssh`)** над MCP для гибкости прод-операций; MCP оставлен как запасной канал, детали в `docs/MCP_SETUP_WINDOWS.md` §8.

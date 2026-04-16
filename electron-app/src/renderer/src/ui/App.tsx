@@ -3148,7 +3148,7 @@ export function App() {
 
         {tab === 'engine_brands' && (
           <EngineBrandsPage
-            onOpen={openEngineBrand}
+            onOpen={openNomenclature}
             canCreate={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
@@ -3300,10 +3300,7 @@ export function App() {
 
         {tab === 'parts' && (
           <PartsPage
-            onOpen={async (id: string) => {
-              setSelectedPartId(id);
-              setTab('part');
-            }}
+            onOpen={openNomenclature}
             canCreate={caps.canCreateParts}
             canDelete={caps.canDeleteParts}
           />
@@ -3318,7 +3315,7 @@ export function App() {
 
         {tab === 'tools' && (
           <ToolsPage
-            onOpen={openTool}
+            onOpen={openNomenclature}
             onOpenProperties={() => setTab('tool_properties')}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
@@ -3347,7 +3344,7 @@ export function App() {
 
         {tab === 'products' && (
           <ProductsPage
-            onOpen={openProduct}
+            onOpen={openNomenclature}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -3356,7 +3353,7 @@ export function App() {
 
         {tab === 'services' && (
           <ServicesPage
-            onOpen={openService}
+            onOpen={openNomenclature}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -3580,7 +3577,6 @@ export function App() {
             key={selectedNomenclatureId}
             id={selectedNomenclatureId}
             canEdit={caps.canEditMasterData}
-            onOpenLinkedPart={openPart}
             onClose={() => {
               setSelectedNomenclatureId(null);
               setTabState('nomenclature');

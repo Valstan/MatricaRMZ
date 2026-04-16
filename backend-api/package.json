@@ -28,7 +28,8 @@
     "masterdata:import-engine-brand-part-matrix": "tsx src/scripts/importEngineBrandPartMatrix.ts",
     "masterdata:import-contracts-goz": "tsx src/scripts/importContractsGoz.ts",
     "parts:migrate-brand-junction": "tsx src/scripts/migratePartBrandJunction.ts",
-    "masterdata:sync-engines-completeness-csv": "tsx src/scripts/importEnginesFromCompletenessCsv.ts"
+    "masterdata:sync-engines-completeness-csv": "tsx src/scripts/importEnginesFromCompletenessCsv.ts",
+    "warehouse:directories-dry-run": "tsx src/scripts/dryRunDirectoriesToNomenclature.ts"
   },
   "dependencies": {
     "@matricarmz/ledger": "workspace:*",

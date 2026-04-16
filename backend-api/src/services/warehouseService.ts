@@ -72,6 +72,11 @@ type PlannedMovement = {
 };
 
 const PART_DETAILS_GROUP_NAME = 'Детали';
+const WAREHOUSE_PART_MIRROR_MODE = String(process.env.MATRICA_WAREHOUSE_PART_MIRROR_MODE ?? 'directory').trim().toLowerCase();
+
+function isLegacyPartMirrorMode() {
+  return WAREHOUSE_PART_MIRROR_MODE === 'legacy';
+}
 
 function nomenclatureRowIsLinkedPart(specJson: string | null | undefined): boolean {
   const spec = parseJsonObject(specJson ?? null);
@@ -357,6 +362,8 @@ async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string |
       code,
       name,
       itemType: 'product',
+      directoryKind: 'part',
+      directoryRefId: partId,
       groupId: args.detailsGroupId ?? null,
       unitId: existing?.unitId ?? null,
       barcode: existing?.barcode ?? null,
@@ -390,7 +397,9 @@ async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string |
 }
 
 async function listWarehouseReferenceData() {
-  await ensurePartNomenclatureGroup();
+  if (isLegacyPartMirrorMode()) {
+    await ensurePartNomenclatureGroup();
+  }
   const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows, engineBrands] = await Promise.all([
     listMasterdataLookup('warehouse_ref'),
     listMasterdataLookup('nomenclature_group'),
@@ -513,6 +522,7 @@ export async function listWarehouseNomenclature(args?: {
   id?: string;
   search?: string;
   itemType?: string;
+  directoryKind?: string;
   groupId?: string;
   isActive?: boolean;
   limit?: number;
@@ -552,6 +562,7 @@ export async function listWarehouseNomenclature(args?: {
     const parts = [isNull(erpNomenclature.deletedAt)];
     if (args?.itemType) parts.push(eq(erpNomenclature.itemType, String(args.itemType)));
     if (args?.groupId) parts.push(eq(erpNomenclature.groupId, String(args.groupId)));
+    if (args?.directoryKind) parts.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
     if (args?.isActive !== undefined) parts.push(eq(erpNomenclature.isActive, Boolean(args.isActive)));
 
     if (searchRaw) {
@@ -604,6 +615,8 @@ export async function upsertWarehouseNomenclature(args: {
   name: string;
   itemType?: string;
   category?: string | null;
+  directoryKind?: string | null;
+  directoryRefId?: string | null;
   groupId?: string | null;
   unitId?: string | null;
   barcode?: string | null;
@@ -619,7 +632,7 @@ export async function upsertWarehouseNomenclature(args: {
 }): Promise<Result<{ id: string }>> {
   try {
     const id = String(args.id || randomUUID());
-    if (!args._syncFromPart) {
+    if (!args._syncFromPart && isLegacyPartMirrorMode()) {
       const prevRows = await db
         .select({ specJson: erpNomenclature.specJson })
         .from(erpNomenclature)
@@ -640,6 +653,8 @@ export async function upsertWarehouseNomenclature(args: {
       name: String(args.name).trim(),
       itemType: String(args.itemType || 'material'),
       category: args.category == null ? normalizeItemTypeToCategory(String(args.itemType || 'material')) : String(args.category),
+      directoryKind: args.directoryKind == null ? null : String(args.directoryKind).trim() || null,
+      directoryRefId: args.directoryRefId == null ? null : String(args.directoryRefId).trim() || null,
       groupId: args.groupId ?? null,
       unitId: args.unitId ?? null,
       barcode: args.barcode ?? null,
@@ -670,6 +685,8 @@ export async function upsertWarehouseNomenclature(args: {
             name: String(row.name),
             item_type: String(row.itemType),
             category: row.category ?? null,
+            directory_kind: row.directoryKind ?? null,
+            directory_ref_id: row.directoryRefId ?? null,
             group_id: row.groupId,
             unit_id: row.unitId,
             barcode: row.barcode,
@@ -701,7 +718,7 @@ export async function deleteWarehouseNomenclature(args: {
   allowLinkedPartMirror?: boolean;
 }): Promise<Result<{ id: string }>> {
   try {
-    if (!args.allowLinkedPartMirror) {
+    if (!args.allowLinkedPartMirror && isLegacyPartMirrorMode()) {
       const prevRows = await db.select({ specJson: erpNomenclature.specJson }).from(erpNomenclature).where(eq(erpNomenclature.id, args.id)).limit(1);
       if (prevRows[0] && nomenclatureRowIsLinkedPart(prevRows[0].specJson)) {
         return {
@@ -727,6 +744,8 @@ export async function deleteWarehouseNomenclature(args: {
             name: String(row.name),
             item_type: String(row.itemType),
             category: row.category ?? null,
+            directory_kind: row.directoryKind ?? null,
+            directory_ref_id: row.directoryRefId ?? null,
             group_id: row.groupId,
             unit_id: row.unitId,
             barcode: row.barcode,
@@ -1692,6 +1711,7 @@ export async function listWarehouseMovements(args?: {
 
 /** Полная пересборка зеркал деталей в `erp_nomenclature` (группа «Детали», тип изделие). */
 export async function refreshPartWarehouseNomenclatureLinks(): Promise<void> {
+  if (!isLegacyPartMirrorMode()) return;
   const gid = await ensurePartNomenclatureGroup();
   await syncPartsToWarehouseNomenclature({ detailsGroupId: gid });
 }

@@ -69,3 +69,24 @@
 pnpm build
 pnpm lint
 ```
+
+## Directories -> Nomenclature (phase-1)
+- В `erp_nomenclature` добавлены поля происхождения: `directory_kind`, `directory_ref_id`.
+- Добавлены таблицы справочников-шаблонов: `directory_engine_brands`, `directory_parts`, `directory_tools`, `directory_goods`, `directory_services`.
+- Legacy-таблицы и зеркальный контур не удаляются на этой фазе; миграция только расширяет модель и помечает новый вектор развития.
+- Режим зеркала детали в номенклатуру теперь управляется `MATRICA_WAREHOUSE_PART_MIRROR_MODE`:
+  - `legacy` — старое поведение (зеркала + запрет редактирования linked строк),
+  - `directory` (по умолчанию) — подготовка к модели directory-first без жесткой блокировки карточки.
+
+### Dry-run перед APPLY MIGRATION
+```bash
+pnpm -C backend-api warehouse:directories-dry-run
+pnpm -C backend-api warehouse:directories-dry-run -- --json
+```
+
+Dry-run проверяет:
+- счетчики источников (`entities` по типам) vs целевые `directory_*`/`erp_nomenclature`,
+- сироты FK для `erp_reg_*`, `erp_engine_instances`, `erp_document_lines.part_card_id`,
+- неконсистентные ссылки `erp_nomenclature.directory_ref_id`,
+- коллизии `sku`/`code`,
+- текущий объем legacy-зеркал `spec_json.source = part`.

@@ -1238,6 +1238,7 @@ export type MatricaApi = {
       id?: string;
       search?: string;
       itemType?: NomenclatureItemType;
+      directoryKind?: string;
       groupId?: string;
       isActive?: boolean;
       limit?: number;
@@ -1258,6 +1259,8 @@ export type MatricaApi = {
       maxStock?: number | null;
       sku?: string | null;
       category?: string | null;
+      directoryKind?: string | null;
+      directoryRefId?: string | null;
       defaultBrandId?: string | null;
       isSerialTracked?: boolean;
       defaultWarehouseId?: string | null;

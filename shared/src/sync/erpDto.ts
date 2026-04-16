@@ -56,6 +56,8 @@ export const erpNomenclatureRowSchema = z.object({
   name: z.string().min(1),
   item_type: z.string().min(1),
   category: z.string().nullable().optional(),
+  directory_kind: z.string().nullable().optional(),
+  directory_ref_id: z.string().uuid().nullable().optional(),
   group_id: z.string().uuid().nullable().optional(),
   unit_id: z.string().uuid().nullable().optional(),
   barcode: z.string().nullable().optional(),

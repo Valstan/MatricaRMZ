@@ -122,12 +122,15 @@ export function registerErpIpc(ctx: IpcContext) {
     return erpDocumentsPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(documentId || ''));
   });
 
-  ipcMain.handle('warehouse:nomenclature:list', async (_e, args?: { search?: string; itemType?: string; groupId?: string; isActive?: boolean }) => {
+  ipcMain.handle(
+    'warehouse:nomenclature:list',
+    async (_e, args?: { search?: string; itemType?: string; directoryKind?: string; groupId?: string; isActive?: boolean }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
     return warehouseNomenclatureList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
-  });
+    },
+  );
 
   ipcMain.handle('warehouse:lookups:get', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse lookups are not available' };

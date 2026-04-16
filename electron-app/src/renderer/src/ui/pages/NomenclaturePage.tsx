@@ -17,6 +17,7 @@ export function NomenclaturePage(props: {
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
   const [itemType, setItemType] = useState<NomenclatureItemType | ''>('');
+  const [directoryKind, setDirectoryKind] = useState<string>('');
   const [groupId, setGroupId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
@@ -25,7 +26,7 @@ export function NomenclaturePage(props: {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [activeFilter, groupId, itemType, query]);
+  }, [activeFilter, directoryKind, groupId, itemType, query]);
 
   const refresh = useCallback(async () => {
     try {
@@ -35,6 +36,7 @@ export function NomenclaturePage(props: {
         offset: pageIndex * pageSize,
         ...(query.trim() ? { search: query.trim() } : {}),
         ...(itemType ? { itemType } : {}),
+        ...(directoryKind ? { directoryKind } : {}),
         ...(groupId ? { groupId } : {}),
         ...(activeFilter === 'active' ? { isActive: true } : {}),
         ...(activeFilter === 'inactive' ? { isActive: false } : {}),
@@ -49,7 +51,7 @@ export function NomenclaturePage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [activeFilter, groupId, itemType, pageIndex, pageSize, query]);
+  }, [activeFilter, directoryKind, groupId, itemType, pageIndex, pageSize, query]);
 
   useEffect(() => {
     void refresh();
@@ -70,7 +72,7 @@ export function NomenclaturePage(props: {
           display: 'grid',
           gap: 8,
           alignItems: 'center',
-          gridTemplateColumns: 'auto minmax(260px, 1.2fr) minmax(220px, 0.8fr) minmax(220px, 0.9fr) auto auto auto',
+          gridTemplateColumns: 'auto minmax(240px, 1fr) minmax(190px, 0.7fr) minmax(190px, 0.8fr) minmax(200px, 0.8fr) auto auto auto',
         }}
       >
         {props.canEdit ? (
@@ -102,6 +104,14 @@ export function NomenclaturePage(props: {
               {item.label}
             </option>
           ))}
+        </select>
+        <select value={directoryKind} onChange={(e) => setDirectoryKind(e.target.value)} style={{ minWidth: 180, padding: '8px 10px' }}>
+          <option value="">Все источники</option>
+          <option value="engine_brand">Марки двигателя</option>
+          <option value="part">Детали</option>
+          <option value="tool">Инструменты</option>
+          <option value="good">Товары</option>
+          <option value="service">Услуги</option>
         </select>
         <SearchSelect
           value={groupId}

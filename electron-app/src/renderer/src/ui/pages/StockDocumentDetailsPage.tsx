@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocumentType } from '@matricarmz/shared';
+import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -396,7 +397,16 @@ export function StockDocumentDetailsPage(props: {
                                   throw new Error(String((r as { error?: string })?.error ?? 'Не удалось создать деталь'));
                                 }
                                 await refreshRefs();
-                                return String(r.part.id);
+                                const partId = String(r.part.id);
+                                const rowById = (nomenclature ?? []).find((row) => String(row.id) === partId);
+                                if (rowById?.id) {
+                                  return String(rowById.id);
+                                }
+                                const rowByMirror = (nomenclature ?? []).find((row) => {
+                                  const parsed = tryParseWarehousePartNomenclatureMirror(row.specJson ?? null);
+                                  return parsed?.partId === partId;
+                                });
+                                return rowByMirror?.id ? String(rowByMirror.id) : partId;
                               },
                             }
                           : {})}

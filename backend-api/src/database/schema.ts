@@ -736,6 +736,95 @@ export const erpEmployeeCards = pgTable(
   }),
 );
 
+export const directoryEngineBrands = pgTable(
+  'directory_engine_brands',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    metadataJson: text('metadata_json'),
+    deprecatedAt: bigint('deprecated_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    nameIdx: index('directory_engine_brands_name_idx').on(t.name),
+  }),
+);
+
+export const directoryParts = pgTable(
+  'directory_parts',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    metadataJson: text('metadata_json'),
+    deprecatedAt: bigint('deprecated_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    nameIdx: index('directory_parts_name_idx').on(t.name),
+  }),
+);
+
+export const directoryTools = pgTable(
+  'directory_tools',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    metadataJson: text('metadata_json'),
+    deprecatedAt: bigint('deprecated_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    nameIdx: index('directory_tools_name_idx').on(t.name),
+  }),
+);
+
+export const directoryGoods = pgTable(
+  'directory_goods',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    metadataJson: text('metadata_json'),
+    deprecatedAt: bigint('deprecated_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    nameIdx: index('directory_goods_name_idx').on(t.name),
+  }),
+);
+
+export const directoryServices = pgTable(
+  'directory_services',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    metadataJson: text('metadata_json'),
+    legacyServiceEntityId: uuid('legacy_service_entity_id').references(() => entities.id),
+    deprecatedAt: bigint('deprecated_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    nameIdx: index('directory_services_name_idx').on(t.name),
+    legacyServiceEntityUq: uniqueIndex('directory_services_legacy_service_entity_uq')
+      .on(t.legacyServiceEntityId)
+      .where(sql`${t.legacyServiceEntityId} is not null`),
+  }),
+);
+
 export const erpDocumentHeaders = pgTable(
   'erp_document_headers',
   {
@@ -790,6 +879,8 @@ export const erpNomenclature = pgTable(
     name: text('name').notNull(),
     itemType: text('item_type').notNull().default('material'),
     category: text('category'),
+    directoryKind: text('directory_kind'),
+    directoryRefId: uuid('directory_ref_id'),
     groupId: uuid('group_id').references(() => entities.id),
     unitId: uuid('unit_id').references(() => entities.id),
     barcode: text('barcode'),
@@ -811,6 +902,8 @@ export const erpNomenclature = pgTable(
     skuUq: uniqueIndex('erp_nomenclature_sku_uq').on(t.sku).where(sql`${t.sku} is not null`),
     itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
     categoryIdx: index('erp_nomenclature_category_idx').on(t.category),
+    directoryKindIdx: index('erp_nomenclature_directory_kind_idx').on(t.directoryKind),
+    directoryRefIdx: index('erp_nomenclature_directory_ref_idx').on(t.directoryRefId),
     groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
     defaultBrandIdx: index('erp_nomenclature_default_brand_idx').on(t.defaultBrandId),
     nameIdx: index('erp_nomenclature_name_idx').on(t.name),

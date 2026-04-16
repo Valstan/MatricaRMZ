@@ -262,6 +262,7 @@ export async function warehouseNomenclatureList(
     id?: string;
     search?: string;
     itemType?: string;
+    directoryKind?: string;
     groupId?: string;
     isActive?: boolean;
     limit?: number;
@@ -273,6 +274,7 @@ export async function warehouseNomenclatureList(
     if (args?.id) qp.set('id', args.id);
     if (args?.search) qp.set('search', args.search);
     if (args?.itemType) qp.set('itemType', args.itemType);
+    if (args?.directoryKind) qp.set('directoryKind', args.directoryKind);
     if (args?.groupId) qp.set('groupId', args.groupId);
     if (args?.isActive !== undefined) qp.set('isActive', args.isActive ? 'true' : 'false');
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
