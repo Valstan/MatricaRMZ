@@ -1,8 +1,10 @@
 import type { ErpDocumentStatus, ErpDocumentType } from './erp.js';
 
 export const NomenclatureItemType = {
+  Engine: 'engine',
   Material: 'material',
   Component: 'component',
+  Assembly: 'assembly',
   Product: 'product',
   SemiProduct: 'semi_product',
   Waste: 'waste',
@@ -10,6 +12,14 @@ export const NomenclatureItemType = {
 } as const;
 
 export type NomenclatureItemType = (typeof NomenclatureItemType)[keyof typeof NomenclatureItemType];
+
+export const WarehouseNomenclatureType = {
+  Engine: 'engine',
+  Component: 'component',
+  Assembly: 'assembly',
+} as const;
+
+export type WarehouseNomenclatureType = (typeof WarehouseNomenclatureType)[keyof typeof WarehouseNomenclatureType];
 
 export const StockMovementType = {
   Receipt: 'receipt',
@@ -33,13 +43,17 @@ export type StockDirection = (typeof StockDirection)[keyof typeof StockDirection
 export type NomenclatureItem = {
   id: string;
   code: string;
+  sku?: string | null;
   name: string;
   itemType: NomenclatureItemType;
+  category?: WarehouseNomenclatureType | string;
   groupId: string | null;
   unitId: string | null;
   barcode: string | null;
   minStock: number | null;
   maxStock: number | null;
+  defaultBrandId?: string | null;
+  isSerialTracked?: boolean;
   defaultWarehouseId: string | null;
   specJson: string | null;
   isActive: boolean;
@@ -126,10 +140,15 @@ export type WarehouseDocument = {
 };
 
 export type WarehouseNomenclatureFilter = {
+  /** Одна позиция по id (для карточки без полного списка). */
+  id?: string;
   search?: string;
   itemType?: NomenclatureItemType;
   groupId?: string;
   isActive?: boolean;
+  /** Пагинация на сервере (по умолчанию backend подставляет безопасный лимит). */
+  limit?: number;
+  offset?: number;
 };
 
 export type WarehouseStockFilter = {
@@ -171,6 +190,7 @@ export const WarehouseLookupKind = {
   WriteoffReasons: 'writeoff_reasons',
   Counterparties: 'counterparties',
   Employees: 'employees',
+  EngineBrands: 'engine_brands',
 } as const;
 
 export type WarehouseLookupKind = (typeof WarehouseLookupKind)[keyof typeof WarehouseLookupKind];
@@ -190,6 +210,7 @@ export type WarehouseLookups = {
   writeoffReasons: WarehouseLookupOption[];
   counterparties: WarehouseLookupOption[];
   employees: WarehouseLookupOption[];
+  engineBrands: WarehouseLookupOption[];
 };
 
 export type WarehouseDocumentHeaderPayload = {
@@ -212,14 +233,18 @@ export type WarehouseDocumentLinePayload = {
 export type WarehouseNomenclatureListItem = NomenclatureItem & {
   groupName: string | null;
   unitName: string | null;
+  defaultBrandName?: string | null;
   defaultWarehouseName: string | null;
 };
 
 export type WarehouseStockListItem = StockBalance & {
   warehouseName: string | null;
   nomenclatureCode: string | null;
+  sku?: string | null;
   nomenclatureName: string | null;
   itemType: NomenclatureItemType | null;
+  category?: WarehouseNomenclatureType | string | null;
+  isSerialTracked?: boolean;
   minStock: number | null;
   maxStock: number | null;
   groupId: string | null;
@@ -322,5 +347,46 @@ export type WarehouseDocumentUpsertInput = {
     counterpartyId?: string | null;
   };
   lines: WarehouseDocumentLineInput[];
+};
+
+export const EngineInstanceStatus = {
+  InStock: 'in_stock',
+  InRepair: 'in_repair',
+  InAssembly: 'in_assembly',
+  Reserved: 'reserved',
+  Issued: 'issued',
+  Archived: 'archived',
+} as const;
+
+export type EngineInstanceStatus = (typeof EngineInstanceStatus)[keyof typeof EngineInstanceStatus];
+
+export type EngineInstance = {
+  id: string;
+  nomenclatureId: string;
+  serialNumber: string;
+  contractId: string | null;
+  currentStatus: EngineInstanceStatus | string;
+  warehouseId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+export type EngineInstanceListItem = EngineInstance & {
+  nomenclatureCode: string | null;
+  nomenclatureName: string | null;
+  warehouseName: string | null;
+  contractCode?: string | null;
+  contractName?: string | null;
+};
+
+export type NomenclatureEngineBrandLink = {
+  id: string;
+  nomenclatureId: string;
+  engineBrandId: string;
+  isDefault: boolean;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
 };
 

@@ -41,13 +41,23 @@ function loadBackendEnv(repoRoot) {
   }
 }
 
+function stripLeadingArgDelimiters(args) {
+  let out = args;
+  while (out[0] === '--') {
+    out = out.slice(1);
+  }
+  return out;
+}
+
 async function main() {
-  const [scriptPath, ...scriptArgs] = process.argv.slice(2);
+  const [scriptPath, ...rawArgs] = process.argv.slice(2);
 
   if (!scriptPath) {
     console.error('Usage: node scripts/run-with-backend-env.mjs <script> [...args]');
     process.exit(1);
   }
+
+  const scriptArgs = stripLeadingArgDelimiters(rawArgs);
 
   const repoRoot = process.cwd();
   loadBackendEnv(repoRoot);

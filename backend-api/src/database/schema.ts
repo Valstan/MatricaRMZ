@@ -786,25 +786,88 @@ export const erpNomenclature = pgTable(
   {
     id: uuid('id').primaryKey(),
     code: text('code').notNull(),
+    sku: text('sku'),
     name: text('name').notNull(),
     itemType: text('item_type').notNull().default('material'),
+    category: text('category'),
     groupId: uuid('group_id').references(() => entities.id),
     unitId: uuid('unit_id').references(() => entities.id),
     barcode: text('barcode'),
     minStock: integer('min_stock'),
     maxStock: integer('max_stock'),
+    defaultBrandId: uuid('default_brand_id').references(() => entities.id),
+    isSerialTracked: boolean('is_serial_tracked').notNull().default(false),
     defaultWarehouseId: text('default_warehouse_id'),
     specJson: text('spec_json'),
     isActive: boolean('is_active').notNull().default(true),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
     codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code),
+    skuUq: uniqueIndex('erp_nomenclature_sku_uq').on(t.sku).where(sql`${t.sku} is not null`),
     itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
+    categoryIdx: index('erp_nomenclature_category_idx').on(t.category),
     groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
+    defaultBrandIdx: index('erp_nomenclature_default_brand_idx').on(t.defaultBrandId),
     nameIdx: index('erp_nomenclature_name_idx').on(t.name),
+  }),
+);
+
+export const erpNomenclatureEngineBrand = pgTable(
+  'erp_nomenclature_engine_brand',
+  {
+    id: uuid('id').primaryKey(),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    engineBrandId: uuid('engine_brand_id')
+      .notNull()
+      .references(() => entities.id),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    nomenclatureBrandUq: uniqueIndex('erp_nomenclature_engine_brand_uq')
+      .on(t.nomenclatureId, t.engineBrandId)
+      .where(sql`${t.deletedAt} is null`),
+    nomenclatureIdx: index('erp_nomenclature_engine_brand_nomenclature_idx').on(t.nomenclatureId),
+    brandIdx: index('erp_nomenclature_engine_brand_brand_idx').on(t.engineBrandId),
+  }),
+);
+
+export const erpEngineInstances = pgTable(
+  'erp_engine_instances',
+  {
+    id: uuid('id').primaryKey(),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    serialNumber: text('serial_number').notNull(),
+    contractId: uuid('contract_id').references(() => erpContracts.id),
+    currentStatus: text('current_status').notNull().default('in_stock'),
+    warehouseId: text('warehouse_id').notNull().default('default'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    nomenclatureSerialUq: uniqueIndex('erp_engine_instances_nomenclature_serial_uq')
+      .on(t.nomenclatureId, t.serialNumber)
+      .where(sql`${t.deletedAt} is null`),
+    serialIdx: index('erp_engine_instances_serial_idx').on(t.serialNumber),
+    contractIdx: index('erp_engine_instances_contract_idx').on(t.contractId),
+    warehouseIdx: index('erp_engine_instances_warehouse_idx').on(t.warehouseId),
+    statusIdx: index('erp_engine_instances_status_idx').on(t.currentStatus),
   }),
 );
 

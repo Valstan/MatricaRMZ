@@ -7,6 +7,7 @@ import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
+import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { lookupToSelectOptions, warehouseDocTypeLabel, WAREHOUSE_DOC_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
 type EditableLine = {
@@ -139,12 +140,14 @@ export function StockDocumentDetailsPage(props: {
       return;
     }
     setStatus('Загрузка остатков для инвентаризации...');
-    const result = await window.matrica.warehouse.stockList({ warehouseId });
-    if (!result?.ok) {
-      setStatus(`Ошибка: ${String(result?.error ?? 'не удалось загрузить остатки')}`);
+    let stockRows: Awaited<ReturnType<typeof fetchWarehouseStockAllPages>>;
+    try {
+      stockRows = await fetchWarehouseStockAllPages({ warehouseId });
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
       return;
     }
-    const nextLines = (result.rows ?? [])
+    const nextLines = stockRows
       .filter((row) => row.nomenclatureId)
       .map((row, index) => ({
         id: `inventory-${row.id}-${index}`,

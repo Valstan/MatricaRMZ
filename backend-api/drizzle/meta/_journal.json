@@ -253,6 +253,13 @@
       "when": 1772628061978,
       "tag": "0035_flawless_the_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1773302400000,
+      "tag": "0036_warehouse_three_level_split",
+      "breakpoints": true
     }
   ]
 }

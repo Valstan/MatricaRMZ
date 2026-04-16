@@ -548,6 +548,9 @@ import type {
   AiAgentOllamaHealthResponse,
 } from '../domain/aiAgent.js';
 import type {
+  EngineInstanceListItem,
+  EngineInstanceStatus,
+  NomenclatureEngineBrandLink,
   NomenclatureItemType,
   WarehouseDocumentDetails,
   WarehouseDocumentListItem,
@@ -1232,11 +1235,17 @@ export type MatricaApi = {
   warehouse: {
     lookupsGet: () => Promise<{ ok: true; lookups: WarehouseLookups } | { ok: false; error: string }>;
     nomenclatureList: (args?: {
+      id?: string;
       search?: string;
       itemType?: NomenclatureItemType;
       groupId?: string;
       isActive?: boolean;
-    }) => Promise<{ ok: true; rows: WarehouseNomenclatureListItem[] } | { ok: false; error: string }>;
+      limit?: number;
+      offset?: number;
+    }) => Promise<
+      | { ok: true; rows: WarehouseNomenclatureListItem[]; hasMore?: boolean }
+      | { ok: false; error: string }
+    >;
     nomenclatureUpsert: (args: {
       id?: string;
       code: string;
@@ -1247,6 +1256,10 @@ export type MatricaApi = {
       barcode?: string | null;
       minStock?: number | null;
       maxStock?: number | null;
+      sku?: string | null;
+      category?: string | null;
+      defaultBrandId?: string | null;
+      isSerialTracked?: boolean;
       defaultWarehouseId?: string | null;
       specJson?: string | null;
       isActive?: boolean;
@@ -1257,7 +1270,9 @@ export type MatricaApi = {
       nomenclatureId?: string;
       search?: string;
       lowStockOnly?: boolean;
-    }) => Promise<{ ok: true; rows: WarehouseStockListItem[] } | { ok: false; error: string }>;
+      limit?: number;
+      offset?: number;
+    }) => Promise<{ ok: true; rows: WarehouseStockListItem[]; hasMore?: boolean } | { ok: false; error: string }>;
     documentsList: (args?: {
       status?: string;
       docType?: WarehouseDocumentType;
@@ -1265,7 +1280,9 @@ export type MatricaApi = {
       toDate?: number;
       search?: string;
       warehouseId?: string;
-    }) => Promise<{ ok: true; rows: WarehouseDocumentListItem[] } | { ok: false; error: string }>;
+      limit?: number;
+      offset?: number;
+    }) => Promise<{ ok: true; rows: WarehouseDocumentListItem[]; hasMore?: boolean } | { ok: false; error: string }>;
     documentGet: (id: string) => Promise<{ ok: true; document: WarehouseDocumentDetails } | { ok: false; error: string }>;
     documentCreate: (args: WarehouseDocumentUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     documentPost: (id: string) => Promise<{ ok: true; id: string; posted?: boolean } | { ok: false; error: string }>;
@@ -1278,6 +1295,29 @@ export type MatricaApi = {
       toDate?: number;
       limit?: number;
     }) => Promise<{ ok: true; rows: WarehouseMovementListItem[] } | { ok: false; error: string }>;
+    nomenclatureEngineBrandsList: (args: { nomenclatureId: string }) => Promise<{ ok: true; rows: NomenclatureEngineBrandLink[] } | { ok: false; error: string }>;
+    nomenclatureEngineBrandUpsert: (args: { id?: string; nomenclatureId: string; engineBrandId: string; isDefault?: boolean }) => Promise<
+      { ok: true; id: string } | { ok: false; error: string }
+    >;
+    nomenclatureEngineBrandDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    engineInstancesList: (args?: {
+      nomenclatureId?: string;
+      contractId?: string;
+      warehouseId?: string;
+      status?: EngineInstanceStatus | string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }) => Promise<{ ok: true; rows: EngineInstanceListItem[]; hasMore?: boolean } | { ok: false; error: string }>;
+    engineInstanceUpsert: (args: {
+      id?: string;
+      nomenclatureId: string;
+      serialNumber: string;
+      contractId?: string | null;
+      warehouseId?: string;
+      currentStatus?: EngineInstanceStatus | string;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    engineInstanceDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
 
   files: {

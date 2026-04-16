@@ -52,16 +52,42 @@ export const erpDocumentLineRowSchema = z.object({
 export const erpNomenclatureRowSchema = z.object({
   ...baseErpFields,
   code: z.string().min(1),
+  sku: z.string().nullable().optional(),
   name: z.string().min(1),
   item_type: z.string().min(1),
+  category: z.string().nullable().optional(),
   group_id: z.string().uuid().nullable().optional(),
   unit_id: z.string().uuid().nullable().optional(),
   barcode: z.string().nullable().optional(),
   min_stock: z.number().int().nullable().optional(),
   max_stock: z.number().int().nullable().optional(),
+  default_brand_id: z.string().uuid().nullable().optional(),
+  is_serial_tracked: z.boolean().optional(),
   default_warehouse_id: z.string().nullable().optional(),
   spec_json: z.string().nullable().optional(),
   is_active: z.boolean(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+export const erpNomenclatureEngineBrandRowSchema = z.object({
+  ...baseErpFields,
+  nomenclature_id: z.string().uuid(),
+  engine_brand_id: z.string().uuid(),
+  is_default: z.boolean(),
+  last_server_seq: z.number().int().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+});
+
+export const erpEngineInstanceRowSchema = z.object({
+  ...baseErpFields,
+  nomenclature_id: z.string().uuid(),
+  serial_number: z.string().min(1),
+  contract_id: z.string().uuid().nullable().optional(),
+  current_status: z.string().min(1),
+  warehouse_id: z.string().min(1),
+  last_server_seq: z.number().int().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
 });
 
 export const erpRegisterStockBalanceRowSchema = z.object({
@@ -99,6 +125,8 @@ export const erpJournalDocumentRowSchema = z.object({
 
 export const erpSyncRowSchemaByTable = {
   [ErpSyncTableName.Nomenclature]: erpNomenclatureRowSchema,
+  [ErpSyncTableName.NomenclatureEngineBrand]: erpNomenclatureEngineBrandRowSchema,
+  [ErpSyncTableName.EngineInstances]: erpEngineInstanceRowSchema,
   [ErpSyncTableName.PartTemplates]: erpPartTemplateRowSchema,
   [ErpSyncTableName.PartCards]: erpPartCardRowSchema,
   [ErpSyncTableName.ToolTemplates]: erpPartTemplateRowSchema,

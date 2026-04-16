@@ -8,6 +8,7 @@ const EMPTY_LOOKUPS: WarehouseLookups = {
   writeoffReasons: [],
   counterparties: [],
   employees: [],
+  engineBrands: [],
 };
 
 export function useWarehouseReferenceData(options?: { loadNomenclature?: boolean }) {
@@ -20,21 +21,33 @@ export function useWarehouseReferenceData(options?: { loadNomenclature?: boolean
     setLoading(true);
     setError('');
     try {
-      const [lookupsRes, nomenclatureRes] = await Promise.all([
-        window.matrica.warehouse.lookupsGet(),
-        options?.loadNomenclature ? window.matrica.warehouse.nomenclatureList({ isActive: true }) : Promise.resolve(null),
-      ]);
+      const lookupsRes = await window.matrica.warehouse.lookupsGet();
       if (!lookupsRes?.ok) {
         setError(String(lookupsRes?.error ?? 'Не удалось загрузить складские справочники'));
         return;
       }
       setLookups(lookupsRes.lookups);
       if (options?.loadNomenclature) {
-        if (!nomenclatureRes?.ok) {
-          setError(String(nomenclatureRes?.error ?? 'Не удалось загрузить номенклатуру'));
-          return;
+        const pageSize = 500;
+        let offset = 0;
+        const merged: WarehouseNomenclatureListItem[] = [];
+        while (true) {
+          const nomenclatureRes = await window.matrica.warehouse.nomenclatureList({
+            isActive: true,
+            limit: pageSize,
+            offset,
+          });
+          if (!nomenclatureRes?.ok) {
+            setError(String(nomenclatureRes?.error ?? 'Не удалось загрузить номенклатуру'));
+            return;
+          }
+          const batch = nomenclatureRes.rows ?? [];
+          merged.push(...(batch as WarehouseNomenclatureListItem[]));
+          if (!nomenclatureRes.hasMore || batch.length === 0) break;
+          offset += pageSize;
+          if (offset > 2_000_000) break;
         }
-        setNomenclature(nomenclatureRes.rows ?? []);
+        setNomenclature(merged);
       }
     } catch (e) {
       setError(String(e));

@@ -409,25 +409,78 @@ export const erpNomenclature = sqliteTable(
   {
     id: text('id').primaryKey(),
     code: text('code').notNull(),
+    sku: text('sku'),
     name: text('name').notNull(),
     itemType: text('item_type').notNull().default('material'),
+    category: text('category'),
     groupId: text('group_id'),
     unitId: text('unit_id'),
     barcode: text('barcode'),
     minStock: integer('min_stock'),
     maxStock: integer('max_stock'),
+    defaultBrandId: text('default_brand_id'),
+    isSerialTracked: integer('is_serial_tracked', { mode: 'boolean' }).notNull().default(false),
     defaultWarehouseId: text('default_warehouse_id'),
     specJson: text('spec_json'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     deletedAt: integer('deleted_at'),
   },
   (t) => ({
     codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code),
+    skuUq: uniqueIndex('erp_nomenclature_sku_uq').on(t.sku),
     itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
+    categoryIdx: index('erp_nomenclature_category_idx').on(t.category),
     groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
+    defaultBrandIdx: index('erp_nomenclature_default_brand_idx').on(t.defaultBrandId),
     nameIdx: index('erp_nomenclature_name_idx').on(t.name),
+  }),
+);
+
+export const erpNomenclatureEngineBrand = sqliteTable(
+  'erp_nomenclature_engine_brand',
+  {
+    id: text('id').primaryKey(),
+    nomenclatureId: text('nomenclature_id').notNull(),
+    engineBrandId: text('engine_brand_id').notNull(),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    nomenclatureBrandUq: uniqueIndex('erp_nomenclature_engine_brand_uq').on(t.nomenclatureId, t.engineBrandId),
+    nomenclatureIdx: index('erp_nomenclature_engine_brand_nomenclature_idx').on(t.nomenclatureId),
+    brandIdx: index('erp_nomenclature_engine_brand_brand_idx').on(t.engineBrandId),
+  }),
+);
+
+export const erpEngineInstances = sqliteTable(
+  'erp_engine_instances',
+  {
+    id: text('id').primaryKey(),
+    nomenclatureId: text('nomenclature_id').notNull(),
+    serialNumber: text('serial_number').notNull(),
+    contractId: text('contract_id'),
+    currentStatus: text('current_status').notNull().default('in_stock'),
+    warehouseId: text('warehouse_id').notNull().default('default'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    nomenclatureSerialUq: uniqueIndex('erp_engine_instances_nomenclature_serial_uq').on(t.nomenclatureId, t.serialNumber),
+    serialIdx: index('erp_engine_instances_serial_idx').on(t.serialNumber),
+    contractIdx: index('erp_engine_instances_contract_idx').on(t.contractId),
+    warehouseIdx: index('erp_engine_instances_warehouse_idx').on(t.warehouseId),
+    statusIdx: index('erp_engine_instances_status_idx').on(t.currentStatus),
   }),
 );
 

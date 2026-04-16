@@ -238,16 +238,17 @@ async function warehouseAuthed(
   apiBaseUrl: string,
   path: string,
   init: RequestInit,
+  httpOpts?: { timeoutMs?: number },
 ) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const first = await httpAuthed(db, apiBaseUrl, normalizedPath, init);
+  const first = await httpAuthed(db, apiBaseUrl, normalizedPath, init, httpOpts);
   if (first.status !== 404 || !normalizedPath.startsWith('/warehouse/')) return first;
 
   const base = normalizeApiBaseUrl(apiBaseUrl);
   for (const baseCandidate of apiBaseCandidates(base)) {
     for (const pathCandidate of pathCandidates(normalizedPath)) {
       if (baseCandidate === base && pathCandidate === normalizedPath) continue;
-      const fallback = await httpAuthed(db, baseCandidate, pathCandidate, init);
+      const fallback = await httpAuthed(db, baseCandidate, pathCandidate, init, httpOpts);
       if (fallback.ok || fallback.status !== 404) return fallback;
     }
   }
@@ -257,19 +258,30 @@ async function warehouseAuthed(
 export async function warehouseNomenclatureList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { search?: string; itemType?: string; groupId?: string; isActive?: boolean },
+  args?: {
+    id?: string;
+    search?: string;
+    itemType?: string;
+    groupId?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  },
 ) {
   try {
     const qp = new URLSearchParams();
+    if (args?.id) qp.set('id', args.id);
     if (args?.search) qp.set('search', args.search);
     if (args?.itemType) qp.set('itemType', args.itemType);
     if (args?.groupId) qp.set('groupId', args.groupId);
     if (args?.isActive !== undefined) qp.set('isActive', args.isActive ? 'true' : 'false');
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/nomenclature${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 60_000 });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
@@ -326,18 +338,13 @@ export async function warehouseNomenclatureDelete(
   }
 }
 
-export async function warehouseStockList(
+export async function warehouseNomenclatureEngineBrandsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean },
+  nomenclatureId: string,
 ) {
+  const path = `/warehouse/nomenclature/${encodeURIComponent(nomenclatureId)}/engine-brands`;
   try {
-    const qp = new URLSearchParams();
-    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
-    if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
-    if (args?.search) qp.set('search', args.search);
-    if (args?.lowStockOnly !== undefined) qp.set('lowStockOnly', args.lowStockOnly ? 'true' : 'false');
-    const path = `/warehouse/stock${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
@@ -347,10 +354,129 @@ export async function warehouseStockList(
   }
 }
 
+export async function warehouseNomenclatureEngineBrandUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/nomenclature/engine-brands';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureEngineBrandDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/nomenclature/engine-brands/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseEngineInstancesList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { nomenclatureId?: string; contractId?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
+    if (args?.contractId) qp.set('contractId', args.contractId);
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.status) qp.set('status', args.status);
+    if (args?.search) qp.set('search', args.search);
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
+    const path = `/warehouse/engine-instances${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseEngineInstanceUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/engine-instances';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseEngineInstanceDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/engine-instances/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseStockList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
+    if (args?.search) qp.set('search', args.search);
+    if (args?.lowStockOnly !== undefined) qp.set('lowStockOnly', args.lowStockOnly ? 'true' : 'false');
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
+    const path = `/warehouse/stock${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseDocumentsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string },
+  args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string; limit?: number; offset?: number },
 ) {
   try {
     const qp = new URLSearchParams();
@@ -360,11 +486,13 @@ export async function warehouseDocumentsList(
     if (args?.toDate !== undefined) qp.set('toDate', String(Math.trunc(args.toDate)));
     if (args?.search) qp.set('search', args.search);
     if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/documents${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }

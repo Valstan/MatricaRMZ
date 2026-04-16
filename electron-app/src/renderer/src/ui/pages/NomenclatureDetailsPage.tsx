@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NomenclatureItemType, WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
+import type { EngineInstanceListItem, NomenclatureItemType, WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
 import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -20,44 +20,57 @@ export function NomenclatureDetailsPage(props: {
   const [row, setRow] = useState<WarehouseNomenclatureListItem | null>(null);
   const [balances, setBalances] = useState<WarehouseStockListItem[]>([]);
   const [movements, setMovements] = useState<WarehouseMovementListItem[]>([]);
+  const [instances, setInstances] = useState<EngineInstanceListItem[]>([]);
   const [code, setCode] = useState('');
+  const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [itemType, setItemType] = useState('material');
+  const [category, setCategory] = useState<'engine' | 'component' | 'assembly'>('component');
   const [groupId, setGroupId] = useState<string | null>(null);
   const [unitId, setUnitId] = useState<string | null>(null);
   const [barcode, setBarcode] = useState('');
   const [minStock, setMinStock] = useState('');
   const [maxStock, setMaxStock] = useState('');
+  const [defaultBrandId, setDefaultBrandId] = useState<string | null>(null);
+  const [isSerialTracked, setIsSerialTracked] = useState(false);
   const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
   const [specJson, setSpecJson] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [instanceSerial, setInstanceSerial] = useState('');
+  const [instanceContractId, setInstanceContractId] = useState<string | null>(null);
+  const [instanceWarehouseId, setInstanceWarehouseId] = useState<string | null>('default');
 
   const load = useCallback(async () => {
     try {
       setStatus('Загрузка...');
-      const [list, stock, movementRes] = await Promise.all([
-        window.matrica.warehouse.nomenclatureList(),
+      const [list, stock, movementRes, instancesRes] = await Promise.all([
+        window.matrica.warehouse.nomenclatureList({ id: props.id }),
         window.matrica.warehouse.stockList({ nomenclatureId: props.id }),
         window.matrica.warehouse.movementsList({ nomenclatureId: props.id, limit: 20 }),
+        window.matrica.warehouse.engineInstancesList({ nomenclatureId: props.id, limit: 100, offset: 0 }),
       ]);
       if (!list?.ok) {
         setStatus(`Ошибка: ${String(list?.error ?? 'unknown')}`);
         return;
       }
-      const found = (list.rows ?? []).find((x) => String(x.id) === props.id) ?? null;
+      const found = (list.rows ?? [])[0] ?? null;
       if (!found) {
         setStatus('Позиция не найдена');
         return;
       }
       setRow(found);
       setCode(String(found.code ?? ''));
+      setSku(String(found.sku ?? found.code ?? ''));
       setName(String(found.name ?? ''));
       setItemType(String(found.itemType ?? 'material'));
+      setCategory((String(found.category ?? 'component') as 'engine' | 'component' | 'assembly') ?? 'component');
       setGroupId(found.groupId ?? null);
       setUnitId(found.unitId ?? null);
       setBarcode(String(found.barcode ?? ''));
       setMinStock(found.minStock == null ? '' : String(found.minStock));
       setMaxStock(found.maxStock == null ? '' : String(found.maxStock));
+      setDefaultBrandId(found.defaultBrandId ?? null);
+      setIsSerialTracked(found.isSerialTracked === true);
       setDefaultWarehouseId(found.defaultWarehouseId ?? null);
       setSpecJson(String(found.specJson ?? ''));
       setIsActive(found.isActive !== false);
@@ -67,6 +80,7 @@ export function NomenclatureDetailsPage(props: {
         setBalances([]);
       }
       setMovements(movementRes?.ok ? movementRes.rows ?? [] : []);
+      setInstances(instancesRes?.ok ? ((instancesRes.rows ?? []) as EngineInstanceListItem[]) : []);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -115,13 +129,17 @@ export function NomenclatureDetailsPage(props: {
               const result = await window.matrica.warehouse.nomenclatureUpsert({
                 id: props.id,
                 code: code.trim(),
+                sku: sku.trim() || null,
                 name: name.trim(),
                 itemType: itemType as NomenclatureItemType,
+                category,
                 groupId,
                 unitId,
                 barcode: barcode.trim() || null,
                 minStock: minStock.trim() ? Number(minStock) : null,
                 maxStock: maxStock.trim() ? Number(maxStock) : null,
+                defaultBrandId,
+                isSerialTracked,
                 defaultWarehouseId,
                 specJson: specJson.trim() || null,
                 isActive,
@@ -167,6 +185,8 @@ export function NomenclatureDetailsPage(props: {
         <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, alignItems: 'center' }}>
           <div>Код</div>
           <Input value={code} disabled={!canEditNomenclatureFields} onChange={(e) => setCode(e.target.value)} />
+          <div>SKU</div>
+          <Input value={sku} disabled={!canEditNomenclatureFields} onChange={(e) => setSku(e.target.value)} />
           <div>Наименование</div>
           <Input value={name} disabled={!canEditNomenclatureFields} onChange={(e) => setName(e.target.value)} />
           <div>Тип</div>
@@ -176,6 +196,12 @@ export function NomenclatureDetailsPage(props: {
                 {item.label}
               </option>
             ))}
+          </select>
+          <div>Категория</div>
+          <select value={category} disabled={!canEditNomenclatureFields} onChange={(e) => setCategory(e.target.value as 'engine' | 'component' | 'assembly')} style={{ padding: '8px 10px' }}>
+            <option value="engine">Двигатель</option>
+            <option value="component">Комплектующая</option>
+            <option value="assembly">Сборка</option>
           </select>
           <div>Группа</div>
           <SearchSelect
@@ -199,6 +225,19 @@ export function NomenclatureDetailsPage(props: {
           <Input value={minStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMinStock(e.target.value)} />
           <div>Макс. остаток</div>
           <Input value={maxStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMaxStock(e.target.value)} />
+          <div>Марка по умолчанию</div>
+          <SearchSelect
+            value={defaultBrandId}
+            disabled={!canEditNomenclatureFields}
+            options={lookupToSelectOptions(lookups.engineBrands)}
+            placeholder="Марка двигателя"
+            onChange={setDefaultBrandId}
+          />
+          <div>Серийный учет</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={isSerialTracked} disabled={!canEditNomenclatureFields} onChange={(e) => setIsSerialTracked(e.target.checked)} />
+            Вести по серийным номерам
+          </label>
           <div>Склад по умолчанию</div>
           <SearchSelect
             value={defaultWarehouseId}
@@ -215,6 +254,76 @@ export function NomenclatureDetailsPage(props: {
           <div>Спецификация (JSON)</div>
           <textarea value={specJson} disabled={!canEditNomenclatureFields} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
         </div>
+      </div>
+
+      <div style={{ border: '1px solid var(--border)', padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Серийные экземпляры</div>
+        {canEditNomenclatureFields ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(220px, 1fr) minmax(220px, 1fr) auto', gap: 8, marginBottom: 10 }}>
+            <Input value={instanceSerial} onChange={(e) => setInstanceSerial(e.target.value)} placeholder="Серийный номер" />
+            <Input value={instanceContractId ?? ''} onChange={(e) => setInstanceContractId(e.target.value || null)} placeholder="Contract ID (опционально)" />
+            <SearchSelect
+              value={instanceWarehouseId}
+              options={lookupToSelectOptions(lookups.warehouses)}
+              placeholder="Склад"
+              onChange={setInstanceWarehouseId}
+            />
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!instanceSerial.trim()) {
+                  setStatus('Укажите серийный номер экземпляра.');
+                  return;
+                }
+                const up = await window.matrica.warehouse.engineInstanceUpsert({
+                  nomenclatureId: props.id,
+                  serialNumber: instanceSerial.trim(),
+                  contractId: instanceContractId,
+                  warehouseId: instanceWarehouseId || 'default',
+                  currentStatus: 'in_stock',
+                });
+                if (!up?.ok) {
+                  setStatus(`Ошибка: ${String(up?.error ?? 'не удалось создать экземпляр')}`);
+                  return;
+                }
+                setInstanceSerial('');
+                await load();
+              }}
+            >
+              Добавить экземпляр
+            </Button>
+          </div>
+        ) : null}
+        <table className="list-table">
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Серийник</th>
+              <th style={{ textAlign: 'left' }}>Статус</th>
+              <th style={{ textAlign: 'left' }}>Склад</th>
+              <th style={{ textAlign: 'left' }}>Контракт</th>
+              <th style={{ textAlign: 'left' }}>Создан</th>
+            </tr>
+          </thead>
+          <tbody>
+            {instances.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
+                  Экземпляры не созданы
+                </td>
+              </tr>
+            ) : (
+              instances.map((instance) => (
+                <tr key={instance.id}>
+                  <td>{instance.serialNumber}</td>
+                  <td>{instance.currentStatus}</td>
+                  <td>{instance.warehouseName || instance.warehouseId || 'default'}</td>
+                  <td>{instance.contractName || instance.contractCode || instance.contractId || '—'}</td>
+                  <td>{instance.createdAt ? new Date(Number(instance.createdAt)).toLocaleString('ru-RU') : '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div style={{ border: '1px solid var(--border)', padding: 12 }}>

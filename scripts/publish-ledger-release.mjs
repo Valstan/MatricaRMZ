@@ -61,7 +61,10 @@ function downloadInstaller(tag, assetName, destDir) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
+  let args = process.argv.slice(2);
+  while (args[0] === '--') {
+    args.shift();
+  }
   const installerIdx = args.indexOf('--installer');
   let installerPath = null;
   if (installerIdx >= 0 && args[installerIdx + 1]) {

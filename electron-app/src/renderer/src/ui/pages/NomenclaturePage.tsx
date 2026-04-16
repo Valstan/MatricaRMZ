@@ -4,6 +4,7 @@ import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matri
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
@@ -18,11 +19,20 @@ export function NomenclaturePage(props: {
   const [itemType, setItemType] = useState<NomenclatureItemType | ''>('');
   const [groupId, setGroupId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
+  const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [activeFilter, groupId, itemType, query]);
 
   const refresh = useCallback(async () => {
     try {
       setStatus('Загрузка...');
       const result = await window.matrica.warehouse.nomenclatureList({
+        limit: pageSize,
+        offset: pageIndex * pageSize,
         ...(query.trim() ? { search: query.trim() } : {}),
         ...(itemType ? { itemType } : {}),
         ...(groupId ? { groupId } : {}),
@@ -34,11 +44,12 @@ export function NomenclaturePage(props: {
         return;
       }
       setRows((result.rows ?? []) as WarehouseNomenclatureListItem[]);
+      setHasMore(Boolean(result.hasMore));
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [activeFilter, groupId, itemType, query]);
+  }, [activeFilter, groupId, itemType, pageIndex, pageSize, query]);
 
   useEffect(() => {
     void refresh();
@@ -114,16 +125,33 @@ export function NomenclaturePage(props: {
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+        rowCount={sorted.length}
+        hasMore={hasMore}
+        disabled={status === 'Загрузка...'}
+      />
+
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
         <table className="list-table">
           <thead>
             <tr>
               <th style={{ textAlign: 'left' }}>Код</th>
+              <th style={{ textAlign: 'left' }}>SKU</th>
               <th style={{ textAlign: 'left' }}>Наименование</th>
               <th style={{ textAlign: 'left' }}>Тип</th>
+              <th style={{ textAlign: 'left' }}>Категория</th>
               <th style={{ textAlign: 'left' }}>Группа</th>
               <th style={{ textAlign: 'left' }}>Ед.</th>
               <th style={{ textAlign: 'left' }}>Склад по умолчанию</th>
+              <th style={{ textAlign: 'left' }}>Марка по умолч.</th>
+              <th style={{ textAlign: 'left' }}>Серийный учет</th>
               <th style={{ textAlign: 'left' }}>Штрихкод</th>
               <th style={{ textAlign: 'left' }}>Статус</th>
             </tr>
@@ -131,7 +159,7 @@ export function NomenclaturePage(props: {
           <tbody>
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>
+                <td colSpan={12} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>
                   Нет данных
                 </td>
               </tr>
@@ -139,11 +167,15 @@ export function NomenclaturePage(props: {
               sorted.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
                   <td>{row.code || '—'}</td>
+                  <td>{row.sku || row.code || '—'}</td>
                   <td>{row.name || '—'}</td>
                   <td>{WAREHOUSE_ITEM_TYPE_OPTIONS.find((item) => item.id === row.itemType)?.label ?? String(row.itemType ?? '—')}</td>
+                  <td>{row.category || '—'}</td>
                   <td>{row.groupName || '—'}</td>
                   <td>{row.unitName || '—'}</td>
                   <td>{row.defaultWarehouseName || '—'}</td>
+                  <td>{row.defaultBrandName || '—'}</td>
+                  <td>{row.isSerialTracked ? 'Да' : 'Нет'}</td>
                   <td>{row.barcode || '—'}</td>
                   <td>{row.isActive === false ? 'Неактивна' : 'Активна'}</td>
                 </tr>

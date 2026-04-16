@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { lookupToSelectOptions } from '../utils/warehouseUi.js';
 
 type InventoryLine = {
@@ -41,13 +42,16 @@ export function StockInventoryPage(props: {
     }
     setLoadingRows(true);
     setStatus('Загрузка учетных остатков...');
-    const result = await window.matrica.warehouse.stockList({ warehouseId });
-    setLoadingRows(false);
-    if (!result?.ok) {
-      setStatus(`Ошибка: ${String(result?.error ?? 'не удалось загрузить остатки')}`);
+    let stockRows: Awaited<ReturnType<typeof fetchWarehouseStockAllPages>>;
+    try {
+      stockRows = await fetchWarehouseStockAllPages({ warehouseId });
+    } catch (e) {
+      setLoadingRows(false);
+      setStatus(`Ошибка: ${String(e)}`);
       return;
     }
-    const nextRows = (result.rows ?? []).map((row) => ({
+    setLoadingRows(false);
+    const nextRows = stockRows.map((row) => ({
       nomenclatureId: String(row.nomenclatureId ?? ''),
       code: String(row.nomenclatureCode ?? ''),
       name: String(row.nomenclatureName ?? ''),
@@ -56,8 +60,11 @@ export function StockInventoryPage(props: {
       actualQty: String(row.qty ?? 0),
       unitName: row.unitName ?? null,
     }));
-    setRows(nextRows.filter((row) => row.nomenclatureId));
-    setStatus(nextRows.length ? 'Остатки загружены. Проверьте фактическое количество и создайте документ.' : 'На выбранном складе нет остатков.');
+    const withId = nextRows.filter((row) => row.nomenclatureId);
+    setRows(withId);
+    setStatus(
+      withId.length ? 'Остатки загружены. Проверьте фактическое количество и создайте документ.' : 'На выбранном складе нет остатков.',
+    );
   }
 
   return (

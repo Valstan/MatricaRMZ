@@ -25,6 +25,9 @@ import {
   clientSettings,
   entities,
   entityTypes,
+  erpEngineInstances,
+  erpNomenclature,
+  erpNomenclatureEngineBrand,
   ledgerTxIndex,
   notes,
   noteShares,
@@ -50,6 +53,15 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.UserPresence]: { drizzle: userPresence, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserPresence, r) },
   [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
   [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
+  [SyncTableName.ErpNomenclature]: { drizzle: erpNomenclature, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, r) },
+  [SyncTableName.ErpNomenclatureEngineBrand]: {
+    drizzle: erpNomenclatureEngineBrand,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclatureEngineBrand, r),
+  },
+  [SyncTableName.ErpEngineInstances]: {
+    drizzle: erpEngineInstances,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInstances, r),
+  },
 };
 
 /** Privacy-sensitive table names that need per-user filtering. */

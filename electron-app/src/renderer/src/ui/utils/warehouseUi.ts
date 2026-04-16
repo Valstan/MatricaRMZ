@@ -8,8 +8,10 @@ import { mapWarehouseLookupOptions } from './selectOptions.js';
 
 export const WAREHOUSE_ITEM_TYPE_OPTIONS: Array<{ id: NomenclatureItemType | ''; label: string }> = [
   { id: '', label: 'Все типы' },
+  { id: NomenclatureItemType.Engine, label: 'Двигатель' },
   { id: NomenclatureItemType.Material, label: 'Материал' },
   { id: NomenclatureItemType.Component, label: 'Комплектующая' },
+  { id: NomenclatureItemType.Assembly, label: 'Узел/Сборка' },
   { id: NomenclatureItemType.Product, label: 'Изделие' },
   { id: NomenclatureItemType.SemiProduct, label: 'Полуфабрикат' },
   { id: NomenclatureItemType.Waste, label: 'Отходы' },

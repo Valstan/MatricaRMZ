@@ -58,6 +58,21 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
     case SyncTableName.NoteShares:
       if (!(base as any).note_id || !(base as any).recipient_user_id) return null;
       return base;
+    case SyncTableName.ErpNomenclature:
+      if (!(base as any).code || !(base as any).name || !(base as any).item_type) return null;
+      return base;
+    case SyncTableName.ErpNomenclatureEngineBrand:
+      if (!(base as any).nomenclature_id || !(base as any).engine_brand_id) return null;
+      if ((base as any).is_default == null) (base as any).is_default = false;
+      return base;
+    case SyncTableName.ErpEngineInstances:
+      if (!(base as any).nomenclature_id || !(base as any).serial_number) return null;
+      if (!(base as any).warehouse_id) (base as any).warehouse_id = 'default';
+      if (!(base as any).current_status) (base as any).current_status = 'in_stock';
+      return base;
+    case SyncTableName.ErpRegStockBalance:
+    case SyncTableName.ErpRegStockMovements:
+      return base;
   }
 }
 

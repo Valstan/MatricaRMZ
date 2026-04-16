@@ -4,6 +4,7 @@ import type { WarehouseMovementListItem, WarehouseStockListItem } from '@matrica
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, warehouseDocTypeLabel } from '../utils/warehouseUi.js';
 
@@ -17,15 +18,30 @@ export function StockBalancesPage(props: {
   const [query, setQuery] = useState('');
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [nomenclatureId, setNomenclatureId] = useState<string | null>(null);
+  const [itemTypeFilter, setItemTypeFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [movements, setMovements] = useState<WarehouseMovementListItem[]>([]);
   const [movementsStatus, setMovementsStatus] = useState('');
+  const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [lowStockOnly, nomenclatureId, query, warehouseId]);
+
+  useEffect(() => {
+    setSelectedRowId(null);
+  }, [pageIndex, pageSize]);
 
   const refresh = useCallback(async () => {
     try {
       setStatus('Загрузка остатков...');
       const result = await window.matrica.warehouse.stockList({
+        limit: pageSize,
+        offset: pageIndex * pageSize,
         ...(query.trim() ? { search: query.trim() } : {}),
         ...(warehouseId ? { warehouseId } : {}),
         ...(nomenclatureId ? { nomenclatureId } : {}),
@@ -35,12 +51,19 @@ export function StockBalancesPage(props: {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
         return;
       }
-      setRows(result.rows ?? []);
+      const fetched = (result.rows ?? []) as WarehouseStockListItem[];
+      const filteredRows = fetched.filter((row) => {
+        if (itemTypeFilter && String(row.itemType ?? '') !== itemTypeFilter) return false;
+        if (categoryFilter && String(row.category ?? '') !== categoryFilter) return false;
+        return true;
+      });
+      setRows(filteredRows);
+      setHasMore(Boolean(result.hasMore));
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [lowStockOnly, nomenclatureId, query, warehouseId]);
+  }, [categoryFilter, itemTypeFilter, lowStockOnly, nomenclatureId, pageIndex, pageSize, query, warehouseId]);
 
   useEffect(() => {
     void refresh();
@@ -91,7 +114,7 @@ export function StockBalancesPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(260px, 1.1fr) auto auto' }}>
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(260px, 1.1fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto auto' }}>
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по складу, коду и номенклатуре..." />
         <SearchSelect
           value={warehouseId}
@@ -105,6 +128,19 @@ export function StockBalancesPage(props: {
           placeholder="Номенклатура"
           onChange={setNomenclatureId}
         />
+        <select value={itemTypeFilter} onChange={(e) => setItemTypeFilter(e.target.value)} style={{ padding: '8px 10px' }}>
+          <option value="">Тип: все</option>
+          <option value="engine">Двигатель</option>
+          <option value="component">Комплектующая</option>
+          <option value="assembly">Сборка</option>
+          <option value="material">Материал</option>
+        </select>
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ padding: '8px 10px' }}>
+          <option value="">Категория: все</option>
+          <option value="engine">Двигатель</option>
+          <option value="component">Комплектующая</option>
+          <option value="assembly">Сборка</option>
+        </select>
         <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={lowStockOnly} onChange={(e) => setLowStockOnly(e.target.checked)} />
           Ниже минимального
@@ -119,8 +155,22 @@ export function StockBalancesPage(props: {
         </div>
       </div>
 
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+        rowCount={rows.length}
+        hasMore={hasMore}
+        disabled={status === 'Загрузка остатков...'}
+      />
+
       <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
-        Всего остаток: <b>{totals.qty}</b> | доступно: <b>{totals.available}</b> | в резерве: <b>{totals.reserved}</b>
+        Итого по текущей странице — остаток: <b>{totals.qty}</b> | доступно: <b>{totals.available}</b> | в резерве:{' '}
+        <b>{totals.reserved}</b>
       </div>
 
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}

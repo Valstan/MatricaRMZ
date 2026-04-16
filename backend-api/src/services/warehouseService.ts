@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import { PART_TEMPLATE_ID_ATTR_CODE, WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART } from '@matricarmz/shared';
 
@@ -10,11 +10,14 @@ import {
   entities,
   entityTypes,
   erpCounterparties,
+  erpContracts,
   erpDocumentHeaders,
   erpDocumentLines,
+  erpEngineInstances,
   erpEmployeeCards,
   erpJournalDocuments,
   erpNomenclature,
+  erpNomenclatureEngineBrand,
   erpRegStockBalance,
   erpRegStockMovements,
 } from '../database/schema.js';
@@ -132,6 +135,13 @@ function readLookupLabel(rows: Map<string, LookupOption>, id: string | null | un
   const safeId = String(id ?? '').trim();
   if (!safeId) return null;
   return rows.get(safeId)?.label ?? null;
+}
+
+function normalizeItemTypeToCategory(itemType: string): 'engine' | 'component' | 'assembly' {
+  const t = String(itemType || '').toLowerCase();
+  if (t === 'engine') return 'engine';
+  if (t === 'product' || t === 'semi_product' || t === 'assembly') return 'assembly';
+  return 'component';
 }
 
 async function listMasterdataLookup(typeCode: string): Promise<LookupOption[]> {
@@ -329,7 +339,6 @@ async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string |
       : [];
   const existingById = new Map(existingRows.map((row) => [String(row.id), row]));
 
-  const ts = nowMs();
   for (const partId of partIds) {
     const attrs = attrsByPart.get(partId) ?? {};
     const name = String(attrs.name ?? '').trim() || `Деталь ${partId.slice(0, 8)}`;
@@ -359,7 +368,6 @@ async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string |
       _syncFromPart: true,
     });
     if (!upsertRes.ok) {
-      // eslint-disable-next-line no-console
       console.warn('[warehouse] part→nomenclature mirror failed', partId, upsertRes.error);
     }
   }
@@ -376,7 +384,6 @@ async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string |
     if (activePartSet.has(pid)) continue;
     const delRes = await deleteWarehouseNomenclature({ id: String(row.id), allowLinkedPartMirror: true });
     if (!delRes.ok) {
-      // eslint-disable-next-line no-console
       console.warn('[warehouse] failed to retire part nomenclature mirror', row.id, delRes.error);
     }
   }
@@ -384,13 +391,14 @@ async function syncPartsToWarehouseNomenclature(args: { detailsGroupId: string |
 
 async function listWarehouseReferenceData() {
   await ensurePartNomenclatureGroup();
-  const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows] = await Promise.all([
+  const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows, engineBrands] = await Promise.all([
     listMasterdataLookup('warehouse_ref'),
     listMasterdataLookup('nomenclature_group'),
     listMasterdataLookup('unit'),
     listMasterdataLookup('stock_write_off_reason'),
     db.select().from(erpCounterparties).where(isNull(erpCounterparties.deletedAt)).orderBy(asc(erpCounterparties.name)),
     db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).orderBy(asc(erpEmployeeCards.fullName)),
+    listMasterdataLookup('engine_brand'),
   ]);
 
   const warehouses = ensureDefaultWarehouse(warehousesRaw);
@@ -412,12 +420,14 @@ async function listWarehouseReferenceData() {
     writeoffReasons,
     counterparties,
     employees,
+    engineBrands,
     warehouseById: buildLookupMap(warehouses),
     groupById: buildLookupMap(nomenclatureGroups),
     unitById: buildLookupMap(units),
     writeoffReasonById: buildLookupMap(writeoffReasons),
     counterpartyById: buildLookupMap(counterparties),
     employeeById: buildLookupMap(employees),
+    engineBrandById: buildLookupMap(engineBrands),
   };
 }
 
@@ -476,6 +486,7 @@ export async function listWarehouseLookups(): Promise<
       writeoffReasons: LookupOption[];
       counterparties: LookupOption[];
       employees: LookupOption[];
+      engineBrands: LookupOption[];
     };
   }>
 > {
@@ -490,6 +501,7 @@ export async function listWarehouseLookups(): Promise<
         writeoffReasons: refs.writeoffReasons,
         counterparties: refs.counterparties,
         employees: refs.employees,
+        engineBrands: refs.engineBrands,
       },
     };
   } catch (e) {
@@ -498,29 +510,83 @@ export async function listWarehouseLookups(): Promise<
 }
 
 export async function listWarehouseNomenclature(args?: {
+  id?: string;
   search?: string;
   itemType?: string;
   groupId?: string;
   isActive?: boolean;
-}): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  limit?: number;
+  offset?: number;
+}): Promise<Result<{ rows: Array<Record<string, unknown>>; hasMore?: boolean }>> {
   try {
-    const detailsGroupId = await ensurePartNomenclatureGroup();
-    await syncPartsToWarehouseNomenclature({ detailsGroupId });
+    /** Полная синхронизация деталей→номенклатура выполняется при изменении деталей (`refreshPartWarehouseNomenclatureLinks`), а не при каждом открытии списка — иначе N upsert-ов и ledger-транзакций на каждый GET и таймаут клиента. */
     const refs = await listWarehouseReferenceData();
-    const search = String(args?.search ?? '').trim().toLowerCase();
-    const rows = await db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt)).orderBy(asc(erpNomenclature.name));
-    const filtered = rows.filter((row) => {
-      if (args?.itemType && String(row.itemType) !== String(args.itemType)) return false;
-      if (args?.groupId && String(row.groupId ?? '') !== String(args.groupId)) return false;
-      if (args?.isActive !== undefined && Boolean(row.isActive) !== Boolean(args.isActive)) return false;
-      if (!search) return true;
-      const hay = `${String(row.code ?? '')} ${String(row.name ?? '')} ${String(row.barcode ?? '')}`.toLowerCase();
-      return hay.includes(search);
-    });
+    const idOne = String(args?.id ?? '').trim();
+    if (idOne) {
+      const one = await db
+        .select()
+        .from(erpNomenclature)
+        .where(and(eq(erpNomenclature.id, idOne), isNull(erpNomenclature.deletedAt)))
+        .limit(1);
+      return {
+        ok: true,
+        hasMore: false,
+        rows: one.map((row) => ({
+          ...row,
+          sku: row.sku ?? row.code ?? null,
+          category: row.category ?? normalizeItemTypeToCategory(String(row.itemType ?? 'component')),
+          defaultBrandId: row.defaultBrandId ?? null,
+          isSerialTracked: Boolean(row.isSerialTracked ?? String(row.itemType ?? '').toLowerCase() === 'engine'),
+          defaultBrandName: readLookupLabel(refs.engineBrandById, row.defaultBrandId == null ? null : String(row.defaultBrandId)),
+          groupName: readLookupLabel(refs.groupById, row.groupId == null ? null : String(row.groupId)),
+          unitName: readLookupLabel(refs.unitById, row.unitId == null ? null : String(row.unitId)),
+          defaultWarehouseName: readLookupLabel(refs.warehouseById, row.defaultWarehouseId == null ? null : String(row.defaultWarehouseId)),
+        })) as Array<Record<string, unknown>>,
+      };
+    }
+
+    const searchRaw = String(args?.search ?? '').trim();
+    const limit = Math.min(Math.max(Number(args?.limit ?? 3000), 1), 10_000);
+    const offset = Math.max(Number(args?.offset ?? 0), 0);
+
+    const parts = [isNull(erpNomenclature.deletedAt)];
+    if (args?.itemType) parts.push(eq(erpNomenclature.itemType, String(args.itemType)));
+    if (args?.groupId) parts.push(eq(erpNomenclature.groupId, String(args.groupId)));
+    if (args?.isActive !== undefined) parts.push(eq(erpNomenclature.isActive, Boolean(args.isActive)));
+
+    if (searchRaw) {
+      const pat = `%${searchRaw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      parts.push(
+        sql`(
+          COALESCE(${erpNomenclature.code}, '') ILIKE ${pat} ESCAPE '\\'
+          OR COALESCE(${erpNomenclature.sku}, '') ILIKE ${pat} ESCAPE '\\'
+          OR COALESCE(${erpNomenclature.name}, '') ILIKE ${pat} ESCAPE '\\'
+          OR COALESCE(${erpNomenclature.barcode}, '') ILIKE ${pat} ESCAPE '\\'
+        )`,
+      );
+    }
+
+    const whereExpr = and(...parts);
+    const pageRows = await db
+      .select()
+      .from(erpNomenclature)
+      .where(whereExpr)
+      .orderBy(asc(erpNomenclature.name))
+      .limit(limit + 1)
+      .offset(offset);
+    const hasMore = pageRows.length > limit;
+    const rows = hasMore ? pageRows.slice(0, limit) : pageRows;
+
     return {
       ok: true,
-      rows: filtered.map((row) => ({
+      hasMore,
+      rows: rows.map((row) => ({
         ...row,
+        sku: row.sku ?? row.code ?? null,
+        category: row.category ?? normalizeItemTypeToCategory(String(row.itemType ?? 'component')),
+        defaultBrandId: row.defaultBrandId ?? null,
+        isSerialTracked: Boolean(row.isSerialTracked ?? String(row.itemType ?? '').toLowerCase() === 'engine'),
+        defaultBrandName: readLookupLabel(refs.engineBrandById, row.defaultBrandId == null ? null : String(row.defaultBrandId)),
         groupName: readLookupLabel(refs.groupById, row.groupId == null ? null : String(row.groupId)),
         unitName: readLookupLabel(refs.unitById, row.unitId == null ? null : String(row.unitId)),
         defaultWarehouseName: readLookupLabel(refs.warehouseById, row.defaultWarehouseId == null ? null : String(row.defaultWarehouseId)),
@@ -534,13 +600,17 @@ export async function listWarehouseNomenclature(args?: {
 export async function upsertWarehouseNomenclature(args: {
   id?: string;
   code: string;
+  sku?: string | null;
   name: string;
   itemType?: string;
+  category?: string | null;
   groupId?: string | null;
   unitId?: string | null;
   barcode?: string | null;
   minStock?: number | null;
   maxStock?: number | null;
+  defaultBrandId?: string | null;
+  isSerialTracked?: boolean;
   defaultWarehouseId?: string | null;
   specJson?: string | null;
   isActive?: boolean;
@@ -566,13 +636,17 @@ export async function upsertWarehouseNomenclature(args: {
     const ts = nowMs();
     const normalized = {
       code: String(args.code).trim(),
+      sku: args.sku == null ? null : String(args.sku).trim() || null,
       name: String(args.name).trim(),
       itemType: String(args.itemType || 'material'),
+      category: args.category == null ? normalizeItemTypeToCategory(String(args.itemType || 'material')) : String(args.category),
       groupId: args.groupId ?? null,
       unitId: args.unitId ?? null,
       barcode: args.barcode ?? null,
       minStock: args.minStock == null ? null : Math.trunc(Number(args.minStock)),
       maxStock: args.maxStock == null ? null : Math.trunc(Number(args.maxStock)),
+      defaultBrandId: args.defaultBrandId ?? null,
+      isSerialTracked: args.isSerialTracked ?? String(args.itemType || '').toLowerCase() === 'engine',
       defaultWarehouseId: args.defaultWarehouseId ?? null,
       specJson: args.specJson ?? null,
       isActive: args.isActive ?? true,
@@ -592,13 +666,17 @@ export async function upsertWarehouseNomenclature(args: {
           row: {
             id: String(row.id),
             code: String(row.code),
+            sku: row.sku ?? null,
             name: String(row.name),
             item_type: String(row.itemType),
+            category: row.category ?? null,
             group_id: row.groupId,
             unit_id: row.unitId,
             barcode: row.barcode,
             min_stock: row.minStock,
             max_stock: row.maxStock,
+            default_brand_id: row.defaultBrandId ?? null,
+            is_serial_tracked: Boolean(row.isSerialTracked),
             default_warehouse_id: row.defaultWarehouseId,
             spec_json: row.specJson,
             is_active: Boolean(row.isActive),
@@ -645,13 +723,17 @@ export async function deleteWarehouseNomenclature(args: {
           row: {
             id: String(row.id),
             code: String(row.code),
+            sku: row.sku ?? null,
             name: String(row.name),
             item_type: String(row.itemType),
+            category: row.category ?? null,
             group_id: row.groupId,
             unit_id: row.unitId,
             barcode: row.barcode,
             min_stock: row.minStock,
             max_stock: row.maxStock,
+            default_brand_id: row.defaultBrandId ?? null,
+            is_serial_tracked: Boolean(row.isSerialTracked),
             default_warehouse_id: row.defaultWarehouseId,
             spec_json: row.specJson,
             is_active: false,
@@ -670,12 +752,311 @@ export async function deleteWarehouseNomenclature(args: {
   }
 }
 
+export async function listWarehouseNomenclatureEngineBrands(args: {
+  nomenclatureId: string;
+}): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  try {
+    const refs = await listWarehouseReferenceData();
+    const rows = await db
+      .select()
+      .from(erpNomenclatureEngineBrand)
+      .where(and(eq(erpNomenclatureEngineBrand.nomenclatureId, String(args.nomenclatureId)), isNull(erpNomenclatureEngineBrand.deletedAt)))
+      .orderBy(desc(erpNomenclatureEngineBrand.isDefault), asc(erpNomenclatureEngineBrand.createdAt));
+    return {
+      ok: true,
+      rows: rows.map((row) => ({
+        ...row,
+        engineBrandName: readLookupLabel(refs.engineBrandById, String(row.engineBrandId)),
+      })) as Array<Record<string, unknown>>,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertWarehouseNomenclatureEngineBrand(args: {
+  id?: string;
+  nomenclatureId: string;
+  engineBrandId: string;
+  isDefault?: boolean;
+}): Promise<Result<{ id: string }>> {
+  try {
+    const id = String(args.id || randomUUID());
+    const ts = nowMs();
+    await db
+      .insert(erpNomenclatureEngineBrand)
+      .values({
+        id,
+        nomenclatureId: String(args.nomenclatureId),
+        engineBrandId: String(args.engineBrandId),
+        isDefault: Boolean(args.isDefault),
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: null,
+      })
+      .onConflictDoUpdate({
+        target: erpNomenclatureEngineBrand.id,
+        set: {
+          nomenclatureId: String(args.nomenclatureId),
+          engineBrandId: String(args.engineBrandId),
+          isDefault: Boolean(args.isDefault),
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        },
+      });
+    const saved = await db.select().from(erpNomenclatureEngineBrand).where(eq(erpNomenclatureEngineBrand.id, id)).limit(1);
+    const row = saved[0];
+    if (row) {
+      signAndAppendDetailed([
+        {
+          type: 'upsert',
+          table: LedgerTableName.ErpNomenclatureEngineBrand,
+          row_id: id,
+          row: {
+            id: String(row.id),
+            nomenclature_id: String(row.nomenclatureId),
+            engine_brand_id: String(row.engineBrandId),
+            is_default: Boolean(row.isDefault),
+            created_at: Number(row.createdAt),
+            updated_at: Number(row.updatedAt),
+            deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+            sync_status: String(row.syncStatus ?? 'synced'),
+            last_server_seq: row.lastServerSeq == null ? null : Number(row.lastServerSeq),
+          },
+          actor: { userId: 'system', username: 'system', role: 'system' },
+          ts,
+        },
+      ]);
+    }
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deleteWarehouseNomenclatureEngineBrand(args: { id: string }): Promise<Result<{ id: string }>> {
+  try {
+    const ts = nowMs();
+    await db
+      .update(erpNomenclatureEngineBrand)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(eq(erpNomenclatureEngineBrand.id, String(args.id)));
+    const saved = await db.select().from(erpNomenclatureEngineBrand).where(eq(erpNomenclatureEngineBrand.id, String(args.id))).limit(1);
+    const row = saved[0];
+    if (row) {
+      signAndAppendDetailed([
+        {
+          type: 'delete',
+          table: LedgerTableName.ErpNomenclatureEngineBrand,
+          row_id: String(row.id),
+          row: {
+            id: String(row.id),
+            nomenclature_id: String(row.nomenclatureId),
+            engine_brand_id: String(row.engineBrandId),
+            is_default: Boolean(row.isDefault),
+            created_at: Number(row.createdAt),
+            updated_at: ts,
+            deleted_at: ts,
+            sync_status: String(row.syncStatus ?? 'synced'),
+            last_server_seq: row.lastServerSeq == null ? null : Number(row.lastServerSeq),
+          },
+          actor: { userId: 'system', username: 'system', role: 'system' },
+          ts,
+        },
+      ]);
+    }
+    return { ok: true, id: String(args.id) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listWarehouseEngineInstances(args?: {
+  nomenclatureId?: string;
+  contractId?: string;
+  warehouseId?: string;
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<Result<{ rows: Array<Record<string, unknown>>; hasMore?: boolean }>> {
+  try {
+    const refs = await listWarehouseReferenceData();
+    const rows = await db
+      .select()
+      .from(erpEngineInstances)
+      .where(isNull(erpEngineInstances.deletedAt))
+      .orderBy(desc(erpEngineInstances.createdAt));
+    const filtered = rows.filter((row) => {
+      if (args?.nomenclatureId && String(row.nomenclatureId) !== String(args.nomenclatureId)) return false;
+      if (args?.contractId && String(row.contractId ?? '') !== String(args.contractId)) return false;
+      if (args?.warehouseId && String(row.warehouseId) !== String(args.warehouseId)) return false;
+      if (args?.status && String(row.currentStatus) !== String(args.status)) return false;
+      if (args?.search) {
+        const q = String(args.search).trim().toLowerCase();
+        if (q) {
+          const hay = `${String(row.serialNumber ?? '')} ${String(row.contractId ?? '')} ${String(row.warehouseId ?? '')}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+      }
+      return true;
+    });
+    const nomenclatureIds = Array.from(new Set(filtered.map((r) => String(r.nomenclatureId)).filter(Boolean)));
+    const contractIds = Array.from(new Set(filtered.map((r) => String(r.contractId ?? '')).filter(Boolean)));
+    const nomenclatureRows =
+      nomenclatureIds.length > 0
+        ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
+        : [];
+    const contractRows =
+      contractIds.length > 0
+        ? await db.select().from(erpContracts).where(and(inArray(erpContracts.id, contractIds as any), isNull(erpContracts.deletedAt)))
+        : [];
+    const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+    const contractsById = new Map(contractRows.map((row) => [String(row.id), row]));
+    const mapped = filtered.map((row) => {
+      const n = nomenclatureById.get(String(row.nomenclatureId));
+      const c = row.contractId ? contractsById.get(String(row.contractId)) : null;
+      return {
+        ...row,
+        nomenclatureCode: n?.code ?? null,
+        nomenclatureName: n?.name ?? null,
+        warehouseName: readLookupLabel(refs.warehouseById, String(row.warehouseId)),
+        contractCode: c?.code ?? null,
+        contractName: c?.name ?? null,
+      };
+    });
+    if (args?.limit === undefined) return { ok: true, rows: mapped, hasMore: false };
+    const limit = Math.min(Math.max(Math.trunc(Number(args.limit)), 1), 10_000);
+    const offset = Math.max(Math.trunc(Number(args.offset ?? 0)), 0);
+    const page = mapped.slice(offset, offset + limit + 1);
+    const hasMore = page.length > limit;
+    return { ok: true, rows: hasMore ? page.slice(0, limit) : page, hasMore };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertWarehouseEngineInstance(args: {
+  id?: string;
+  nomenclatureId: string;
+  serialNumber: string;
+  contractId?: string | null;
+  warehouseId?: string;
+  currentStatus?: string;
+}): Promise<Result<{ id: string }>> {
+  try {
+    const id = String(args.id || randomUUID());
+    const ts = nowMs();
+    await db
+      .insert(erpEngineInstances)
+      .values({
+        id,
+        nomenclatureId: String(args.nomenclatureId),
+        serialNumber: String(args.serialNumber).trim(),
+        contractId: args.contractId ?? null,
+        warehouseId: String(args.warehouseId || 'default'),
+        currentStatus: String(args.currentStatus || 'in_stock'),
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: null,
+      })
+      .onConflictDoUpdate({
+        target: erpEngineInstances.id,
+        set: {
+          nomenclatureId: String(args.nomenclatureId),
+          serialNumber: String(args.serialNumber).trim(),
+          contractId: args.contractId ?? null,
+          warehouseId: String(args.warehouseId || 'default'),
+          currentStatus: String(args.currentStatus || 'in_stock'),
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+        },
+      });
+    const saved = await db.select().from(erpEngineInstances).where(eq(erpEngineInstances.id, id)).limit(1);
+    const row = saved[0];
+    if (row) {
+      signAndAppendDetailed([
+        {
+          type: 'upsert',
+          table: LedgerTableName.ErpEngineInstances,
+          row_id: String(row.id),
+          row: {
+            id: String(row.id),
+            nomenclature_id: String(row.nomenclatureId),
+            serial_number: String(row.serialNumber),
+            contract_id: row.contractId,
+            current_status: String(row.currentStatus),
+            warehouse_id: String(row.warehouseId),
+            created_at: Number(row.createdAt),
+            updated_at: Number(row.updatedAt),
+            deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+            sync_status: String(row.syncStatus ?? 'synced'),
+            last_server_seq: row.lastServerSeq == null ? null : Number(row.lastServerSeq),
+          },
+          actor: { userId: 'system', username: 'system', role: 'system' },
+          ts,
+        },
+      ]);
+    }
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deleteWarehouseEngineInstance(args: { id: string }): Promise<Result<{ id: string }>> {
+  try {
+    const ts = nowMs();
+    await db
+      .update(erpEngineInstances)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(eq(erpEngineInstances.id, String(args.id)));
+    const saved = await db.select().from(erpEngineInstances).where(eq(erpEngineInstances.id, String(args.id))).limit(1);
+    const row = saved[0];
+    if (row) {
+      signAndAppendDetailed([
+        {
+          type: 'delete',
+          table: LedgerTableName.ErpEngineInstances,
+          row_id: String(row.id),
+          row: {
+            id: String(row.id),
+            nomenclature_id: String(row.nomenclatureId),
+            serial_number: String(row.serialNumber),
+            contract_id: row.contractId,
+            current_status: String(row.currentStatus),
+            warehouse_id: String(row.warehouseId),
+            created_at: Number(row.createdAt),
+            updated_at: ts,
+            deleted_at: ts,
+            sync_status: String(row.syncStatus ?? 'synced'),
+            last_server_seq: row.lastServerSeq == null ? null : Number(row.lastServerSeq),
+          },
+          actor: { userId: 'system', username: 'system', role: 'system' },
+          ts,
+        },
+      ]);
+    }
+    return { ok: true, id: String(args.id) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function listWarehouseStock(args?: {
   warehouseId?: string;
   nomenclatureId?: string;
   search?: string;
   lowStockOnly?: boolean;
-}): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  limit?: number;
+  offset?: number;
+}): Promise<Result<{ rows: Array<Record<string, unknown>>; hasMore?: boolean }>> {
   try {
     const refs = await listWarehouseReferenceData();
     const rows = await db.select().from(erpRegStockBalance).orderBy(asc(erpRegStockBalance.warehouseId));
@@ -710,8 +1091,11 @@ export async function listWarehouseStock(args?: {
           ...row,
           warehouseName: readLookupLabel(refs.warehouseById, String(row.warehouseId)),
           nomenclatureCode: n?.code ?? null,
+          sku: n?.sku ?? null,
           nomenclatureName: n?.name ?? null,
           itemType: n?.itemType ?? null,
+          category: n?.category ?? normalizeItemTypeToCategory(String(n?.itemType ?? 'component')),
+          isSerialTracked: Boolean(n?.isSerialTracked ?? String(n?.itemType ?? '').toLowerCase() === 'engine'),
           minStock: n?.minStock ?? null,
           maxStock: n?.maxStock ?? null,
           groupId: n?.groupId ?? null,
@@ -724,7 +1108,29 @@ export async function listWarehouseStock(args?: {
           availableQty: qty - reservedQty,
         };
       });
-    return { ok: true, rows: filtered as Array<Record<string, unknown>> };
+    const sorted = [...filtered].sort((a, b) => {
+      const wa = String((a as { warehouseId?: unknown }).warehouseId ?? '');
+      const wb = String((b as { warehouseId?: unknown }).warehouseId ?? '');
+      const wc = wa.localeCompare(wb, 'ru');
+      if (wc !== 0) return wc;
+      const na = String((a as { nomenclatureName?: unknown }).nomenclatureName ?? '');
+      const nb = String((b as { nomenclatureName?: unknown }).nomenclatureName ?? '');
+      const nc = na.localeCompare(nb, 'ru');
+      if (nc !== 0) return nc;
+      return String((a as { nomenclatureCode?: unknown }).nomenclatureCode ?? '').localeCompare(
+        String((b as { nomenclatureCode?: unknown }).nomenclatureCode ?? ''),
+        'ru',
+      );
+    });
+    if (args?.limit === undefined) {
+      return { ok: true, rows: sorted as Array<Record<string, unknown>>, hasMore: false };
+    }
+    const limit = Math.min(Math.max(Math.trunc(Number(args.limit)), 1), 10_000);
+    const offset = Math.max(Math.trunc(Number(args.offset ?? 0)), 0);
+    const pageSlice = sorted.slice(offset, offset + limit + 1);
+    const hasMore = pageSlice.length > limit;
+    const rowsOut = hasMore ? pageSlice.slice(0, limit) : pageSlice;
+    return { ok: true, rows: rowsOut as Array<Record<string, unknown>>, hasMore };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -737,7 +1143,9 @@ export async function listWarehouseDocuments(args?: {
   toDate?: number;
   search?: string;
   warehouseId?: string;
-}): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  limit?: number;
+  offset?: number;
+}): Promise<Result<{ rows: Array<Record<string, unknown>>; hasMore?: boolean }>> {
   try {
     const refs = await listWarehouseReferenceData();
     const rows = await db
@@ -785,26 +1193,40 @@ export async function listWarehouseDocuments(args?: {
       }
       return true;
     });
-    return {
-      ok: true,
-      rows: filtered.map((row) => {
-        const headerPayload = parseWarehouseHeaderPayload(row.payloadJson);
-        const docLines = linesByHeaderId.get(String(row.id)) ?? [];
-        const reasonLabel = readLookupLabel(refs.writeoffReasonById, headerPayload.reason) ?? headerPayload.reason;
-        return {
-          ...row,
-          warehouseId: headerPayload.warehouseId,
-          warehouseName: readLookupLabel(refs.warehouseById, headerPayload.warehouseId),
-          reason: headerPayload.reason,
-          reasonLabel,
-          counterpartyId: headerPayload.counterpartyId,
-          counterpartyName: readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId),
-          authorName: readLookupLabel(refs.employeeById, row.authorId == null ? null : String(row.authorId)),
-          linesCount: docLines.length,
-          totalQty: docLines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
-        };
-      }) as Array<Record<string, unknown>>,
-    };
+    const mapped = filtered.map((row) => {
+      const headerPayload = parseWarehouseHeaderPayload(row.payloadJson);
+      const docLines = linesByHeaderId.get(String(row.id)) ?? [];
+      const reasonLabel = readLookupLabel(refs.writeoffReasonById, headerPayload.reason) ?? headerPayload.reason;
+      return {
+        ...row,
+        warehouseId: headerPayload.warehouseId,
+        warehouseName: readLookupLabel(refs.warehouseById, headerPayload.warehouseId),
+        reason: headerPayload.reason,
+        reasonLabel,
+        counterpartyId: headerPayload.counterpartyId,
+        counterpartyName: readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId),
+        authorName: readLookupLabel(refs.employeeById, row.authorId == null ? null : String(row.authorId)),
+        linesCount: docLines.length,
+        totalQty: docLines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
+      };
+    }) as Array<Record<string, unknown>>;
+    mapped.sort((a, b) => {
+      const da = Number((a as { docDate?: unknown }).docDate ?? 0);
+      const db = Number((b as { docDate?: unknown }).docDate ?? 0);
+      if (db !== da) return db - da;
+      const ca = Number((a as { createdAt?: unknown }).createdAt ?? 0);
+      const cb = Number((b as { createdAt?: unknown }).createdAt ?? 0);
+      return cb - ca;
+    });
+    if (args?.limit === undefined) {
+      return { ok: true, rows: mapped, hasMore: false };
+    }
+    const limit = Math.min(Math.max(Math.trunc(Number(args.limit)), 1), 10_000);
+    const offset = Math.max(Math.trunc(Number(args.offset ?? 0)), 0);
+    const pageSlice = mapped.slice(offset, offset + limit + 1);
+    const hasMore = pageSlice.length > limit;
+    const rowsOut = hasMore ? pageSlice.slice(0, limit) : pageSlice;
+    return { ok: true, rows: rowsOut, hasMore };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

@@ -6,14 +6,20 @@ import { PermissionCode } from '../auth/permissions.js';
 import {
   cancelWarehouseDocument,
   createWarehouseDocument,
+  deleteWarehouseEngineInstance,
+  deleteWarehouseNomenclatureEngineBrand,
   deleteWarehouseNomenclature,
   getWarehouseDocument,
   listWarehouseLookups,
   listWarehouseDocuments,
+  listWarehouseEngineInstances,
   listWarehouseMovements,
+  listWarehouseNomenclatureEngineBrands,
   listWarehouseNomenclature,
   listWarehouseStock,
   postWarehouseDocument,
+  upsertWarehouseEngineInstance,
+  upsertWarehouseNomenclatureEngineBrand,
   upsertWarehouseNomenclature,
 } from '../services/warehouseService.js';
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
@@ -29,18 +35,24 @@ warehouseRouter.get('/lookups', requirePermission(PermissionCode.ErpDictionaryVi
 
 warehouseRouter.get('/nomenclature', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const schema = z.object({
+    id: z.string().uuid().optional(),
     search: z.string().optional(),
     itemType: z.string().optional(),
     groupId: z.string().optional(),
     isActive: z.coerce.boolean().optional(),
+    limit: z.coerce.number().int().min(1).max(10_000).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await listWarehouseNomenclature({
+    ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
     ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
     ...(parsed.data.itemType !== undefined ? { itemType: parsed.data.itemType } : {}),
     ...(parsed.data.groupId !== undefined ? { groupId: parsed.data.groupId } : {}),
     ...(parsed.data.isActive !== undefined ? { isActive: parsed.data.isActive } : {}),
+    ...(parsed.data.limit !== undefined ? { limit: parsed.data.limit } : {}),
+    ...(parsed.data.offset !== undefined ? { offset: parsed.data.offset } : {}),
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
@@ -50,13 +62,17 @@ warehouseRouter.post('/nomenclature', requirePermission(PermissionCode.ErpDictio
   const schema = z.object({
     id: z.string().uuid().optional(),
     code: z.string().min(1),
+    sku: z.string().nullable().optional(),
     name: z.string().min(1),
     itemType: z.string().optional(),
+    category: z.string().nullable().optional(),
     groupId: z.string().uuid().nullable().optional(),
     unitId: z.string().uuid().nullable().optional(),
     barcode: z.string().nullable().optional(),
     minStock: z.coerce.number().int().nullable().optional(),
     maxStock: z.coerce.number().int().nullable().optional(),
+    defaultBrandId: z.string().uuid().nullable().optional(),
+    isSerialTracked: z.boolean().optional(),
     defaultWarehouseId: z.string().nullable().optional(),
     specJson: z.string().nullable().optional(),
     isActive: z.boolean().optional(),
@@ -65,14 +81,18 @@ warehouseRouter.post('/nomenclature', requirePermission(PermissionCode.ErpDictio
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await upsertWarehouseNomenclature({
     code: parsed.data.code,
+    ...(parsed.data.sku !== undefined ? { sku: parsed.data.sku } : {}),
     name: parsed.data.name,
     ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
     ...(parsed.data.itemType !== undefined ? { itemType: parsed.data.itemType } : {}),
+    ...(parsed.data.category !== undefined ? { category: parsed.data.category } : {}),
     ...(parsed.data.groupId !== undefined ? { groupId: parsed.data.groupId } : {}),
     ...(parsed.data.unitId !== undefined ? { unitId: parsed.data.unitId } : {}),
     ...(parsed.data.barcode !== undefined ? { barcode: parsed.data.barcode } : {}),
     ...(parsed.data.minStock !== undefined ? { minStock: parsed.data.minStock } : {}),
     ...(parsed.data.maxStock !== undefined ? { maxStock: parsed.data.maxStock } : {}),
+    ...(parsed.data.defaultBrandId !== undefined ? { defaultBrandId: parsed.data.defaultBrandId } : {}),
+    ...(parsed.data.isSerialTracked !== undefined ? { isSerialTracked: parsed.data.isSerialTracked } : {}),
     ...(parsed.data.defaultWarehouseId !== undefined ? { defaultWarehouseId: parsed.data.defaultWarehouseId } : {}),
     ...(parsed.data.specJson !== undefined ? { specJson: parsed.data.specJson } : {}),
     ...(parsed.data.isActive !== undefined ? { isActive: parsed.data.isActive } : {}),
@@ -89,12 +109,49 @@ warehouseRouter.delete('/nomenclature/:id', requirePermission(PermissionCode.Erp
   return res.json(result);
 });
 
+warehouseRouter.get('/nomenclature/:id/engine-brands', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const nomenclatureId = String(req.params.id || '').trim();
+  if (!nomenclatureId) return res.status(400).json({ ok: false, error: 'nomenclatureId обязателен' });
+  const result = await listWarehouseNomenclatureEngineBrands({ nomenclatureId });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/nomenclature/engine-brands', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    nomenclatureId: z.string().uuid(),
+    engineBrandId: z.string().uuid(),
+    isDefault: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await upsertWarehouseNomenclatureEngineBrand({
+    nomenclatureId: parsed.data.nomenclatureId,
+    engineBrandId: parsed.data.engineBrandId,
+    ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
+    ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.delete('/nomenclature/engine-brands/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await deleteWarehouseNomenclatureEngineBrand({ id });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
 warehouseRouter.get('/stock', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
   const schema = z.object({
     warehouseId: z.string().optional(),
     nomenclatureId: z.string().uuid().optional(),
     search: z.string().optional(),
     lowStockOnly: z.coerce.boolean().optional(),
+    limit: z.coerce.number().int().min(1).max(10_000).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -103,6 +160,8 @@ warehouseRouter.get('/stock', requirePermission(PermissionCode.ErpRegistersView)
     ...(parsed.data.nomenclatureId !== undefined ? { nomenclatureId: parsed.data.nomenclatureId } : {}),
     ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
     ...(parsed.data.lowStockOnly !== undefined ? { lowStockOnly: parsed.data.lowStockOnly } : {}),
+    ...(parsed.data.limit !== undefined ? { limit: parsed.data.limit } : {}),
+    ...(parsed.data.offset !== undefined ? { offset: parsed.data.offset } : {}),
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
@@ -116,6 +175,8 @@ warehouseRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsV
     toDate: z.coerce.number().int().optional(),
     search: z.string().optional(),
     warehouseId: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(10_000).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -126,7 +187,65 @@ warehouseRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsV
     ...(parsed.data.toDate !== undefined ? { toDate: parsed.data.toDate } : {}),
     ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
     ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
+    ...(parsed.data.limit !== undefined ? { limit: parsed.data.limit } : {}),
+    ...(parsed.data.offset !== undefined ? { offset: parsed.data.offset } : {}),
   });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/engine-instances', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const schema = z.object({
+    nomenclatureId: z.string().uuid().optional(),
+    contractId: z.string().uuid().optional(),
+    warehouseId: z.string().optional(),
+    status: z.string().optional(),
+    search: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(10_000).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listWarehouseEngineInstances({
+    ...(parsed.data.nomenclatureId !== undefined ? { nomenclatureId: parsed.data.nomenclatureId } : {}),
+    ...(parsed.data.contractId !== undefined ? { contractId: parsed.data.contractId } : {}),
+    ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
+    ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+    ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
+    ...(parsed.data.limit !== undefined ? { limit: parsed.data.limit } : {}),
+    ...(parsed.data.offset !== undefined ? { offset: parsed.data.offset } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/engine-instances', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    nomenclatureId: z.string().uuid(),
+    serialNumber: z.string().min(1),
+    contractId: z.string().uuid().nullable().optional(),
+    warehouseId: z.string().optional(),
+    currentStatus: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await upsertWarehouseEngineInstance({
+    nomenclatureId: parsed.data.nomenclatureId,
+    serialNumber: parsed.data.serialNumber,
+    ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
+    ...(parsed.data.contractId !== undefined ? { contractId: parsed.data.contractId } : {}),
+    ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
+    ...(parsed.data.currentStatus !== undefined ? { currentStatus: parsed.data.currentStatus } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.delete('/engine-instances/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await deleteWarehouseEngineInstance({ id });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

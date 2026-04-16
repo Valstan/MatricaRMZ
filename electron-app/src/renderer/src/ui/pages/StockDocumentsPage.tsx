@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { WarehouseDocumentListItem, WarehouseDocumentType } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, warehouseDocTypeLabel, WAREHOUSE_DOC_STATUS_OPTIONS, WAREHOUSE_DOC_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
@@ -21,11 +22,20 @@ export function StockDocumentsPage(props: {
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [docStatus, docType, fromDate, query, toDate, warehouseId]);
 
   const refresh = useCallback(async () => {
     try {
       setStatus('Загрузка документов...');
       const result = await window.matrica.warehouse.documentsList({
+        limit: pageSize,
+        offset: pageIndex * pageSize,
         ...(docType ? { docType } : {}),
         ...(docStatus ? { status: docStatus } : {}),
         ...(query.trim() ? { search: query.trim() } : {}),
@@ -38,11 +48,12 @@ export function StockDocumentsPage(props: {
         return;
       }
       setRows((result.rows ?? []) as WarehouseDocumentListItem[]);
+      setHasMore(Boolean(result.hasMore));
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [docStatus, docType, fromDate, query, toDate, warehouseId]);
+  }, [docStatus, docType, fromDate, pageIndex, pageSize, query, toDate, warehouseId]);
 
   useEffect(() => {
     setDocType((props.defaultDocType as WarehouseDocumentType) ?? '');
@@ -51,8 +62,6 @@ export function StockDocumentsPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const sorted = useMemo(() => [...rows].sort((a, b) => Number(b.docDate ?? 0) - Number(a.docDate ?? 0)), [rows]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
@@ -113,6 +122,19 @@ export function StockDocumentsPage(props: {
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+        rowCount={rows.length}
+        hasMore={hasMore}
+        disabled={status === 'Загрузка документов...'}
+      />
+
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
         <table className="list-table">
           <thead>
@@ -129,14 +151,14 @@ export function StockDocumentsPage(props: {
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
                 <td colSpan={9} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
                   Нет документов
                 </td>
               </tr>
             ) : (
-              sorted.map((row) => (
+              rows.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
                   <td>{row.docNo || '—'}</td>
                   <td>{warehouseDocTypeLabel(row.docType)}</td>

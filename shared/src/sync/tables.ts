@@ -14,6 +14,8 @@ export const SyncTableName = {
   Notes: 'notes',
   NoteShares: 'note_shares',
   ErpNomenclature: 'erp_nomenclature',
+  ErpNomenclatureEngineBrand: 'erp_nomenclature_engine_brand',
+  ErpEngineInstances: 'erp_engine_instances',
   ErpRegStockBalance: 'erp_reg_stock_balance',
   ErpRegStockMovements: 'erp_reg_stock_movements',
 } as const;

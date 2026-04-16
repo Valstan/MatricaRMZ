@@ -27,7 +27,9 @@ import {
   noteShareRowSchema,
 } from './dto.js';
 import {
+  erpEngineInstanceRowSchema,
   erpNomenclatureRowSchema,
+  erpNomenclatureEngineBrandRowSchema,
   erpRegisterStockBalanceRowSchema,
   erpRegisterStockMovementRowSchema,
 } from './erpDto.js';
@@ -157,19 +159,51 @@ const NOTE_SHARE_FIELDS = withBase(
 const ERP_NOMENCLATURE_FIELDS: readonly FieldMapping[] = [
   { db: 'id', dto: 'id' },
   { db: 'code', dto: 'code' },
+  { db: 'sku', dto: 'sku' },
   { db: 'name', dto: 'name' },
   { db: 'itemType', dto: 'item_type' },
+  { db: 'category', dto: 'category' },
   { db: 'groupId', dto: 'group_id' },
   { db: 'unitId', dto: 'unit_id' },
   { db: 'barcode', dto: 'barcode' },
   { db: 'minStock', dto: 'min_stock' },
   { db: 'maxStock', dto: 'max_stock' },
+  { db: 'defaultBrandId', dto: 'default_brand_id' },
+  { db: 'isSerialTracked', dto: 'is_serial_tracked' },
   { db: 'defaultWarehouseId', dto: 'default_warehouse_id' },
   { db: 'specJson', dto: 'spec_json' },
   { db: 'isActive', dto: 'is_active' },
+  { db: 'syncStatus', dto: 'sync_status' },
+  { db: 'lastServerSeq', dto: 'last_server_seq' },
   { db: 'createdAt', dto: 'created_at' },
   { db: 'updatedAt', dto: 'updated_at' },
   { db: 'deletedAt', dto: 'deleted_at' },
+] as const;
+
+const ERP_NOMENCLATURE_ENGINE_BRAND_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'engineBrandId', dto: 'engine_brand_id' },
+  { db: 'isDefault', dto: 'is_default' },
+  { db: 'createdAt', dto: 'created_at' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'deletedAt', dto: 'deleted_at' },
+  { db: 'syncStatus', dto: 'sync_status' },
+  { db: 'lastServerSeq', dto: 'last_server_seq' },
+] as const;
+
+const ERP_ENGINE_INSTANCE_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'serialNumber', dto: 'serial_number' },
+  { db: 'contractId', dto: 'contract_id' },
+  { db: 'currentStatus', dto: 'current_status' },
+  { db: 'warehouseId', dto: 'warehouse_id' },
+  { db: 'createdAt', dto: 'created_at' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'deletedAt', dto: 'deleted_at' },
+  { db: 'syncStatus', dto: 'sync_status' },
+  { db: 'lastServerSeq', dto: 'last_server_seq' },
 ] as const;
 
 const ERP_STOCK_BALANCE_FIELDS: readonly FieldMapping[] = [
@@ -297,6 +331,22 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_NOMENCLATURE_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.Entities],
+  },
+  {
+    syncName: SyncTableName.ErpNomenclatureEngineBrand,
+    ledgerName: SyncTableName.ErpNomenclatureEngineBrand,
+    schema: erpNomenclatureEngineBrandRowSchema,
+    fields: ERP_NOMENCLATURE_ENGINE_BRAND_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpNomenclature, SyncTableName.Entities],
+  },
+  {
+    syncName: SyncTableName.ErpEngineInstances,
+    ledgerName: SyncTableName.ErpEngineInstances,
+    schema: erpEngineInstanceRowSchema,
+    fields: ERP_ENGINE_INSTANCE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpNomenclature],
   },
   {
     syncName: SyncTableName.ErpRegStockBalance,
