@@ -260,6 +260,13 @@
       "when": 1773302400000,
       "tag": "0036_warehouse_three_level_split",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1776345600000,
+      "tag": "0038_warehouse_incoming_planned",
+      "breakpoints": true
     }
   ]
 }

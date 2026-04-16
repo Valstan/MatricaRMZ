@@ -552,6 +552,22 @@ export async function warehouseDocumentPost(
   }
 }
 
+export async function warehouseDocumentPlan(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/plan`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseDocumentCancel(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -563,6 +579,26 @@ export async function warehouseDocumentCancel(
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
     return { ok: true as const, id: String(r.json.id ?? id), status: String(r.json.status ?? 'cancelled') };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseForecastIncomingGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { from: number; to: number; warehouseId?: string },
+) {
+  try {
+    const qp = new URLSearchParams();
+    qp.set('from', String(Math.trunc(args.from)));
+    qp.set('to', String(Math.trunc(args.to)));
+    if (args.warehouseId) qp.set('warehouseId', String(args.warehouseId));
+    const path = `/warehouse/forecast/incoming?${qp.toString()}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }

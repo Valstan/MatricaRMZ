@@ -21,6 +21,11 @@ export const WAREHOUSE_ITEM_TYPE_OPTIONS: Array<{ id: NomenclatureItemType | '';
 export const WAREHOUSE_DOC_TYPE_OPTIONS: Array<{ id: WarehouseDocumentType | ''; label: string }> = [
   { id: '', label: 'Все типы' },
   { id: WarehouseDocumentType.StockReceipt, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockReceipt] },
+  { id: WarehouseDocumentType.InventoryOpening, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.InventoryOpening] },
+  { id: WarehouseDocumentType.PurchaseReceipt, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.PurchaseReceipt] },
+  { id: WarehouseDocumentType.ProductionRelease, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.ProductionRelease] },
+  { id: WarehouseDocumentType.RepairRecovery, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.RepairRecovery] },
+  { id: WarehouseDocumentType.EngineDismantling, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.EngineDismantling] },
   { id: WarehouseDocumentType.StockIssue, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockIssue] },
   { id: WarehouseDocumentType.StockTransfer, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockTransfer] },
   { id: WarehouseDocumentType.StockWriteoff, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockWriteoff] },
@@ -30,6 +35,7 @@ export const WAREHOUSE_DOC_TYPE_OPTIONS: Array<{ id: WarehouseDocumentType | '';
 export const WAREHOUSE_DOC_STATUS_OPTIONS = [
   { id: '', label: 'Все статусы' },
   { id: 'draft', label: 'Черновик' },
+  { id: 'planned', label: 'Запланирован' },
   { id: 'posted', label: 'Проведен' },
   { id: 'cancelled', label: 'Отменен' },
 ];

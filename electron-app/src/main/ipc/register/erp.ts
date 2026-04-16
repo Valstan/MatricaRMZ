@@ -16,9 +16,11 @@ import {
   warehouseDocumentCreate,
   warehouseDocumentCancel,
   warehouseDocumentGet,
+  warehouseDocumentPlan,
   warehouseLookupsGet,
   warehouseDocumentPost,
   warehouseDocumentsList,
+  warehouseForecastIncomingGet,
   warehouseMovementsList,
   warehouseNomenclatureDelete,
   warehouseNomenclatureEngineBrandDelete,
@@ -245,6 +247,13 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
+  ipcMain.handle('warehouse:documents:plan', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseDocumentPlan(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
   ipcMain.handle('warehouse:documents:cancel', async (_e, id: string) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
@@ -261,4 +270,11 @@ export function registerErpIpc(ctx: IpcContext) {
       return warehouseMovementsList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
     },
   );
+
+  ipcMain.handle('warehouse:forecast:incoming:get', async (_e, args: { from: number; to: number; warehouseId?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseForecastIncomingGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
 }

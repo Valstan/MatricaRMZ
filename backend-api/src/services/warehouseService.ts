@@ -18,13 +18,16 @@ import {
   erpJournalDocuments,
   erpNomenclature,
   erpNomenclatureEngineBrand,
+  erpPlannedIncoming,
   erpRegStockBalance,
   erpRegStockMovements,
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 
-const STOCK_DOC_TYPES = ['stock_receipt', 'stock_issue', 'stock_transfer', 'stock_writeoff', 'stock_inventory'] as const;
+const INCOMING_DOC_TYPES = ['inventory_opening', 'purchase_receipt', 'production_release', 'repair_recovery', 'engine_dismantling'] as const;
+const STOCK_DOC_TYPES = [...INCOMING_DOC_TYPES, 'stock_receipt', 'stock_issue', 'stock_transfer', 'stock_writeoff', 'stock_inventory'] as const;
 type StockDocType = (typeof STOCK_DOC_TYPES)[number];
+type IncomingDocType = (typeof INCOMING_DOC_TYPES)[number];
 
 type ResultOk<T> = { ok: true } & T;
 type ResultErr = { ok: false; error: string };
@@ -35,8 +38,12 @@ type Actor = { id: string; username: string; role?: string };
 type DocLineInput = {
   qty: number;
   price?: number | null;
+  cost?: number | null;
   partCardId?: string | null;
   nomenclatureId?: string | null;
+  unit?: string | null;
+  batch?: string | null;
+  note?: string | null;
   warehouseId?: string | null;
   fromWarehouseId?: string | null;
   toWarehouseId?: string | null;
@@ -49,6 +56,10 @@ type DocLineInput = {
 
 type HeaderPayloadInput = {
   warehouseId?: string | null;
+  expectedDate?: number | null;
+  sourceType?: string | null;
+  sourceRef?: string | null;
+  contractId?: string | null;
   reason?: string | null;
   counterpartyId?: string | null;
 };
@@ -71,6 +82,18 @@ type PlannedMovement = {
   counterpartyId: string | null;
 };
 
+type PlannedIncomingRow = {
+  documentHeaderId: string;
+  expectedDate: number;
+  warehouseId: string;
+  nomenclatureId: string;
+  qty: number;
+  unit: string | null;
+  sourceType: string;
+  sourceRef: string | null;
+  note: string | null;
+};
+
 const PART_DETAILS_GROUP_NAME = 'Детали';
 const WAREHOUSE_PART_MIRROR_MODE = String(process.env.MATRICA_WAREHOUSE_PART_MIRROR_MODE ?? 'directory').trim().toLowerCase();
 
@@ -89,6 +112,19 @@ function nowMs() {
 
 function isStockDocType(value: string): value is StockDocType {
   return (STOCK_DOC_TYPES as readonly string[]).includes(value);
+}
+
+function isIncomingDocType(value: string): value is IncomingDocType {
+  return (INCOMING_DOC_TYPES as readonly string[]).includes(value);
+}
+
+function resolveIncomingSourceType(docType: string): string {
+  if (docType === 'inventory_opening') return 'opening_balance';
+  if (docType === 'purchase_receipt') return 'supplier_purchase';
+  if (docType === 'production_release') return 'production_release';
+  if (docType === 'repair_recovery') return 'repair_recovery';
+  if (docType === 'engine_dismantling') return 'engine_dismantling';
+  return 'supplier_purchase';
 }
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
@@ -444,6 +480,10 @@ function parseWarehouseHeaderPayload(raw: string | null | undefined) {
   const payload = parseJsonObject(raw);
   return {
     warehouseId: strField(payload, 'warehouseId') ?? null,
+    expectedDate: numField(payload, 'expectedDate') ?? null,
+    sourceType: strField(payload, 'sourceType') ?? null,
+    sourceRef: strField(payload, 'sourceRef') ?? null,
+    contractId: strField(payload, 'contractId') ?? null,
     reason: strField(payload, 'reason') ?? null,
     counterpartyId: strField(payload, 'counterpartyId') ?? null,
   };
@@ -453,6 +493,10 @@ function parseWarehouseLinePayload(raw: string | null | undefined) {
   const payload = parseJsonObject(raw);
   return {
     nomenclatureId: strField(payload, 'nomenclatureId') ?? null,
+    unit: strField(payload, 'unit') ?? null,
+    batch: strField(payload, 'batch') ?? null,
+    note: strField(payload, 'note') ?? null,
+    cost: numField(payload, 'cost') ?? null,
     warehouseId: strField(payload, 'warehouseId') ?? null,
     fromWarehouseId: strField(payload, 'fromWarehouseId') ?? null,
     toWarehouseId: strField(payload, 'toWarehouseId') ?? null,
@@ -466,6 +510,10 @@ function parseWarehouseLinePayload(raw: string | null | undefined) {
 function mergeHeaderPayloadJson(raw: string | null | undefined, input?: HeaderPayloadInput | null) {
   const payload = parseJsonObject(raw);
   if (input?.warehouseId !== undefined) payload.warehouseId = input.warehouseId;
+  if (input?.expectedDate !== undefined) payload.expectedDate = input.expectedDate;
+  if (input?.sourceType !== undefined) payload.sourceType = input.sourceType;
+  if (input?.sourceRef !== undefined) payload.sourceRef = input.sourceRef;
+  if (input?.contractId !== undefined) payload.contractId = input.contractId;
   if (input?.reason !== undefined) payload.reason = input.reason;
   if (input?.counterpartyId !== undefined) payload.counterpartyId = input.counterpartyId;
   const compact = Object.fromEntries(Object.entries(payload).filter((entry) => entry[1] != null && entry[1] !== ''));
@@ -475,6 +523,10 @@ function mergeHeaderPayloadJson(raw: string | null | undefined, input?: HeaderPa
 function mergeLinePayloadJson(raw: string | null | undefined, input: DocLineInput) {
   const payload = parseJsonObject(raw);
   if (input.nomenclatureId !== undefined) payload.nomenclatureId = input.nomenclatureId;
+  if (input.unit !== undefined) payload.unit = input.unit;
+  if (input.batch !== undefined) payload.batch = input.batch;
+  if (input.note !== undefined) payload.note = input.note;
+  if (input.cost !== undefined) payload.cost = input.cost;
   if (input.warehouseId !== undefined) payload.warehouseId = input.warehouseId;
   if (input.fromWarehouseId !== undefined) payload.fromWarehouseId = input.fromWarehouseId;
   if (input.toWarehouseId !== undefined) payload.toWarehouseId = input.toWarehouseId;
@@ -484,6 +536,71 @@ function mergeLinePayloadJson(raw: string | null | undefined, input: DocLineInpu
   if (input.reason !== undefined) payload.reason = input.reason;
   const compact = Object.fromEntries(Object.entries(payload).filter((entry) => entry[1] != null && entry[1] !== ''));
   return Object.keys(compact).length > 0 ? JSON.stringify(compact) : null;
+}
+
+function buildPlannedIncomingRows(args: {
+  documentId: string;
+  docType: string;
+  headerPayload: ReturnType<typeof parseWarehouseHeaderPayload>;
+  lines: Array<{ qty: number; payloadJson: string | null }>;
+}): PlannedIncomingRow[] {
+  if (!isIncomingDocType(args.docType)) return [];
+  const expectedDate = Math.trunc(
+    Number(args.headerPayload.expectedDate ?? Date.now()),
+  );
+  const sourceType = args.headerPayload.sourceType ?? resolveIncomingSourceType(args.docType);
+  const sourceRef = args.headerPayload.sourceRef ?? null;
+  const rows: PlannedIncomingRow[] = [];
+  for (const line of args.lines) {
+    const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
+    if (qty <= 0) continue;
+    const payload = parseWarehouseLinePayload(line.payloadJson);
+    if (!payload.nomenclatureId) continue;
+    rows.push({
+      documentHeaderId: args.documentId,
+      expectedDate,
+      warehouseId: payload.warehouseId ?? args.headerPayload.warehouseId ?? 'default',
+      nomenclatureId: payload.nomenclatureId,
+      qty,
+      unit: payload.unit ?? null,
+      sourceType,
+      sourceRef,
+      note: payload.note ?? null,
+    });
+  }
+  return rows;
+}
+
+async function replacePlannedIncomingRows(documentId: string, rows: PlannedIncomingRow[], ts: number) {
+  await db
+    .update(erpPlannedIncoming)
+    .set({ deletedAt: ts, updatedAt: ts })
+    .where(and(eq(erpPlannedIncoming.documentHeaderId, documentId), isNull(erpPlannedIncoming.deletedAt)));
+  if (rows.length === 0) return;
+  await db.insert(erpPlannedIncoming).values(
+    rows.map((row) => ({
+      id: randomUUID(),
+      documentHeaderId: row.documentHeaderId,
+      expectedDate: row.expectedDate,
+      warehouseId: row.warehouseId,
+      nomenclatureId: row.nomenclatureId,
+      qty: row.qty,
+      unit: row.unit,
+      sourceType: row.sourceType,
+      sourceRef: row.sourceRef,
+      note: row.note,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+    })),
+  );
+}
+
+async function clearPlannedIncomingRows(documentId: string, ts: number) {
+  await db
+    .update(erpPlannedIncoming)
+    .set({ deletedAt: ts, updatedAt: ts })
+    .where(and(eq(erpPlannedIncoming.documentHeaderId, documentId), isNull(erpPlannedIncoming.deletedAt)));
 }
 
 export async function listWarehouseLookups(): Promise<
@@ -1219,6 +1336,10 @@ export async function listWarehouseDocuments(args?: {
       return {
         ...row,
         warehouseId: headerPayload.warehouseId,
+        expectedDate: headerPayload.expectedDate,
+        sourceType: headerPayload.sourceType,
+        sourceRef: headerPayload.sourceRef,
+        contractId: headerPayload.contractId,
         warehouseName: readLookupLabel(refs.warehouseById, headerPayload.warehouseId),
         reason: headerPayload.reason,
         reasonLabel,
@@ -1246,6 +1367,63 @@ export async function listWarehouseDocuments(args?: {
     const hasMore = pageSlice.length > limit;
     const rowsOut = hasMore ? pageSlice.slice(0, limit) : pageSlice;
     return { ok: true, rows: rowsOut, hasMore };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listWarehouseForecastIncoming(args: {
+  from: number;
+  to: number;
+  warehouseId?: string;
+}): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  try {
+    const from = Math.trunc(Number(args.from));
+    const to = Math.trunc(Number(args.to));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return { ok: false, error: 'Некорректный период from/to' };
+    const rows = await db
+      .select()
+      .from(erpPlannedIncoming)
+      .where(and(isNull(erpPlannedIncoming.deletedAt), sql`${erpPlannedIncoming.expectedDate} >= ${from}`, sql`${erpPlannedIncoming.expectedDate} <= ${to}`))
+      .orderBy(asc(erpPlannedIncoming.expectedDate), asc(erpPlannedIncoming.warehouseId));
+    const filtered = rows.filter((row) => (args.warehouseId ? String(row.warehouseId) === String(args.warehouseId) : true));
+    const nomenclatureIds = Array.from(new Set(filtered.map((row) => String(row.nomenclatureId)).filter(Boolean)));
+    const nomenclatureRows =
+      nomenclatureIds.length > 0
+        ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
+        : [];
+    const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+    const grouped = new Map<string, Record<string, unknown>>();
+    for (const row of filtered) {
+      const key = `${row.expectedDate}::${row.warehouseId}::${row.nomenclatureId}::${row.sourceType}::${row.unit ?? ''}`;
+      const existing = grouped.get(key);
+      const nomenclature = nomenclatureById.get(String(row.nomenclatureId));
+      if (!existing) {
+        grouped.set(key, {
+          expectedDate: Number(row.expectedDate),
+          warehouseId: String(row.warehouseId),
+          nomenclatureId: String(row.nomenclatureId),
+          nomenclatureCode: nomenclature?.code ?? null,
+          nomenclatureName: nomenclature?.name ?? null,
+          unit: row.unit ?? null,
+          sourceType: String(row.sourceType),
+          qty: Number(row.qty ?? 0),
+        });
+      } else {
+        existing.qty = Number(existing.qty ?? 0) + Number(row.qty ?? 0);
+      }
+    }
+    return {
+      ok: true,
+      rows: Array.from(grouped.values()).sort((a, b) => {
+        const da = Number((a as { expectedDate?: unknown }).expectedDate ?? 0);
+        const dbv = Number((b as { expectedDate?: unknown }).expectedDate ?? 0);
+        if (da !== dbv) return da - dbv;
+        const wa = String((a as { warehouseId?: unknown }).warehouseId ?? '');
+        const wb = String((b as { warehouseId?: unknown }).warehouseId ?? '');
+        return wa.localeCompare(wb, 'ru');
+      }),
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -1288,6 +1466,10 @@ export async function getWarehouseDocument(args: {
         header: {
           ...header,
           warehouseId: headerPayload.warehouseId,
+          expectedDate: headerPayload.expectedDate,
+          sourceType: headerPayload.sourceType,
+          sourceRef: headerPayload.sourceRef,
+          contractId: headerPayload.contractId,
           warehouseName: readLookupLabel(refs.warehouseById, headerPayload.warehouseId),
           reason: headerPayload.reason,
           reasonLabel: readLookupLabel(refs.writeoffReasonById, headerPayload.reason) ?? headerPayload.reason,
@@ -1305,6 +1487,10 @@ export async function getWarehouseDocument(args: {
             nomenclatureId: payload.nomenclatureId,
             nomenclatureCode: nomenclature?.code ?? null,
             nomenclatureName: nomenclature?.name ?? null,
+            unit: payload.unit,
+            batch: payload.batch,
+            note: payload.note,
+            cost: payload.cost,
             warehouseId: payload.warehouseId,
             warehouseName: readLookupLabel(refs.warehouseById, payload.warehouseId),
             fromWarehouseId: payload.fromWarehouseId,
@@ -1328,6 +1514,7 @@ export async function getWarehouseDocument(args: {
 export async function createWarehouseDocument(args: {
   id?: string;
   docType: string;
+  status?: string;
   docNo: string;
   docDate?: number;
   departmentId?: string | null;
@@ -1339,9 +1526,30 @@ export async function createWarehouseDocument(args: {
 }): Promise<Result<{ id: string }>> {
   try {
     if (!isStockDocType(String(args.docType))) return { ok: false, error: 'Неподдерживаемый тип складского документа' };
+    const requestedStatus = String(args.status ?? 'draft');
+    if (requestedStatus !== 'draft' && requestedStatus !== 'planned') {
+      return { ok: false, error: 'Разрешены только статусы draft/planned при сохранении документа' };
+    }
+    if (requestedStatus === 'planned' && !isIncomingDocType(String(args.docType))) {
+      return { ok: false, error: 'Статус planned доступен только для документов прихода' };
+    }
     const ts = nowMs();
     const id = String(args.id || randomUUID());
     const docDate = Math.trunc(Number(args.docDate ?? ts));
+    const targetSourceType = isIncomingDocType(String(args.docType))
+      ? args.header?.sourceType ?? resolveIncomingSourceType(String(args.docType))
+      : undefined;
+    if (String(args.docType) === 'inventory_opening') {
+      const hasCounterparty = Boolean(String(args.header?.counterpartyId ?? '').trim());
+      const hasContract = Boolean(String(args.header?.contractId ?? '').trim());
+      if (hasCounterparty || hasContract) {
+        return { ok: false, error: 'Для inventory_opening не требуется привязка к поставщику/контракту' };
+      }
+    }
+    const mergedHeaderPayloadJson = mergeHeaderPayloadJson(args.payloadJson, {
+      ...(args.header ?? {}),
+      ...(targetSourceType ? { sourceType: targetSourceType } : {}),
+    });
     if (args.id) {
       const existing = await db
         .select({ id: erpDocumentHeaders.id, status: erpDocumentHeaders.status })
@@ -1356,9 +1564,10 @@ export async function createWarehouseDocument(args: {
           docType: String(args.docType),
           docNo: String(args.docNo),
           docDate,
+          status: requestedStatus,
           authorId: args.authorId ?? null,
           departmentId: args.departmentId ?? null,
-          payloadJson: mergeHeaderPayloadJson(args.payloadJson, args.header),
+          payloadJson: mergedHeaderPayloadJson,
           updatedAt: ts,
         })
         .where(eq(erpDocumentHeaders.id, id));
@@ -1369,10 +1578,10 @@ export async function createWarehouseDocument(args: {
         docType: String(args.docType),
         docNo: String(args.docNo),
         docDate,
-        status: 'draft',
+        status: requestedStatus,
         authorId: args.authorId ?? null,
         departmentId: args.departmentId ?? null,
-        payloadJson: mergeHeaderPayloadJson(args.payloadJson, args.header),
+        payloadJson: mergedHeaderPayloadJson,
         createdAt: ts,
         updatedAt: ts,
         postedAt: null,
@@ -1386,7 +1595,7 @@ export async function createWarehouseDocument(args: {
         lineNo: idx + 1,
         partCardId: line.partCardId ?? null,
         qty: Math.max(0, Math.trunc(Number(line.qty))),
-        price: line.price == null ? null : Math.trunc(Number(line.price)),
+        price: line.price == null && line.cost != null ? Math.trunc(Number(line.cost)) : line.price == null ? null : Math.trunc(Number(line.price)),
         payloadJson: mergeLinePayloadJson(line.payloadJson, line),
         createdAt: ts,
         updatedAt: ts,
@@ -1394,6 +1603,14 @@ export async function createWarehouseDocument(args: {
       };
     });
     if (lines.length > 0) await db.insert(erpDocumentLines).values(lines);
+    if (requestedStatus === 'planned' && isIncomingDocType(String(args.docType))) {
+      const headerPayload = parseWarehouseHeaderPayload(mergedHeaderPayloadJson);
+      const plannedRows = buildPlannedIncomingRows({ documentId: id, docType: String(args.docType), headerPayload, lines });
+      if (plannedRows.length === 0) return { ok: false, error: 'Для planned-документа прихода нужны строки с количеством и номенклатурой' };
+      await replacePlannedIncomingRows(id, plannedRows, ts);
+    } else {
+      await clearPlannedIncomingRows(id, ts);
+    }
     await db.insert(erpJournalDocuments).values({
       id: randomUUID(),
       documentHeaderId: id,
@@ -1425,6 +1642,7 @@ export async function cancelWarehouseDocument(args: {
     if (String(header.status) === 'cancelled') return { ok: true, id: args.documentId, status: 'cancelled' };
 
     await db.update(erpDocumentHeaders).set({ status: 'cancelled', updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
+    await clearPlannedIncomingRows(args.documentId, ts);
     await db.insert(erpJournalDocuments).values({
       id: randomUUID(),
       documentHeaderId: args.documentId,
@@ -1434,6 +1652,58 @@ export async function cancelWarehouseDocument(args: {
     });
 
     return { ok: true, id: args.documentId, status: 'cancelled' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function planWarehouseDocument(args: {
+  documentId: string;
+  actor: Actor;
+}): Promise<Result<{ id: string; planned: boolean }>> {
+  try {
+    const ts = nowMs();
+    const headers = await db
+      .select()
+      .from(erpDocumentHeaders)
+      .where(and(eq(erpDocumentHeaders.id, args.documentId), isNull(erpDocumentHeaders.deletedAt)))
+      .limit(1);
+    const header = headers[0];
+    if (!header) return { ok: false, error: 'Документ не найден' };
+    if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
+    if (!isIncomingDocType(String(header.docType))) return { ok: false, error: 'Планирование доступно только для документов прихода' };
+    if (String(header.status) === 'posted') return { ok: false, error: 'Проведенный документ нельзя перевести в planned' };
+    if (String(header.status) === 'cancelled') return { ok: false, error: 'Отмененный документ нельзя запланировать' };
+    if (String(header.status) !== 'draft' && String(header.status) !== 'planned') {
+      return { ok: false, error: 'Документ должен быть в статусе draft или planned' };
+    }
+
+    const lines = await db
+      .select()
+      .from(erpDocumentLines)
+      .where(and(eq(erpDocumentLines.headerId, args.documentId), isNull(erpDocumentLines.deletedAt)))
+      .orderBy(asc(erpDocumentLines.lineNo));
+    const headerPayload = parseWarehouseHeaderPayload(header.payloadJson);
+    const plannedRows = buildPlannedIncomingRows({
+      documentId: args.documentId,
+      docType: String(header.docType),
+      headerPayload: {
+        ...headerPayload,
+        sourceType: headerPayload.sourceType ?? resolveIncomingSourceType(String(header.docType)),
+      },
+      lines,
+    });
+    if (plannedRows.length === 0) return { ok: false, error: 'Для planned-документа прихода нужны строки с количеством и номенклатурой' };
+    await replacePlannedIncomingRows(args.documentId, plannedRows, ts);
+    await db.update(erpDocumentHeaders).set({ status: 'planned', updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
+    await db.insert(erpJournalDocuments).values({
+      id: randomUUID(),
+      documentHeaderId: args.documentId,
+      eventType: 'planned',
+      eventPayloadJson: JSON.stringify({ by: args.actor.username }),
+      eventAt: ts,
+    });
+    return { ok: true, id: args.documentId, planned: true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -1454,6 +1724,9 @@ export async function postWarehouseDocument(args: {
     if (!header) return { ok: false, error: 'Документ не найден' };
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
     if (String(header.status) === 'posted') return { ok: true, id: args.documentId, posted: true };
+    if (isIncomingDocType(String(header.docType)) && String(header.status) !== 'planned') {
+      return { ok: false, error: 'Документ прихода можно провести только из статуса planned' };
+    }
 
     const headerPayload = parseJsonObject(header.payloadJson ?? null);
     const lines = await db
@@ -1471,7 +1744,7 @@ export async function postWarehouseDocument(args: {
       const reason = strField(payload, 'reason') ?? strField(headerPayload, 'reason') ?? null;
       const counterpartyId = strField(headerPayload, 'counterpartyId') ?? null;
 
-      if (String(header.docType) === 'stock_receipt') {
+      if (String(header.docType) === 'stock_receipt' || isIncomingDocType(String(header.docType))) {
         if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
         planned.push({ nomenclatureId, warehouseId, movementType: 'receipt', direction: 'in', qty, delta: qty, reason, counterpartyId });
@@ -1583,6 +1856,7 @@ export async function postWarehouseDocument(args: {
     }
 
     await db.update(erpDocumentHeaders).set({ status: 'posted', postedAt: ts, updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
+    await clearPlannedIncomingRows(args.documentId, ts);
     await db.insert(erpJournalDocuments).values({
       id: randomUUID(),
       documentHeaderId: args.documentId,

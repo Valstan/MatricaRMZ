@@ -522,18 +522,6 @@ export function Tabs(props: {
     });
   }
 
-  function toggleGroup(groupId: MenuGroupId) {
-    const nextCollapsed = new Set(collapsedGroups);
-    const isCollapsed = nextCollapsed.has(groupId);
-    if (isCollapsed) nextCollapsed.delete(groupId);
-    else if (activeGroup === groupId) nextCollapsed.add(groupId);
-    const nextActive = isCollapsed ? groupId : activeGroup === groupId ? null : groupId;
-    updateGroupPrefs({
-      activeGroup: nextActive,
-      collapsedGroups: Array.from(nextCollapsed),
-    });
-  }
-
   function hideGroup(groupId: MenuGroupId) {
     const nextHiddenGroups = Array.from(new Set([...(props.layout?.hiddenGroups ?? []), groupId])).filter((g): g is MenuGroupId => isGroupId(String(g)));
     const nextActive = activeGroup === groupId ? groupsInUse.find((g) => g !== groupId) ?? null : activeGroup;
@@ -794,7 +782,6 @@ export function Tabs(props: {
         >
           {groupsInUse.map((groupId) => {
             const isActive = activeGroup === groupId && !collapsedGroups.has(groupId);
-            const isCollapsed = collapsedGroups.has(groupId);
             const deptStyle = isActive ? departmentButtonActiveStyle : departmentButtonInactiveStyle;
             const deptVisual = getDepartmentButtonStyle(deptStyle);
             return (

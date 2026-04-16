@@ -1,9 +1,9 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { computeAssemblyForecast, mergeBrandKits, parseAssemblyIncomingPlanJson } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entityTypes, erpRegStockBalance } from '../database/schema.js';
+import { attributeDefs, attributeValues, entityTypes, erpPlannedIncoming, erpRegStockBalance } from '../database/schema.js';
 import { listAllPartEngineBrandLinksForForecast } from './partsService.js';
 
 type ForecastRequest = {
@@ -82,6 +82,32 @@ async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<st
   return map;
 }
 
+async function loadPlannedIncomingLines(args: { horizonDays: number; warehouseIds?: string[] }) {
+  const now = Date.now();
+  const from = now;
+  const to = now + args.horizonDays * 24 * 60 * 60 * 1000;
+  const rows = await db
+    .select()
+    .from(erpPlannedIncoming)
+    .where(and(isNull(erpPlannedIncoming.deletedAt), sql`${erpPlannedIncoming.expectedDate} >= ${from}`, sql`${erpPlannedIncoming.expectedDate} <= ${to}`));
+  const map = new Map<string, number>();
+  for (const row of rows as any[]) {
+    const wh = String(row.warehouseId ?? 'default');
+    if (args.warehouseIds?.length && !args.warehouseIds.includes(wh)) continue;
+    const nomenclatureId = String(row.nomenclatureId ?? '').trim();
+    if (!nomenclatureId) continue;
+    const qty = Math.max(0, Math.floor(Number(row.qty ?? 0)));
+    if (!qty) continue;
+    const dayOffset = Math.max(0, Math.floor((Number(row.expectedDate ?? now) - now) / (24 * 60 * 60 * 1000)));
+    const key = `${dayOffset}::${nomenclatureId}`;
+    map.set(key, (map.get(key) ?? 0) + qty);
+  }
+  return Array.from(map.entries()).map(([key, qty]) => {
+    const [offsetRaw, nomenclatureId] = key.split('::');
+    return { dayOffset: Math.max(0, Math.min(13, Number(offsetRaw) || 0)), nomenclatureId: String(nomenclatureId), qty };
+  });
+}
+
 export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const horizonDays = Math.max(1, Math.min(14, Math.floor(Number(args.horizonDays ?? 7))));
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(args.targetEnginesPerDay ?? 0)));
@@ -89,6 +115,23 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const brandFilter = Array.isArray(args.brandIds) ? new Set(args.brandIds.map(String)) : null;
   const sleeveSearch = String(args.sleeveSearch ?? '');
   const incomingLines = parseAssemblyIncomingPlanJson(args.incomingPlan ?? []);
+  const dbIncomingLines = await loadPlannedIncomingLines({
+    horizonDays,
+    ...(warehouseIds ? { warehouseIds } : {}),
+  });
+  const mergedIncomingMap = new Map<string, number>();
+  for (const line of [...dbIncomingLines, ...incomingLines]) {
+    const key = `${line.dayOffset}::${line.nomenclatureId}`;
+    mergedIncomingMap.set(key, (mergedIncomingMap.get(key) ?? 0) + Math.max(0, Math.floor(Number(line.qty ?? 0))));
+  }
+  const mergedIncomingLines = Array.from(mergedIncomingMap.entries())
+    .map(([key, qty]) => {
+      const [dayOffsetRaw, nomenclatureIdRaw] = key.split('::');
+      const nomenclatureId = String(nomenclatureIdRaw ?? '').trim();
+      if (!nomenclatureId) return null;
+      return { dayOffset: Number(dayOffsetRaw) || 0, nomenclatureId, qty };
+    })
+    .filter((line): line is { dayOffset: number; nomenclatureId: string; qty: number } => Boolean(line));
 
   const links = await listAllPartEngineBrandLinksForForecast();
   const partIds = Array.from(new Set(links.map((l) => String(l.partId))));
@@ -131,7 +174,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     warehouseId: warehouseIds?.length === 1 ? warehouseIds[0]! : null,
     kits,
     stockByNomenclatureId: stock,
-    incomingLines,
+    incomingLines: mergedIncomingLines,
     sleeveSearch,
   });
 }

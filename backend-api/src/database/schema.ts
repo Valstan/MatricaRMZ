@@ -910,6 +910,38 @@ export const erpNomenclature = pgTable(
   }),
 );
 
+export const erpPlannedIncoming = pgTable(
+  'erp_planned_incoming',
+  {
+    /** Server-side read model for forecast incoming; intentionally not part of client sync tables. */
+    id: uuid('id').primaryKey(),
+    documentHeaderId: uuid('document_header_id')
+      .notNull()
+      .references(() => erpDocumentHeaders.id),
+    expectedDate: bigint('expected_date', { mode: 'number' }).notNull(),
+    warehouseId: text('warehouse_id').notNull().default('default'),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    qty: integer('qty').notNull().default(0),
+    unit: text('unit'),
+    sourceType: text('source_type').notNull(),
+    sourceRef: text('source_ref'),
+    note: text('note'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    docNomenclatureWarehouseUq: uniqueIndex('erp_planned_incoming_doc_nomenclature_warehouse_uq')
+      .on(t.documentHeaderId, t.nomenclatureId, t.warehouseId)
+      .where(sql`${t.deletedAt} is null`),
+    expectedDateIdx: index('erp_planned_incoming_expected_date_idx').on(t.expectedDate),
+    warehouseDateIdx: index('erp_planned_incoming_warehouse_date_idx').on(t.warehouseId, t.expectedDate),
+    nomenclatureDateIdx: index('erp_planned_incoming_nomenclature_date_idx').on(t.nomenclatureId, t.expectedDate),
+  }),
+);
+
 export const erpNomenclatureEngineBrand = pgTable(
   'erp_nomenclature_engine_brand',
   {

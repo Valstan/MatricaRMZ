@@ -10,6 +10,7 @@ import {
   deleteWarehouseNomenclatureEngineBrand,
   deleteWarehouseNomenclature,
   getWarehouseDocument,
+  listWarehouseForecastIncoming,
   listWarehouseLookups,
   listWarehouseDocuments,
   listWarehouseEngineInstances,
@@ -18,6 +19,7 @@ import {
   listWarehouseNomenclature,
   listWarehouseStock,
   postWarehouseDocument,
+  planWarehouseDocument,
   upsertWarehouseEngineInstance,
   upsertWarehouseNomenclatureEngineBrand,
   upsertWarehouseNomenclature,
@@ -268,6 +270,7 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
   const schema = z.object({
     id: z.string().uuid().optional(),
     docType: z.string().min(1),
+    status: z.enum(['draft', 'planned']).optional(),
     docNo: z.string().min(1),
     docDate: z.coerce.number().int().optional(),
     departmentId: z.string().nullable().optional(),
@@ -275,6 +278,10 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
     header: z
       .object({
         warehouseId: z.string().nullable().optional(),
+        expectedDate: z.coerce.number().int().nullable().optional(),
+        sourceType: z.string().nullable().optional(),
+        sourceRef: z.string().nullable().optional(),
+        contractId: z.string().nullable().optional(),
         reason: z.string().nullable().optional(),
         counterpartyId: z.string().uuid().nullable().optional(),
       })
@@ -285,8 +292,12 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
         z.object({
           qty: z.coerce.number().int(),
           price: z.coerce.number().int().nullable().optional(),
+          cost: z.coerce.number().int().nullable().optional(),
           partCardId: z.string().uuid().nullable().optional(),
           nomenclatureId: z.string().uuid().nullable().optional(),
+          unit: z.string().nullable().optional(),
+          batch: z.string().nullable().optional(),
+          note: z.string().nullable().optional(),
           warehouseId: z.string().nullable().optional(),
           fromWarehouseId: z.string().nullable().optional(),
           toWarehouseId: z.string().nullable().optional(),
@@ -305,12 +316,17 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
   const result = await createWarehouseDocument({
     ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
     docType: parsed.data.docType,
+    ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
     docNo: parsed.data.docNo,
     lines: parsed.data.lines.map((line) => ({
       qty: line.qty,
       ...(line.price !== undefined ? { price: line.price } : {}),
+      ...(line.cost !== undefined ? { cost: line.cost } : {}),
       ...(line.partCardId !== undefined ? { partCardId: line.partCardId } : {}),
       ...(line.nomenclatureId !== undefined ? { nomenclatureId: line.nomenclatureId } : {}),
+      ...(line.unit !== undefined ? { unit: line.unit } : {}),
+      ...(line.batch !== undefined ? { batch: line.batch } : {}),
+      ...(line.note !== undefined ? { note: line.note } : {}),
       ...(line.warehouseId !== undefined ? { warehouseId: line.warehouseId } : {}),
       ...(line.fromWarehouseId !== undefined ? { fromWarehouseId: line.fromWarehouseId } : {}),
       ...(line.toWarehouseId !== undefined ? { toWarehouseId: line.toWarehouseId } : {}),
@@ -327,12 +343,32 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
       ? {
           header: {
             ...(parsed.data.header.warehouseId !== undefined ? { warehouseId: parsed.data.header.warehouseId } : {}),
+            ...(parsed.data.header.expectedDate !== undefined ? { expectedDate: parsed.data.header.expectedDate } : {}),
+            ...(parsed.data.header.sourceType !== undefined ? { sourceType: parsed.data.header.sourceType } : {}),
+            ...(parsed.data.header.sourceRef !== undefined ? { sourceRef: parsed.data.header.sourceRef } : {}),
+            ...(parsed.data.header.contractId !== undefined ? { contractId: parsed.data.header.contractId } : {}),
             ...(parsed.data.header.reason !== undefined ? { reason: parsed.data.header.reason } : {}),
             ...(parsed.data.header.counterpartyId !== undefined ? { counterpartyId: parsed.data.header.counterpartyId } : {}),
           },
         }
       : {}),
     ...(parsed.data.payloadJson !== undefined ? { payloadJson: parsed.data.payloadJson } : {}),
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/documents/:id/plan', requirePermission(PermissionCode.ErpDocumentsEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await planWarehouseDocument({
+    documentId: id,
     actor: {
       id: String(user?.id ?? ''),
       username: String(user?.username ?? 'unknown'),
@@ -440,4 +476,21 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+warehouseRouter.get('/forecast/incoming', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const schema = z.object({
+    from: z.coerce.number().int(),
+    to: z.coerce.number().int(),
+    warehouseId: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listWarehouseForecastIncoming({
+    from: parsed.data.from,
+    to: parsed.data.to,
+    ...(parsed.data.warehouseId ? { warehouseId: parsed.data.warehouseId } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
 });

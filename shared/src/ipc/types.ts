@@ -556,6 +556,8 @@ import type {
   WarehouseDocumentListItem,
   WarehouseDocumentType,
   WarehouseDocumentUpsertInput,
+  WarehouseForecastIncomingFilter,
+  WarehouseForecastIncomingRow,
   WarehouseLookups,
   WarehouseMovementListItem,
   WarehouseNomenclatureListItem,
@@ -1288,8 +1290,10 @@ export type MatricaApi = {
     }) => Promise<{ ok: true; rows: WarehouseDocumentListItem[]; hasMore?: boolean } | { ok: false; error: string }>;
     documentGet: (id: string) => Promise<{ ok: true; document: WarehouseDocumentDetails } | { ok: false; error: string }>;
     documentCreate: (args: WarehouseDocumentUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    documentPlan: (id: string) => Promise<{ ok: true; id: string; planned?: boolean } | { ok: false; error: string }>;
     documentPost: (id: string) => Promise<{ ok: true; id: string; posted?: boolean } | { ok: false; error: string }>;
     documentCancel: (id: string) => Promise<{ ok: true; id: string; status: 'cancelled' } | { ok: false; error: string }>;
+    forecastIncomingGet: (args: WarehouseForecastIncomingFilter) => Promise<{ ok: true; rows: WarehouseForecastIncomingRow[] } | { ok: false; error: string }>;
     movementsList: (args?: {
       nomenclatureId?: string;
       warehouseId?: string;

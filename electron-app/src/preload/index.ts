@@ -420,6 +420,7 @@ const matricaApi = {
     }) => ipcRenderer.invoke('warehouse:documents:list', args),
     documentGet: async (id: string) => ipcRenderer.invoke('warehouse:documents:get', id),
     documentCreate: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:documents:create', args),
+    documentPlan: async (id: string) => ipcRenderer.invoke('warehouse:documents:plan', id),
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
     documentCancel: async (id: string) => ipcRenderer.invoke('warehouse:documents:cancel', id),
     engineInstancesList: async (args?: { nomenclatureId?: string; contractId?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number }) =>
@@ -428,6 +429,7 @@ const matricaApi = {
     engineInstanceDelete: async (id: string) => ipcRenderer.invoke('warehouse:engineInstances:delete', id),
     movementsList: async (args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number }) =>
       ipcRenderer.invoke('warehouse:movements:list', args),
+    forecastIncomingGet: async (args: { from: number; to: number; warehouseId?: string }) => ipcRenderer.invoke('warehouse:forecast:incoming:get', args),
   },
   files: {
     upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>

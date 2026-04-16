@@ -151,6 +151,16 @@ export type WarehouseDocument = {
   lines: WarehouseDocumentLine[];
 };
 
+export const WarehouseIncomingSourceType = {
+  OpeningBalance: 'opening_balance',
+  SupplierPurchase: 'supplier_purchase',
+  ProductionRelease: 'production_release',
+  RepairRecovery: 'repair_recovery',
+  EngineDismantling: 'engine_dismantling',
+} as const;
+
+export type WarehouseIncomingSourceType = (typeof WarehouseIncomingSourceType)[keyof typeof WarehouseIncomingSourceType];
+
 export type WarehouseNomenclatureFilter = {
   /** Одна позиция по id (для карточки без полного списка). */
   id?: string;
@@ -180,6 +190,11 @@ export type WarehouseDocumentsFilter = {
 
 export const WarehouseDocumentType = {
   StockReceipt: 'stock_receipt',
+  InventoryOpening: 'inventory_opening',
+  PurchaseReceipt: 'purchase_receipt',
+  ProductionRelease: 'production_release',
+  RepairRecovery: 'repair_recovery',
+  EngineDismantling: 'engine_dismantling',
   StockIssue: 'stock_issue',
   StockTransfer: 'stock_transfer',
   StockWriteoff: 'stock_writeoff',
@@ -190,6 +205,11 @@ export type WarehouseDocumentType = (typeof WarehouseDocumentType)[keyof typeof 
 
 export const WarehouseDocumentTypeLabels: Record<WarehouseDocumentType, string> = {
   [WarehouseDocumentType.StockReceipt]: 'Приход',
+  [WarehouseDocumentType.InventoryOpening]: 'Ввод начальных остатков',
+  [WarehouseDocumentType.PurchaseReceipt]: 'Приход от поставщика',
+  [WarehouseDocumentType.ProductionRelease]: 'Выпуск производства',
+  [WarehouseDocumentType.RepairRecovery]: 'Восстановление после ремонта',
+  [WarehouseDocumentType.EngineDismantling]: 'Разборка двигателя-донора',
   [WarehouseDocumentType.StockIssue]: 'Расход',
   [WarehouseDocumentType.StockTransfer]: 'Перемещение',
   [WarehouseDocumentType.StockWriteoff]: 'Списание',
@@ -228,12 +248,20 @@ export type WarehouseLookups = {
 
 export type WarehouseDocumentHeaderPayload = {
   warehouseId: string | null;
+  expectedDate: number | null;
+  sourceType: WarehouseIncomingSourceType | null;
+  sourceRef: string | null;
+  contractId: string | null;
   reason: string | null;
   counterpartyId: string | null;
 };
 
 export type WarehouseDocumentLinePayload = {
   nomenclatureId: string | null;
+  unit: string | null;
+  batch: string | null;
+  note: string | null;
+  cost: number | null;
   warehouseId: string | null;
   fromWarehouseId: string | null;
   toWarehouseId: string | null;
@@ -276,9 +304,17 @@ export type WarehouseDocumentLineDto = {
   price: number | null;
   partCardId: string | null;
   nomenclatureId: string | null;
+  unit?: string | null;
+  batch?: string | null;
+  note?: string | null;
+  cost?: number | null;
   nomenclatureCode: string | null;
   nomenclatureName: string | null;
   warehouseId: string | null;
+  expectedDate?: number | null;
+  sourceType?: WarehouseIncomingSourceType | string | null;
+  sourceRef?: string | null;
+  contractId?: string | null;
   warehouseName: string | null;
   fromWarehouseId: string | null;
   fromWarehouseName: string | null;
@@ -334,8 +370,12 @@ export type WarehouseMovementListItem = StockMovement & {
 export type WarehouseDocumentLineInput = {
   qty: number;
   price?: number | null;
+  cost?: number | null;
   partCardId?: string | null;
   nomenclatureId?: string | null;
+  unit?: string | null;
+  batch?: string | null;
+  note?: string | null;
   warehouseId?: string | null;
   fromWarehouseId?: string | null;
   toWarehouseId?: string | null;
@@ -349,6 +389,7 @@ export type WarehouseDocumentLineInput = {
 export type WarehouseDocumentUpsertInput = {
   id?: string;
   docType: WarehouseDocumentType;
+  status?: ErpDocumentStatus;
   docNo: string;
   docDate?: number;
   departmentId?: string | null;
@@ -356,10 +397,31 @@ export type WarehouseDocumentUpsertInput = {
   payloadJson?: string | null;
   header?: {
     warehouseId?: string | null;
+    expectedDate?: number | null;
+    sourceType?: WarehouseIncomingSourceType | null;
+    sourceRef?: string | null;
+    contractId?: string | null;
     reason?: string | null;
     counterpartyId?: string | null;
   };
   lines: WarehouseDocumentLineInput[];
+};
+
+export type WarehouseForecastIncomingFilter = {
+  from: number;
+  to: number;
+  warehouseId?: string;
+};
+
+export type WarehouseForecastIncomingRow = {
+  expectedDate: number;
+  warehouseId: string;
+  nomenclatureId: string;
+  nomenclatureCode: string | null;
+  nomenclatureName: string | null;
+  unit: string | null;
+  sourceType: WarehouseIncomingSourceType | string;
+  qty: number;
 };
 
 export const EngineInstanceStatus = {

@@ -26,6 +26,11 @@ export const ErpDocumentType = {
   PartsWriteoff: 'parts_writeoff',
   PartsTransfer: 'parts_transfer',
   StockReceipt: 'stock_receipt',
+  InventoryOpening: 'inventory_opening',
+  PurchaseReceipt: 'purchase_receipt',
+  ProductionRelease: 'production_release',
+  RepairRecovery: 'repair_recovery',
+  EngineDismantling: 'engine_dismantling',
   StockIssue: 'stock_issue',
   StockTransfer: 'stock_transfer',
   StockWriteoff: 'stock_writeoff',
@@ -36,6 +41,7 @@ export type ErpDocumentType = (typeof ErpDocumentType)[keyof typeof ErpDocumentT
 
 export const ErpDocumentStatus = {
   Draft: 'draft',
+  Planned: 'planned',
   Posted: 'posted',
   Closed: 'closed',
   Cancelled: 'cancelled',

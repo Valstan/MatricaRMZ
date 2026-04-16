@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocumentType } from '@matricarmz/shared';
+import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocumentType, WarehouseIncomingSourceType } from '@matricarmz/shared';
 import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -17,6 +17,9 @@ type EditableLine = {
   nomenclatureId: string | null;
   qty: string;
   price: string;
+  unit: string;
+  batch: string;
+  note: string;
   warehouseId: string | null;
   fromWarehouseId: string | null;
   toWarehouseId: string | null;
@@ -26,6 +29,22 @@ type EditableLine = {
   reason: string;
 };
 
+const INCOMING_DOC_TYPES: WarehouseDocumentType[] = [
+  'inventory_opening',
+  'purchase_receipt',
+  'production_release',
+  'repair_recovery',
+  'engine_dismantling',
+];
+
+const INCOMING_SOURCE_OPTIONS: Array<{ id: WarehouseIncomingSourceType; label: string }> = [
+  { id: 'opening_balance', label: 'Начальные остатки' },
+  { id: 'supplier_purchase', label: 'Закупка у поставщика' },
+  { id: 'production_release', label: 'Выпуск производства' },
+  { id: 'repair_recovery', label: 'Восстановление после ремонта' },
+  { id: 'engine_dismantling', label: 'Разборка двигателя' },
+];
+
 function toEditableLine(line: WarehouseDocumentLineDto, index: number): EditableLine {
   return {
     id: String(line.id ?? `line-${index + 1}`),
@@ -33,6 +52,9 @@ function toEditableLine(line: WarehouseDocumentLineDto, index: number): Editable
     nomenclatureId: line.nomenclatureId ?? null,
     qty: String(line.qty ?? 0),
     price: line.price == null ? '' : String(line.price),
+    unit: String(line.unit ?? ''),
+    batch: String(line.batch ?? ''),
+    note: String(line.note ?? ''),
     warehouseId: line.warehouseId ?? null,
     fromWarehouseId: line.fromWarehouseId ?? null,
     toWarehouseId: line.toWarehouseId ?? null,
@@ -50,6 +72,9 @@ function createEmptyLine(index: number): EditableLine {
     nomenclatureId: null,
     qty: '1',
     price: '',
+    unit: '',
+    batch: '',
+    note: '',
     warehouseId: null,
     fromWarehouseId: null,
     toWarehouseId: null,
@@ -78,6 +103,10 @@ export function StockDocumentDetailsPage(props: {
   const [docDate, setDocDate] = useState('');
   const [docType, setDocType] = useState<WarehouseDocumentType>('stock_receipt');
   const [warehouseId, setWarehouseId] = useState<string | null>('default');
+  const [expectedDate, setExpectedDate] = useState('');
+  const [sourceType, setSourceType] = useState<WarehouseIncomingSourceType>('supplier_purchase');
+  const [sourceRef, setSourceRef] = useState('');
+  const [contractId, setContractId] = useState('');
   const [reason, setReason] = useState('');
   const [counterpartyId, setCounterpartyId] = useState<string | null>(null);
   const [lines, setLines] = useState<EditableLine[]>([]);
@@ -96,6 +125,14 @@ export function StockDocumentDetailsPage(props: {
       setDocType((nextDocument.header.docType ?? 'stock_receipt') as WarehouseDocumentType);
       setDocDate(nextDocument.header.docDate ? new Date(Number(nextDocument.header.docDate)).toISOString().slice(0, 10) : '');
       setWarehouseId(nextDocument.header.warehouseId ?? 'default');
+      const expectedMs = Number(nextDocument.header.expectedDate ?? nextDocument.header.docDate ?? 0);
+      setExpectedDate(expectedMs ? new Date(expectedMs).toISOString().slice(0, 10) : '');
+      const nextSourceType = String(nextDocument.header.sourceType ?? '').trim();
+      setSourceType(
+        (nextSourceType || (nextDocument.header.docType === 'inventory_opening' ? 'opening_balance' : 'supplier_purchase')) as WarehouseIncomingSourceType,
+      );
+      setSourceRef(String(nextDocument.header.sourceRef ?? ''));
+      setContractId(String(nextDocument.header.contractId ?? ''));
       setReason(nextDocument.header.reason ?? '');
       setCounterpartyId(nextDocument.header.counterpartyId ?? null);
       setLines((nextDocument.lines ?? []).map((line, index) => toEditableLine(line, index)));
@@ -109,10 +146,16 @@ export function StockDocumentDetailsPage(props: {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!isIncoming) return;
+    if (docType === 'inventory_opening' && sourceType !== 'opening_balance') setSourceType('opening_balance');
+  }, [docType, isIncoming, sourceType]);
+
   const canEditDocument = props.canEdit && document?.header.status === 'draft';
   const isTransfer = docType === 'stock_transfer';
   const isInventory = docType === 'stock_inventory';
   const isWriteoff = docType === 'stock_writeoff';
+  const isIncoming = INCOMING_DOC_TYPES.includes(docType);
 
   const totals = useMemo(
     () =>
@@ -156,6 +199,9 @@ export function StockDocumentDetailsPage(props: {
         nomenclatureId: row.nomenclatureId ?? null,
         qty: '0',
         price: '',
+        unit: '',
+        batch: '',
+        note: '',
         warehouseId: row.warehouseId ?? warehouseId,
         fromWarehouseId: null,
         toWarehouseId: null,
@@ -171,6 +217,13 @@ export function StockDocumentDetailsPage(props: {
   function validateDocument(): string | null {
     if (!docNo.trim()) return 'Укажите номер документа.';
     if (!docDate) return 'Укажите дату документа.';
+    if (isIncoming) {
+      if (!expectedDate) return 'Для документа прихода укажите ожидаемую дату.';
+      if (!sourceType) return 'Для документа прихода укажите источник.';
+      if (docType === 'inventory_opening' && (counterpartyId || contractId.trim())) {
+        return 'Для inventory_opening не заполняются контрагент и договор.';
+      }
+    }
     if (lines.length === 0) return 'Добавьте хотя бы одну строку документа.';
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
@@ -206,17 +259,26 @@ export function StockDocumentDetailsPage(props: {
     const result = await window.matrica.warehouse.documentCreate({
       id: props.id,
       docType,
+      status: 'draft',
       docNo: docNo.trim(),
       docDate: new Date(`${docDate}T00:00:00`).getTime(),
       header: {
         warehouseId: warehouseId ?? null,
+        ...(isIncoming ? { expectedDate: new Date(`${expectedDate}T00:00:00`).getTime() } : {}),
+        ...(isIncoming ? { sourceType } : {}),
+        ...(isIncoming && sourceRef.trim() ? { sourceRef: sourceRef.trim() } : {}),
+        ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
         reason: reason.trim() || null,
         counterpartyId,
       },
       lines: lines.map((line) => ({
         qty: Number(line.qty || 0),
         ...(line.price.trim() ? { price: Number(line.price) } : {}),
+        ...(line.price.trim() ? { cost: Number(line.price) } : {}),
         ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
+        ...(line.unit.trim() ? { unit: line.unit.trim() } : {}),
+        ...(line.batch.trim() ? { batch: line.batch.trim() } : {}),
+        ...(line.note.trim() ? { note: line.note.trim() } : {}),
         ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
         ...(line.fromWarehouseId ? { fromWarehouseId: line.fromWarehouseId } : {}),
         ...(line.toWarehouseId ? { toWarehouseId: line.toWarehouseId } : {}),
@@ -249,6 +311,57 @@ export function StockDocumentDetailsPage(props: {
     await load();
   }
 
+  async function planDocument() {
+    const error = validateDocument();
+    if (error) {
+      setStatus(`Ошибка: ${error}`);
+      return;
+    }
+    const saveResult = await window.matrica.warehouse.documentCreate({
+      id: props.id,
+      docType,
+      status: 'draft',
+      docNo: docNo.trim(),
+      docDate: new Date(`${docDate}T00:00:00`).getTime(),
+      header: {
+        warehouseId: warehouseId ?? null,
+        ...(isIncoming ? { expectedDate: new Date(`${expectedDate}T00:00:00`).getTime() } : {}),
+        ...(isIncoming ? { sourceType } : {}),
+        ...(isIncoming && sourceRef.trim() ? { sourceRef: sourceRef.trim() } : {}),
+        ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
+        reason: reason.trim() || null,
+        counterpartyId,
+      },
+      lines: lines.map((line) => ({
+        qty: Number(line.qty || 0),
+        ...(line.price.trim() ? { price: Number(line.price) } : {}),
+        ...(line.price.trim() ? { cost: Number(line.price) } : {}),
+        ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
+        ...(line.unit.trim() ? { unit: line.unit.trim() } : {}),
+        ...(line.batch.trim() ? { batch: line.batch.trim() } : {}),
+        ...(line.note.trim() ? { note: line.note.trim() } : {}),
+        ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
+        ...(line.fromWarehouseId ? { fromWarehouseId: line.fromWarehouseId } : {}),
+        ...(line.toWarehouseId ? { toWarehouseId: line.toWarehouseId } : {}),
+        ...(line.bookQty.trim() ? { bookQty: Number(line.bookQty) } : {}),
+        ...(line.actualQty.trim() ? { actualQty: Number(line.actualQty) } : {}),
+        ...(line.adjustmentQty.trim() ? { adjustmentQty: Number(line.adjustmentQty) } : {}),
+        ...(line.reason.trim() ? { reason: line.reason.trim() } : {}),
+      })),
+    });
+    if (!saveResult?.ok) {
+      setStatus(`Ошибка: ${String(saveResult?.error ?? 'не удалось сохранить документ перед планированием')}`);
+      return;
+    }
+    const result = await window.matrica.warehouse.documentPlan(props.id);
+    if (!result?.ok) {
+      setStatus(`Ошибка: ${String(result?.error ?? 'не удалось перевести документ в planned')}`);
+      return;
+    }
+    setStatus('Документ переведен в статус planned.');
+    await load();
+  }
+
   async function cancelDocument() {
     const result = await window.matrica.warehouse.documentCancel(props.id);
     if (!result?.ok) {
@@ -268,7 +381,10 @@ export function StockDocumentDetailsPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {canEditDocument ? <Button onClick={() => void saveDocument()}>Сохранить</Button> : null}
-        {canEditDocument ? <Button onClick={() => void postDocument()}>Провести</Button> : null}
+        {canEditDocument && isIncoming ? <Button onClick={() => void planDocument()}>Запланировать</Button> : null}
+        {props.canEdit && ((isIncoming && document?.header.status === 'planned') || (!isIncoming && document?.header.status === 'draft')) ? (
+          <Button onClick={() => void postDocument()}>Провести</Button>
+        ) : null}
         {canEditDocument ? (
           <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => void cancelDocument()}>
             Отменить документ
@@ -311,6 +427,29 @@ export function StockDocumentDetailsPage(props: {
           <Input type="date" value={docDate} disabled={!canEditDocument} onChange={(e) => setDocDate(e.target.value)} />
           <div>Склад по умолчанию</div>
           <SearchSelect value={warehouseId} disabled={!canEditDocument} options={lookupToSelectOptions(lookups.warehouses)} placeholder="Склад" onChange={setWarehouseId} />
+          {isIncoming ? <div>Ожидаемая дата</div> : null}
+          {isIncoming ? <Input type="date" value={expectedDate} disabled={!canEditDocument} onChange={(e) => setExpectedDate(e.target.value)} /> : null}
+          {isIncoming ? <div>Источник прихода</div> : null}
+          {isIncoming ? (
+            <select
+              value={sourceType}
+              disabled={!canEditDocument}
+              onChange={(e) => setSourceType(e.target.value as WarehouseIncomingSourceType)}
+              style={{ padding: '8px 10px' }}
+            >
+              {INCOMING_SOURCE_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {isIncoming ? <div>Источник / ссылка</div> : null}
+          {isIncoming ? (
+            <Input value={sourceRef} disabled={!canEditDocument} onChange={(e) => setSourceRef(e.target.value)} placeholder="Номер накладной, заказ, акт..." />
+          ) : null}
+          {isIncoming ? <div>Договор (опц.)</div> : null}
+          {isIncoming ? <Input value={contractId} disabled={!canEditDocument} onChange={(e) => setContractId(e.target.value)} placeholder="ID/номер договора" /> : null}
           <div>Контрагент</div>
           <SearchSelect
             value={counterpartyId}
@@ -361,14 +500,17 @@ export function StockDocumentDetailsPage(props: {
               {isInventory ? <th style={{ textAlign: 'left' }}>Дельта</th> : null}
               {!isInventory ? <th style={{ textAlign: 'left' }}>Кол-во</th> : null}
               <th style={{ textAlign: 'left' }}>Цена</th>
+              <th style={{ textAlign: 'left' }}>Ед.</th>
+              <th style={{ textAlign: 'left' }}>Партия</th>
               <th style={{ textAlign: 'left' }}>Причина</th>
+              <th style={{ textAlign: 'left' }}>Примечание</th>
               {canEditDocument ? <th style={{ textAlign: 'center' }}>Действия</th> : null}
             </tr>
           </thead>
           <tbody>
             {lines.length === 0 ? (
               <tr>
-                <td colSpan={canEditDocument ? 11 : 10} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 10 }}>
+                <td colSpan={20} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 10 }}>
                   Нет строк. Добавьте строки вручную или загрузите остатки для инвентаризации.
                 </td>
               </tr>
@@ -458,7 +600,16 @@ export function StockDocumentDetailsPage(props: {
                       <Input type="number" value={line.price} disabled={!canEditDocument} onChange={(e) => updateLine(idx, { price: e.target.value })} />
                     </td>
                     <td>
+                      <Input value={line.unit} disabled={!canEditDocument} onChange={(e) => updateLine(idx, { unit: e.target.value })} placeholder="шт" />
+                    </td>
+                    <td>
+                      <Input value={line.batch} disabled={!canEditDocument} onChange={(e) => updateLine(idx, { batch: e.target.value })} placeholder="Партия" />
+                    </td>
+                    <td>
                       <Input value={line.reason} disabled={!canEditDocument} onChange={(e) => updateLine(idx, { reason: e.target.value })} placeholder={isWriteoff ? 'Локальная причина / примечание' : 'Примечание'} />
+                    </td>
+                    <td>
+                      <Input value={line.note} disabled={!canEditDocument} onChange={(e) => updateLine(idx, { note: e.target.value })} placeholder="Комментарий по строке" />
                     </td>
                     {canEditDocument ? (
                       <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
