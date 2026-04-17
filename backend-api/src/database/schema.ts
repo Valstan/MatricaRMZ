@@ -857,6 +857,7 @@ export const erpDocumentLines = pgTable(
       .references(() => erpDocumentHeaders.id),
     lineNo: integer('line_no').notNull(),
     partCardId: uuid('part_card_id').references(() => erpPartCards.id),
+    nomenclatureId: uuid('nomenclature_id').references(() => erpNomenclature.id),
     qty: integer('qty').notNull().default(0),
     price: bigint('price', { mode: 'number' }),
     payloadJson: text('payload_json'),
@@ -867,6 +868,7 @@ export const erpDocumentLines = pgTable(
   (t) => ({
     headerLineUq: uniqueIndex('erp_document_lines_header_line_uq').on(t.headerId, t.lineNo),
     partIdx: index('erp_document_lines_part_idx').on(t.partCardId),
+    nomenclatureIdx: index('erp_document_lines_nomenclature_idx').on(t.nomenclatureId),
   }),
 );
 

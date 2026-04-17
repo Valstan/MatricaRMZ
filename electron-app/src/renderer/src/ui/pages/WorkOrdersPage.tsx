@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -25,13 +26,14 @@ type Row = {
   id: string;
   workOrderNumber: number;
   orderDate: number;
-  partName: string;
+  workType: string;
   crewCount: number;
+  performerSurnames: string;
   totalAmountRub: number;
   updatedAt: number;
 };
 
-type SortKey = 'number' | 'date' | 'part' | 'crew' | 'total' | 'updatedAt';
+type SortKey = 'number' | 'date' | 'part' | 'crew' | 'performers' | 'total' | 'updatedAt';
 
 function rub(v: number) {
   return `${Math.round((Number(v) || 0) * 100) / 100} ₽`;
@@ -43,10 +45,14 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
     month: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
+    pageSize: 50 as WarehouseListPageSize,
+    pageIndex: 0,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:work_orders');
   const query = String(listState.query ?? '');
   const month = String(listState.month ?? '');
+  const pageSize = Number(listState.pageSize ?? 50) as WarehouseListPageSize;
+  const pageIndex = Math.max(0, Number(listState.pageIndex ?? 0) || 0);
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
@@ -91,15 +97,20 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
     (row, key) => {
       if (key === 'number') return Number(row.workOrderNumber ?? 0);
       if (key === 'date') return Number(row.orderDate ?? 0);
-      if (key === 'part') return String(row.partName ?? '').toLowerCase();
+      if (key === 'part') return String(row.workType ?? '').toLowerCase();
       if (key === 'crew') return Number(row.crewCount ?? 0);
+      if (key === 'performers') return String(row.performerSurnames ?? '').toLowerCase();
       if (key === 'total') return Number(row.totalAmountRub ?? 0);
       return Number(row.updatedAt ?? 0);
     },
     (row) => row.id,
   );
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
-  const selection = useListSelection(sorted.map((row) => row.id));
+  const paged = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sorted]);
+  const selection = useListSelection(paged.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -109,8 +120,9 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
     () => [
       { title: 'Номер', value: (row: Row) => String(row.workOrderNumber) },
       { title: 'Дата', value: (row: Row) => (row.orderDate ? formatMoscowDate(row.orderDate) : '-') },
-      { title: 'Изделия', value: (row: Row) => row.partName || '-' },
+      { title: 'Виды работ', value: (row: Row) => row.workType || '-' },
       { title: 'Бригада', value: (row: Row) => String(row.crewCount) },
+      { title: 'Исполнители', value: (row: Row) => row.performerSurnames || '-' },
       { title: 'Итог', value: (row: Row) => rub(row.totalAmountRub) },
     ],
     [],
@@ -165,10 +177,13 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
           Дата {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'date')}
         </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('part')}>
-          Изделия {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'part')}
+          Виды работ {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'part')}
         </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('crew')}>
           Бригада {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'crew')}
+        </th>
+        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('performers')}>
+          Исполнители {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'performers')}
         </th>
         <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('total')}>
           Итог {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'total')}
@@ -218,7 +233,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
                     void props.onOpen(row.id);
                   }}
                 >
-                  {row.partName || '-'}
+                  {row.workType || '-'}
                 </td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
@@ -228,6 +243,25 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
                   }}
                 >
                   {row.crewCount}
+                </td>
+                <td
+                  style={{
+                    borderBottom: '1px solid #f3f4f6',
+                    padding: 8,
+                    cursor: 'pointer',
+                    width: 220,
+                    maxWidth: 220,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(row.id);
+                    void props.onOpen(row.id);
+                  }}
+                  title={row.performerSurnames || '-'}
+                >
+                  {row.performerSurnames || '-'}
                 </td>
                 <td
                   style={{ borderBottom: '1px solid #f3f4f6', padding: 8, cursor: 'pointer' }}
@@ -242,7 +276,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={5}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={6}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -288,10 +322,10 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным наряда…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным наряда…" />
         </div>
         <div style={{ width: 180 }}>
-          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
+          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value, pageIndex: 0 })} />
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
           Применить фильтр
@@ -301,9 +335,17 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => patchState({ pageSize: size, pageIndex: 0 })}
+        pageIndex={pageIndex}
+        onPageIndexChange={(index) => patchState({ pageIndex: index })}
+        rowCount={paged.length}
+        totalCount={sorted.length}
+      />
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+        <TwoColumnList items={paged} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />

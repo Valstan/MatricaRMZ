@@ -10,16 +10,18 @@ type Props = {
   pageIndex: number;
   onPageIndexChange: (index: number) => void;
   rowCount: number;
-  hasMore: boolean;
+  hasMore?: boolean;
+  totalCount?: number;
   disabled?: boolean;
 };
 
 export function WarehouseListPager(props: Props) {
-  const { pageSize, onPageSizeChange, pageIndex, onPageIndexChange, rowCount, hasMore, disabled } = props;
+  const { pageSize, onPageSizeChange, pageIndex, onPageIndexChange, rowCount, hasMore = false, totalCount, disabled } = props;
   const from = rowCount === 0 ? 0 : pageIndex * pageSize + 1;
   const to = pageIndex * pageSize + rowCount;
   const canPrev = pageIndex > 0;
-  const canNext = hasMore;
+  const knownTotal = Number.isFinite(Number(totalCount)) ? Math.max(0, Number(totalCount)) : null;
+  const canNext = knownTotal != null ? (pageIndex + 1) * pageSize < knownTotal : hasMore;
 
   return (
     <div
@@ -49,7 +51,7 @@ export function WarehouseListPager(props: Props) {
       </label>
       <span>
         Записи {from === 0 && rowCount === 0 ? '0' : `${from}–${to}`}
-        {hasMore ? ' (есть ещё)' : ''}
+        {knownTotal != null ? ` из ${knownTotal}` : hasMore ? ' (есть ещё)' : ''}
       </span>
       <div style={{ display: 'flex', gap: 6 }}>
         <button

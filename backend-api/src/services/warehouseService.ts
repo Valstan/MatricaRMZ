@@ -1589,11 +1589,13 @@ export async function createWarehouseDocument(args: {
       });
     }
     const lines = args.lines.map((line, idx) => {
+      const nomenclatureId = String(line.nomenclatureId ?? '').trim() || null;
       return {
         id: randomUUID(),
         headerId: id,
         lineNo: idx + 1,
         partCardId: line.partCardId ?? null,
+        nomenclatureId,
         qty: Math.max(0, Math.trunc(Number(line.qty))),
         price: line.price == null && line.cost != null ? Math.trunc(Number(line.cost)) : line.price == null ? null : Math.trunc(Number(line.price)),
         payloadJson: mergeLinePayloadJson(line.payloadJson, line),

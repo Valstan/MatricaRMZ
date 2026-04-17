@@ -118,6 +118,40 @@ function getWorkOrderPartNames(payload: WorkOrderPayload): string[] {
   return legacyName ? [legacyName] : [];
 }
 
+function getWorkOrderPrimaryWorkType(payload: WorkOrderPayload): string {
+  const workGroups = Array.isArray(payload.workGroups) ? payload.workGroups : [];
+  for (const group of workGroups) {
+    const lines = Array.isArray(group?.lines) ? group.lines : [];
+    const firstNamed = lines.find((line) => String(line?.serviceName ?? '').trim().length > 0);
+    if (firstNamed) return String(firstNamed.serviceName).trim();
+  }
+  const freeWorks = Array.isArray(payload.freeWorks) ? payload.freeWorks : [];
+  const freeNamed = freeWorks.find((line) => String(line?.serviceName ?? '').trim().length > 0);
+  if (freeNamed) return String(freeNamed.serviceName).trim();
+  const legacyWorks = Array.isArray((payload as any).works) ? (payload as any).works : [];
+  const legacyNamed = legacyWorks.find((line: any) => String(line?.serviceName ?? '').trim().length > 0);
+  if (legacyNamed) return String(legacyNamed.serviceName).trim();
+  return '';
+}
+
+function getCrewSurnames(payload: WorkOrderPayload): string {
+  const crew = Array.isArray(payload.crew) ? payload.crew : [];
+  const surnames: string[] = [];
+  const seen = new Set<string>();
+  for (const member of crew) {
+    const full = String(member?.employeeName ?? '').trim();
+    if (!full) continue;
+    const surname = full.split(/[,\s]+/).find((part) => String(part).trim().length > 0);
+    const normalized = String(surname ?? '').trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    surnames.push(normalized);
+  }
+  return surnames.join(', ');
+}
+
 function getPrimaryPartId(payload: WorkOrderPayload): string | null {
   const group = (Array.isArray(payload.workGroups) ? payload.workGroups : []).find((entry) => entry?.partId);
   if (group?.partId) return String(group.partId);
@@ -272,8 +306,9 @@ export async function listWorkOrders(
         id: string;
         workOrderNumber: number;
         orderDate: number;
-        partName: string;
+        workType: string;
         crewCount: number;
+        performerSurnames: string;
         totalAmountRub: number;
         updatedAt: number;
       }>;
@@ -300,8 +335,9 @@ export async function listWorkOrders(
       id: string;
       workOrderNumber: number;
       orderDate: number;
-      partName: string;
+      workType: string;
       crewCount: number;
+      performerSurnames: string;
       totalAmountRub: number;
       updatedAt: number;
     }> = [];
@@ -310,12 +346,16 @@ export async function listWorkOrders(
       const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
       if (!payload) continue;
       const partName = getWorkOrderPartNames(payload).join(', ');
+      const workType = getWorkOrderPrimaryWorkType(payload);
+      const performerSurnames = getCrewSurnames(payload);
       const mKey = monthKeyFromMs(Number(payload.orderDate ?? row.createdAt));
       if (month && mKey !== month) continue;
       if (qNorm) {
         const hay = normalizeSearch(
           [
             payload.workOrderNumber,
+            workType,
+            performerSurnames,
             partName,
             row.note ?? '',
             JSON.stringify(payload),
@@ -327,8 +367,9 @@ export async function listWorkOrders(
         id: String(row.id),
         workOrderNumber: Number(payload.workOrderNumber ?? 0),
         orderDate: Number(payload.orderDate ?? row.createdAt),
-        partName,
+        workType,
         crewCount: Array.isArray(payload.crew) ? payload.crew.length : 0,
+        performerSurnames,
         totalAmountRub: Number(payload.totalAmountRub ?? 0),
         updatedAt: Number(row.updatedAt),
       });

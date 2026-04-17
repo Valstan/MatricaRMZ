@@ -5,6 +5,7 @@ import type { AuditItem } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
@@ -24,12 +25,16 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
     sectionFilter: null as string | null,
     sortKey: 'createdAt' as SortKey,
     sortDir: 'desc' as const,
+    pageSize: 50 as WarehouseListPageSize,
+    pageIndex: 0,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:audit');
   const fromDate = String(listState.fromDate ?? '');
   const toDate = String(listState.toDate ?? '');
   const actorFilter = (listState.actorFilter as string | null) ?? null;
   const sectionFilter = (listState.sectionFilter as string | null) ?? null;
+  const pageSize = Number(listState.pageSize ?? 50) as WarehouseListPageSize;
+  const pageIndex = Math.max(0, Number(listState.pageIndex ?? 0) || 0);
 
   function sectionOf(a: AuditItem): string {
     const action = String(a.action ?? '');
@@ -160,6 +165,10 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
     },
     (a) => a.id,
   );
+  const paged = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sorted]);
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -231,18 +240,18 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <Button onClick={props.onRefresh}>Обновить</Button>
         <div style={{ width: 160 }}>
-          <Input type="date" value={fromDate} onChange={(e) => patchState({ fromDate: e.target.value })} />
+          <Input type="date" value={fromDate} onChange={(e) => patchState({ fromDate: e.target.value, pageIndex: 0 })} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>с даты</div>
         </div>
         <div style={{ width: 160 }}>
-          <Input type="date" value={toDate} onChange={(e) => patchState({ toDate: e.target.value })} />
+          <Input type="date" value={toDate} onChange={(e) => patchState({ toDate: e.target.value, pageIndex: 0 })} />
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>по дату</div>
         </div>
         <div style={{ width: 240 }}>
-          <SearchSelect value={actorFilter} options={actorOptions} placeholder="Пользователь" onChange={(next) => patchState({ actorFilter: next })} />
+          <SearchSelect value={actorFilter} options={actorOptions} placeholder="Пользователь" onChange={(next) => patchState({ actorFilter: next, pageIndex: 0 })} />
         </div>
         <div style={{ width: 240 }}>
-          <SearchSelect value={sectionFilter} options={sectionOptions} placeholder="Раздел" onChange={(next) => patchState({ sectionFilter: next })} />
+          <SearchSelect value={sectionFilter} options={sectionOptions} placeholder="Раздел" onChange={(next) => patchState({ sectionFilter: next, pageIndex: 0 })} />
         </div>
         {(fromDate || toDate || actorFilter || sectionFilter) && (
           <Button
@@ -256,12 +265,22 @@ export function AuditPage(props: { audit: AuditItem[]; onRefresh: () => Promise<
         )}
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
         <span style={{ color: '#6b7280', fontSize: 12 }}>
-          Показано: {sorted.length} / {props.audit.length}
+          Показано: {paged.length} / {sorted.length}
         </span>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <WarehouseListPager
+          pageSize={pageSize}
+          onPageSizeChange={(size) => patchState({ pageSize: size, pageIndex: 0 })}
+          pageIndex={pageIndex}
+          onPageIndexChange={(index) => patchState({ pageIndex: index })}
+          rowCount={paged.length}
+          totalCount={sorted.length}
+        />
       </div>
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8 }}>
-        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+        <TwoColumnList items={paged} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>
   );

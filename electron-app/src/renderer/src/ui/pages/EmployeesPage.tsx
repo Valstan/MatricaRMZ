@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -57,9 +58,13 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
     showPreviews: true,
+    pageSize: 50 as WarehouseListPageSize,
+    pageIndex: 0,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
+  const pageSize = Number(listState.pageSize ?? 50) as WarehouseListPageSize;
+  const pageIndex = Math.max(0, Number(listState.pageIndex ?? 0) || 0);
   const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
@@ -144,8 +149,12 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       return as.localeCompare(bs, 'ru') * dir;
     });
   }, [filtered, listState.sortDir, listState.sortKey]);
+  const paged = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sorted]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
-  const selection = useListSelection(sorted.map((row) => row.id));
+  const selection = useListSelection(paged.map((row) => row.id));
 
   const headerCellStyle: React.CSSProperties = {
     padding: '10px 12px',
@@ -369,7 +378,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным сотрудника…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника…" />
         </div>
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
@@ -378,9 +387,17 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => patchState({ pageSize: size, pageIndex: 0 })}
+        pageIndex={pageIndex}
+        onPageIndexChange={(index) => patchState({ pageIndex: index })}
+        rowCount={paged.length}
+        totalCount={sorted.length}
+      />
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+        <TwoColumnList items={paged} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
       {menu ? (
         <ListContextMenu

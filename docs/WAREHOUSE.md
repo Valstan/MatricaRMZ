@@ -41,10 +41,11 @@
 - `GET /warehouse/movements`
 - `POST /warehouse/forecast/assembly-7d` — stateless прогноз сборки (не пишет в ledger; вход: цель/склады/марки/план поступлений). Реализация: `backend-api/src/services/warehouseForecastService.ts`
 
-## Аудит и прогноз (read-only)
+## Аудит и прогноз
 - Отчёт `warehouse_stock_path_audit` в разделе «Отчёты» показывает случаи двойного учёта одной детали по `nomenclature_id` (зеркало `part`) и `part_card_id` на одном складе.
-- Отчёт `assembly_forecast_7d` строит 7‑дневный план расхода по текущим остаткам **номенклатуры** и связям деталь↔марка; редактируемый план поступлений хранится только в фильтре JSON на клиенте.
+- Отчёт `assembly_forecast_7d` строит план расхода (до 31 дня) по текущим остаткам **номенклатуры** и связям деталь↔марка; редактируемый план поступлений хранится только в фильтре JSON на клиенте.
 - Чистая логика подбора/прогноза вынесена в `shared/src/domain/assemblyForecast.ts` (используется и в Electron, и на backend).
+- Результат прогноза включает `deficitRecommendations` — структурированные рекомендации по дефициту комплектующих (что производить/закупать, в каком количестве, для каких марок).
 
 ## Документный lifecycle
 - Новый/редактируемый складской документ живет в статусе `draft`.
@@ -69,6 +70,25 @@
 pnpm build
 pnpm lint
 ```
+
+## Двойной учёт остатков: nomenclature_id vs part_card_id
+
+`erp_reg_stock_balance` поддерживает два альтернативных ключа учёта:
+- `(nomenclature_id, warehouse_id)` — используется складским контуром (`postWarehouseDocument`). Все новые балансовые строки создаются с `partCardId: null`.
+- `(part_card_id, warehouse_id)` — используется legacy ERP-контуром (`postErpDocument` в `erpService.ts`). Этот путь не записывает `nomenclatureId`.
+
+`erp_document_lines` не имеет явной колонки `nomenclature_id` — он хранится в `payloadJson`. Регистр движений `erp_reg_stock_movements` работает только с `nomenclature_id`.
+
+**Текущее состояние:**
+- Складской контур (приход/расход/перемещение/инвентаризация через UI) работает корректно через `nomenclature_id`.
+- ERP-контур (legacy части/документы) пишет через `part_card_id`, создавая параллельные балансовые строки.
+- Для диагностики существует отчёт `warehouse_stock_path_audit`.
+
+**План унификации (не блокирует текущую разработку):**
+1. Все новые складские операции проводить **только** через `nomenclature_id`.
+2. ERP-путь `postErpDocument` при необходимости — legacy; новые документы создаются через складской контур.
+3. В перспективе добавить явную колонку `nomenclature_id` в `erp_document_lines`.
+4. Миграция существующих `part_card_id`-only балансов: через dry-run скрипт выявить такие строки и привязать к соответствующим `nomenclature_id` через зеркала `erp_nomenclature.directory_ref_id`.
 
 ## Directories -> Nomenclature (phase-1)
 - В `erp_nomenclature` добавлены поля происхождения: `directory_kind`, `directory_ref_id`.

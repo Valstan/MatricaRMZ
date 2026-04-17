@@ -32,11 +32,14 @@ import { ChatPanel } from './components/ChatPanel.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
+import { ListColumnsToggle } from './components/ListColumnsToggle.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
+import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
+import { resolveDeepLinkRoute } from './utils/deepLinkRouting.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 
 type RecentVisitEntry = {
@@ -464,7 +467,9 @@ export function App() {
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   useAutoGrowInputs();
   useAdaptiveListTables();
+  const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
+  const [pinnedShortcuts, setPinnedShortcuts] = useState<string[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
@@ -933,6 +938,7 @@ export function App() {
     const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
     if (!userId) {
       setTabsLayout(null);
+      setPinnedShortcuts([]);
       return;
     }
     let alive = true;
@@ -941,6 +947,13 @@ export function App() {
       .then((r: any) => {
         if (!alive) return;
         if (r?.ok) setTabsLayout((r.tabsLayout as TabsLayoutPrefs | null) ?? null);
+      })
+      .catch(() => {});
+    void window.matrica.shortcuts
+      .get({ userId })
+      .then((r) => {
+        if (!alive) return;
+        if (r?.ok) setPinnedShortcuts(r.ids ?? []);
       })
       .catch(() => {});
     return () => {
@@ -1544,6 +1557,26 @@ export function App() {
     await window.matrica.settings.uiSet({ userId, tabsLayout: next }).catch(() => {});
   }
 
+  async function addPinnedShortcut(shortcutId: string) {
+    const userId = authStatus.user?.id;
+    if (!userId || !shortcutId) return;
+    const next = pinnedShortcuts.includes(shortcutId) ? pinnedShortcuts : [...pinnedShortcuts, shortcutId];
+    setPinnedShortcuts(next);
+    await window.matrica.shortcuts.set({ userId, ids: next }).catch(() => {});
+  }
+
+  async function removePinnedShortcut(shortcutId: string) {
+    const userId = authStatus.user?.id;
+    if (!userId) return;
+    const next = pinnedShortcuts.filter((id) => id !== shortcutId);
+    setPinnedShortcuts(next);
+    await window.matrica.shortcuts.set({ userId, ids: next }).catch(() => {});
+  }
+
+  function isShortcutPinned(shortcutId: string) {
+    return pinnedShortcuts.includes(shortcutId);
+  }
+
   function updateHiddenTabs(nextHidden: MenuTabId[]) {
     void persistTabsLayout({
       order: menuState.order,
@@ -1753,80 +1786,22 @@ export function App() {
   }
 
   async function navigateDeepLink(link: ChatDeepLinkPayload) {
-    const tabId = String(link?.tab ?? '') as TabId;
-    const engineId = link?.engineId ? String(link.engineId) : null;
-    const requestId = link?.requestId ? String(link.requestId) : null;
-    const partId = link?.partId ? String(link.partId) : null;
-    const toolId = link?.toolId ? String(link.toolId) : null;
-    const toolPropertyId = link?.toolPropertyId ? String(link.toolPropertyId) : null;
-    const contractId = link?.contractId ? String(link.contractId) : null;
-    const employeeId = link?.employeeId ? String(link.employeeId) : null;
-    const engineBrandId = link?.engineBrandId ? String(link.engineBrandId) : null;
-    const productId = link?.productId ? String(link.productId) : null;
-    const serviceId = link?.serviceId ? String(link.serviceId) : null;
-    const counterpartyId = link?.counterpartyId ? String(link.counterpartyId) : null;
-    const nomenclatureId = link?.nomenclatureId ? String(link.nomenclatureId) : null;
-    const stockDocumentId = link?.stockDocumentId ? String(link.stockDocumentId) : null;
-    const reportPresetId = link?.reportPresetId ? String(link.reportPresetId) : null;
-
-    // Prefer opening specific entities if IDs are present.
-    if (engineId) {
-      await openEngine(engineId);
-      return;
-    }
-    if (requestId) {
-      await openRequest(requestId);
-      return;
-    }
-    if (partId) {
-      await openPart(partId);
-      return;
-    }
-    if (toolId) {
-      await openTool(toolId);
-      return;
-    }
-    if (toolPropertyId) {
-      await openToolProperty(toolPropertyId);
-      return;
-    }
-    if (contractId) {
-      await openContract(contractId);
-      return;
-    }
-    if (employeeId) {
-      await openEmployee(employeeId);
-      return;
-    }
-    if (productId) {
-      await openProduct(productId);
-      return;
-    }
-    if (serviceId) {
-      await openService(serviceId);
-      return;
-    }
-    if (counterpartyId) {
-      await openCounterparty(counterpartyId);
-      return;
-    }
-    if (nomenclatureId) {
-      await openNomenclature(nomenclatureId);
-      return;
-    }
-    if (stockDocumentId) {
-      await openStockDocument(stockDocumentId);
-      return;
-    }
-    if (engineBrandId) {
-      await openEngineBrand(engineBrandId);
-      return;
-    }
-    if (reportPresetId) {
-      openReportPreset(reportPresetId as ReportPresetId);
-      return;
-    }
-    setTab(tabId);
+    const route = resolveDeepLinkRoute(link);
+    if (route.kind === 'engine') return await openEngine(route.id);
+    if (route.kind === 'request') return await openRequest(route.id);
+    if (route.kind === 'part') return await openPart(route.id);
+    if (route.kind === 'tool') return await openTool(route.id);
+    if (route.kind === 'tool_property') return await openToolProperty(route.id);
+    if (route.kind === 'contract') return await openContract(route.id);
+    if (route.kind === 'employee') return await openEmployee(route.id);
+    if (route.kind === 'product') return await openProduct(route.id);
+    if (route.kind === 'service') return await openService(route.id);
+    if (route.kind === 'counterparty') return await openCounterparty(route.id);
+    if (route.kind === 'nomenclature') return await openNomenclature(route.id);
+    if (route.kind === 'stock_document') return await openStockDocument(route.id);
+    if (route.kind === 'engine_brand') return await openEngineBrand(route.id);
+    if (route.kind === 'report_preset') return openReportPreset(route.id as ReportPresetId);
+    setTab(route.id as TabId);
   }
   navigateDeepLinkRef.current = navigateDeepLink;
 
@@ -2319,7 +2294,7 @@ export function App() {
 
   const pageTitle =
     tab === 'history'
-      ? 'Матрица РМЗ — История'
+      ? 'Матрица РМЗ — Мой круг'
     : tab === 'engines'
       ? 'Матрица РМЗ — Двигатели'
       : tab === 'engine_brands'
@@ -2979,6 +2954,7 @@ export function App() {
           )}
           {authStatus.loggedIn && !viewMode && (
             <>
+              <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleListColumnsMode} />
               <Button
                 variant="ghost"
                 onClick={() => void sendCurrentPositionToChat()}
@@ -3121,6 +3097,9 @@ export function App() {
               onForward={goForward}
               {...(presence ? { authStatus: { online: presence.online } } : {})}
               notesAlertCount={notesAlertCount}
+              pinnedShortcuts={pinnedShortcuts}
+              onAddShortcut={addPinnedShortcut}
+              onRemoveShortcut={removePinnedShortcut}
             />
           </div>
 
@@ -3141,6 +3120,8 @@ export function App() {
             meUserId={authStatus.user?.id ?? ''}
             recentVisits={recentVisits}
             quickStartRatings={quickStartRatings}
+            pinnedShortcuts={pinnedShortcuts}
+            onRemoveShortcut={removePinnedShortcut}
             onNavigate={(link: ChatDeepLinkPayload) => {
               void navigateDeepLink(link);
             }}
@@ -3171,7 +3152,7 @@ export function App() {
 
         {tab === 'engine_brands' && (
           <EngineBrandsPage
-            onOpen={openEngineBrand}
+            onOpen={openNomenclature}
             canCreate={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
@@ -3367,7 +3348,7 @@ export function App() {
 
         {tab === 'products' && (
           <ProductsPage
-            onOpen={openProduct}
+            onOpen={openNomenclature}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -3376,7 +3357,7 @@ export function App() {
 
         {tab === 'services' && (
           <ServicesPage
-            onOpen={openService}
+            onOpen={openNomenclature}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -3674,6 +3655,9 @@ export function App() {
           <ReportsCatalogPage
             userId={authStatus.user?.id ?? ''}
             onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
+            pinnedShortcuts={pinnedShortcuts}
+            onAddShortcut={addPinnedShortcut}
+            onRemoveShortcut={removePinnedShortcut}
           />
         )}
         {tab === 'report_preset' && selectedReportPresetId && (

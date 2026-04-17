@@ -391,6 +391,7 @@ export const erpDocumentLines = sqliteTable(
     headerId: text('header_id').notNull(),
     lineNo: integer('line_no').notNull(),
     partCardId: text('part_card_id'),
+    nomenclatureId: text('nomenclature_id'),
     qty: integer('qty').notNull().default(0),
     price: integer('price'),
     payloadJson: text('payload_json'),
@@ -401,6 +402,7 @@ export const erpDocumentLines = sqliteTable(
   (t) => ({
     headerLineUq: uniqueIndex('erp_document_lines_header_line_uq').on(t.headerId, t.lineNo),
     partIdx: index('erp_document_lines_part_idx').on(t.partCardId),
+    nomenclatureIdx: index('erp_document_lines_nomenclature_idx').on(t.nomenclatureId),
   }),
 );
 

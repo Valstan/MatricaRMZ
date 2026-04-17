@@ -52,6 +52,18 @@ export type AssemblyForecastDayRow = {
 export type AssemblyForecastComputeResult = {
   rows: AssemblyForecastDayRow[];
   warnings: string[];
+  deficitRecommendations: AssemblyDeficitRecommendation[];
+};
+
+export type AssemblyDeficitRecommendation = {
+  nomenclatureId: string;
+  partLabel: string;
+  role: AssemblyComponentRole;
+  currentStock: number;
+  totalRequired: number;
+  totalPlannedIncoming: number;
+  deficit: number;
+  usedByBrands: string[];
 };
 
 const ROLE_ORDER: AssemblyComponentRole[] = ['sleeve', 'piston', 'rings', 'jacket', 'head', 'other'];
@@ -181,7 +193,7 @@ export function mergeBrandKits(
 
 export function computeAssemblyForecast(input: AssemblyForecastComputeInput): AssemblyForecastComputeResult {
   const warnings: string[] = [];
-  const horizon = Math.max(1, Math.min(14, Math.floor(input.horizonDays || 7)));
+  const horizon = Math.max(1, Math.min(31, Math.floor(input.horizonDays || 7)));
   const target = Math.max(0, Math.floor(input.targetEnginesPerDay || 0));
   const kits = input.kits.filter((k) => k.parts.some((p) => p.qtyPerEngine > 0));
   if (kits.length === 0) warnings.push('Нет комплектов по маркам (проверьте связи деталь↔марка и количество на двигатель).');
@@ -249,7 +261,74 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     }
   }
 
-  return { rows, warnings };
+  const deficitRecommendations = computeDeficitRecommendations(input, kits, horizon, target);
+  return { rows, warnings, deficitRecommendations };
+}
+
+function computeDeficitRecommendations(
+  input: AssemblyForecastComputeInput,
+  kits: AssemblyEngineBrandKit[],
+  horizon: number,
+  target: number,
+): AssemblyDeficitRecommendation[] {
+  if (target <= 0 || kits.length === 0) return [];
+
+  const totalEngines = target * horizon;
+  const partMeta = new Map<string, { partLabel: string; role: AssemblyComponentRole; maxQtyPerEngine: number; brands: Set<string> }>();
+
+  for (const kit of kits) {
+    for (const p of kit.parts) {
+      const q = Math.max(0, Math.floor(p.qtyPerEngine));
+      if (q <= 0) continue;
+      const existing = partMeta.get(p.nomenclatureId);
+      if (existing) {
+        existing.maxQtyPerEngine = Math.max(existing.maxQtyPerEngine, q);
+        existing.brands.add(kit.brandLabel);
+      } else {
+        partMeta.set(p.nomenclatureId, {
+          partLabel: p.partLabel,
+          role: p.role,
+          maxQtyPerEngine: q,
+          brands: new Set([kit.brandLabel]),
+        });
+      }
+    }
+  }
+
+  const totalIncomingByNomenclature = new Map<string, number>();
+  for (const line of input.incomingLines) {
+    if (line.dayOffset < 0 || line.dayOffset >= horizon) continue;
+    const id = String(line.nomenclatureId || '').trim();
+    if (!id) continue;
+    const qty = Math.max(0, Math.floor(line.qty));
+    totalIncomingByNomenclature.set(id, (totalIncomingByNomenclature.get(id) ?? 0) + qty);
+  }
+
+  const recommendations: AssemblyDeficitRecommendation[] = [];
+  for (const [nomenclatureId, meta] of partMeta) {
+    const currentStock = Math.max(0, input.stockByNomenclatureId.get(nomenclatureId) ?? 0);
+    const totalRequired = meta.maxQtyPerEngine * totalEngines;
+    const totalPlannedIncoming = totalIncomingByNomenclature.get(nomenclatureId) ?? 0;
+    const deficit = totalRequired - currentStock - totalPlannedIncoming;
+    if (deficit <= 0) continue;
+    recommendations.push({
+      nomenclatureId,
+      partLabel: meta.partLabel,
+      role: meta.role,
+      currentStock,
+      totalRequired,
+      totalPlannedIncoming,
+      deficit,
+      usedByBrands: Array.from(meta.brands).sort((a, b) => a.localeCompare(b, 'ru')),
+    });
+  }
+
+  return recommendations.sort((a, b) => {
+    const roleA = ROLE_ORDER.indexOf(a.role);
+    const roleB = ROLE_ORDER.indexOf(b.role);
+    if (roleA !== roleB) return roleA - roleB;
+    return b.deficit - a.deficit;
+  });
 }
 
 export function parseAssemblyIncomingPlanJson(raw: unknown): AssemblyForecastIncomingLine[] {

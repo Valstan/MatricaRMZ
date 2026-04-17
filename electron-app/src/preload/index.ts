@@ -516,6 +516,10 @@ const matricaApi = {
     releaseWelcomeGet: async () => ipcRenderer.invoke('ui:releaseWelcome:get'),
     releaseWelcomeAcknowledge: async () => ipcRenderer.invoke('ui:releaseWelcome:acknowledge'),
   },
+  shortcuts: {
+    get: async (args: { userId: string }) => ipcRenderer.invoke('shortcuts:get', args),
+    set: async (args: { userId: string; ids: string[] }) => ipcRenderer.invoke('shortcuts:set', args),
+  },
   e2eKeys: {
     status: async () => ipcRenderer.invoke('e2e:keys:status'),
     export: async () => ipcRenderer.invoke('e2e:keys:export'),

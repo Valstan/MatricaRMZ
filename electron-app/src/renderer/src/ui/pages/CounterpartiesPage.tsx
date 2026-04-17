@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useListSelection } from '../hooks/useListSelection.js';
@@ -78,9 +79,13 @@ export function CounterpartiesPage(props: {
     sortKey: 'displayName' as SortKey,
     sortDir: 'asc' as const,
     showPreviews: true,
+    pageSize: 50 as WarehouseListPageSize,
+    pageIndex: 0,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
   const query = String(listState.query ?? '');
+  const pageSize = Number(listState.pageSize ?? 50) as WarehouseListPageSize;
+  const pageIndex = Math.max(0, Number(listState.pageIndex ?? 0) || 0);
   const showPreviews = listState.showPreviews !== false;
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
@@ -159,8 +164,12 @@ export function CounterpartiesPage(props: {
     },
     (row) => row.id,
   );
+  const paged = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sorted]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
-  const selection = useListSelection(sorted.map((row) => row.id));
+  const selection = useListSelection(paged.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -309,7 +318,7 @@ export function CounterpartiesPage(props: {
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контрагента…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
         </div>
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
@@ -318,9 +327,17 @@ export function CounterpartiesPage(props: {
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => patchState({ pageSize: size, pageIndex: 0 })}
+        pageIndex={pageIndex}
+        onPageIndexChange={(index) => patchState({ pageIndex: index })}
+        rowCount={paged.length}
+        totalCount={sorted.length}
+      />
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+        <TwoColumnList items={paged} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
       {menu ? (
         <ListContextMenu

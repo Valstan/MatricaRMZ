@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 
@@ -28,6 +29,8 @@ type EngineNomenclatureRow = {
   defaultBrandName: string;
   isSerialTracked: boolean;
 };
+
+type SortKey = 'name' | 'engine' | 'version' | 'status' | 'default' | 'lines' | 'updatedAt';
 
 function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
   const row = (input ?? {}) as Record<string, unknown>;
@@ -73,6 +76,10 @@ export function EngineAssemblyBomPage(props: {
   const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
   const [engineOptions, setEngineOptions] = useState<SearchSelectOption[]>([]);
   const [rows, setRows] = useState<BomListRow[]>([]);
+  const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const refresh = useCallback(async () => {
     try {
@@ -148,6 +155,42 @@ export function EngineAssemblyBomPage(props: {
     });
   }, [engineBrandIdFilter, engineRows]);
 
+  const sortedRows = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      else if (sortKey === 'engine') cmp = String(a.engineNomenclatureName ?? a.engineNomenclatureCode ?? '').localeCompare(String(b.engineNomenclatureName ?? b.engineNomenclatureCode ?? ''), 'ru');
+      else if (sortKey === 'version') cmp = Number(a.version ?? 0) - Number(b.version ?? 0);
+      else if (sortKey === 'status') cmp = String(a.status ?? '').localeCompare(String(b.status ?? ''), 'ru');
+      else if (sortKey === 'default') cmp = Number(a.isDefault ? 1 : 0) - Number(b.isDefault ? 1 : 0);
+      else if (sortKey === 'lines') cmp = Number(a.linesCount ?? 0) - Number(b.linesCount ?? 0);
+      else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
+      if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      return cmp * dir;
+    });
+  }, [rows, sortDir, sortKey]);
+  const pagedRows = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sortedRows.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sortedRows]);
+
+  function onSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      setPageIndex(0);
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDir('asc');
+    setPageIndex(0);
+  }
+
+  function sortLabel(label: string, key: SortKey) {
+    if (sortKey !== key) return label;
+    return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(260px, 1fr) minmax(320px, 1fr) auto auto' }}>
@@ -155,7 +198,10 @@ export function EngineAssemblyBomPage(props: {
           value={engineBrandIdFilter}
           options={engineBrandOptions}
           placeholder="Фильтр по марке двигателя"
-          onChange={setEngineBrandIdFilter}
+          onChange={(value) => {
+            setPageIndex(0);
+            setEngineBrandIdFilter(value);
+          }}
         />
         <SearchSelect
           value={engineNomenclatureIdToCreate}
@@ -192,28 +238,39 @@ export function EngineAssemblyBomPage(props: {
       </div>
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+        rowCount={pagedRows.length}
+        totalCount={sortedRows.length}
+      />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Название</th>
-              <th style={{ textAlign: 'left' }}>Двигатель</th>
-              <th style={{ textAlign: 'left' }}>Версия</th>
-              <th style={{ textAlign: 'left' }}>Статус</th>
-              <th style={{ textAlign: 'left' }}>Default</th>
-              <th style={{ textAlign: 'left' }}>Строк</th>
-              <th style={{ textAlign: 'left' }}>Обновлено</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Название', 'name')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('engine')}>{sortLabel('Двигатель', 'engine')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('version')}>{sortLabel('Версия', 'version')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('status')}>{sortLabel('Статус', 'status')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('default')}>{sortLabel('Default', 'default')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('lines')}>{sortLabel('Строк', 'lines')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>{sortLabel('Обновлено', 'updatedAt')}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {pagedRows.length === 0 ? (
               <tr>
                 <td colSpan={7} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
                   Нет BOM-спецификаций
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
+              pagedRows.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
                   <td>{row.name || '—'}</td>
                   <td>{row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId}</td>

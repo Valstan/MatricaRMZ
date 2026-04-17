@@ -2540,11 +2540,12 @@ async function buildAssemblyForecast7dReport(
     const apiBaseUrl = String(ctx?.apiBaseUrl ?? '').trim();
     if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
     const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
+    const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(filters?.horizonDays ?? 7))));
     const warehouseIds = asArray(filters?.warehouseIds);
     const engineNomenclatureIds = asArray(filters?.engineNomenclatureIds);
     const payload = {
       targetEnginesPerDay,
-      horizonDays: 7,
+      horizonDays,
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
       ...(engineNomenclatureIds.length > 0 ? { engineNomenclatureIds } : {}),
     };
@@ -2582,6 +2583,7 @@ async function buildAssemblyForecast7dReport(
       const preset = getPreset('assembly_forecast_7d');
       const subtitleParts = [
         `Цель: ${targetEnginesPerDay}/сутки`,
+        `Горизонт: ${horizonDays} дн.`,
         warehouseIds.length ? `Склады: ${warehouseIds.length}` : 'Склады: все (сумма)',
         ...warnings,
       ];

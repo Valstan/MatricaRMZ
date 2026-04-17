@@ -4,8 +4,10 @@ export function ListColumnsToggle(props: {
   isMultiColumn: boolean;
   onToggle: () => void;
 }) {
-  const label = props.isMultiColumn ? '1 колонка' : 'Авто-колонки';
-  const title = props.isMultiColumn ? 'Переключить в одноколоночный режим' : 'Переключить в многоколоночный режим';
+  const currentMode = props.isMultiColumn ? 'Компактный' : 'Один столбец';
+  const nextMode = props.isMultiColumn ? 'Один столбец' : 'Компактный';
+  const label = `Режим: ${currentMode}`;
+  const title = `Переключить в режим "${nextMode}"`;
 
   return (
     <Button

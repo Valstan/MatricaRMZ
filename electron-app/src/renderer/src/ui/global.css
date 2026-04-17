@@ -421,6 +421,10 @@ table.list-table tbody tr[data-list-selected='true'] {
 
 table.list-table th {
   padding: 7px var(--list-row-padding-x) !important;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
 }
 
 table.list-table td {
@@ -1128,6 +1132,10 @@ table.list-table.list-table--catalog {
 .ui-table th {
   text-align: left;
   font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
 }
 
 .ui-table .num {

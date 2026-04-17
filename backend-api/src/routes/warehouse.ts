@@ -573,7 +573,7 @@ warehouseRouter.get('/movements', requirePermission(PermissionCode.ErpRegistersV
 warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
   const schema = z.object({
     targetEnginesPerDay: z.coerce.number().int().min(0).max(500),
-    horizonDays: z.coerce.number().int().min(1).max(14).optional(),
+    horizonDays: z.coerce.number().int().min(1).max(31).optional(),
     warehouseIds: z.array(z.string().min(1)).optional(),
     engineNomenclatureIds: z.array(z.string().uuid()).optional(),
   });
@@ -596,7 +596,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       deficitsSummary: r.deficitsSummary,
       alternativeBrands: r.alternativeBrands,
     }));
-    return res.json({ ok: true, rows, warnings: forecast.warnings });
+    return res.json({ ok: true, rows, warnings: forecast.warnings, deficitRecommendations: forecast.deficitRecommendations });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -606,7 +606,7 @@ warehouseRouter.get('/forecast/bom', requirePermission(PermissionCode.ErpRegiste
   const schema = z.object({
     engineId: z.string().uuid(),
     targetEnginesPerDay: z.coerce.number().int().min(0).max(500).optional(),
-    horizonDays: z.coerce.number().int().min(1).max(14).optional(),
+    horizonDays: z.coerce.number().int().min(1).max(31).optional(),
     warehouseIds: z
       .union([z.array(z.string().min(1)), z.string().min(1)])
       .optional()

@@ -4,6 +4,7 @@ import type { AuthUserInfo, ChangeRequestRow } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 
@@ -89,10 +90,14 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     query: '',
     sortKey: 'createdAt' as SortKey,
     sortDir: 'desc' as const,
+    pageSize: 50 as WarehouseListPageSize,
+    pageIndex: 0,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:changes');
   const status = listState.status as 'pending' | 'applied' | 'rejected';
   const query = String(listState.query ?? '');
+  const pageSize = Number(listState.pageSize ?? 50) as WarehouseListPageSize;
+  const pageIndex = Math.max(0, Number(listState.pageIndex ?? 0) || 0);
   const [rows, setRows] = useState<ChangeRequestRow[]>([]);
   const [msg, setMsg] = useState<string>('');
 
@@ -135,6 +140,10 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     },
     (c) => c.id,
   );
+  const paged = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sorted]);
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -156,14 +165,14 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <select
           value={status}
-          onChange={(e) => patchState({ status: e.target.value as any })}
+          onChange={(e) => patchState({ status: e.target.value as any, pageIndex: 0 })}
           style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
         >
           <option value="pending">Ожидают</option>
           <option value="applied">Применены</option>
           <option value="rejected">Отклонены</option>
         </select>
-        <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным изменения…" />
+        <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным изменения…" />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
@@ -174,6 +183,17 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
       </div>
 
       {msg && <div style={{ marginTop: 10, color: msg.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{msg}</div>}
+
+      <div style={{ marginTop: 8 }}>
+        <WarehouseListPager
+          pageSize={pageSize}
+          onPageSizeChange={(size) => patchState({ pageSize: size, pageIndex: 0 })}
+          pageIndex={pageIndex}
+          onPageIndexChange={(index) => patchState({ pageIndex: index })}
+          rowCount={paged.length}
+          totalCount={sorted.length}
+        />
+      </div>
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'auto' }}>
         <table className="list-table">
@@ -194,7 +214,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
             </tr>
           </thead>
           <tbody>
-            {sorted.map((c) => {
+            {paged.map((c) => {
               const allow = canDecide(c);
               const owner = c.recordOwnerUsername ?? '—';
               const changer = c.changeAuthorUsername ?? '—';
@@ -279,7 +299,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
                 </tr>
               );
             })}
-            {sorted.length === 0 && (
+            {paged.length === 0 && (
               <tr>
                 <td style={{ padding: 12, color: '#6b7280' }} colSpan={6}>
                   Изменений нет

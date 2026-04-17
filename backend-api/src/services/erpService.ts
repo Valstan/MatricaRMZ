@@ -10,6 +10,7 @@ import {
   erpCounterparties,
   erpEmployeeCards,
   erpJournalDocuments,
+  erpNomenclature,
   erpPartCards,
   erpPartTemplates,
   erpRegContractSettlement,
@@ -341,6 +342,30 @@ export async function upsertErpCard(
   }
 }
 
+/**
+ * Resolves a batch of part_card_id values to their corresponding nomenclature_id
+ * via erp_nomenclature.directory_ref_id where directory_kind = 'part'.
+ */
+async function resolveNomenclatureIdsByPartCards(partCardIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (partCardIds.length === 0) return result;
+  const rows = await db
+    .select({ id: erpNomenclature.id, directoryRefId: erpNomenclature.directoryRefId })
+    .from(erpNomenclature)
+    .where(
+      and(
+        eq(erpNomenclature.directoryKind, 'part'),
+        inArray(erpNomenclature.directoryRefId, partCardIds as any),
+        isNull(erpNomenclature.deletedAt),
+      ),
+    );
+  for (const row of rows) {
+    const refId = String(row.directoryRefId ?? '').trim();
+    if (refId) result.set(refId, row.id);
+  }
+  return result;
+}
+
 export async function createErpDocument(args: {
   docType: string;
   docNo: string;
@@ -368,18 +393,25 @@ export async function createErpDocument(args: {
       postedAt: null,
       deletedAt: null,
     });
-    const lines = (args.lines ?? []).map((line, idx) => ({
-      id: randomUUID(),
-      headerId: docId,
-      lineNo: idx + 1,
-      partCardId: line.partCardId ?? null,
-      qty: Math.trunc(Number(line.qty || 0)),
-      price: line.price == null ? null : Math.trunc(Number(line.price)),
-      payloadJson: line.payloadJson ?? null,
-      createdAt: ts,
-      updatedAt: ts,
-      deletedAt: null,
-    }));
+    const linePartCardIds = (args.lines ?? []).map((l) => String(l.partCardId ?? '').trim()).filter(Boolean);
+    const nomenclatureByPartCard = await resolveNomenclatureIdsByPartCards(Array.from(new Set(linePartCardIds)));
+    const lines = (args.lines ?? []).map((line, idx) => {
+      const partCardId = String(line.partCardId ?? '').trim() || null;
+      const nomenclatureId = partCardId ? nomenclatureByPartCard.get(partCardId) ?? null : null;
+      return {
+        id: randomUUID(),
+        headerId: docId,
+        lineNo: idx + 1,
+        partCardId,
+        nomenclatureId,
+        qty: Math.trunc(Number(line.qty || 0)),
+        price: line.price == null ? null : Math.trunc(Number(line.price)),
+        payloadJson: line.payloadJson ?? null,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+      };
+    });
     if (lines.length > 0) await db.insert(erpDocumentLines).values(lines);
     await db.insert(erpJournalDocuments).values({
       id: randomUUID(),
@@ -426,6 +458,7 @@ export async function postErpDocument(args: { documentId: string; actor: { id: s
       .orderBy(asc(erpDocumentLines.lineNo));
 
     const partIds = Array.from(new Set(lines.map((l) => String(l.partCardId ?? '')).filter(Boolean)));
+    const nomenclatureByPartCard = await resolveNomenclatureIdsByPartCards(partIds);
     const existingStocks =
       partIds.length === 0
         ? []
@@ -433,8 +466,8 @@ export async function postErpDocument(args: { documentId: string; actor: { id: s
             .select()
             .from(erpRegStockBalance)
             .where(inArray(erpRegStockBalance.partCardId, partIds as any));
-    const stockByPart = new Map<string, { id: string; qty: number; warehouseId: string }>();
-    for (const row of existingStocks as any[]) stockByPart.set(String(row.partCardId), { id: String(row.id), qty: Number(row.qty), warehouseId: String(row.warehouseId) });
+    const stockByPart = new Map<string, { id: string; qty: number; warehouseId: string; nomenclatureId: string | null }>();
+    for (const row of existingStocks as any[]) stockByPart.set(String(row.partCardId), { id: String(row.id), qty: Number(row.qty), warehouseId: String(row.warehouseId), nomenclatureId: row.nomenclatureId ? String(row.nomenclatureId) : null });
 
     const docType = String(header[0].docType);
     const deltaSign = docType === 'parts_receipt' ? 1 : docType === 'parts_issue' || docType === 'parts_writeoff' ? -1 : 0;
@@ -447,20 +480,24 @@ export async function postErpDocument(args: { documentId: string; actor: { id: s
       const delta = qty * deltaSign;
       const cur = stockByPart.get(partCardId);
       const nextQty = (cur?.qty ?? 0) + delta;
+      const resolvedNomenclatureId = nomenclatureByPartCard.get(partCardId) ?? null;
+      const effectiveNomenclatureId = cur?.nomenclatureId ?? resolvedNomenclatureId;
       if (cur) {
-        await db.update(erpRegStockBalance).set({ qty: nextQty, updatedAt: ts }).where(eq(erpRegStockBalance.id, cur.id));
+        const updateSet: Record<string, unknown> = { qty: nextQty, updatedAt: ts };
+        if (!cur.nomenclatureId && effectiveNomenclatureId) updateSet.nomenclatureId = effectiveNomenclatureId;
+        await db.update(erpRegStockBalance).set(updateSet).where(eq(erpRegStockBalance.id, cur.id));
         ledgerRows.push({
           table: LedgerTableName.ErpRegStockBalance,
           rowId: cur.id,
-          row: { id: cur.id, part_card_id: partCardId, warehouse_id: cur.warehouseId, qty: nextQty, updated_at: ts },
+          row: { id: cur.id, part_card_id: partCardId, nomenclature_id: effectiveNomenclatureId, warehouse_id: cur.warehouseId, qty: nextQty, updated_at: ts },
         });
       } else {
         const stockId = randomUUID();
-        await db.insert(erpRegStockBalance).values({ id: stockId, partCardId, warehouseId: 'default', qty: nextQty, updatedAt: ts });
+        await db.insert(erpRegStockBalance).values({ id: stockId, partCardId, nomenclatureId: effectiveNomenclatureId, warehouseId: 'default', qty: nextQty, updatedAt: ts });
         ledgerRows.push({
           table: LedgerTableName.ErpRegStockBalance,
           rowId: stockId,
-          row: { id: stockId, part_card_id: partCardId, warehouse_id: 'default', qty: nextQty, updated_at: ts },
+          row: { id: stockId, part_card_id: partCardId, nomenclature_id: effectiveNomenclatureId, warehouse_id: 'default', qty: nextQty, updated_at: ts },
         });
       }
 

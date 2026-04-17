@@ -159,7 +159,7 @@ export type MenuGroupId =
   | 'control';
 
 export const GROUP_LABELS: Record<MenuGroupId, string> = {
-  history: 'История',
+  history: 'Мой круг',
   production: 'Производство',
   supply: 'Снабжение',
   warehouse: 'Склад',
@@ -171,9 +171,9 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
 const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
-  production: ['engines', 'engine_brands', 'parts', 'part_templates'],
+  production: ['engines', 'engine_brands', 'parts', 'part_templates', 'engine_assembly_bom'],
   supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
-  warehouse: ['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'],
+  warehouse: ['nomenclature', 'stock_balances', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
   control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'admin'],
@@ -182,13 +182,13 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
 type GroupVisualMeta = { icon: string; subtitle: string; gradient: string };
 const GROUP_VISUALS: Record<MenuGroupId, GroupVisualMeta> = {
   history: {
-    icon: '🕘',
-    subtitle: 'Последние действия и быстрый вход',
+    icon: '🎯',
+    subtitle: '',
     gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)',
   },
   production: {
     icon: '⚙️',
-    subtitle: 'Двигатели, марки и каталоги деталей',
+    subtitle: 'Двигатели, марки, детали и BOM',
     gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)',
   },
   supply: {
@@ -220,7 +220,7 @@ const GROUP_VISUALS: Record<MenuGroupId, GroupVisualMeta> = {
 
 type TabVisualMeta = { icon: string; subtitle: string; gradient: string };
 const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
-  history: { icon: '🕘', subtitle: 'Стартовый экран и последние переходы', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
+  history: { icon: '🎯', subtitle: '', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   engines: { icon: '⚙️', subtitle: 'Список и карточки двигателей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   engine_brands: { icon: '🏷️', subtitle: 'Марки двигателей и нормы', gradient: 'linear-gradient(135deg, #2563eb 0%, #60a5fa 100%)' },
   parts: { icon: '🧩', subtitle: 'Справочник деталей и узлов', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
@@ -327,6 +327,9 @@ export function Tabs(props: {
   canGoForward?: boolean;
   onBack?: () => void;
   onForward?: () => void;
+  pinnedShortcuts?: string[];
+  onAddShortcut?: (id: string) => void;
+  onRemoveShortcut?: (id: string) => void;
 }) {
   const displayPrefs = props.displayPrefs ?? DEFAULT_UI_DISPLAY_PREFS;
   const departmentButtonActiveStyle = displayPrefs.departmentButtons.active;
@@ -446,7 +449,7 @@ export function Tabs(props: {
   }
 
   const labels: Record<MenuTabId, string> = {
-    history: 'История',
+    history: 'Мой круг',
     masterdata: 'Справочники',
     contracts: 'Контракты',
     changes: 'Изменения',
@@ -1017,6 +1020,22 @@ export function Tabs(props: {
           >
             Переместить
           </Button>
+          {contextMenu.target.kind === 'tab' && props.onAddShortcut && props.onRemoveShortcut ? (() => {
+            const shortcutId = `tab:${contextMenu.target.id}`;
+            const isPinned = (props.pinnedShortcuts ?? []).includes(shortcutId);
+            return (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (isPinned) props.onRemoveShortcut!(shortcutId);
+                  else props.onAddShortcut!(shortcutId);
+                  setContextMenu(null);
+                }}
+              >
+                {isPinned ? 'Убрать из Моего круга' : 'Добавить в Мой круг'}
+              </Button>
+            );
+          })() : null}
         </div>
       )}
 

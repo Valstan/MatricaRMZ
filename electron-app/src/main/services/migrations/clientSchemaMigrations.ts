@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 3;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 4;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -148,6 +148,18 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_performed_at_idx
           ON erp_reg_stock_movements(performed_at);
       `);
+    },
+  },
+  {
+    from: 3,
+    to: 4,
+    name: 'add nomenclature_id to erp_document_lines',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_document_lines')`).all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === 'nomenclature_id')) {
+        sqlite.exec(`ALTER TABLE erp_document_lines ADD COLUMN nomenclature_id text;`);
+      }
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_document_lines_nomenclature_idx ON erp_document_lines(nomenclature_id);`);
     },
   },
 ];

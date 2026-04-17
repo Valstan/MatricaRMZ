@@ -657,7 +657,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   },
   {
     id: 'assembly_forecast_7d',
-    title: 'Склад: прогноз сборки двигателей (7 дней)',
+    title: 'Прогноз сборки двигателей',
     description:
       'Прогнозирует сборку по активным default BOM-матрицам (двигатель -> компоненты), с учетом остатков и плановых приходов из складских документов в статусе planned.',
     filters: [
@@ -683,6 +683,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         max: 500,
         step: 1,
         defaultValue: 4,
+      },
+      {
+        type: 'number',
+        key: 'horizonDays',
+        label: 'Горизонт прогноза (дней)',
+        min: 1,
+        max: 31,
+        step: 1,
+        defaultValue: 7,
       },
     ],
     columns: [

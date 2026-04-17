@@ -25,6 +25,15 @@ type TabsLayoutPrefs = {
   activeGroup?: string | null;
 };
 
+function parsePinnedShortcuts(raw: string | null): Record<string, string[]> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, string[]>;
+  } catch {}
+  return {};
+}
+
 function parseTabsLayout(raw: string | null): Record<string, TabsLayoutPrefs> {
   if (!raw) return {};
   try {
@@ -285,6 +294,33 @@ export function registerSettingsIpc(ctx: IpcContext) {
       const role = String(session?.user?.role ?? '').trim().toLowerCase();
       if (role !== 'superadmin') return { ok: false as const, error: 'permission denied: superadmin only' };
       return await criticalEventsClear(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('shortcuts:get', async (_e, args?: { userId?: string }) => {
+    try {
+      const userId = String(args?.userId ?? '').trim();
+      if (!userId) return { ok: true as const, ids: [] as string[] };
+      const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiPinnedShortcuts);
+      const byUser = parsePinnedShortcuts(raw);
+      return { ok: true as const, ids: byUser[userId] ?? [] };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('shortcuts:set', async (_e, args?: { userId?: string; ids?: string[] }) => {
+    try {
+      const userId = String(args?.userId ?? '').trim();
+      if (!userId) return { ok: false as const, error: 'userId required' };
+      const ids = Array.isArray(args?.ids) ? args.ids.map(String).filter(Boolean) : [];
+      const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiPinnedShortcuts);
+      const byUser = parsePinnedShortcuts(raw);
+      byUser[userId] = ids;
+      await settingsSetString(ctx.sysDb, SettingsKey.UiPinnedShortcuts, JSON.stringify(byUser));
+      return { ok: true as const, ids };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

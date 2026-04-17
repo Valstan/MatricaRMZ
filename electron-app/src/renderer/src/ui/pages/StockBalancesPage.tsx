@@ -8,6 +8,9 @@ import { WarehouseListPager, type WarehouseListPageSize } from '../components/Wa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, warehouseDocTypeLabel } from '../utils/warehouseUi.js';
 
+type BalanceSortKey = 'warehouse' | 'code' | 'name' | 'group' | 'unit' | 'qty' | 'available' | 'reserved' | 'min' | 'max';
+type MovementSortKey = 'date' | 'doc' | 'docType' | 'operation' | 'qty' | 'reason';
+
 export function StockBalancesPage(props: {
   onOpenDocument: (id: string) => void;
   onOpenNomenclature: (id: string) => void;
@@ -27,6 +30,10 @@ export function StockBalancesPage(props: {
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [balanceSortKey, setBalanceSortKey] = useState<BalanceSortKey>('name');
+  const [balanceSortDir, setBalanceSortDir] = useState<'asc' | 'desc'>('asc');
+  const [movementSortKey, setMovementSortKey] = useState<MovementSortKey>('date');
+  const [movementSortDir, setMovementSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     setPageIndex(0);
@@ -112,6 +119,63 @@ export function StockBalancesPage(props: {
     [rows],
   );
 
+  const sortedRows = useMemo(() => {
+    const dir = balanceSortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (balanceSortKey === 'warehouse') cmp = String(a.warehouseName ?? '').localeCompare(String(b.warehouseName ?? ''), 'ru');
+      else if (balanceSortKey === 'code') cmp = String(a.nomenclatureCode ?? '').localeCompare(String(b.nomenclatureCode ?? ''), 'ru');
+      else if (balanceSortKey === 'name') cmp = String(a.nomenclatureName ?? '').localeCompare(String(b.nomenclatureName ?? ''), 'ru');
+      else if (balanceSortKey === 'group') cmp = String(a.groupName ?? '').localeCompare(String(b.groupName ?? ''), 'ru');
+      else if (balanceSortKey === 'unit') cmp = String(a.unitName ?? '').localeCompare(String(b.unitName ?? ''), 'ru');
+      else if (balanceSortKey === 'qty') cmp = Number(a.qty ?? 0) - Number(b.qty ?? 0);
+      else if (balanceSortKey === 'available') cmp = Number(a.availableQty ?? 0) - Number(b.availableQty ?? 0);
+      else if (balanceSortKey === 'reserved') cmp = Number(a.reservedQty ?? 0) - Number(b.reservedQty ?? 0);
+      else if (balanceSortKey === 'min') cmp = Number(a.minStock ?? -1) - Number(b.minStock ?? -1);
+      else if (balanceSortKey === 'max') cmp = Number(a.maxStock ?? -1) - Number(b.maxStock ?? -1);
+      if (cmp === 0) cmp = String(a.nomenclatureName ?? '').localeCompare(String(b.nomenclatureName ?? ''), 'ru');
+      return cmp * dir;
+    });
+  }, [rows, balanceSortDir, balanceSortKey]);
+
+  const sortedMovements = useMemo(() => {
+    const dir = movementSortDir === 'asc' ? 1 : -1;
+    return [...movements].sort((a, b) => {
+      let cmp = 0;
+      if (movementSortKey === 'date') cmp = Number(a.performedAt ?? 0) - Number(b.performedAt ?? 0);
+      else if (movementSortKey === 'doc') cmp = String(a.documentDocNo ?? '').localeCompare(String(b.documentDocNo ?? ''), 'ru');
+      else if (movementSortKey === 'docType') cmp = String(a.documentDocType ?? '').localeCompare(String(b.documentDocType ?? ''), 'ru');
+      else if (movementSortKey === 'operation') cmp = String(a.movementType ?? '').localeCompare(String(b.movementType ?? ''), 'ru');
+      else if (movementSortKey === 'qty') cmp = Number(a.qty ?? 0) - Number(b.qty ?? 0);
+      else if (movementSortKey === 'reason') cmp = String(a.reasonLabel ?? a.reason ?? a.counterpartyName ?? '').localeCompare(String(b.reasonLabel ?? b.reason ?? b.counterpartyName ?? ''), 'ru');
+      if (cmp === 0) cmp = String(a.id).localeCompare(String(b.id), 'ru');
+      return cmp * dir;
+    });
+  }, [movements, movementSortDir, movementSortKey]);
+
+  function onBalanceSort(nextKey: BalanceSortKey) {
+    if (balanceSortKey === nextKey) {
+      setBalanceSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setBalanceSortKey(nextKey);
+    setBalanceSortDir('asc');
+  }
+
+  function onMovementSort(nextKey: MovementSortKey) {
+    if (movementSortKey === nextKey) {
+      setMovementSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setMovementSortKey(nextKey);
+    setMovementSortDir('asc');
+  }
+
+  function label(base: string, active: boolean, dir: 'asc' | 'desc') {
+    if (!active) return base;
+    return `${base} ${dir === 'asc' ? '↑' : '↓'}`;
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(260px, 1.1fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto auto' }}>
@@ -180,27 +244,27 @@ export function StockBalancesPage(props: {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Склад</th>
-              <th style={{ textAlign: 'left' }}>Код</th>
-              <th style={{ textAlign: 'left' }}>Номенклатура</th>
-              <th style={{ textAlign: 'left' }}>Группа</th>
-              <th style={{ textAlign: 'left' }}>Ед.</th>
-              <th style={{ textAlign: 'left' }}>Остаток</th>
-              <th style={{ textAlign: 'left' }}>Доступно</th>
-              <th style={{ textAlign: 'left' }}>Резерв</th>
-              <th style={{ textAlign: 'left' }}>Мин</th>
-              <th style={{ textAlign: 'left' }}>Макс</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('warehouse')}>{label('Склад', balanceSortKey === 'warehouse', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('code')}>{label('Код', balanceSortKey === 'code', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('name')}>{label('Номенклатура', balanceSortKey === 'name', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('group')}>{label('Группа', balanceSortKey === 'group', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('unit')}>{label('Ед.', balanceSortKey === 'unit', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('qty')}>{label('Остаток', balanceSortKey === 'qty', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('available')}>{label('Доступно', balanceSortKey === 'available', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('reserved')}>{label('Резерв', balanceSortKey === 'reserved', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('min')}>{label('Мин', balanceSortKey === 'min', balanceSortDir)}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('max')}>{label('Макс', balanceSortKey === 'max', balanceSortDir)}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {sortedRows.length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
                   Нет данных
                 </td>
               </tr>
             ) : (
-              rows.map((row) => {
+              sortedRows.map((row) => {
                 const qty = Number(row.qty ?? 0);
                 const min = row.minStock == null ? null : Number(row.minStock);
                 const isLow = min != null && qty <= min;
@@ -262,23 +326,25 @@ export function StockBalancesPage(props: {
           <table className="list-table">
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>Дата</th>
-                <th style={{ textAlign: 'left' }}>Документ</th>
-                <th style={{ textAlign: 'left' }}>Тип</th>
-                <th style={{ textAlign: 'left' }}>Операция</th>
-                <th style={{ textAlign: 'left' }}>Кол-во</th>
-                <th style={{ textAlign: 'left' }}>Основание</th>
+                <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('date')}>
+                  {label('Дата', movementSortKey === 'date', movementSortDir)}
+                </th>
+                <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('doc')}>{label('Документ', movementSortKey === 'doc', movementSortDir)}</th>
+                <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('docType')}>{label('Тип', movementSortKey === 'docType', movementSortDir)}</th>
+                <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('operation')}>{label('Операция', movementSortKey === 'operation', movementSortDir)}</th>
+                <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('qty')}>{label('Кол-во', movementSortKey === 'qty', movementSortDir)}</th>
+                <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('reason')}>{label('Основание', movementSortKey === 'reason', movementSortDir)}</th>
               </tr>
             </thead>
             <tbody>
-              {movements.length === 0 ? (
+              {sortedMovements.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: 10, textAlign: 'center', color: 'var(--subtle)' }}>
                     Движения не найдены
                   </td>
                 </tr>
               ) : (
-                movements.map((movement) => (
+                sortedMovements.map((movement) => (
                   <tr key={movement.id}>
                     <td>{movement.performedAt ? new Date(Number(movement.performedAt)).toLocaleString('ru-RU') : '—'}</td>
                     <td>

@@ -223,7 +223,7 @@ export async function upsertWarehouseAssemblyBom(args: {
 
     const normalizedLines = (Array.isArray(args.lines) ? args.lines : [])
       .map((line) => ({
-        id: String(line.id ?? randomUUID()),
+        id: randomUUID(),
         bomId: id,
         componentNomenclatureId: String(line.componentNomenclatureId),
         componentType: normalizeComponentType(line.componentType),
@@ -445,7 +445,7 @@ export async function buildWarehouseBomExpandedForecast(args: {
   try {
     const engineId = String(args.engineId).trim();
     if (!engineId) return { ok: false, error: 'engineId обязателен' };
-    const horizonDays = Math.max(1, Math.min(14, Math.trunc(Number(args.horizonDays ?? 7))));
+    const horizonDays = Math.max(1, Math.min(31, Math.trunc(Number(args.horizonDays ?? 7))));
     const target = Math.max(0, Math.trunc(Number(args.targetEnginesPerDay ?? 1)));
     const totalEngines = target * horizonDays;
     const warehouseSet = Array.isArray(args.warehouseIds) && args.warehouseIds.length > 0 ? new Set(args.warehouseIds.map(String)) : null;

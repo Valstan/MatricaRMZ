@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { lookupToSelectOptions } from '../utils/warehouseUi.js';
@@ -17,6 +18,8 @@ type InventoryLine = {
   unitName: string | null;
 };
 
+type SortKey = 'code' | 'name' | 'unit' | 'book' | 'actual' | 'delta';
+
 export function StockInventoryPage(props: {
   canEdit: boolean;
   onOpenDocument: (id: string) => void;
@@ -28,12 +31,55 @@ export function StockInventoryPage(props: {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<InventoryLine[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
+  const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const visibleRows = useMemo(() => {
     const search = query.trim().toLowerCase();
     if (!search) return rows;
     return rows.filter((row) => `${row.code} ${row.name}`.toLowerCase().includes(search));
   }, [query, rows]);
+
+  const sortedRows = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...visibleRows].sort((a, b) => {
+      const actualA = Number(a.actualQty || a.bookQty);
+      const actualB = Number(b.actualQty || b.bookQty);
+      const deltaA = actualA - a.bookQty;
+      const deltaB = actualB - b.bookQty;
+      let cmp = 0;
+      if (sortKey === 'code') cmp = String(a.code ?? '').localeCompare(String(b.code ?? ''), 'ru');
+      else if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      else if (sortKey === 'unit') cmp = String(a.unitName ?? '').localeCompare(String(b.unitName ?? ''), 'ru');
+      else if (sortKey === 'book') cmp = Number(a.bookQty ?? 0) - Number(b.bookQty ?? 0);
+      else if (sortKey === 'actual') cmp = actualA - actualB;
+      else if (sortKey === 'delta') cmp = deltaA - deltaB;
+      if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      return cmp * dir;
+    });
+  }, [visibleRows, sortDir, sortKey]);
+  const pagedRows = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return sortedRows.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sortedRows]);
+
+  function onSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      setPageIndex(0);
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDir('asc');
+    setPageIndex(0);
+  }
+
+  function sortLabel(label: string, key: SortKey) {
+    if (sortKey !== key) return label;
+    return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
+  }
 
   async function loadBalances() {
     if (!warehouseId) {
@@ -135,28 +181,47 @@ export function StockInventoryPage(props: {
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ fontWeight: 700 }}>Строки инвентаризации</div>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по коду и номенклатуре..." style={{ maxWidth: 360 }} />
+          <Input
+            value={query}
+            onChange={(e) => {
+              setPageIndex(0);
+              setQuery(e.target.value);
+            }}
+            placeholder="Поиск по коду и номенклатуре..."
+            style={{ maxWidth: 360 }}
+          />
         </div>
+        <WarehouseListPager
+          pageSize={pageSize}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPageIndex(0);
+          }}
+          pageIndex={pageIndex}
+          onPageIndexChange={setPageIndex}
+          rowCount={pagedRows.length}
+          totalCount={sortedRows.length}
+        />
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Код</th>
-              <th style={{ textAlign: 'left' }}>Номенклатура</th>
-              <th style={{ textAlign: 'left' }}>Ед.</th>
-              <th style={{ textAlign: 'left' }}>Учет</th>
-              <th style={{ textAlign: 'left' }}>Факт</th>
-              <th style={{ textAlign: 'left' }}>Расхождение</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('code')}>{sortLabel('Код', 'code')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Номенклатура', 'name')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('unit')}>{sortLabel('Ед.', 'unit')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('book')}>{sortLabel('Учет', 'book')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('actual')}>{sortLabel('Факт', 'actual')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('delta')}>{sortLabel('Расхождение', 'delta')}</th>
             </tr>
           </thead>
           <tbody>
-            {visibleRows.length === 0 ? (
+            {pagedRows.length === 0 ? (
               <tr>
                 <td colSpan={6} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                   Загрузите остатки по складу, чтобы начать инвентаризацию.
                 </td>
               </tr>
             ) : (
-              visibleRows.map((row, idx) => {
+              pagedRows.map((row, idx) => {
                 const actualQty = Number(row.actualQty || row.bookQty);
                 const delta = actualQty - row.bookQty;
                 return (

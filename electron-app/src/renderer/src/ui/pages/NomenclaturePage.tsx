@@ -8,6 +8,20 @@ import { WarehouseListPager, type WarehouseListPageSize } from '../components/Wa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
+type SortKey =
+  | 'code'
+  | 'sku'
+  | 'name'
+  | 'itemType'
+  | 'category'
+  | 'group'
+  | 'unit'
+  | 'warehouse'
+  | 'brand'
+  | 'serial'
+  | 'barcode'
+  | 'status';
+
 export function NomenclaturePage(props: {
   onOpen: (id: string) => void;
   canEdit: boolean;
@@ -23,6 +37,8 @@ export function NomenclaturePage(props: {
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     setPageIndex(0);
@@ -58,12 +74,39 @@ export function NomenclaturePage(props: {
   }, [refresh]);
 
   const sorted = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
-      const byName = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
-      if (byName !== 0) return byName;
-      return String(a.code ?? '').localeCompare(String(b.code ?? ''), 'ru');
+      let cmp = 0;
+      if (sortKey === 'code') cmp = String(a.code ?? '').localeCompare(String(b.code ?? ''), 'ru');
+      else if (sortKey === 'sku') cmp = String(a.sku ?? '').localeCompare(String(b.sku ?? ''), 'ru');
+      else if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      else if (sortKey === 'itemType') cmp = String(a.itemType ?? '').localeCompare(String(b.itemType ?? ''), 'ru');
+      else if (sortKey === 'category') cmp = String(a.category ?? '').localeCompare(String(b.category ?? ''), 'ru');
+      else if (sortKey === 'group') cmp = String(a.groupName ?? '').localeCompare(String(b.groupName ?? ''), 'ru');
+      else if (sortKey === 'unit') cmp = String(a.unitName ?? '').localeCompare(String(b.unitName ?? ''), 'ru');
+      else if (sortKey === 'warehouse') cmp = String(a.defaultWarehouseName ?? '').localeCompare(String(b.defaultWarehouseName ?? ''), 'ru');
+      else if (sortKey === 'brand') cmp = String(a.defaultBrandName ?? '').localeCompare(String(b.defaultBrandName ?? ''), 'ru');
+      else if (sortKey === 'serial') cmp = Number(a.isSerialTracked ? 1 : 0) - Number(b.isSerialTracked ? 1 : 0);
+      else if (sortKey === 'barcode') cmp = String(a.barcode ?? '').localeCompare(String(b.barcode ?? ''), 'ru');
+      else if (sortKey === 'status') cmp = Number(a.isActive === false ? 0 : 1) - Number(b.isActive === false ? 0 : 1);
+      if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      return cmp * dir;
     });
-  }, [rows]);
+  }, [rows, sortDir, sortKey]);
+
+  function onSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDir('asc');
+  }
+
+  function sortLabel(label: string, key: SortKey) {
+    if (sortKey !== key) return label;
+    return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
@@ -152,18 +195,18 @@ export function NomenclaturePage(props: {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Код</th>
-              <th style={{ textAlign: 'left' }}>SKU</th>
-              <th style={{ textAlign: 'left' }}>Наименование</th>
-              <th style={{ textAlign: 'left' }}>Тип</th>
-              <th style={{ textAlign: 'left' }}>Категория</th>
-              <th style={{ textAlign: 'left' }}>Группа</th>
-              <th style={{ textAlign: 'left' }}>Ед.</th>
-              <th style={{ textAlign: 'left' }}>Склад по умолчанию</th>
-              <th style={{ textAlign: 'left' }}>Марка по умолч.</th>
-              <th style={{ textAlign: 'left' }}>Серийный учет</th>
-              <th style={{ textAlign: 'left' }}>Штрихкод</th>
-              <th style={{ textAlign: 'left' }}>Статус</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('code')}>{sortLabel('Код', 'code')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('sku')}>{sortLabel('SKU', 'sku')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Наименование', 'name')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('itemType')}>{sortLabel('Тип', 'itemType')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('category')}>{sortLabel('Категория', 'category')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('group')}>{sortLabel('Группа', 'group')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('unit')}>{sortLabel('Ед.', 'unit')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('warehouse')}>{sortLabel('Склад по умолчанию', 'warehouse')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('brand')}>{sortLabel('Марка по умолч.', 'brand')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('serial')}>{sortLabel('Серийный учет', 'serial')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('barcode')}>{sortLabel('Штрихкод', 'barcode')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('status')}>{sortLabel('Статус', 'status')}</th>
             </tr>
           </thead>
           <tbody>

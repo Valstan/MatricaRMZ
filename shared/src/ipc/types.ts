@@ -654,6 +654,10 @@ export type MatricaApi = {
     releaseWelcomeGet: () => Promise<ReleaseWelcomeGetResult>;
     releaseWelcomeAcknowledge: () => Promise<ReleaseWelcomeAcknowledgeResult>;
   };
+  shortcuts: {
+    get: (args: { userId: string }) => Promise<{ ok: true; ids: string[] } | { ok: false; error: string }>;
+    set: (args: { userId: string; ids: string[] }) => Promise<{ ok: true; ids: string[] } | { ok: false; error: string }>;
+  };
   e2eKeys: {
     status: () => Promise<{ ok: true; enabled: boolean; primaryPresent: boolean; previousCount: number; updatedAt: number } | { ok: false; error: string }>;
     export: () => Promise<{ ok: true; ring: { primary: string; previous: string[]; updatedAt: number } } | { ok: false; error: string }>;
@@ -1049,8 +1053,9 @@ export type MatricaApi = {
             id: string;
             workOrderNumber: number;
             orderDate: number;
-            partName: string;
+            workType: string;
             crewCount: number;
+            performerSurnames: string;
             totalAmountRub: number;
             updatedAt: number;
           }>;

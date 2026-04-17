@@ -8,6 +8,8 @@ import { WarehouseListPager, type WarehouseListPageSize } from '../components/Wa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, warehouseDocTypeLabel, WAREHOUSE_DOC_STATUS_OPTIONS, WAREHOUSE_DOC_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
+type SortKey = 'docNo' | 'docType' | 'docDate' | 'status' | 'warehouse' | 'counterparty' | 'reason' | 'lines' | 'qty';
+
 export function StockDocumentsPage(props: {
   defaultDocType?: string;
   canEdit: boolean;
@@ -25,6 +27,8 @@ export function StockDocumentsPage(props: {
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('docDate');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     setPageIndex(0);
@@ -62,6 +66,38 @@ export function StockDocumentsPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const displayRows = React.useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'docNo') cmp = String(a.docNo ?? '').localeCompare(String(b.docNo ?? ''), 'ru');
+      else if (sortKey === 'docType') cmp = String(a.docType ?? '').localeCompare(String(b.docType ?? ''), 'ru');
+      else if (sortKey === 'docDate') cmp = Number(a.docDate ?? 0) - Number(b.docDate ?? 0);
+      else if (sortKey === 'status') cmp = String(a.status ?? '').localeCompare(String(b.status ?? ''), 'ru');
+      else if (sortKey === 'warehouse') cmp = String(a.warehouseName ?? '').localeCompare(String(b.warehouseName ?? ''), 'ru');
+      else if (sortKey === 'counterparty') cmp = String(a.counterpartyName ?? '').localeCompare(String(b.counterpartyName ?? ''), 'ru');
+      else if (sortKey === 'reason') cmp = String(a.reasonLabel ?? a.reason ?? '').localeCompare(String(b.reasonLabel ?? b.reason ?? ''), 'ru');
+      else if (sortKey === 'lines') cmp = Number(a.linesCount ?? 0) - Number(b.linesCount ?? 0);
+      else if (sortKey === 'qty') cmp = Number(a.totalQty ?? 0) - Number(b.totalQty ?? 0);
+      if (cmp === 0) cmp = String(a.docNo ?? '').localeCompare(String(b.docNo ?? ''), 'ru');
+      return cmp * dir;
+    });
+  }, [rows, sortDir, sortKey]);
+
+  function onSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDir('asc');
+  }
+
+  function sortLabel(label: string, key: SortKey) {
+    if (sortKey !== key) return label;
+    return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
@@ -139,26 +175,26 @@ export function StockDocumentsPage(props: {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Номер</th>
-              <th style={{ textAlign: 'left' }}>Тип</th>
-              <th style={{ textAlign: 'left' }}>Дата</th>
-              <th style={{ textAlign: 'left' }}>Статус</th>
-              <th style={{ textAlign: 'left' }}>Склад</th>
-              <th style={{ textAlign: 'left' }}>Контрагент</th>
-              <th style={{ textAlign: 'left' }}>Основание</th>
-              <th style={{ textAlign: 'left' }}>Строк</th>
-              <th style={{ textAlign: 'left' }}>Кол-во</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('docNo')}>{sortLabel('Номер', 'docNo')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('docType')}>{sortLabel('Тип', 'docType')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('docDate')}>{sortLabel('Дата', 'docDate')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('status')}>{sortLabel('Статус', 'status')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('warehouse')}>{sortLabel('Склад', 'warehouse')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('counterparty')}>{sortLabel('Контрагент', 'counterparty')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('reason')}>{sortLabel('Основание', 'reason')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('lines')}>{sortLabel('Строк', 'lines')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('qty')}>{sortLabel('Кол-во', 'qty')}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {displayRows.length === 0 ? (
               <tr>
                 <td colSpan={9} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
                   Нет документов
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
+              displayRows.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
                   <td>{row.docNo || '—'}</td>
                   <td>{warehouseDocTypeLabel(row.docType)}</td>

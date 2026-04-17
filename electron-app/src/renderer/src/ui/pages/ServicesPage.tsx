@@ -1,6 +1,7 @@
 import React from 'react';
 
-import { MasterdataDirectoryPage } from './MasterdataDirectoryPage.js';
+import { NomenclatureDirectoryPage } from './NomenclatureDirectoryPage.js';
+import { SERVICES_PRESET } from './nomenclatureDirectoryPresets.js';
 
 export function ServicesPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -9,17 +10,12 @@ export function ServicesPage(props: {
   canViewMasterData: boolean;
 }) {
   return (
-    <MasterdataDirectoryPage
-      typeCode="service"
-      titleLabel="Услуги"
-      emptyText="Нет услуг"
-      searchPlaceholder="Поиск услуг..."
-      createButtonText="Добавить услугу"
-      defaultName="Новая услуга"
+    <NomenclatureDirectoryPage
       onOpen={props.onOpen}
       canCreate={props.canCreate}
       canView={props.canViewMasterData}
       noAccessText="Недостаточно прав для просмотра услуг."
+      {...SERVICES_PRESET}
     />
   );
 }

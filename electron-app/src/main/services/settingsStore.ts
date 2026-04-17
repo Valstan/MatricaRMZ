@@ -41,6 +41,7 @@ export const SettingsKey = {
   UiChatSide: 'ui.chatSide',
   UiEnterAsTab: 'ui.enterAsTab',
   UiTabsLayout: 'ui.tabs.layout',
+  UiPinnedShortcuts: 'ui.pinnedShortcuts',
   ReportPresetFavorites: 'reports.presetFavorites',
   ReportPresetHistory: 'reports.presetHistory',
   UiDefaultsVersionApplied: 'ui.defaultsVersionApplied',

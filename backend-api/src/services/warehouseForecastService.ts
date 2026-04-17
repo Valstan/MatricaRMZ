@@ -54,7 +54,7 @@ async function loadPlannedIncomingLines(args: { horizonDays: number; warehouseId
   }
   return Array.from(map.entries()).map(([key, qty]) => {
     const [offsetRaw, nomenclatureId] = key.split('::');
-    return { dayOffset: Math.max(0, Math.min(13, Number(offsetRaw) || 0)), nomenclatureId: String(nomenclatureId), qty };
+    return { dayOffset: Math.max(0, Math.min(30, Number(offsetRaw) || 0)), nomenclatureId: String(nomenclatureId), qty };
   });
 }
 
@@ -135,7 +135,7 @@ async function loadActiveDefaultBomKits(engineFilter?: string[]): Promise<Assemb
 }
 
 export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
-  const horizonDays = Math.max(1, Math.min(14, Math.floor(Number(args.horizonDays ?? 7))));
+  const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(args.horizonDays ?? 7))));
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(args.targetEnginesPerDay ?? 0)));
   const warehouseIds = Array.isArray(args.warehouseIds) ? args.warehouseIds.map(String) : undefined;
   const engineNomenclatureIds = Array.isArray(args.engineNomenclatureIds) ? args.engineNomenclatureIds.map(String) : undefined;
@@ -148,6 +148,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     return {
       rows: [],
       warnings: ['Нет активных default BOM для выбранных двигателей.'],
+      deficitRecommendations: [],
     };
   }
   const stock = await loadNomenclatureStockMap(warehouseIds);

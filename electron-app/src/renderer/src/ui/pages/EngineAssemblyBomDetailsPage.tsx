@@ -31,6 +31,15 @@ type BomLine = BomDetails['lines'][number];
 
 const COMPONENT_TYPES = ['sleeve', 'piston', 'ring', 'jacket', 'head', 'other'] as const;
 
+const COMPONENT_TYPE_LABELS: Record<string, string> = {
+  sleeve: 'Гильза',
+  piston: 'Поршень',
+  ring: 'Кольцо',
+  jacket: 'Рубашка',
+  head: 'Головка',
+  other: 'Прочее',
+};
+
 export function EngineAssemblyBomDetailsPage(props: {
   id: string;
   canEdit: boolean;
@@ -59,6 +68,14 @@ export function EngineAssemblyBomDetailsPage(props: {
         notes: current.notes ?? null,
         ...patch,
       };
+      return { ...prev, lines };
+    });
+  }, []);
+
+  const removeLine = useCallback((idx: number) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const lines = prev.lines.filter((_, i) => i !== idx);
       return { ...prev, lines };
     });
   }, []);
@@ -182,15 +199,16 @@ export function EngineAssemblyBomDetailsPage(props: {
                 <tr>
                   <th style={{ textAlign: 'left' }}>Компонент</th>
                   <th style={{ textAlign: 'left' }}>Тип</th>
-                  <th style={{ textAlign: 'left' }}>Qty/двиг.</th>
+                  <th style={{ textAlign: 'left' }}>Кол-во/двиг.</th>
                   <th style={{ textAlign: 'left' }}>Группа</th>
                   <th style={{ textAlign: 'left' }}>Обяз.</th>
                   <th style={{ textAlign: 'left' }}>Приоритет</th>
+                  {props.canEdit ? <th /> : null}
                 </tr>
               </thead>
               <tbody>
                 {data.lines.map((line, idx) => (
-                  <tr key={line.id || idx}>
+                  <tr key={line.id || `new-${idx}`}>
                     <td style={{ minWidth: 260 }}>
                       <SearchSelect
                         value={line.componentNomenclatureId}
@@ -207,7 +225,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                       >
                         {COMPONENT_TYPES.map((option) => (
                           <option key={option} value={option}>
-                            {option}
+                            {COMPONENT_TYPE_LABELS[option] ?? option}
                           </option>
                         ))}
                       </select>
@@ -241,6 +259,17 @@ export function EngineAssemblyBomDetailsPage(props: {
                         disabled={!props.canEdit}
                       />
                     </td>
+                    {props.canEdit ? (
+                      <td>
+                        <Button
+                          variant="ghost"
+                          onClick={() => removeLine(idx)}
+                          style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0 }}
+                        >
+                          Удалить
+                        </Button>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -287,7 +316,6 @@ export function EngineAssemblyBomDetailsPage(props: {
                     isDefault: data.header.isDefault,
                     notes: data.header.notes ?? null,
                     lines: data.lines.map((line) => ({
-                      ...(line.id ? { id: line.id } : {}),
                       componentNomenclatureId: line.componentNomenclatureId,
                       componentType: line.componentType,
                       qtyPerUnit: Number(line.qtyPerUnit ?? 0),

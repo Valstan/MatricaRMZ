@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -59,10 +60,14 @@ export function SupplyRequestsPage(props: {
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
     showPreviews: true,
+    pageSize: 50 as WarehouseListPageSize,
+    pageIndex: 0,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:supply_requests');
   const query = String(listState.query ?? '');
   const month = String(listState.month ?? '');
+  const pageSize = Number(listState.pageSize ?? 50) as WarehouseListPageSize;
+  const pageIndex = Math.max(0, Number(listState.pageIndex ?? 0) || 0);
   const showPreviews = listState.showPreviews !== false;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
@@ -115,6 +120,10 @@ export function SupplyRequestsPage(props: {
     },
     (row) => row.id,
   );
+  const paged = useMemo<Row[]>(() => {
+    const start = pageIndex * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [pageIndex, pageSize, sorted]);
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
   }
@@ -257,10 +266,10 @@ export function SupplyRequestsPage(props: {
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным заявки…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным заявки…" />
         </div>
         <div style={{ width: 180 }}>
-          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
+          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value, pageIndex: 0 })} />
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
           Применить фильтр
@@ -272,9 +281,17 @@ export function SupplyRequestsPage(props: {
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
+      <WarehouseListPager
+        pageSize={pageSize}
+        onPageSizeChange={(size) => patchState({ pageSize: size, pageIndex: 0 })}
+        pageIndex={pageIndex}
+        onPageIndexChange={(index) => patchState({ pageIndex: index })}
+        rowCount={paged.length}
+        totalCount={sorted.length}
+      />
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+        <TwoColumnList items={paged} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
       </div>
     </div>
   );
