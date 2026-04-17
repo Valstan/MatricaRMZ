@@ -18,32 +18,85 @@ type BomListRow = {
   updatedAt: number;
 };
 
+type EngineNomenclatureRow = {
+  id: string;
+  code: string;
+  name: string;
+  itemType: string;
+  category: string;
+  defaultBrandId: string;
+  defaultBrandName: string;
+  isSerialTracked: boolean;
+};
+
+function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
+  const row = (input ?? {}) as Record<string, unknown>;
+  return {
+    id: String(row.id ?? '').trim(),
+    code: String(row.code ?? '').trim(),
+    name: String(row.name ?? '').trim(),
+    itemType: String(row.itemType ?? '').trim().toLowerCase(),
+    category: String(row.category ?? '').trim().toLowerCase(),
+    defaultBrandId: String(row.defaultBrandId ?? '').trim(),
+    defaultBrandName: String(row.defaultBrandName ?? '').trim(),
+    isSerialTracked: Boolean(row.isSerialTracked),
+  };
+}
+
+function isEngineLikeNomenclatureRow(row: EngineNomenclatureRow): boolean {
+  if (!row.id) return false;
+  if (row.itemType === 'engine') return true;
+  if (row.category === 'engine') return true;
+  if (row.isSerialTracked) return true;
+  // Legacy imports can miss itemType but keep an engine brand link.
+  if (row.defaultBrandId) return true;
+  return false;
+}
+
+function toEngineOption(row: EngineNomenclatureRow): SearchSelectOption {
+  return {
+    id: row.id,
+    label: row.name || row.code || row.id,
+    ...(row.code ? { hintText: row.code } : {}),
+  };
+}
+
 export function EngineAssemblyBomPage(props: {
   canEdit: boolean;
   onOpen: (id: string) => void;
 }) {
   const { error: refsError } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
-  const [engineNomenclatureId, setEngineNomenclatureId] = useState<string | null>(null);
+  const [engineBrandIdFilter, setEngineBrandIdFilter] = useState<string | null>(null);
+  const [engineNomenclatureIdToCreate, setEngineNomenclatureIdToCreate] = useState<string | null>(null);
+  const [engineRows, setEngineRows] = useState<EngineNomenclatureRow[]>([]);
+  const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
   const [engineOptions, setEngineOptions] = useState<SearchSelectOption[]>([]);
   const [rows, setRows] = useState<BomListRow[]>([]);
 
   const refresh = useCallback(async () => {
     try {
       setStatus('Загрузка BOM...');
-      const result = await window.matrica.warehouse.assemblyBomList({
-        ...(engineNomenclatureId ? { engineNomenclatureId } : {}),
-      });
+      const result = await window.matrica.warehouse.assemblyBomList();
       if (!result?.ok) {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
         return;
       }
-      setRows((result.rows ?? []) as BomListRow[]);
+      let nextRows = (result.rows ?? []) as BomListRow[];
+      if (engineBrandIdFilter) {
+        const allowedEngineIds = new Set(
+          engineRows
+            .filter((row) => row.defaultBrandId === engineBrandIdFilter)
+            .map((row) => row.id),
+        );
+        nextRows = nextRows.filter((row) => allowedEngineIds.has(String(row.engineNomenclatureId)));
+      }
+      setRows(nextRows);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [engineNomenclatureId]);
+  }, [engineBrandIdFilter, engineRows]);
 
   useEffect(() => {
     void refresh();
@@ -52,28 +105,27 @@ export function EngineAssemblyBomPage(props: {
   useEffect(() => {
     let alive = true;
     const loadEngineOptions = async () => {
-      const strict = await window.matrica.warehouse.nomenclatureList({
-        itemType: 'engine',
+      const list = await window.matrica.warehouse.nomenclatureList({
         isActive: true,
-        limit: 1000,
+        limit: 5000,
       });
-      if (!alive || !strict?.ok) return;
-      let sourceRows = strict.rows ?? [];
-      if (sourceRows.length === 0) {
-        // Legacy datasets can keep engines in nomenclature without item_type='engine'.
-        const fallback = await window.matrica.warehouse.nomenclatureList({
-          isActive: true,
-          limit: 1000,
-        });
-        if (fallback?.ok) sourceRows = fallback.rows ?? [];
+      if (!alive || !list?.ok) return;
+      const parsed = (list.rows ?? []).map(toEngineNomenclatureRow);
+      const nextEngineRows = parsed.filter(isEngineLikeNomenclatureRow);
+      setEngineRows(nextEngineRows);
+
+      const brandById = new Map<string, SearchSelectOption>();
+      for (const row of nextEngineRows) {
+        if (!row.defaultBrandId) continue;
+        if (!brandById.has(row.defaultBrandId)) {
+          brandById.set(row.defaultBrandId, {
+            id: row.defaultBrandId,
+            label: row.defaultBrandName || row.defaultBrandId,
+          });
+        }
       }
-      setEngineOptions(
-        sourceRows.map((row) => ({
-          id: String((row as any).id ?? ''),
-          label: String((row as any).name ?? (row as any).code ?? ''),
-          hintText: String((row as any).code ?? ''),
-        })),
-      );
+      const sortedBrandOptions = Array.from(brandById.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setEngineBrandOptions(sortedBrandOptions);
     };
     void loadEngineOptions();
     return () => {
@@ -81,21 +133,43 @@ export function EngineAssemblyBomPage(props: {
     };
   }, []);
 
+  useEffect(() => {
+    if (!engineBrandIdFilter) {
+      setEngineNomenclatureIdToCreate(null);
+      setEngineOptions([]);
+      return;
+    }
+    const nextEngineRows = engineRows.filter((row) => row.defaultBrandId === engineBrandIdFilter);
+    const nextOptions = nextEngineRows.map(toEngineOption);
+    setEngineOptions(nextOptions);
+    setEngineNomenclatureIdToCreate((prev) => {
+      if (prev && nextOptions.some((option) => option.id === prev)) return prev;
+      return nextOptions[0]?.id ?? null;
+    });
+  }, [engineBrandIdFilter, engineRows]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto' }}>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(260px, 1fr) minmax(320px, 1fr) auto auto' }}>
         <SearchSelect
-          value={engineNomenclatureId}
+          value={engineBrandIdFilter}
+          options={engineBrandOptions}
+          placeholder="Фильтр по марке двигателя"
+          onChange={setEngineBrandIdFilter}
+        />
+        <SearchSelect
+          value={engineNomenclatureIdToCreate}
           options={engineOptions}
-          placeholder="Фильтр по двигателю (номенклатура)"
-          onChange={setEngineNomenclatureId}
+          placeholder="Двигатель для создания BOM"
+          onChange={setEngineNomenclatureIdToCreate}
+          disabled={!engineBrandIdFilter}
         />
         {props.canEdit ? (
           <Button
             onClick={async () => {
               const created = await window.matrica.warehouse.assemblyBomUpsert({
                 name: 'Новая BOM',
-                engineNomenclatureId: engineNomenclatureId ?? '',
+                engineNomenclatureId: engineNomenclatureIdToCreate ?? '',
                 status: 'draft',
                 isDefault: false,
                 lines: [],
@@ -107,7 +181,7 @@ export function EngineAssemblyBomPage(props: {
               await refresh();
               props.onOpen(String(created.id));
             }}
-            disabled={!engineNomenclatureId}
+            disabled={!engineNomenclatureIdToCreate}
           >
             Создать BOM
           </Button>
