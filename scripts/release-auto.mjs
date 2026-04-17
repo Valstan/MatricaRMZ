@@ -188,7 +188,8 @@ async function publishLedgerRelease({ version, filePath, fileName }) {
 
 // ── Deploy server ────────────────────────────────────────────────────
 
-function deployServer() {
+function deployServer(opts = {}) {
+  const runDbMigrations = opts.runDbMigrations === true;
   if (process.platform === 'win32') {
     console.log('Windows detected; backend deploy is handled on the VPS. Skipping local deploy.');
     return;
@@ -198,6 +199,10 @@ function deployServer() {
   run(`${PNPM} -C shared build`);
   run(`${PNPM} -C backend-api build`);
   run(`${PNPM} --filter @matricarmz/web-admin build`);
+  if (runDbMigrations) {
+    console.log('Running backend DB migrations before service restart...');
+    run(`${PNPM} --filter @matricarmz/backend-api db:migrate`);
+  }
 
   const units = new Set(listSystemdServiceUnits());
   const hasPrimary = units.has('matricarmz-backend-primary.service');
@@ -258,9 +263,10 @@ async function main() {
   run('git push origin main --tags');
 
   // Deploy backend if changed
+  const backendOrSharedChanged = hasDiffSince(prev, ['backend-api', 'shared']);
   if (hasDiffSince(prev, ['backend-api', 'web-admin', 'shared'])) {
     console.log('Backend/shared/web-admin changed. Deploying...');
-    deployServer();
+    deployServer({ runDbMigrations: backendOrSharedChanged });
   } else {
     console.log('No backend changes. Deploy skipped.');
   }

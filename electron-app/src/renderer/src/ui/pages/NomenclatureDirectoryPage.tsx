@@ -29,6 +29,19 @@ export function NomenclatureDirectoryPage(props: {
   const [status, setStatus] = useState('');
   const canView = props.canView !== false;
 
+  function looksLikeLegacyDirectoryRow(row: WarehouseNomenclatureListItem): boolean {
+    const code = String((row as any).code ?? '').trim().toLowerCase();
+    const itemType = String((row as any).itemType ?? '').trim().toLowerCase();
+    const specJson = String((row as any).specJson ?? '').trim().toLowerCase();
+    if (props.directoryKind === 'part') {
+      return itemType === 'component' || code.startsWith('det-') || specJson.includes('"source":"part"');
+    }
+    if (props.directoryKind === 'tool') {
+      return itemType === 'tool_consumable' || code.startsWith('tls-');
+    }
+    return false;
+  }
+
   const refresh = useCallback(async () => {
     if (!canView) return;
     try {
@@ -43,7 +56,25 @@ export function NomenclatureDirectoryPage(props: {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
         return;
       }
-      setRows((result.rows ?? []) as WarehouseNomenclatureListItem[]);
+      const strictRows = (result.rows ?? []) as WarehouseNomenclatureListItem[];
+      if (strictRows.length > 0 || (props.directoryKind !== 'part' && props.directoryKind !== 'tool')) {
+        setRows(strictRows);
+        setStatus('');
+        return;
+      }
+      // Legacy fallback: in old data directory_kind was often empty.
+      const fallback = await window.matrica.warehouse.nomenclatureList({
+        ...(query.trim() ? { search: query.trim() } : {}),
+        limit: 1000,
+        offset: 0,
+      });
+      if (!fallback?.ok) {
+        setRows(strictRows);
+        setStatus('');
+        return;
+      }
+      const fallbackRows = ((fallback.rows ?? []) as WarehouseNomenclatureListItem[]).filter(looksLikeLegacyDirectoryRow);
+      setRows(fallbackRows);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);

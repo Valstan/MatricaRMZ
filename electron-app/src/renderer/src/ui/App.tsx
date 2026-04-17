@@ -3171,7 +3171,7 @@ export function App() {
 
         {tab === 'engine_brands' && (
           <EngineBrandsPage
-            onOpen={openNomenclature}
+            onOpen={openEngineBrand}
             canCreate={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
@@ -3367,7 +3367,7 @@ export function App() {
 
         {tab === 'products' && (
           <ProductsPage
-            onOpen={openNomenclature}
+            onOpen={openProduct}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -3376,7 +3376,7 @@ export function App() {
 
         {tab === 'services' && (
           <ServicesPage
-            onOpen={openNomenclature}
+            onOpen={openService}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}

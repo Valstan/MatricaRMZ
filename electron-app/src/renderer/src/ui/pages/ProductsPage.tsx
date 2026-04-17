@@ -1,6 +1,6 @@
 import React from 'react';
-import { NomenclatureDirectoryPage } from './NomenclatureDirectoryPage.js';
-import { PRODUCTS_PRESET } from './nomenclatureDirectoryPresets.js';
+
+import { MasterdataDirectoryPage } from './MasterdataDirectoryPage.js';
 
 export function ProductsPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -9,12 +9,17 @@ export function ProductsPage(props: {
   canViewMasterData: boolean;
 }) {
   return (
-    <NomenclatureDirectoryPage
+    <MasterdataDirectoryPage
+      typeCode="product"
+      titleLabel="Товары"
+      emptyText="Нет товаров"
+      searchPlaceholder="Поиск товаров..."
+      createButtonText="Добавить товар"
+      defaultName="Новый товар"
       onOpen={props.onOpen}
       canCreate={props.canCreate}
       canView={props.canViewMasterData}
       noAccessText="Недостаточно прав для просмотра товаров."
-      {...PRODUCTS_PRESET}
     />
   );
 }

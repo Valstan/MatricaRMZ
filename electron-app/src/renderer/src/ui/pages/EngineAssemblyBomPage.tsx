@@ -52,14 +52,23 @@ export function EngineAssemblyBomPage(props: {
   useEffect(() => {
     let alive = true;
     const loadEngineOptions = async () => {
-      const result = await window.matrica.warehouse.nomenclatureList({
+      const strict = await window.matrica.warehouse.nomenclatureList({
         itemType: 'engine',
         isActive: true,
         limit: 1000,
       });
-      if (!alive || !result?.ok) return;
+      if (!alive || !strict?.ok) return;
+      let sourceRows = strict.rows ?? [];
+      if (sourceRows.length === 0) {
+        // Legacy datasets can keep engines in nomenclature without item_type='engine'.
+        const fallback = await window.matrica.warehouse.nomenclatureList({
+          isActive: true,
+          limit: 1000,
+        });
+        if (fallback?.ok) sourceRows = fallback.rows ?? [];
+      }
       setEngineOptions(
-        (result.rows ?? []).map((row) => ({
+        sourceRows.map((row) => ({
           id: String((row as any).id ?? ''),
           label: String((row as any).name ?? (row as any).code ?? ''),
           hintText: String((row as any).code ?? ''),
