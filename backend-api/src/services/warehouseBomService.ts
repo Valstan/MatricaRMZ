@@ -141,10 +141,43 @@ export async function listWarehouseAssemblyBoms(args?: {
 }
 
 async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } }>> {
-  const headerRows = await listWarehouseAssemblyBoms();
-  if (!headerRows.ok) return headerRows as any;
-  const header = headerRows.rows.find((row) => String(row.id) === String(id));
-  if (!header) return { ok: false, error: 'BOM не найден' };
+  const bomId = String(id);
+  const headerRows = await db
+    .select({
+      id: erpEngineAssemblyBom.id,
+      name: erpEngineAssemblyBom.name,
+      engineNomenclatureId: erpEngineAssemblyBom.engineNomenclatureId,
+      version: erpEngineAssemblyBom.version,
+      status: erpEngineAssemblyBom.status,
+      isDefault: erpEngineAssemblyBom.isDefault,
+      notes: erpEngineAssemblyBom.notes,
+      createdAt: erpEngineAssemblyBom.createdAt,
+      updatedAt: erpEngineAssemblyBom.updatedAt,
+      deletedAt: erpEngineAssemblyBom.deletedAt,
+      engineCode: erpNomenclature.code,
+      engineName: erpNomenclature.name,
+    })
+    .from(erpEngineAssemblyBom)
+    .leftJoin(erpNomenclature, eq(erpNomenclature.id, erpEngineAssemblyBom.engineNomenclatureId))
+    .where(and(eq(erpEngineAssemblyBom.id, bomId), isNull(erpEngineAssemblyBom.deletedAt)))
+    .limit(1);
+
+  const hr = headerRows[0];
+  if (!hr) return { ok: false, error: 'BOM не найден' };
+  const header: Record<string, unknown> = {
+    id: String(hr.id),
+    name: String(hr.name),
+    engineNomenclatureId: String(hr.engineNomenclatureId),
+    engineNomenclatureCode: hr.engineCode ? String(hr.engineCode) : null,
+    engineNomenclatureName: hr.engineName ? String(hr.engineName) : null,
+    version: Number(hr.version ?? 1),
+    status: String(hr.status),
+    isDefault: Boolean(hr.isDefault),
+    notes: hr.notes ?? null,
+    createdAt: Number(hr.createdAt),
+    updatedAt: Number(hr.updatedAt),
+    deletedAt: hr.deletedAt == null ? null : Number(hr.deletedAt),
+  };
 
   const lines = await db
     .select({
@@ -165,7 +198,7 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
     })
     .from(erpEngineAssemblyBomLines)
     .leftJoin(erpNomenclature, eq(erpNomenclature.id, erpEngineAssemblyBomLines.componentNomenclatureId))
-    .where(and(eq(erpEngineAssemblyBomLines.bomId, String(id)), isNull(erpEngineAssemblyBomLines.deletedAt)))
+    .where(and(eq(erpEngineAssemblyBomLines.bomId, bomId), isNull(erpEngineAssemblyBomLines.deletedAt)))
     .orderBy(asc(erpEngineAssemblyBomLines.priority), asc(erpEngineAssemblyBomLines.createdAt));
 
   const parsedLineMeta = new Map<string, ReturnType<typeof parseWarehouseBomLineMeta>>();
@@ -228,6 +261,26 @@ export async function upsertWarehouseAssemblyBom(args: {
       .limit(1);
     const existingId = existingForEngine[0]?.id ? String(existingForEngine[0].id) : null;
     const id = String(args.id ?? existingId ?? randomUUID());
+    if (args.id) {
+      const otherForEngine = await db
+        .select({ id: erpEngineAssemblyBom.id })
+        .from(erpEngineAssemblyBom)
+        .where(
+          and(
+            eq(erpEngineAssemblyBom.engineNomenclatureId, requestedEngineId),
+            isNull(erpEngineAssemblyBom.deletedAt),
+            sql`${erpEngineAssemblyBom.id} <> ${id}`,
+          ),
+        )
+        .limit(1);
+      if (otherForEngine[0]?.id) {
+        return {
+          ok: false,
+          error:
+            'Для выбранного двигателя уже есть другая спецификация. Удалите или откройте ту карточку, либо выберите другой двигатель.',
+        };
+      }
+    }
     const ts = nowMs();
     const status = 'active';
     const version = Math.max(1, Math.trunc(Number(args.version ?? 1)));
@@ -451,6 +504,87 @@ export async function upsertWarehouseAssemblyBom(args: {
         })),
       );
     }
+
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Actor }): Promise<Result<{ id: string }>> {
+  try {
+    const id = String(args.id);
+    const ts = nowMs();
+    const headerRows = await db
+      .select()
+      .from(erpEngineAssemblyBom)
+      .where(and(eq(erpEngineAssemblyBom.id, id), isNull(erpEngineAssemblyBom.deletedAt)))
+      .limit(1);
+    const headerRow = headerRows[0];
+    if (!headerRow) return { ok: false, error: 'BOM не найден' };
+
+    const linesBefore = await db
+      .select()
+      .from(erpEngineAssemblyBomLines)
+      .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
+
+    await db
+      .update(erpEngineAssemblyBomLines)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
+    await db
+      .update(erpEngineAssemblyBom)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(eq(erpEngineAssemblyBom.id, id));
+
+    const actor = { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' };
+    const lineDeletes = linesBefore.map((line) => ({
+      type: 'delete' as const,
+      table: LedgerTableName.ErpEngineAssemblyBomLines,
+      row_id: String(line.id),
+      row: {
+        id: String(line.id),
+        bom_id: String(line.bomId),
+        component_nomenclature_id: String(line.componentNomenclatureId),
+        component_type: String(line.componentType),
+        qty_per_unit: Number(line.qtyPerUnit),
+        variant_group: line.variantGroup ?? null,
+        is_required: Boolean(line.isRequired),
+        priority: Number(line.priority),
+        notes: line.notes ?? null,
+        created_at: Number(line.createdAt),
+        updated_at: ts,
+        deleted_at: ts,
+        sync_status: String(line.syncStatus ?? 'synced'),
+        last_server_seq: line.lastServerSeq == null ? null : Number(line.lastServerSeq),
+      },
+      actor,
+      ts,
+    }));
+    signAndAppendDetailed([
+      ...lineDeletes,
+      {
+        type: 'delete' as const,
+        table: LedgerTableName.ErpEngineAssemblyBom,
+        row_id: String(headerRow.id),
+        row: {
+          id: String(headerRow.id),
+          name: String(headerRow.name),
+          engine_nomenclature_id: String(headerRow.engineNomenclatureId),
+          version: Number(headerRow.version),
+          status: String(headerRow.status),
+          is_default: Boolean(headerRow.isDefault),
+          notes: headerRow.notes ?? null,
+          created_at: Number(headerRow.createdAt),
+          updated_at: ts,
+          deleted_at: ts,
+          sync_status: String(headerRow.syncStatus ?? 'synced'),
+          last_server_seq: headerRow.lastServerSeq == null ? null : Number(headerRow.lastServerSeq),
+        },
+        actor,
+        ts,
+      },
+    ]);
 
     return { ok: true, id };
   } catch (e) {

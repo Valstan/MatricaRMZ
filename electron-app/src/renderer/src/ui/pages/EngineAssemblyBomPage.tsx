@@ -121,7 +121,7 @@ export function EngineAssemblyBomPage(props: {
         .map((brand) => ({
           id: String(brand.id ?? ''),
           label: String(brand.label ?? ''),
-          hintText: brand.code ? String(brand.code) : undefined,
+          ...(brand.code ? { hintText: String(brand.code) } : {}),
         }))
         .filter((brand) => brand.id && brand.label)
         .sort((a, b) => a.label.localeCompare(b.label, 'ru')),

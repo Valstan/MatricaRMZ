@@ -706,6 +706,18 @@ export async function warehouseAssemblyBomUpsert(
   }
 }
 
+export async function warehouseAssemblyBomDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseAssemblyBomActivateDefault(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

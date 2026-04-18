@@ -20,6 +20,7 @@ import {
   warehouseLookupsGet,
   warehouseAssemblyBomActivateDefault,
   warehouseAssemblyBomArchive,
+  warehouseAssemblyBomDelete,
   warehouseAssemblyBomGet,
   warehouseAssemblyBomSchemaGet,
   warehouseAssemblyBomSchemaUsageGet,
@@ -329,6 +330,13 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as any;
     return warehouseAssemblyBomUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
   ipcMain.handle('warehouse:assemblyBom:activateDefault', async (_e, id: string) => {

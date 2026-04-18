@@ -31,6 +31,7 @@ import {
   getWarehouseAssemblyBomComponentTypeUsage,
   listWarehouseAssemblyBomHistory,
   listWarehouseAssemblyBoms,
+  deleteWarehouseAssemblyBom,
   renameWarehouseBomComponentTypes,
   upsertWarehouseAssemblyBom,
 } from '../services/warehouseBomService.js';
@@ -339,6 +340,22 @@ warehouseRouter.get('/assembly-bom/:id', requirePermission(PermissionCode.ErpDic
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
   const result = await getWarehouseAssemblyBom({ id });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.delete('/assembly-bom/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await deleteWarehouseAssemblyBom({
+    id,
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

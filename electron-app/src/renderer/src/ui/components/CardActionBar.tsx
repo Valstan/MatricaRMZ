@@ -14,6 +14,8 @@ export type CardActionBarProps = {
   onClose?: (() => void) | undefined;
   extraActionsLeft?: React.ReactNode | undefined;
   extraActionsCenter?: React.ReactNode | undefined;
+  /** Одна строка для центральной группы (без переноса); при нехватке места — горизонтальная прокрутка. */
+  centerNoWrap?: boolean | undefined;
 };
 
 export function CardActionBar(props: CardActionBarProps) {
@@ -66,7 +68,9 @@ export function CardActionBar(props: CardActionBarProps) {
             justifyContent: 'center',
             gap: 6,
             flex: 1,
-            flexWrap: 'wrap',
+            flexWrap: props.centerNoWrap ? 'nowrap' : 'wrap',
+            overflowX: props.centerNoWrap ? 'auto' : undefined,
+            minWidth: props.centerNoWrap ? 0 : undefined,
           }}
         >
           {props.canEdit && props.onReset && (

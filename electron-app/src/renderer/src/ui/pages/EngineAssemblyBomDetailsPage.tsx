@@ -100,6 +100,40 @@ function normalizeSearchText(raw: string): string {
   return String(raw ?? '').trim().toLowerCase().replaceAll('ё', 'е');
 }
 
+type EngineNomenclatureRow = {
+  id: string;
+  code: string;
+  name: string;
+  itemType: string;
+  category: string;
+  defaultBrandId: string;
+  isSerialTracked: boolean;
+};
+
+function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
+  const row = (input ?? {}) as Record<string, unknown>;
+  return {
+    id: String(row.id ?? '').trim(),
+    code: String(row.code ?? '').trim(),
+    name: String(row.name ?? '').trim(),
+    itemType: String(row.itemType ?? '').trim().toLowerCase(),
+    category: String(row.category ?? '').trim().toLowerCase(),
+    defaultBrandId: String(row.defaultBrandId ?? '').trim(),
+    isSerialTracked: Boolean(row.isSerialTracked),
+  };
+}
+
+function isEngineLikeNomenclatureRow(row: EngineNomenclatureRow): boolean {
+  if (!row.id) return false;
+  if (row.itemType === 'engine') return true;
+  if (row.category === 'engine') return true;
+  if (row.isSerialTracked) return true;
+  if (row.defaultBrandId) return true;
+  return false;
+}
+
+type BomOccupancyRow = { id: string; engineNomenclatureId: string };
+
 function buildBomSnapshot(data: BomDetails | null): string {
   if (!data) return '';
   return JSON.stringify({
@@ -265,10 +299,14 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [pendingSchemaRenameConfirm, setPendingSchemaRenameConfirm] = useState<PendingSchemaRenameConfirm | null>(null);
   const [savedBomSnapshot, setSavedBomSnapshot] = useState('');
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [savingBom, setSavingBom] = useState(false);
+  const [deletingBom, setDeletingBom] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [showTechnicalFields, setShowTechnicalFields] = useState(false);
   const [componentOptions, setComponentOptions] = useState<SearchSelectOption[]>([]);
+  const [engineNomenclatureRows, setEngineNomenclatureRows] = useState<EngineNomenclatureRow[]>([]);
+  const [bomOccupancyRows, setBomOccupancyRows] = useState<BomOccupancyRow[]>([]);
 
   const relationNodes = useMemo(
     () => [...(bomRelationSchema.nodes ?? [])].sort((a, b) => (a.sortOrder - b.sortOrder) || a.label.localeCompare(b.label, 'ru')),
@@ -364,6 +402,43 @@ export function EngineAssemblyBomDetailsPage(props: {
     () => validatePreparedLines(preparedLines, allowedChildrenByType, requiredComponentTypes),
     [allowedChildrenByType, preparedLines, requiredComponentTypes],
   );
+  const engineIdToBomId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of bomOccupancyRows) {
+      map.set(String(row.engineNomenclatureId), String(row.id));
+    }
+    return map;
+  }, [bomOccupancyRows]);
+
+  const engineSelectOptions = useMemo((): SearchSelectOption[] => {
+    const currentBomId = data?.header.id ?? '';
+    return engineNomenclatureRows
+      .filter((row) => {
+        const occupant = engineIdToBomId.get(row.id);
+        return !occupant || occupant === currentBomId;
+      })
+      .map((row) => ({
+        id: row.id,
+        label: row.name || row.code || row.id,
+        hintText: row.code,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  }, [data?.header.id, engineIdToBomId, engineNomenclatureRows]);
+
+  const engineSelectOptionsResolved = useMemo(() => {
+    const opts = [...engineSelectOptions];
+    const curId = data?.header.engineNomenclatureId;
+    if (curId && !opts.some((o) => String(o.id) === String(curId))) {
+      const fallback: SearchSelectOption = {
+        id: curId,
+        label: data?.header.engineNomenclatureName || data?.header.engineNomenclatureCode || curId,
+        ...(data?.header.engineNomenclatureCode ? { hintText: String(data.header.engineNomenclatureCode) } : {}),
+      };
+      opts.unshift(fallback);
+    }
+    return opts;
+  }, [data?.header, engineSelectOptions]);
+
   const parentOptionsByLineIdx = useMemo(() => {
     const map = new Map<number, SearchSelectOption[]>();
     for (const line of preparedLines) {
@@ -424,6 +499,17 @@ export function EngineAssemblyBomDetailsPage(props: {
     });
   }, []);
 
+  const loadBomOccupancy = useCallback(async () => {
+    const r = await window.matrica.warehouse.assemblyBomList();
+    if (!r?.ok) return;
+    setBomOccupancyRows(
+      (r.rows ?? []).map((row) => ({
+        id: String((row as { id?: string }).id ?? ''),
+        engineNomenclatureId: String((row as { engineNomenclatureId?: string }).engineNomenclatureId ?? ''),
+      })),
+    );
+  }, []);
+
   const refresh = useCallback(async () => {
     setStatus('Загрузка BOM...');
     const result = await window.matrica.warehouse.assemblyBomGet(props.id);
@@ -436,7 +522,8 @@ export function EngineAssemblyBomDetailsPage(props: {
     setSavedBomSnapshot(buildBomSnapshot(nextData));
     setCloseConfirmOpen(false);
     setStatus('');
-  }, [props.id]);
+    await loadBomOccupancy();
+  }, [props.id, loadBomOccupancy]);
 
   useEffect(() => {
     void refresh();
@@ -450,19 +537,25 @@ export function EngineAssemblyBomDetailsPage(props: {
         limit: 5000,
       });
       if (!alive || !result?.ok) return;
+      const rows = result.rows ?? [];
       setComponentOptions(
-        (result.rows ?? []).map((row) => ({
-          id: String((row as any).id ?? ''),
-          label: String((row as any).name ?? (row as any).code ?? ''),
-          hintText: String((row as any).code ?? ''),
+        rows.map((row) => ({
+          id: String((row as { id?: string }).id ?? ''),
+          label: String((row as { name?: string; code?: string }).name ?? (row as { code?: string }).code ?? ''),
+          hintText: String((row as { code?: string }).code ?? ''),
         })),
       );
+      setEngineNomenclatureRows(rows.map(toEngineNomenclatureRow).filter(isEngineLikeNomenclatureRow));
     };
     void loadComponents();
     return () => {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    void loadBomOccupancy();
+  }, [loadBomOccupancy]);
 
   useEffect(() => {
     if (!data) return;
@@ -769,11 +862,29 @@ export function EngineAssemblyBomDetailsPage(props: {
     setCloseConfirmOpen(true);
   }, [isBomDirty, isSchemaDirty, props, showSchemaEditor]);
 
+  const confirmDeleteBom = useCallback(async () => {
+    if (!data) return;
+    setDeletingBom(true);
+    try {
+      const result = await window.matrica.warehouse.assemblyBomDelete(data.header.id);
+      if (!result?.ok) {
+        setStatus(`Ошибка удаления: ${String(result?.error ?? 'unknown')}`);
+        return;
+      }
+      setDeleteConfirmOpen(false);
+      setStatus('');
+      props.onClose();
+    } finally {
+      setDeletingBom(false);
+    }
+  }, [data, props]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <CardActionBar
         canEdit={props.canEdit}
         cardLabel={showSchemaEditor ? 'Глобальная схема BOM' : 'BOM двигателя'}
+        centerNoWrap
         onPrint={
           !showSchemaEditor && data
             ? () => {
@@ -789,6 +900,8 @@ export function EngineAssemblyBomDetailsPage(props: {
             : undefined
         }
         onClose={requestCloseBomCard}
+        onDelete={props.canEdit && !showSchemaEditor && data ? () => setDeleteConfirmOpen(true) : undefined}
+        deleteLabel="Удалить спецификацию"
         extraActionsLeft={
           showSchemaEditor ? (
             <>
@@ -802,9 +915,6 @@ export function EngineAssemblyBomDetailsPage(props: {
             </>
           ) : (
             <>
-              <Button variant="ghost" onClick={() => void refresh()}>
-                Обновить
-              </Button>
               {props.canEdit ? (
                 <Button onClick={() => void (async () => { if (await saveBom()) props.onClose(); })()} disabled={savingBom}>
                   Сохранить и закрыть
@@ -816,17 +926,18 @@ export function EngineAssemblyBomDetailsPage(props: {
         extraActionsCenter={
           showSchemaEditor ? null : (
             <>
-              <Button variant={viewMode === 'table' ? 'primary' : 'ghost'} onClick={() => setViewMode('table')}>
-                Таблица
-              </Button>
-              <Button variant={viewMode === 'tree' ? 'primary' : 'ghost'} onClick={() => setViewMode('tree')}>
-                Дерево
+              <Button
+                variant="primary"
+                title={viewMode === 'table' ? 'Показать дерево связей' : 'Показать таблицу'}
+                onClick={() => setViewMode((m) => (m === 'table' ? 'tree' : 'table'))}
+              >
+                {viewMode === 'table' ? 'Дерево' : 'Таблица'}
               </Button>
               <Button variant={showTechnicalFields ? 'primary' : 'ghost'} onClick={() => setShowTechnicalFields((prev) => !prev)}>
-                {showTechnicalFields ? 'Скрыть техполя' : 'Показать техполя'}
+                {showTechnicalFields ? 'Скрыть техполя' : 'Техполя'}
               </Button>
               <Button variant="ghost" onClick={() => setShowSchemaEditor(true)}>
-                Глобальная схема связей
+                Глобальная схема
               </Button>
             </>
           )
@@ -926,7 +1037,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           onChange={(e) =>
                             setSchemaNodesDraft((prev) => {
                               const next = [...prev];
-                              next[idx] = { ...next[idx], typeId: normalizeNodeKey(e.target.value) || '' };
+                              next[idx] = { ...next[idx], typeId: normalizeNodeKey(e.target.value) || '' } as DraftSchemaNode;
                               return next;
                             })
                           }
@@ -938,7 +1049,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           onChange={(e) =>
                             setSchemaNodesDraft((prev) => {
                               const next = [...prev];
-                              next[idx] = { ...next[idx], label: e.target.value };
+                              next[idx] = { ...next[idx], label: e.target.value } as DraftSchemaNode;
                               return next;
                             })
                           }
@@ -951,7 +1062,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           onChange={(e) =>
                             setSchemaNodesDraft((prev) => {
                               const next = [...prev];
-                              next[idx] = { ...next[idx], isActive: e.target.checked };
+                              next[idx] = { ...next[idx], isActive: e.target.checked } as DraftSchemaNode;
                               return next;
                             })
                           }
@@ -963,7 +1074,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           onChange={(e) =>
                             setSchemaNodesDraft((prev) => {
                               const next = [...prev];
-                              next[idx] = { ...next[idx], sortOrder: Number(e.target.value || 0) };
+                              next[idx] = { ...next[idx], sortOrder: Number(e.target.value || 0) } as DraftSchemaNode;
                               return next;
                             })
                           }
@@ -983,7 +1094,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           onChange={(nextValues) =>
                             setSchemaNodesDraft((prev) => {
                               const next = [...prev];
-                              next[idx] = { ...next[idx], childTypeIds: nextValues };
+                              next[idx] = { ...next[idx], childTypeIds: nextValues } as DraftSchemaNode;
                               return next;
                             })
                           }
@@ -1297,6 +1408,47 @@ export function EngineAssemblyBomDetailsPage(props: {
           </div>
         </div>
       ) : null}
+      {deleteConfirmOpen && data ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: 'min(520px, 100%)',
+              borderRadius: 14,
+              background: 'var(--surface)',
+              boxShadow: '0 24px 64px rgba(2, 6, 23, 0.35)',
+              border: '1px solid var(--border)',
+              display: 'grid',
+              gap: 10,
+              padding: 14,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Удалить спецификацию?</div>
+            <div style={{ fontSize: 13, color: 'var(--subtle)' }}>
+              Будет удалена спецификация для двигателя «{data.header.engineNomenclatureName || data.header.engineNomenclatureCode || data.header.engineNomenclatureId}»
+              ({data.header.name}). Действие синхронизируется с сервером. Его нельзя отменить из интерфейса.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant="ghost" onClick={() => setDeleteConfirmOpen(false)} disabled={deletingBom}>
+                Отмена
+              </Button>
+              <Button tone="danger" onClick={() => void confirmDeleteBom()} disabled={deletingBom}>
+                Удалить
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {!showSchemaEditor ? (
         <>
       {lineValidation.errors.length > 0 ? (
@@ -1321,13 +1473,42 @@ export function EngineAssemblyBomDetailsPage(props: {
       ) : null}
       {!data ? null : (
         <>
-          <div style={{ display: 'grid', gap: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Двигатель, для которого собрана спецификация</span>
-            <Input
-              value={data.header.engineNomenclatureName || data.header.engineNomenclatureCode || data.header.engineNomenclatureId}
-              disabled
-            />
-          </div>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
+              Двигатель (марка/позиция в номенклатуре), для которого собрана спецификация. Для двигателя может быть только одна спецификация — занятые позиции в списке
+              скрыты.
+            </span>
+            {props.canEdit ? (
+              <SearchSelect
+                value={data.header.engineNomenclatureId}
+                options={engineSelectOptionsResolved}
+                showAllWhenEmpty
+                placeholder="Выберите двигатель"
+                onChange={(value) => {
+                  const nextId = String(value ?? '');
+                  const row = engineNomenclatureRows.find((r) => r.id === nextId);
+                  setData((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          header: {
+                            ...prev.header,
+                            engineNomenclatureId: nextId,
+                            engineNomenclatureCode: row?.code ?? null,
+                            engineNomenclatureName: row?.name ?? null,
+                          },
+                        }
+                      : null,
+                  );
+                }}
+              />
+            ) : (
+              <Input
+                value={data.header.engineNomenclatureName || data.header.engineNomenclatureCode || data.header.engineNomenclatureId}
+                disabled
+              />
+            )}
+          </label>
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '2fr 1fr' }}>
             <label style={{ display: 'grid', gap: 4 }}>
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Название BOM</span>

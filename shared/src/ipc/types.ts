@@ -1316,6 +1316,7 @@ export type MatricaApi = {
     assemblyBomSchemaUsageGet: () => Promise<{ ok: true; rows: WarehouseBomRelationTypeUsage[] } | { ok: false; error: string }>;
     assemblyBomGet: (id: string) => Promise<{ ok: true; bom: EngineAssemblyBomDetails } | { ok: false; error: string }>;
     assemblyBomUpsert: (args: EngineAssemblyBomUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    assemblyBomDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     assemblyBomActivateDefault: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     assemblyBomArchive: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     assemblyBomHistory: (args: { engineNomenclatureId: string }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;

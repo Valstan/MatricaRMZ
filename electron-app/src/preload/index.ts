@@ -430,6 +430,7 @@ const matricaApi = {
     assemblyBomSchemaUsageGet: async () => ipcRenderer.invoke('warehouse:assemblyBom:schema:usage:get'),
     assemblyBomGet: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:get', id),
     assemblyBomUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:assemblyBom:upsert', args),
+    assemblyBomDelete: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:delete', id),
     assemblyBomActivateDefault: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:activateDefault', id),
     assemblyBomArchive: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:archive', id),
     assemblyBomHistory: async (args: { engineNomenclatureId: string }) => ipcRenderer.invoke('warehouse:assemblyBom:history', args),
