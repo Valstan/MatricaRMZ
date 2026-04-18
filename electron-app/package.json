@@ -88,7 +88,8 @@
       {
         "provider": "github",
         "owner": "Valstan",
-        "repo": "MatricaRMZ"
+        "repo": "MatricaRMZ",
+        "releaseType": "release"
       }
     ]
   }

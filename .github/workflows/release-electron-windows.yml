@@ -41,6 +41,7 @@ jobs:
       - name: Build electron app
         run: pnpm -C electron-app build
 
+      # electron-builder по умолчанию создаёт GitHub Release как draft; в package.json задано releaseType: release.
       - name: Publish release (Windows x64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

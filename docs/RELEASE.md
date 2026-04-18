@@ -35,6 +35,8 @@ corepack pnpm run release:auto
 - Проверяет статус update-сервиса (если включен).
 - Публикует релиз в ledger автоматически при наличии `MATRICA_LEDGER_RELEASE_TOKEN`.
 
+Workflow **Release Electron (Windows)** (`release-electron-windows.yml`) вызывает `electron-builder --publish always`. По умолчанию electron-builder создаёт GitHub Release как **draft**; у нас в `electron-app/package.json` в `build.publish` для GitHub задано **`releaseType: release`**, чтобы релиз сразу был опубликованным и публичные ссылки на `.exe` работали (в т.ч. для `curl`/VPS без `gh release edit --draft=false`).
+
 ## Когда выпускать клиентский релиз при завершении сессии
 Если сессия разработки закрывается по протоколу из `docs/README.md`, агент должен отдельно принять решение: достаточно ли только sync/deploy на сервер или уже нужен новый релиз Windows-клиента.
 
