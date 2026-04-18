@@ -12,6 +12,7 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
+import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 
 type BomDetails = {
   header: {
@@ -107,6 +108,7 @@ type EngineNomenclatureRow = {
   itemType: string;
   category: string;
   defaultBrandId: string;
+  defaultBrandName: string;
   isSerialTracked: boolean;
 };
 
@@ -119,16 +121,17 @@ function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
     itemType: String(row.itemType ?? '').trim().toLowerCase(),
     category: String(row.category ?? '').trim().toLowerCase(),
     defaultBrandId: String(row.defaultBrandId ?? '').trim(),
+    defaultBrandName: String(row.defaultBrandName ?? '').trim(),
     isSerialTracked: Boolean(row.isSerialTracked),
   };
 }
 
-function isEngineLikeNomenclatureRow(row: EngineNomenclatureRow): boolean {
+/** Позиции номенклатуры «двигатель» для BOM (не любая деталь с полем марки). */
+function isAssemblyBomEngineNomenclature(row: EngineNomenclatureRow): boolean {
   if (!row.id) return false;
   if (row.itemType === 'engine') return true;
   if (row.category === 'engine') return true;
-  if (row.isSerialTracked) return true;
-  if (row.defaultBrandId) return true;
+  if (row.isSerialTracked && row.defaultBrandId) return true;
   return false;
 }
 
@@ -307,6 +310,7 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [componentOptions, setComponentOptions] = useState<SearchSelectOption[]>([]);
   const [engineNomenclatureRows, setEngineNomenclatureRows] = useState<EngineNomenclatureRow[]>([]);
   const [bomOccupancyRows, setBomOccupancyRows] = useState<BomOccupancyRow[]>([]);
+  const { lookups, error: warehouseRefsError } = useWarehouseReferenceData();
 
   const relationNodes = useMemo(
     () => [...(bomRelationSchema.nodes ?? [])].sort((a, b) => (a.sortOrder - b.sortOrder) || a.label.localeCompare(b.label, 'ru')),
@@ -410,20 +414,63 @@ export function EngineAssemblyBomDetailsPage(props: {
     return map;
   }, [bomOccupancyRows]);
 
+  const brandLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of lookups.engineBrands ?? []) {
+      const id = String(b.id ?? '').trim();
+      if (!id) continue;
+      map.set(id, String(b.label ?? '').trim() || id);
+    }
+    return map;
+  }, [lookups.engineBrands]);
+
   const engineSelectOptions = useMemo((): SearchSelectOption[] => {
     const currentBomId = data?.header.id ?? '';
-    return engineNomenclatureRows
-      .filter((row) => {
-        const occupant = engineIdToBomId.get(row.id);
-        return !occupant || occupant === currentBomId;
-      })
-      .map((row) => ({
+    const selectable = (rowId: string) => {
+      const occupant = engineIdToBomId.get(rowId);
+      return !occupant || occupant === currentBomId;
+    };
+
+    const byBrand = new Map<string, EngineNomenclatureRow[]>();
+    for (const row of engineNomenclatureRows) {
+      const bid = row.defaultBrandId;
+      if (!bid) continue;
+      const list = byBrand.get(bid) ?? [];
+      list.push(row);
+      byBrand.set(bid, list);
+    }
+
+    const opts: SearchSelectOption[] = [];
+    const brandEntries = [...byBrand.entries()].sort((a, b) => {
+      const la = brandLabelById.get(a[0]) || a[0];
+      const lb = brandLabelById.get(b[0]) || b[0];
+      return la.localeCompare(lb, 'ru');
+    });
+    for (const [brandId, rows] of brandEntries) {
+      const brandLabel = brandLabelById.get(brandId) || rows[0]?.defaultBrandName || brandId;
+      const sortedAll = [...rows].sort((a, b) => (a.name || a.code || a.id).localeCompare(b.name || b.code || b.id, 'ru'));
+      const freeRows = sortedAll.filter((r) => selectable(r.id));
+      if (freeRows.length === 0) continue;
+      const totalForBrand = sortedAll.length;
+      for (const row of freeRows) {
+        const label =
+          totalForBrand <= 1 && freeRows.length === 1 ? brandLabel : `${brandLabel} — ${row.name || row.code || row.id}`;
+        opts.push({ id: row.id, label, hintText: row.code || undefined });
+      }
+    }
+
+    for (const row of engineNomenclatureRows) {
+      if (row.defaultBrandId) continue;
+      if (!selectable(row.id)) continue;
+      opts.push({
         id: row.id,
         label: row.name || row.code || row.id,
-        hintText: row.code,
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-  }, [data?.header.id, engineIdToBomId, engineNomenclatureRows]);
+        hintText: row.code ? `${row.code} (без марки в номенклатуре)` : 'без марки в номенклатуре',
+      });
+    }
+
+    return opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  }, [brandLabelById, data?.header.id, engineIdToBomId, engineNomenclatureRows]);
 
   const engineSelectOptionsResolved = useMemo(() => {
     const opts = [...engineSelectOptions];
@@ -545,7 +592,7 @@ export function EngineAssemblyBomDetailsPage(props: {
           hintText: String((row as { code?: string }).code ?? ''),
         })),
       );
-      setEngineNomenclatureRows(rows.map(toEngineNomenclatureRow).filter(isEngineLikeNomenclatureRow));
+      setEngineNomenclatureRows(rows.map(toEngineNomenclatureRow).filter(isAssemblyBomEngineNomenclature));
     };
     void loadComponents();
     return () => {
@@ -1475,15 +1522,16 @@ export function EngineAssemblyBomDetailsPage(props: {
         <>
           <label style={{ display: 'grid', gap: 4 }}>
             <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
-              Двигатель (марка/позиция в номенклатуре), для которого собрана спецификация. Для двигателя может быть только одна спецификация — занятые позиции в списке
-              скрыты.
+              Марка двигателя и позиция в номенклатуре, для которой собрана спецификация (в списке — марки из справочника; при нескольких двигателях у марки
+              показывается уточнение). У одной позиции номенклатуры может быть только одна спецификация — занятые варианты скрыты.
             </span>
+            {warehouseRefsError ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>Справочники склада: {warehouseRefsError}</div> : null}
             {props.canEdit ? (
               <SearchSelect
                 value={data.header.engineNomenclatureId}
                 options={engineSelectOptionsResolved}
                 showAllWhenEmpty
-                placeholder="Выберите двигатель"
+                placeholder="Выберите марку / позицию двигателя"
                 onChange={(value) => {
                   const nextId = String(value ?? '');
                   const row = engineNomenclatureRows.find((r) => r.id === nextId);

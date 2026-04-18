@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
+import {
+  DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
+  sanitizeWarehouseBomRelationSchema,
+  type WarehouseBomRelationSchema,
+} from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import {
@@ -42,6 +47,65 @@ function normalizeRelationKey(raw: string | null | undefined): string | null {
   return value || null;
 }
 const KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']);
+
+async function loadSanitizedBomRelationSchema(): Promise<WarehouseBomRelationSchema> {
+  try {
+    const value = await getGlobalWarehouseBomRelationSchema();
+    return sanitizeWarehouseBomRelationSchema(JSON.parse(value.schemaJson) as unknown);
+  } catch {
+    return DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA;
+  }
+}
+
+/** Стартовые строки BOM по глобальной схеме (узел/родитель, тип компонента). Номенклатура — заглушка (двигатель BOM), уникальность по variantGroup. */
+function buildSkeletonBomLinesFromSchema(args: { engineNomenclatureId: string; schema: WarehouseBomRelationSchema }): BomLineInput[] {
+  const rootId = String(args.schema.rootTypeId ?? 'engine').trim().toLowerCase();
+  const nodes = (args.schema.nodes ?? []).filter((n) => n && n.isActive !== false);
+
+  const parentTypeFor = (typeId: string): string | null => {
+    const tid = String(typeId).trim().toLowerCase();
+    for (const n of nodes) {
+      const nid = String(n.typeId ?? '').trim().toLowerCase();
+      const kids = (n.childTypeIds ?? []).map((c) => String(c).trim().toLowerCase());
+      if (!kids.includes(tid)) continue;
+      if (nid === rootId) return null;
+      return nid;
+    }
+    return null;
+  };
+
+  const candidates = nodes
+    .map((n) => ({
+      typeId: String(n.typeId ?? '').trim().toLowerCase(),
+      sortOrder: Number.isFinite(Number(n.sortOrder)) ? Math.trunc(Number(n.sortOrder)) : 100,
+    }))
+    .filter((n) => n.typeId && n.typeId !== rootId && KNOWN_COMPONENT_TYPES.has(n.typeId))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.typeId.localeCompare(b.typeId, 'ru'));
+
+  const seen = new Set<string>();
+  const engineId = String(args.engineNomenclatureId).trim();
+  const lines: BomLineInput[] = [];
+  for (const row of candidates) {
+    const typeId = row.typeId;
+    if (seen.has(typeId)) continue;
+    seen.add(typeId);
+    const parentType = parentTypeFor(typeId);
+    const lineKey = normalizeRelationKey(typeId);
+    const parentLineKey = parentType ? normalizeRelationKey(parentType) : null;
+    lines.push({
+      componentNomenclatureId: engineId,
+      componentType: typeId,
+      qtyPerUnit: 0,
+      variantGroup: `__bom_init__${typeId}`,
+      lineKey,
+      parentLineKey,
+      isRequired: true,
+      priority: row.sortOrder,
+      notes: 'Черновик строки: укажите номенклатуру компонента.',
+    });
+  }
+  return lines;
+}
 
 type BomLineInput = {
   id?: string;
@@ -311,7 +375,13 @@ export async function upsertWarehouseAssemblyBom(args: {
         },
       });
 
-    const normalizedLines = (Array.isArray(args.lines) ? args.lines : [])
+    const sanitizedSchema = await loadSanitizedBomRelationSchema();
+    let sourceLines = Array.isArray(args.lines) ? args.lines : [];
+    if (sourceLines.length === 0) {
+      sourceLines = buildSkeletonBomLinesFromSchema({ engineNomenclatureId: requestedEngineId, schema: sanitizedSchema });
+    }
+
+    const normalizedLines = sourceLines
       .map((line) => ({
         id: randomUUID(),
         bomId: id,
@@ -332,22 +402,15 @@ export async function upsertWarehouseAssemblyBom(args: {
       }))
       .filter((line) => line.componentNomenclatureId);
 
-    let relationSchema: { rootTypeId?: string; nodes?: Array<{ typeId?: string; isActive?: boolean }> } | null = null;
-    try {
-      const value = await getGlobalWarehouseBomRelationSchema();
-      relationSchema = JSON.parse(value.schemaJson) as { rootTypeId?: string; nodes?: Array<{ typeId?: string; isActive?: boolean }> };
-    } catch {
-      relationSchema = null;
-    }
+    const rootId = String(sanitizedSchema.rootTypeId ?? 'engine').trim().toLowerCase();
     const requiredTypes = new Set(
-      Array.isArray(relationSchema?.nodes)
-        ? relationSchema.nodes
-            .filter((node) => node && node.isActive !== false)
-            .map((node) => String(node.typeId ?? '').trim().toLowerCase())
-            .filter((typeId) => typeId && typeId !== String(relationSchema?.rootTypeId ?? '').trim().toLowerCase() && KNOWN_COMPONENT_TYPES.has(typeId))
-        : [],
+      sanitizedSchema.nodes
+        .filter((node) => node && node.isActive !== false)
+        .map((node) => String(node.typeId ?? '').trim().toLowerCase())
+        .filter((typeId) => typeId && typeId !== rootId && KNOWN_COMPONENT_TYPES.has(typeId)),
     );
-    if (requiredTypes.size > 0) {
+    // Пустую карточку BOM (ещё без строк) можно создать и постепенно заполнять; полнота по схеме проверяется, когда уже есть строки.
+    if (requiredTypes.size > 0 && normalizedLines.length > 0) {
       const presentTypes = new Set(normalizedLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
       const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
       if (missingTypes.length > 0) {

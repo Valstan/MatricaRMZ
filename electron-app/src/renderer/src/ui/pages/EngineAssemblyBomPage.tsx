@@ -45,13 +45,12 @@ function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
   };
 }
 
-function isEngineLikeNomenclatureRow(row: EngineNomenclatureRow): boolean {
+/** Позиции номенклатуры «двигатель» для BOM (не любая деталь с полем марки). */
+function isAssemblyBomEngineNomenclature(row: EngineNomenclatureRow): boolean {
   if (!row.id) return false;
   if (row.itemType === 'engine') return true;
   if (row.category === 'engine') return true;
-  if (row.isSerialTracked) return true;
-  // Legacy imports can miss itemType but keep an engine brand link.
-  if (row.defaultBrandId) return true;
+  if (row.isSerialTracked && row.defaultBrandId) return true;
   return false;
 }
 
@@ -106,7 +105,7 @@ export function EngineAssemblyBomPage(props: {
       });
       if (!alive || !list?.ok) return;
       const parsed = (list.rows ?? []).map(toEngineNomenclatureRow);
-      const nextEngineRows = parsed.filter(isEngineLikeNomenclatureRow);
+      const nextEngineRows = parsed.filter(isAssemblyBomEngineNomenclature);
       setEngineRows(nextEngineRows);
     };
     void loadEngineOptions();
@@ -173,7 +172,7 @@ export function EngineAssemblyBomPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto' }}>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя</span>
           <SearchSelect
@@ -230,22 +229,6 @@ export function EngineAssemblyBomPage(props: {
             Создать BOM
           </Button>
         ) : null}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" onClick={() => void refresh()}>
-            Обновить
-          </Button>
-          {engineBrandIdFilter ? (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setEngineBrandIdFilter(null);
-                setPageIndex(0);
-              }}
-            >
-              Сбросить фильтр
-            </Button>
-          ) : null}
-        </div>
       </div>
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
