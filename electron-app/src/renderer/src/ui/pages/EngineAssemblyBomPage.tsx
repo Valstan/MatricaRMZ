@@ -68,12 +68,11 @@ export function EngineAssemblyBomPage(props: {
   canEdit: boolean;
   onOpen: (id: string) => void;
 }) {
-  const { error: refsError } = useWarehouseReferenceData();
+  const { error: refsError, lookups } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
   const [engineBrandIdFilter, setEngineBrandIdFilter] = useState<string | null>(null);
   const [engineNomenclatureIdToCreate, setEngineNomenclatureIdToCreate] = useState<string | null>(null);
   const [engineRows, setEngineRows] = useState<EngineNomenclatureRow[]>([]);
-  const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
   const [engineOptions, setEngineOptions] = useState<SearchSelectOption[]>([]);
   const [rows, setRows] = useState<BomListRow[]>([]);
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
@@ -120,19 +119,6 @@ export function EngineAssemblyBomPage(props: {
       const parsed = (list.rows ?? []).map(toEngineNomenclatureRow);
       const nextEngineRows = parsed.filter(isEngineLikeNomenclatureRow);
       setEngineRows(nextEngineRows);
-
-      const brandById = new Map<string, SearchSelectOption>();
-      for (const row of nextEngineRows) {
-        if (!row.defaultBrandId) continue;
-        if (!brandById.has(row.defaultBrandId)) {
-          brandById.set(row.defaultBrandId, {
-            id: row.defaultBrandId,
-            label: row.defaultBrandName || row.defaultBrandId,
-          });
-        }
-      }
-      const sortedBrandOptions = Array.from(brandById.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      setEngineBrandOptions(sortedBrandOptions);
     };
     void loadEngineOptions();
     return () => {
@@ -141,19 +127,37 @@ export function EngineAssemblyBomPage(props: {
   }, []);
 
   useEffect(() => {
-    if (!engineBrandIdFilter) {
-      setEngineNomenclatureIdToCreate(null);
-      setEngineOptions([]);
-      return;
-    }
-    const nextEngineRows = engineRows.filter((row) => row.defaultBrandId === engineBrandIdFilter);
-    const nextOptions = nextEngineRows.map(toEngineOption);
+    const nextEngineRows = engineBrandIdFilter
+      ? engineRows.filter((row) => row.defaultBrandId === engineBrandIdFilter)
+      : engineRows;
+    const nextOptions = nextEngineRows.map(toEngineOption).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
     setEngineOptions(nextOptions);
     setEngineNomenclatureIdToCreate((prev) => {
       if (prev && nextOptions.some((option) => option.id === prev)) return prev;
-      return nextOptions[0]?.id ?? null;
+      return null;
     });
   }, [engineBrandIdFilter, engineRows]);
+
+  const engineBrandOptions = useMemo(
+    () =>
+      (lookups.engineBrands ?? [])
+        .map((brand) => ({
+          id: String(brand.id ?? ''),
+          label: String(brand.label ?? ''),
+          hintText: brand.code ? String(brand.code) : undefined,
+        }))
+        .filter((brand) => brand.id && brand.label)
+        .sort((a, b) => a.label.localeCompare(b.label, 'ru')),
+    [lookups.engineBrands],
+  );
+
+  const engineLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const option of engineOptions) {
+      map.set(option.id, option.label);
+    }
+    return map;
+  }, [engineOptions]);
 
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
@@ -194,27 +198,35 @@ export function EngineAssemblyBomPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(260px, 1fr) minmax(320px, 1fr) auto auto' }}>
-        <SearchSelect
-          value={engineBrandIdFilter}
-          options={engineBrandOptions}
-          placeholder="Фильтр по марке двигателя"
-          onChange={(value) => {
-            setPageIndex(0);
-            setEngineBrandIdFilter(value);
-          }}
-        />
-        <SearchSelect
-          value={engineNomenclatureIdToCreate}
-          options={engineOptions}
-          placeholder="Двигатель для создания BOM"
-          onChange={setEngineNomenclatureIdToCreate}
-          disabled={!engineBrandIdFilter}
-        />
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка BOM)</span>
+          <SearchSelect
+            value={engineBrandIdFilter}
+            options={engineBrandOptions}
+            placeholder="Выберите марку двигателя"
+            showAllWhenEmpty
+            onChange={(value) => {
+              setPageIndex(0);
+              setEngineBrandIdFilter(value);
+            }}
+          />
+        </label>
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Двигатель, для которого создается BOM</span>
+          <SearchSelect
+            value={engineNomenclatureIdToCreate}
+            options={engineOptions}
+            placeholder={engineBrandIdFilter ? 'Выберите двигатель' : 'Сначала выберите марку или оставьте пустой фильтр'}
+            showAllWhenEmpty
+            onChange={setEngineNomenclatureIdToCreate}
+          />
+        </label>
         {props.canEdit ? (
           <Button
             onClick={async () => {
+              const selectedEngineLabel = engineLabelById.get(String(engineNomenclatureIdToCreate ?? '')) ?? '';
               const created = await window.matrica.warehouse.assemblyBomUpsert({
-                name: 'Новая BOM',
+                name: selectedEngineLabel ? `BOM ${selectedEngineLabel}` : 'Новая BOM',
                 engineNomenclatureId: engineNomenclatureIdToCreate ?? '',
                 status: 'draft',
                 isDefault: false,
@@ -232,9 +244,22 @@ export function EngineAssemblyBomPage(props: {
             Создать BOM
           </Button>
         ) : null}
-        <Button variant="ghost" onClick={() => void refresh()}>
-          Обновить
-        </Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="ghost" onClick={() => void refresh()}>
+            Обновить
+          </Button>
+          {engineBrandIdFilter ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEngineBrandIdFilter(null);
+                setPageIndex(0);
+              }}
+            >
+              Сбросить фильтр
+            </Button>
+          ) : null}
+        </div>
       </div>
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

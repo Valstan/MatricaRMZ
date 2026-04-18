@@ -10,6 +10,7 @@ import {
   erpPlannedIncoming,
   erpRegStockBalance,
 } from '../database/schema.js';
+import { parseWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
 
 type ForecastRequest = {
   targetEnginesPerDay: number;
@@ -104,34 +105,67 @@ async function loadActiveDefaultBomKits(engineFilter?: string[]): Promise<Assemb
     arr.push(line);
     linesByBom.set(bomId, arr);
   }
-  return headerRows
-    .map((header) => {
-      const engineId = String(header.engineNomenclatureId);
-      const engineMeta = nomenclatureById.get(engineId);
-      const parts = (linesByBom.get(String(header.id)) ?? [])
-        .map((line) => {
-          const compId = String(line.componentNomenclatureId);
-          const compMeta = nomenclatureById.get(compId);
-          const qtyPerEngine = Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0)));
-          if (!compId || qtyPerEngine <= 0) return null;
-          const name = compMeta?.name ? String(compMeta.name) : compId;
-          const code = compMeta?.code ? String(compMeta.code) : '';
-          return {
-            partId: compId,
-            nomenclatureId: compId,
-            qtyPerEngine,
-            role: bomComponentTypeToRole(String(line.componentType)),
-            partLabel: code ? `${name} (${code})` : name,
-          };
-        })
-        .filter((row): row is NonNullable<typeof row> => Boolean(row));
-      return {
-        brandId: engineId,
-        brandLabel: engineMeta?.name ? String(engineMeta.name) : engineId,
+  const kits: AssemblyEngineBrandKit[] = [];
+  for (const header of headerRows) {
+    const engineId = String(header.engineNomenclatureId);
+    const engineMeta = nomenclatureById.get(engineId);
+    const bomLines = linesByBom.get(String(header.id)) ?? [];
+    const lineRecords = bomLines
+      .map((line) => {
+        const compId = String(line.componentNomenclatureId);
+        const compMeta = nomenclatureById.get(compId);
+        const qtyPerEngine = Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0)));
+        if (!compId || qtyPerEngine <= 0) return null;
+        const name = compMeta?.name ? String(compMeta.name) : compId;
+        const code = compMeta?.code ? String(compMeta.code) : '';
+        const meta = parseWarehouseBomLineMeta(line.notes);
+        const variantGroup = String(line.variantGroup ?? '').trim() || null;
+        return {
+          compId,
+          qtyPerEngine,
+          role: bomComponentTypeToRole(String(line.componentType)),
+          partLabel: code ? `${name} (${code})` : name,
+          variantGroup,
+          lineKey: meta.lineKey,
+          parentLineKey: meta.parentLineKey,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+    const baseLines = lineRecords.filter((line) => !line.variantGroup);
+    const grouped = new Map<string, typeof lineRecords>();
+    for (const line of lineRecords) {
+      if (!line.variantGroup) continue;
+      const arr = grouped.get(line.variantGroup) ?? [];
+      arr.push(line);
+      grouped.set(line.variantGroup, arr);
+    }
+
+    const groupEntries = grouped.size > 0 ? Array.from(grouped.entries()) : [[null, []] as const];
+    for (const [groupKey, groupLines] of groupEntries) {
+      const merged = [...baseLines, ...groupLines];
+      const lineKeySet = new Set(merged.map((line) => line.lineKey).filter((key): key is string => Boolean(key)));
+      const filtered = merged.filter((line) => !line.parentLineKey || lineKeySet.has(line.parentLineKey));
+      const parts = filtered.map((line) => ({
+        partId: line.compId,
+        nomenclatureId: line.compId,
+        qtyPerEngine: line.qtyPerEngine,
+        role: line.role,
+        partLabel: line.partLabel,
+      }));
+      if (parts.length === 0) continue;
+      kits.push({
+        brandId: groupKey ? `${engineId}::${groupKey}` : engineId,
+        brandLabel: groupKey
+          ? `${engineMeta?.name ? String(engineMeta.name) : engineId} [${groupKey}]`
+          : engineMeta?.name
+            ? String(engineMeta.name)
+            : engineId,
         parts,
-      };
-    })
-    .filter((kit) => kit.parts.length > 0);
+      });
+    }
+  }
+  return kits;
 }
 
 export async function computeAssemblyForecastFromServer(args: ForecastRequest) {

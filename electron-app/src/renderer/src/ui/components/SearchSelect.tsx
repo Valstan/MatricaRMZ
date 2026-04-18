@@ -39,6 +39,8 @@ export function SearchSelect(props: {
   options: SearchSelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  showAllWhenEmpty?: boolean;
+  emptyQueryLimit?: number;
   query?: string;
   onQueryChange?: (next: string) => void;
   onChange: (next: string | null) => void;
@@ -63,19 +65,27 @@ export function SearchSelect(props: {
     return rankLookupOptions(props.options, normalizedQuery).slice(0, MAX_RANKED_OPTIONS);
   }, [normalizedQuery, props.options]);
 
+  const emptyQueryItems = useMemo(() => {
+    if (normalizedQuery) return [];
+    if (!props.showAllWhenEmpty) return [];
+    const limit = Math.max(1, Math.min(500, Math.trunc(Number(props.emptyQueryLimit ?? 200))));
+    return props.options.slice(0, limit).map((option) => ({ option, source: 'database' as SourceLabel }));
+  }, [normalizedQuery, props.emptyQueryLimit, props.options, props.showAllWhenEmpty]);
+
   const exactMatch = useMemo(
     () => props.options.find((option) => normalizeLookupText(option.label) === normalizedQuery) ?? null,
     [normalizedQuery, props.options],
   );
 
   const visibleItems = useMemo(() => {
+    if (!normalizedQuery) return emptyQueryItems;
     // Если есть exactMatch — показываем его первым
     if (exactMatch) {
       return [{ option: exactMatch, source: 'current' as SourceLabel }];
     }
     // Иначе — top ranked из БД
     return similarMatches.map((o) => ({ option: o, source: 'database' as SourceLabel }));
-  }, [exactMatch, similarMatches]);
+  }, [emptyQueryItems, exactMatch, normalizedQuery, similarMatches]);
 
   function setQuery(next: string) {
     dropdown.setQuery(next);

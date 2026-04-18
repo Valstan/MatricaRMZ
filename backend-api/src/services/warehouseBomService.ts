@@ -11,6 +11,7 @@ import {
   erpRegStockBalance,
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
+import { parseWarehouseBomLineMeta, serializeWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 type Actor = { id: string; username: string; role?: string };
@@ -31,12 +32,23 @@ function normalizeComponentType(raw: string | undefined): 'sleeve' | 'piston' | 
   return 'other';
 }
 
+function normalizeRelationKey(raw: string | null | undefined): string | null {
+  const value = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '');
+  return value || null;
+}
+
 type BomLineInput = {
   id?: string;
   componentNomenclatureId: string;
   componentType?: string;
   qtyPerUnit: number;
   variantGroup?: string | null;
+  lineKey?: string | null;
+  parentLineKey?: string | null;
   isRequired?: boolean;
   priority?: number;
   notes?: string | null;
@@ -141,6 +153,11 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
     .where(and(eq(erpEngineAssemblyBomLines.bomId, String(id)), isNull(erpEngineAssemblyBomLines.deletedAt)))
     .orderBy(asc(erpEngineAssemblyBomLines.priority), asc(erpEngineAssemblyBomLines.createdAt));
 
+  const parsedLineMeta = new Map<string, ReturnType<typeof parseWarehouseBomLineMeta>>();
+  for (const row of lines) {
+    parsedLineMeta.set(String(row.id), parseWarehouseBomLineMeta(row.notes));
+  }
+
   return {
     ok: true,
     bom: {
@@ -154,9 +171,11 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
         componentType: String(row.componentType),
         qtyPerUnit: Number(row.qtyPerUnit ?? 0),
         variantGroup: row.variantGroup ?? null,
+        lineKey: parsedLineMeta.get(String(row.id))?.lineKey ?? null,
+        parentLineKey: parsedLineMeta.get(String(row.id))?.parentLineKey ?? null,
         isRequired: Boolean(row.isRequired),
         priority: Number(row.priority ?? 100),
-        notes: row.notes ?? null,
+        notes: parsedLineMeta.get(String(row.id))?.text ?? null,
         createdAt: Number(row.createdAt),
         updatedAt: Number(row.updatedAt),
         deletedAt: row.deletedAt == null ? null : Number(row.deletedAt),
@@ -216,11 +235,6 @@ export async function upsertWarehouseAssemblyBom(args: {
         },
       });
 
-    await db
-      .update(erpEngineAssemblyBomLines)
-      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
-      .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
-
     const normalizedLines = (Array.isArray(args.lines) ? args.lines : [])
       .map((line) => ({
         id: randomUUID(),
@@ -229,9 +243,11 @@ export async function upsertWarehouseAssemblyBom(args: {
         componentType: normalizeComponentType(line.componentType),
         qtyPerUnit: Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0))),
         variantGroup: line.variantGroup == null ? null : String(line.variantGroup).trim() || null,
+        lineKey: normalizeRelationKey(line.lineKey == null ? null : String(line.lineKey)),
+        parentLineKey: normalizeRelationKey(line.parentLineKey == null ? null : String(line.parentLineKey)),
         isRequired: line.isRequired !== false,
         priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
-        notes: line.notes == null ? null : String(line.notes),
+        notesText: line.notes == null ? null : String(line.notes),
         createdAt: ts,
         updatedAt: ts,
         deletedAt: null,
@@ -240,8 +256,79 @@ export async function upsertWarehouseAssemblyBom(args: {
       }))
       .filter((line) => line.componentNomenclatureId);
 
-    if (normalizedLines.length > 0) {
-      await db.insert(erpEngineAssemblyBomLines).values(normalizedLines);
+    const keyCounts = new Map<string, number>();
+    for (const line of normalizedLines) {
+      if (!line.lineKey) continue;
+      keyCounts.set(line.lineKey, (keyCounts.get(line.lineKey) ?? 0) + 1);
+    }
+    const lineKeys = new Set(Array.from(keyCounts.keys()));
+    const validationErrors: string[] = [];
+    for (const [key, count] of keyCounts.entries()) {
+      if (count > 1) validationErrors.push(`дубли ключа узла "${key}"`);
+    }
+    for (const line of normalizedLines) {
+      if (line.parentLineKey && !line.lineKey) validationErrors.push('строка с родителем должна иметь собственный ключ узла');
+      if (line.parentLineKey && !lineKeys.has(line.parentLineKey)) {
+        validationErrors.push(`родительский узел "${line.parentLineKey}" не найден`);
+      }
+      if (line.lineKey && line.parentLineKey && line.lineKey === line.parentLineKey) {
+        validationErrors.push(`узел "${line.lineKey}" не может ссылаться сам на себя`);
+      }
+    }
+    const keyToParent = new Map<string, string | null>();
+    for (const line of normalizedLines) {
+      if (!line.lineKey || (keyCounts.get(line.lineKey) ?? 0) > 1) continue;
+      keyToParent.set(line.lineKey, line.parentLineKey ?? null);
+    }
+    for (const key of keyToParent.keys()) {
+      const chain = new Set<string>();
+      let current: string | null = key;
+      while (current) {
+        if (chain.has(current)) {
+          validationErrors.push(`обнаружен цикл в связях BOM: ${Array.from(chain).join(' -> ')} -> ${current}`);
+          break;
+        }
+        chain.add(current);
+        current = keyToParent.get(current) ?? null;
+      }
+    }
+    if (validationErrors.length > 0) {
+      return { ok: false, error: `BOM не сохранен: ${Array.from(new Set(validationErrors)).join('; ')}` };
+    }
+
+    await db
+      .update(erpEngineAssemblyBomLines)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
+
+    const normalizedWithMeta = normalizedLines.map((line) => ({
+      ...line,
+      notes: serializeWarehouseBomLineMeta({
+        text: line.notesText,
+        lineKey: line.lineKey,
+        parentLineKey: line.parentLineKey ?? null,
+      }),
+    }));
+
+    if (normalizedWithMeta.length > 0) {
+      await db.insert(erpEngineAssemblyBomLines).values(
+        normalizedWithMeta.map((line) => ({
+          id: line.id,
+          bomId: line.bomId,
+          componentNomenclatureId: line.componentNomenclatureId,
+          componentType: line.componentType,
+          qtyPerUnit: line.qtyPerUnit,
+          variantGroup: line.variantGroup,
+          isRequired: line.isRequired,
+          priority: line.priority,
+          notes: line.notes,
+          createdAt: line.createdAt,
+          updatedAt: line.updatedAt,
+          deletedAt: line.deletedAt,
+          syncStatus: line.syncStatus,
+          lastServerSeq: line.lastServerSeq,
+        })),
+      );
     }
 
     if (status === 'active' && Boolean(args.isDefault)) {
@@ -472,6 +559,7 @@ export async function buildWarehouseBomExpandedForecast(args: {
         componentType: erpEngineAssemblyBomLines.componentType,
         qtyPerUnit: erpEngineAssemblyBomLines.qtyPerUnit,
         variantGroup: erpEngineAssemblyBomLines.variantGroup,
+        notes: erpEngineAssemblyBomLines.notes,
         isRequired: erpEngineAssemblyBomLines.isRequired,
         priority: erpEngineAssemblyBomLines.priority,
         code: erpNomenclature.code,
@@ -510,6 +598,7 @@ export async function buildWarehouseBomExpandedForecast(args: {
 
     const rows = lineRows.map((line) => {
       const nomenclatureId = String(line.componentNomenclatureId);
+      const meta = parseWarehouseBomLineMeta((line as { notes?: string | null }).notes ?? null);
       const requiredQty = Math.max(0, Number(line.qtyPerUnit ?? 0)) * totalEngines;
       const stockQty = stockMap.get(nomenclatureId) ?? 0;
       const plannedIncomingQty = incomingMap.get(nomenclatureId) ?? 0;
@@ -525,12 +614,19 @@ export async function buildWarehouseBomExpandedForecast(args: {
         plannedIncomingQty,
         deficitQty,
         variantGroup: line.variantGroup ?? null,
+        lineKey: meta.lineKey,
+        parentLineKey: meta.parentLineKey,
         isRequired: Boolean(line.isRequired),
         priority: Number(line.priority ?? 100),
       };
     });
 
-    return { ok: true, rows, warnings: [] };
+    const lineKeySet = new Set(rows.map((row) => String(row.lineKey ?? '').trim()).filter(Boolean));
+    const droppedDependentCount = rows.filter((row) => row.parentLineKey && !lineKeySet.has(String(row.parentLineKey))).length;
+    const filteredRows = rows.filter((row) => !row.parentLineKey || lineKeySet.has(String(row.parentLineKey)));
+    const warnings = droppedDependentCount > 0 ? [`Пропущено строк BOM без родительского узла: ${droppedDependentCount}`] : [];
+
+    return { ok: true, rows: filteredRows, warnings };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

@@ -495,6 +495,8 @@ export type EngineAssemblyBomLine = {
   componentType: EngineAssemblyBomComponentType | string;
   qtyPerUnit: number;
   variantGroup: string | null;
+  lineKey?: string | null;
+  parentLineKey?: string | null;
   isRequired: boolean;
   priority: number;
   notes: string | null;
@@ -533,6 +535,8 @@ export type EngineAssemblyBomLineInput = {
   componentType?: EngineAssemblyBomComponentType | string;
   qtyPerUnit: number;
   variantGroup?: string | null;
+  lineKey?: string | null;
+  parentLineKey?: string | null;
   isRequired?: boolean;
   priority?: number;
   notes?: string | null;
@@ -560,6 +564,8 @@ export type EngineAssemblyBomExpandedRow = {
   plannedIncomingQty: number;
   deficitQty: number;
   variantGroup: string | null;
+  lineKey?: string | null;
+  parentLineKey?: string | null;
   isRequired: boolean;
   priority: number;
 };
