@@ -11,6 +11,7 @@ import {
   erpRegStockBalance,
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
+import { getGlobalWarehouseBomRelationSchema } from './clientSettingsService.js';
 import { parseWarehouseBomLineMeta, serializeWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
@@ -40,6 +41,7 @@ function normalizeRelationKey(raw: string | null | undefined): string | null {
     .replace(/[^a-z0-9._-]/g, '');
   return value || null;
 }
+const KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']);
 
 type BomLineInput = {
   id?: string;
@@ -65,6 +67,9 @@ export async function listWarehouseAssemblyBoms(args?: {
     }
     if (args?.status) {
       conditions.push(eq(erpEngineAssemblyBom.status, normalizeStatus(args.status)));
+    } else {
+      // Operational mode: one active BOM per engine.
+      conditions.push(eq(erpEngineAssemblyBom.status, 'active'));
     }
     const headerRows = await db
       .select({
@@ -102,9 +107,19 @@ export async function listWarehouseAssemblyBoms(args?: {
       }
     }
 
+    const visibleRows = (() => {
+      const perEngine = new Map<string, (typeof headerRows)[number]>();
+      for (const row of headerRows) {
+        const engineId = String(row.engineNomenclatureId);
+        if (!engineId) continue;
+        // Return one visible BOM per engine (latest by updatedAt/version because rows are already sorted).
+        if (!perEngine.has(engineId)) perEngine.set(engineId, row);
+      }
+      return Array.from(perEngine.values());
+    })();
     return {
       ok: true,
-      rows: headerRows.map((row) => ({
+      rows: visibleRows.map((row) => ({
         id: String(row.id),
         name: String(row.name),
         engineNomenclatureId: String(row.engineNomenclatureId),
@@ -204,16 +219,24 @@ export async function upsertWarehouseAssemblyBom(args: {
   actor: Actor;
 }): Promise<Result<{ id: string }>> {
   try {
-    const id = String(args.id ?? randomUUID());
+    const requestedEngineId = String(args.engineNomenclatureId);
+    const existingForEngine = await db
+      .select({ id: erpEngineAssemblyBom.id })
+      .from(erpEngineAssemblyBom)
+      .where(and(eq(erpEngineAssemblyBom.engineNomenclatureId, requestedEngineId), isNull(erpEngineAssemblyBom.deletedAt)))
+      .orderBy(desc(erpEngineAssemblyBom.updatedAt), desc(erpEngineAssemblyBom.version))
+      .limit(1);
+    const existingId = existingForEngine[0]?.id ? String(existingForEngine[0].id) : null;
+    const id = String(args.id ?? existingId ?? randomUUID());
     const ts = nowMs();
-    const status = normalizeStatus(args.status);
+    const status = 'active';
     const version = Math.max(1, Math.trunc(Number(args.version ?? 1)));
     const base = {
       name: String(args.name ?? '').trim() || `BOM ${version}`,
-      engineNomenclatureId: String(args.engineNomenclatureId),
+      engineNomenclatureId: requestedEngineId,
       version,
       status,
-      isDefault: Boolean(args.isDefault),
+      isDefault: true,
       notes: args.notes == null ? null : String(args.notes),
       updatedAt: ts,
       deletedAt: null,
@@ -255,6 +278,32 @@ export async function upsertWarehouseAssemblyBom(args: {
         lastServerSeq: null,
       }))
       .filter((line) => line.componentNomenclatureId);
+
+    let relationSchema: { rootTypeId?: string; nodes?: Array<{ typeId?: string; isActive?: boolean }> } | null = null;
+    try {
+      const value = await getGlobalWarehouseBomRelationSchema();
+      relationSchema = JSON.parse(value.schemaJson) as { rootTypeId?: string; nodes?: Array<{ typeId?: string; isActive?: boolean }> };
+    } catch {
+      relationSchema = null;
+    }
+    const requiredTypes = new Set(
+      Array.isArray(relationSchema?.nodes)
+        ? relationSchema.nodes
+            .filter((node) => node && node.isActive !== false)
+            .map((node) => String(node.typeId ?? '').trim().toLowerCase())
+            .filter((typeId) => typeId && typeId !== String(relationSchema?.rootTypeId ?? '').trim().toLowerCase() && KNOWN_COMPONENT_TYPES.has(typeId))
+        : [],
+    );
+    if (requiredTypes.size > 0) {
+      const presentTypes = new Set(normalizedLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+      const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
+      if (missingTypes.length > 0) {
+        return {
+          ok: false,
+          error: `BOM не сохранен: отсутствуют обязательные типы из глобальной схемы: ${missingTypes.join(', ')}`,
+        };
+      }
+    }
 
     const keyCounts = new Map<string, number>();
     for (const line of normalizedLines) {
@@ -331,19 +380,17 @@ export async function upsertWarehouseAssemblyBom(args: {
       );
     }
 
-    if (status === 'active' && Boolean(args.isDefault)) {
-      await db
-        .update(erpEngineAssemblyBom)
-        .set({ isDefault: false, updatedAt: ts, syncStatus: 'synced' })
-        .where(
-          and(
-            eq(erpEngineAssemblyBom.engineNomenclatureId, String(args.engineNomenclatureId)),
-            isNull(erpEngineAssemblyBom.deletedAt),
-            eq(erpEngineAssemblyBom.status, 'active'),
-            sql`${erpEngineAssemblyBom.id} <> ${id}`,
-          ),
-        );
-    }
+    await db
+      .update(erpEngineAssemblyBom)
+      .set({ isDefault: false, updatedAt: ts, syncStatus: 'synced' })
+      .where(
+        and(
+          eq(erpEngineAssemblyBom.engineNomenclatureId, requestedEngineId),
+          isNull(erpEngineAssemblyBom.deletedAt),
+          eq(erpEngineAssemblyBom.status, 'active'),
+          sql`${erpEngineAssemblyBom.id} <> ${id}`,
+        ),
+      );
 
     const savedBom = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
     if (savedBom[0]) {

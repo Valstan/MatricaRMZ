@@ -8,6 +8,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
@@ -70,6 +71,13 @@ const DEFAULT_COMPONENT_TYPE_LABELS: Record<string, string> = {
   head: 'Головка',
   other: 'Прочее',
 };
+const TYPE_SEARCH_TOKENS: Record<string, string[]> = {
+  sleeve: ['гильз', 'втулк', 'sleeve', 'liner'],
+  piston: ['порш', 'piston'],
+  ring: ['кольц', 'ring'],
+  jacket: ['рубаш', 'jacket'],
+  head: ['голов', 'head'],
+};
 
 function normalizeNodeKey(raw: string): string {
   return raw
@@ -88,6 +96,37 @@ function getLineDisplayLabel(line: BomLine): string {
   return line.componentNomenclatureName || line.componentNomenclatureCode || line.componentNomenclatureId || '(не выбран компонент)';
 }
 
+function normalizeSearchText(raw: string): string {
+  return String(raw ?? '').trim().toLowerCase().replaceAll('ё', 'е');
+}
+
+function buildBomSnapshot(data: BomDetails | null): string {
+  if (!data) return '';
+  return JSON.stringify({
+    header: {
+      id: data.header.id,
+      name: data.header.name,
+      engineNomenclatureId: data.header.engineNomenclatureId,
+      status: data.header.status,
+      isDefault: data.header.isDefault,
+      version: data.header.version,
+      notes: data.header.notes ?? null,
+    },
+    lines: data.lines.map((line) => ({
+      id: line.id ?? '',
+      componentNomenclatureId: line.componentNomenclatureId,
+      componentType: line.componentType,
+      qtyPerUnit: Number(line.qtyPerUnit ?? 0),
+      variantGroup: line.variantGroup ?? null,
+      lineKey: normalizeNodeKey(String(line.lineKey ?? '')) || null,
+      parentLineKey: normalizeNodeKey(String(line.parentLineKey ?? '')) || null,
+      isRequired: line.isRequired !== false,
+      priority: Number(line.priority ?? 100),
+      notes: line.notes ?? null,
+    })),
+  });
+}
+
 function prepareLines(lines: BomLine[]): PreparedLine[] {
   return lines.map((line, idx) => ({
     ...line,
@@ -99,7 +138,7 @@ function prepareLines(lines: BomLine[]): PreparedLine[] {
   }));
 }
 
-function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string, string[]>): {
+function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string, string[]>, requiredComponentTypes?: string[]): {
   errors: string[];
   warnings: string[];
   lineIssues: Map<number, LineIssue>;
@@ -191,6 +230,14 @@ function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string
     }
   }
 
+  if (Array.isArray(requiredComponentTypes) && requiredComponentTypes.length > 0) {
+    const presentTypes = new Set(lines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+    for (const requiredType of requiredComponentTypes.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean)) {
+      if (presentTypes.has(requiredType)) continue;
+      errors.push(`В спецификации отсутствует обязательный тип компонента "${requiredType}" из глобальной схемы.`);
+    }
+  }
+
   return {
     errors: Array.from(new Set(errors)),
     warnings: Array.from(new Set(warnings)),
@@ -216,11 +263,11 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [showSchemaEditor, setShowSchemaEditor] = useState(false);
   const [schemaUsageRows, setSchemaUsageRows] = useState<WarehouseBomRelationTypeUsage[]>([]);
   const [pendingSchemaRenameConfirm, setPendingSchemaRenameConfirm] = useState<PendingSchemaRenameConfirm | null>(null);
+  const [savedBomSnapshot, setSavedBomSnapshot] = useState('');
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [savingBom, setSavingBom] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [showTechnicalFields, setShowTechnicalFields] = useState(false);
-  const [linkParentIdx, setLinkParentIdx] = useState<number | null>(null);
-  const [linkChildComponentId, setLinkChildComponentId] = useState<string | null>(null);
-  const [linkChildType, setLinkChildType] = useState('piston');
   const [componentOptions, setComponentOptions] = useState<SearchSelectOption[]>([]);
 
   const relationNodes = useMemo(
@@ -243,6 +290,10 @@ export function EngineAssemblyBomDetailsPage(props: {
     }
     return map;
   }, [schemaUsageRows]);
+  const schemaEditableRows = useMemo(
+    () => schemaNodesDraft.map((node, idx) => ({ node, idx })).filter((entry) => String(entry.node.typeId) !== String(schemaRootTypeDraft)),
+    [schemaNodesDraft, schemaRootTypeDraft],
+  );
   const componentTypeOptions = useMemo(() => {
     const active = relationNodes
       .filter((node) => node.isActive !== false && node.typeId !== bomRelationSchema.rootTypeId)
@@ -250,6 +301,10 @@ export function EngineAssemblyBomDetailsPage(props: {
     if (active.length > 0) return active;
     return [...FALLBACK_COMPONENT_TYPES];
   }, [bomRelationSchema.rootTypeId, relationNodes]);
+  const requiredComponentTypes = useMemo(
+    () => relationNodes.filter((node) => node.isActive !== false && node.typeId !== bomRelationSchema.rootTypeId).map((node) => node.typeId),
+    [bomRelationSchema.rootTypeId, relationNodes],
+  );
   const componentTypeLabelMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const node of relationNodes) map.set(node.typeId, node.label || node.typeId);
@@ -258,6 +313,29 @@ export function EngineAssemblyBomDetailsPage(props: {
     }
     return map;
   }, [relationNodes]);
+  const componentOptionById = useMemo(() => {
+    const map = new Map<string, SearchSelectOption>();
+    for (const option of componentOptions) map.set(String(option.id), option);
+    return map;
+  }, [componentOptions]);
+  const componentOptionsByType = useMemo(() => {
+    const map = new Map<string, SearchSelectOption[]>();
+    for (const typeId of componentTypeOptions) {
+      const normalizedTypeId = String(typeId).trim().toLowerCase();
+      const tokens = TYPE_SEARCH_TOKENS[normalizedTypeId] ?? [];
+      if (tokens.length === 0) {
+        map.set(normalizedTypeId, componentOptions);
+        continue;
+      }
+      const filtered = componentOptions.filter((option) => {
+        const haystack = normalizeSearchText(`${option.label ?? ''} ${option.hintText ?? ''}`);
+        return tokens.some((token) => haystack.includes(token));
+      });
+      map.set(normalizedTypeId, filtered);
+    }
+    map.set('other', componentOptions);
+    return map;
+  }, [componentOptions, componentTypeOptions]);
   const allowedChildrenByType = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const node of relationNodes) {
@@ -271,7 +349,21 @@ export function EngineAssemblyBomDetailsPage(props: {
   }, [relationNodes]);
 
   const preparedLines = useMemo(() => prepareLines(data?.lines ?? []), [data?.lines]);
-  const lineValidation = useMemo(() => validatePreparedLines(preparedLines, allowedChildrenByType), [allowedChildrenByType, preparedLines]);
+  const bomSnapshot = useMemo(() => buildBomSnapshot(data), [data]);
+  const isBomDirty = useMemo(() => Boolean(data) && Boolean(savedBomSnapshot) && bomSnapshot !== savedBomSnapshot, [bomSnapshot, data, savedBomSnapshot]);
+  const isSchemaDirty = useMemo(() => {
+    const persisted = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
+    const draft = sanitizeWarehouseBomRelationSchema({
+      format: 'bom_relation_schema_v1',
+      rootTypeId: schemaRootTypeDraft,
+      nodes: schemaNodesDraft,
+    });
+    return JSON.stringify(draft) !== JSON.stringify(persisted);
+  }, [bomRelationSchema, schemaNodesDraft, schemaRootTypeDraft]);
+  const lineValidation = useMemo(
+    () => validatePreparedLines(preparedLines, allowedChildrenByType, requiredComponentTypes),
+    [allowedChildrenByType, preparedLines, requiredComponentTypes],
+  );
   const parentOptionsByLineIdx = useMemo(() => {
     const map = new Map<number, SearchSelectOption[]>();
     for (const line of preparedLines) {
@@ -286,28 +378,6 @@ export function EngineAssemblyBomDetailsPage(props: {
     }
     return map;
   }, [preparedLines]);
-  const parentLineOptions = useMemo(
-    () =>
-      preparedLines.map((line) => ({
-        id: String(line.idx),
-        label: `#${line.idx + 1}: ${line.componentLabel} (${componentTypeLabelMap.get(line.componentType) ?? line.componentType})`,
-      })),
-    [componentTypeLabelMap, preparedLines],
-  );
-  const selectedParentPreparedLine = useMemo(
-    () => (linkParentIdx == null ? null : preparedLines.find((line) => line.idx === linkParentIdx) ?? null),
-    [linkParentIdx, preparedLines],
-  );
-  const allowedChildTypes = useMemo(() => {
-    const parentType = String(selectedParentPreparedLine?.componentType ?? 'other');
-    return allowedChildrenByType.get(parentType) ?? [];
-  }, [allowedChildrenByType, selectedParentPreparedLine?.componentType]);
-  useEffect(() => {
-    if (!allowedChildTypes.includes(linkChildType)) {
-      setLinkChildType(allowedChildTypes[0] ?? 'other');
-    }
-  }, [allowedChildTypes, linkChildType]);
-
   const treeScopes = useMemo(() => {
     const baseLines = preparedLines.filter((line) => !line.normalizedVariantGroup);
     const groupNames = Array.from(new Set(preparedLines.map((line) => line.normalizedVariantGroup).filter((value): value is string => Boolean(value))));
@@ -361,7 +431,10 @@ export function EngineAssemblyBomDetailsPage(props: {
       setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
       return;
     }
-    setData((result.bom ?? null) as BomDetails | null);
+    const nextData = (result.bom ?? null) as BomDetails | null;
+    setData(nextData);
+    setSavedBomSnapshot(buildBomSnapshot(nextData));
+    setCloseConfirmOpen(false);
     setStatus('');
   }, [props.id]);
 
@@ -390,6 +463,31 @@ export function EngineAssemblyBomDetailsPage(props: {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!data) return;
+    if (data.lines.length > 0) return;
+    if (requiredComponentTypes.length === 0) return;
+    setData((prev) => {
+      if (!prev) return prev;
+      if (prev.lines.length > 0) return prev;
+      return {
+        ...prev,
+        lines: requiredComponentTypes.map((typeId, idx) => ({
+          id: '',
+          componentNomenclatureId: '',
+          componentType: typeId,
+          qtyPerUnit: 0,
+          variantGroup: null,
+          lineKey: null,
+          parentLineKey: null,
+          isRequired: true,
+          priority: (idx + 1) * 10,
+          notes: null,
+        })),
+      };
+    });
+  }, [data, requiredComponentTypes]);
 
   useEffect(() => {
     let alive = true;
@@ -623,79 +721,146 @@ export function EngineAssemblyBomDetailsPage(props: {
     }
   }, [saveSchemaDraft, schemaNodesDraft, schemaRootTypeDraft, schemaUsageByTypeId]);
 
+  const saveBom = useCallback(async (): Promise<boolean> => {
+    if (!data) return false;
+    if (lineValidation.errors.length > 0) {
+      setStatus(`Ошибка: исправьте ошибки спецификации (${lineValidation.errors.length}) перед сохранением.`);
+      return false;
+    }
+    setSavingBom(true);
+    try {
+      const result = await window.matrica.warehouse.assemblyBomUpsert({
+        id: data.header.id,
+        name: data.header.name,
+        engineNomenclatureId: data.header.engineNomenclatureId,
+        version: data.header.version,
+        status: data.header.status,
+        isDefault: data.header.isDefault,
+        notes: data.header.notes ?? null,
+        lines: data.lines.map((line) => ({
+          componentNomenclatureId: line.componentNomenclatureId,
+          componentType: line.componentType,
+          qtyPerUnit: Number(line.qtyPerUnit ?? 0),
+          variantGroup: line.variantGroup ?? null,
+          lineKey: normalizeNodeKey(String(line.lineKey ?? '')) || null,
+          parentLineKey: normalizeNodeKey(String(line.parentLineKey ?? '')) || null,
+          isRequired: line.isRequired !== false,
+          priority: Number(line.priority ?? 100),
+          notes: line.notes ?? null,
+        })),
+      });
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
+        return false;
+      }
+      await refresh();
+      setStatus('BOM сохранен.');
+      return true;
+    } finally {
+      setSavingBom(false);
+    }
+  }, [data, lineValidation.errors.length, refresh]);
+
+  const requestCloseBomCard = useCallback(() => {
+    if (!(showSchemaEditor ? isSchemaDirty : isBomDirty)) {
+      props.onClose();
+      return;
+    }
+    setCloseConfirmOpen(true);
+  }, [isBomDirty, isSchemaDirty, props, showSchemaEditor]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Button variant="ghost" onClick={props.onClose}>
-          Назад
-        </Button>
-        <Button variant="ghost" onClick={() => void refresh()}>
-          Обновить
-        </Button>
-        {props.canEdit && data ? (
-          <>
-            <Button
-              onClick={async () => {
-                const result = await window.matrica.warehouse.assemblyBomActivateDefault(data.header.id);
-                if (!result?.ok) {
-                  setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
-                  return;
-                }
-                await refresh();
-              }}
-            >
-              Сделать default/active
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={async () => {
-                const result = await window.matrica.warehouse.assemblyBomArchive(data.header.id);
-                if (!result?.ok) {
-                  setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
-                  return;
-                }
-                await refresh();
-              }}
-            >
-              Архивировать
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={async () => {
-                const printed = await window.matrica.warehouse.assemblyBomPrint(data.header.id);
-                if (!printed?.ok) {
-                  setStatus(`Ошибка печати: ${String(printed?.error ?? 'unknown')}`);
-                  return;
-                }
-                setStatus('Печатная форма подготовлена (payload получен).');
-              }}
-            >
-              Печать
-            </Button>
-          </>
-        ) : null}
-        <Button variant={viewMode === 'table' ? 'primary' : 'ghost'} onClick={() => setViewMode('table')}>
-          Таблица
-        </Button>
-        <Button variant={viewMode === 'tree' ? 'primary' : 'ghost'} onClick={() => setViewMode('tree')}>
-          Дерево
-        </Button>
-        <Button variant={showTechnicalFields ? 'primary' : 'ghost'} onClick={() => setShowTechnicalFields((prev) => !prev)}>
-          {showTechnicalFields ? 'Скрыть техполя' : 'Показать техполя'}
-        </Button>
-        <Button variant={showSchemaEditor ? 'primary' : 'ghost'} onClick={() => setShowSchemaEditor((prev) => !prev)}>
-          Глобальная схема связей
-        </Button>
-      </div>
+      <CardActionBar
+        canEdit={props.canEdit}
+        cardLabel={showSchemaEditor ? 'Глобальная схема BOM' : 'BOM двигателя'}
+        onPrint={
+          !showSchemaEditor && data
+            ? () => {
+                void (async () => {
+                  const printed = await window.matrica.warehouse.assemblyBomPrint(data.header.id);
+                  if (!printed?.ok) {
+                    setStatus(`Ошибка печати: ${String(printed?.error ?? 'unknown')}`);
+                    return;
+                  }
+                  setStatus('Печатная форма подготовлена (payload получен).');
+                })();
+              }
+            : undefined
+        }
+        onClose={requestCloseBomCard}
+        extraActionsLeft={
+          showSchemaEditor ? (
+            <>
+              <Button variant="ghost" onClick={() => setShowSchemaEditor(false)}>
+                Выйти из глобальной схемы
+              </Button>
+              <Button variant="ghost" onClick={resetSchemaDraft}>
+                Сбросить черновик
+              </Button>
+              <Button onClick={() => void requestSchemaDraftSave()}>Сохранить схему</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => void refresh()}>
+                Обновить
+              </Button>
+              {props.canEdit ? (
+                <Button onClick={() => void (async () => { if (await saveBom()) props.onClose(); })()} disabled={savingBom}>
+                  Сохранить и закрыть
+                </Button>
+              ) : null}
+            </>
+          )
+        }
+        extraActionsCenter={
+          showSchemaEditor ? null : (
+            <>
+              <Button variant={viewMode === 'table' ? 'primary' : 'ghost'} onClick={() => setViewMode('table')}>
+                Таблица
+              </Button>
+              <Button variant={viewMode === 'tree' ? 'primary' : 'ghost'} onClick={() => setViewMode('tree')}>
+                Дерево
+              </Button>
+              <Button variant={showTechnicalFields ? 'primary' : 'ghost'} onClick={() => setShowTechnicalFields((prev) => !prev)}>
+                {showTechnicalFields ? 'Скрыть техполя' : 'Показать техполя'}
+              </Button>
+              <Button variant="ghost" onClick={() => setShowSchemaEditor(true)}>
+                Глобальная схема связей
+              </Button>
+            </>
+          )
+        }
+      />
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
       {schemaStatus ? <div style={{ color: schemaStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{schemaStatus}</div> : null}
       {showSchemaEditor ? (
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, display: 'grid', gap: 8 }}>
-          <div style={{ fontWeight: 600 }}>Глобальная схема связей компонентов</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontWeight: 600 }}>Глобальная схема связей компонентов</div>
+            <div
+              style={{
+                fontSize: 12,
+                borderRadius: 999,
+                padding: '2px 10px',
+                border: '1px solid var(--border)',
+                background: isSchemaDirty ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+                color: isSchemaDirty ? 'var(--warning, #b45309)' : '#047857',
+                whiteSpace: 'nowrap',
+              }}
+              title={isSchemaDirty ? 'В черновике есть несохраненные изменения.' : 'Все изменения глобальной схемы сохранены.'}
+            >
+              {isSchemaDirty ? 'Есть несохраненные изменения' : 'Сохранено'}
+            </div>
+          </div>
           <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
             Размещение: раздел BOM двигателя. Оператор может менять типы компонентов и их допустимые связи. Изменения сразу влияют на кнопки и автосвязи при
             составлении новых спецификаций.
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+            Корневой тип редактируется отдельным полем выше. Колонка "Использование в BOM-строках" показывает фактическое использование типа в сохраненных BOM,
+            а не наличие связей в графе.
           </div>
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(260px, 1fr) auto auto' }}>
             <label style={{ display: 'grid', gap: 4 }}>
@@ -741,19 +906,19 @@ export function EngineAssemblyBomDetailsPage(props: {
                   <th style={{ textAlign: 'left' }}>Активен</th>
                   <th style={{ textAlign: 'left' }}>Порядок</th>
                   <th style={{ textAlign: 'left' }}>Разрешенные дочерние типы</th>
-                  <th style={{ textAlign: 'left' }}>Использование в BOM</th>
+                  <th style={{ textAlign: 'left' }}>Использование в BOM-строках</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {schemaNodesDraft.length === 0 ? (
+                {schemaEditableRows.length === 0 ? (
                   <tr>
                     <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
-                      Нет типов. Добавьте первый тип компонента.
+                      Нет дополнительных типов компонентов. Корневой тип управляется отдельно.
                     </td>
                   </tr>
                 ) : (
-                  schemaNodesDraft.map((node, idx) => (
+                  schemaEditableRows.map(({ node, idx }) => (
                     <tr key={`${node.typeId}-${idx}`}>
                       <td style={{ minWidth: 150 }}>
                         <Input
@@ -809,6 +974,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           values={node.childTypeIds ?? []}
                           options={schemaNodesDraft
                             .filter((candidate, candidateIdx) => candidateIdx !== idx && candidate.typeId)
+                            .filter((candidate) => String(candidate.typeId) !== String(schemaRootTypeDraft))
                             .map((candidate) => ({
                               id: candidate.typeId,
                               label: candidate.label || candidate.typeId,
@@ -1065,6 +1231,74 @@ export function EngineAssemblyBomDetailsPage(props: {
           </div>
         </div>
       ) : null}
+      {closeConfirmOpen ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: 'min(540px, 100%)',
+              borderRadius: 14,
+              background: 'var(--surface)',
+              boxShadow: '0 24px 64px rgba(2, 6, 23, 0.35)',
+              border: '1px solid var(--border)',
+              display: 'grid',
+              gap: 10,
+              padding: 14,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Закрыть карточку BOM?</div>
+            <div style={{ fontSize: 13, color: 'var(--subtle)' }}>
+              {showSchemaEditor
+                ? 'В режиме глобальной схемы есть несохраненные изменения. Выберите действие перед выходом.'
+                : 'В карточке есть несохраненные изменения. Выберите действие перед выходом.'}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant="ghost" onClick={() => setCloseConfirmOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCloseConfirmOpen(false);
+                  props.onClose();
+                }}
+              >
+                Выйти без сохранения
+              </Button>
+              <Button
+                onClick={() => {
+                  void (async () => {
+                    if (showSchemaEditor) {
+                      setCloseConfirmOpen(false);
+                      await requestSchemaDraftSave();
+                      return;
+                    }
+                    if (await saveBom()) {
+                      setCloseConfirmOpen(false);
+                      props.onClose();
+                    }
+                  })();
+                }}
+                disabled={savingBom}
+              >
+                {showSchemaEditor ? 'Сохранить схему' : 'Сохранить и выйти'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!showSchemaEditor ? (
+        <>
       {lineValidation.errors.length > 0 ? (
         <div style={{ border: '1px solid var(--danger)', background: 'rgba(239, 68, 68, 0.08)', borderRadius: 8, padding: 8 }}>
           <div style={{ fontWeight: 600, color: 'var(--danger)', marginBottom: 4 }}>Ошибки спецификации</div>
@@ -1094,7 +1328,7 @@ export function EngineAssemblyBomDetailsPage(props: {
               disabled
             />
           </div>
-          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '2fr 1fr' }}>
             <label style={{ display: 'grid', gap: 4 }}>
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Название BOM</span>
               <Input
@@ -1116,82 +1350,22 @@ export function EngineAssemblyBomDetailsPage(props: {
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Версия</span>
               <Input value={String(data.header.version ?? 1)} disabled />
             </label>
-            <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Статус</span>
-              <Input value={data.header.status} disabled />
-            </label>
-            <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Default</span>
-              <Input value={data.header.isDefault ? 'default' : 'not default'} disabled />
-            </label>
           </div>
 
           <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
-            Кол-во/двиг. = сколько штук компонента нужно на 1 двигатель. Группа связки = вариант сборки (например, set-a / set-b). Для удобства можно
-            создавать связи через блок "Добавить связанный компонент" ниже: система автоматически создаст строку и привяжет ее к родительскому компоненту.
+            Кол-во/двиг. = сколько штук компонента нужно на 1 двигатель. Поля "Группа связки", "Узел" и "Родительский узел" скрыты в обычном режиме и
+            показываются только по кнопке "Показать техполя".
           </div>
-
-          {props.canEdit ? (
-            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(280px, 1fr) minmax(280px, 1fr) 180px auto', alignItems: 'end' }}>
-              <label style={{ display: 'grid', gap: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>К какому компоненту добавить связь</span>
-                <SearchSelect
-                  value={linkParentIdx == null ? null : String(linkParentIdx)}
-                  options={parentLineOptions}
-                  showAllWhenEmpty
-                  placeholder="Выберите родительский компонент"
-                  onChange={(value) => setLinkParentIdx(value == null ? null : Number(value))}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Связанный компонент</span>
-                <SearchSelect
-                  value={linkChildComponentId}
-                  options={componentOptions}
-                  showAllWhenEmpty
-                  placeholder="Выберите компонент для связи"
-                  onChange={setLinkChildComponentId}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Тип связанного</span>
-                <select value={linkChildType} onChange={(e) => setLinkChildType(String(e.target.value))}>
-                  {allowedChildTypes.map((option) => (
-                    <option key={option} value={option}>
-                      {componentTypeLabelMap.get(option) ?? option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button
-                onClick={() => {
-                  if (linkParentIdx == null) {
-                    setStatus('Ошибка: выберите родительский компонент.');
-                    return;
-                  }
-                  if (!linkChildComponentId) {
-                    setStatus('Ошибка: выберите связанный компонент.');
-                    return;
-                  }
-                  appendLinkedComponent(linkParentIdx, linkChildType, linkChildComponentId);
-                  setStatus('');
-                }}
-                disabled={linkParentIdx == null || !linkChildComponentId}
-              >
-                Добавить связанный компонент
-              </Button>
-            </div>
-          ) : null}
 
           {viewMode === 'table' ? (
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
               <table className="list-table">
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left' }}>Компонент</th>
                     <th style={{ textAlign: 'left' }}>Тип</th>
+                    <th style={{ textAlign: 'left' }}>Компонент</th>
                     <th style={{ textAlign: 'left' }}>Кол-во/двиг.</th>
-                    <th style={{ textAlign: 'left' }}>Группа связки</th>
+                    {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Группа связки</th> : null}
                     {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Узел</th> : null}
                     {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Родительский узел</th> : null}
                     <th style={{ textAlign: 'left' }}>Быстрые связи</th>
@@ -1212,15 +1386,6 @@ export function EngineAssemblyBomDetailsPage(props: {
                             : undefined
                       }
                     >
-                      <td style={{ minWidth: 260 }}>
-                        <SearchSelect
-                          value={line.componentNomenclatureId}
-                          options={componentOptions}
-                          showAllWhenEmpty
-                          onChange={(next) => patchLine(idx, { componentNomenclatureId: next ?? '' })}
-                          disabled={!props.canEdit}
-                        />
-                      </td>
                       <td>
                         <select
                           value={line.componentType}
@@ -1234,6 +1399,21 @@ export function EngineAssemblyBomDetailsPage(props: {
                           ))}
                         </select>
                       </td>
+                      <td style={{ minWidth: 260 }}>
+                        <SearchSelect
+                          value={line.componentNomenclatureId}
+                          options={(() => {
+                            const filtered = componentOptionsByType.get(String(line.componentType ?? '').trim().toLowerCase()) ?? componentOptions;
+                            if (!line.componentNomenclatureId) return filtered;
+                            if (filtered.some((option) => String(option.id) === String(line.componentNomenclatureId))) return filtered;
+                            const selected = componentOptionById.get(String(line.componentNomenclatureId));
+                            return selected ? [selected, ...filtered] : filtered;
+                          })()}
+                          showAllWhenEmpty
+                          onChange={(next) => patchLine(idx, { componentNomenclatureId: next ?? '' })}
+                          disabled={!props.canEdit}
+                        />
+                      </td>
                       <td>
                         <Input
                           value={String(line.qtyPerUnit ?? 0)}
@@ -1241,14 +1421,16 @@ export function EngineAssemblyBomDetailsPage(props: {
                           disabled={!props.canEdit}
                         />
                       </td>
-                      <td>
-                        <Input
-                          value={line.variantGroup ?? ''}
-                          onChange={(e) => patchLine(idx, { variantGroup: e.target.value || null })}
-                          placeholder="Например: set-a"
-                          disabled={!props.canEdit}
-                        />
-                      </td>
+                      {showTechnicalFields ? (
+                        <td>
+                          <Input
+                            value={line.variantGroup ?? ''}
+                            onChange={(e) => patchLine(idx, { variantGroup: e.target.value || null })}
+                            placeholder="Например: set-a"
+                            disabled={!props.canEdit}
+                          />
+                        </td>
+                      ) : null}
                       {showTechnicalFields ? (
                         <td>
                           <Input
@@ -1282,8 +1464,6 @@ export function EngineAssemblyBomDetailsPage(props: {
                                 variant="ghost"
                                 onClick={() => {
                                   appendLinkedComponent(idx, childTypeId, null);
-                                  setLinkParentIdx(idx);
-                                  setLinkChildType(childTypeId);
                                   setStatus('');
                                 }}
                                 style={{ padding: '2px 8px', minHeight: 0 }}
@@ -1363,38 +1543,8 @@ export function EngineAssemblyBomDetailsPage(props: {
                 Добавить строку
               </Button>
               <Button
-                onClick={async () => {
-                  if (!data) return;
-                  if (lineValidation.errors.length > 0) {
-                    setStatus(`Ошибка: исправьте ошибки спецификации (${lineValidation.errors.length}) перед сохранением.`);
-                    return;
-                  }
-                  const result = await window.matrica.warehouse.assemblyBomUpsert({
-                    id: data.header.id,
-                    name: data.header.name,
-                    engineNomenclatureId: data.header.engineNomenclatureId,
-                    version: data.header.version,
-                    status: data.header.status,
-                    isDefault: data.header.isDefault,
-                    notes: data.header.notes ?? null,
-                    lines: data.lines.map((line) => ({
-                      componentNomenclatureId: line.componentNomenclatureId,
-                      componentType: line.componentType,
-                      qtyPerUnit: Number(line.qtyPerUnit ?? 0),
-                      variantGroup: line.variantGroup ?? null,
-                      lineKey: normalizeNodeKey(String(line.lineKey ?? '')) || null,
-                      parentLineKey: normalizeNodeKey(String(line.parentLineKey ?? '')) || null,
-                      isRequired: line.isRequired !== false,
-                      priority: Number(line.priority ?? 100),
-                      notes: line.notes ?? null,
-                    })),
-                  });
-                  if (!result?.ok) {
-                    setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
-                    return;
-                  }
-                  await refresh();
-                }}
+                onClick={() => void saveBom()}
+                disabled={savingBom}
               >
                 Сохранить
               </Button>
@@ -1402,6 +1552,8 @@ export function EngineAssemblyBomDetailsPage(props: {
           ) : null}
         </>
       )}
+        </>
+      ) : null}
     </div>
   );
 }

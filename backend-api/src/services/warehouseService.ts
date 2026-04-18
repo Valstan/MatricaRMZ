@@ -538,6 +538,21 @@ function mergeLinePayloadJson(raw: string | null | undefined, input: DocLineInpu
   return Object.keys(compact).length > 0 ? JSON.stringify(compact) : null;
 }
 
+function documentLineSelectFields() {
+  return {
+    id: erpDocumentLines.id,
+    headerId: erpDocumentLines.headerId,
+    lineNo: erpDocumentLines.lineNo,
+    partCardId: erpDocumentLines.partCardId,
+    qty: erpDocumentLines.qty,
+    price: erpDocumentLines.price,
+    payloadJson: erpDocumentLines.payloadJson,
+    createdAt: erpDocumentLines.createdAt,
+    updatedAt: erpDocumentLines.updatedAt,
+    deletedAt: erpDocumentLines.deletedAt,
+  };
+}
+
 function buildPlannedIncomingRows(args: {
   documentId: string;
   docType: string;
@@ -1293,7 +1308,7 @@ export async function listWarehouseDocuments(args?: {
     const lineRows =
       headerIds.length > 0
         ? await db
-            .select()
+            .select(documentLineSelectFields())
             .from(erpDocumentLines)
             .where(and(inArray(erpDocumentLines.headerId, headerIds as any), isNull(erpDocumentLines.deletedAt)))
             .orderBy(asc(erpDocumentLines.lineNo))
@@ -1443,7 +1458,7 @@ export async function getWarehouseDocument(args: {
     if (!header) return { ok: false, error: 'Документ не найден' };
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
     const lines = await db
-      .select()
+      .select(documentLineSelectFields())
       .from(erpDocumentLines)
       .where(and(eq(erpDocumentLines.headerId, args.id), isNull(erpDocumentLines.deletedAt)))
       .orderBy(asc(erpDocumentLines.lineNo));
@@ -1589,13 +1604,11 @@ export async function createWarehouseDocument(args: {
       });
     }
     const lines = args.lines.map((line, idx) => {
-      const nomenclatureId = String(line.nomenclatureId ?? '').trim() || null;
       return {
         id: randomUUID(),
         headerId: id,
         lineNo: idx + 1,
         partCardId: line.partCardId ?? null,
-        nomenclatureId,
         qty: Math.max(0, Math.trunc(Number(line.qty))),
         price: line.price == null && line.cost != null ? Math.trunc(Number(line.cost)) : line.price == null ? null : Math.trunc(Number(line.price)),
         payloadJson: mergeLinePayloadJson(line.payloadJson, line),
@@ -1681,7 +1694,7 @@ export async function planWarehouseDocument(args: {
     }
 
     const lines = await db
-      .select()
+      .select(documentLineSelectFields())
       .from(erpDocumentLines)
       .where(and(eq(erpDocumentLines.headerId, args.documentId), isNull(erpDocumentLines.deletedAt)))
       .orderBy(asc(erpDocumentLines.lineNo));
@@ -1732,7 +1745,7 @@ export async function postWarehouseDocument(args: {
 
     const headerPayload = parseJsonObject(header.payloadJson ?? null);
     const lines = await db
-      .select()
+      .select(documentLineSelectFields())
       .from(erpDocumentLines)
       .where(and(eq(erpDocumentLines.headerId, args.documentId), isNull(erpDocumentLines.deletedAt)))
       .orderBy(asc(erpDocumentLines.lineNo));

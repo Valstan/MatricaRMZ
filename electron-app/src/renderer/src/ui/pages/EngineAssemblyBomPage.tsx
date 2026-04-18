@@ -29,7 +29,7 @@ type EngineNomenclatureRow = {
   isSerialTracked: boolean;
 };
 
-type SortKey = 'name' | 'engine' | 'version' | 'status' | 'default' | 'lines' | 'updatedAt';
+type SortKey = 'name' | 'engine' | 'version' | 'lines' | 'updatedAt';
 
 function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
   const row = (input ?? {}) as Record<string, unknown>;
@@ -144,8 +144,6 @@ export function EngineAssemblyBomPage(props: {
       if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       else if (sortKey === 'engine') cmp = String(a.engineNomenclatureName ?? a.engineNomenclatureCode ?? '').localeCompare(String(b.engineNomenclatureName ?? b.engineNomenclatureCode ?? ''), 'ru');
       else if (sortKey === 'version') cmp = Number(a.version ?? 0) - Number(b.version ?? 0);
-      else if (sortKey === 'status') cmp = String(a.status ?? '').localeCompare(String(b.status ?? ''), 'ru');
-      else if (sortKey === 'default') cmp = Number(a.isDefault ? 1 : 0) - Number(b.isDefault ? 1 : 0);
       else if (sortKey === 'lines') cmp = Number(a.linesCount ?? 0) - Number(b.linesCount ?? 0);
       else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
       if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
@@ -204,14 +202,20 @@ export function EngineAssemblyBomPage(props: {
                 setStatus('Ошибка: для выбранной марки не найдена номенклатура двигателя.');
                 return;
               }
+              const existing = rows.find((row) => String(row.engineNomenclatureId) === String(selectedEngine.id));
+              if (existing?.id) {
+                setStatus('Для выбранного двигателя спецификация уже существует. Открываем текущую карточку.');
+                props.onOpen(String(existing.id));
+                return;
+              }
               if (enginesForBrand.length > 1) {
                 setStatus(`Выбрана первая номенклатура двигателя для марки: ${selectedEngine.name || selectedEngine.code || selectedEngine.id}.`);
               }
               const created = await window.matrica.warehouse.assemblyBomUpsert({
                 name: `BOM ${engineBrandOptions.find((brand) => brand.id === engineBrandIdFilter)?.label ?? 'марки двигателя'}`,
                 engineNomenclatureId: selectedEngine.id,
-                status: 'draft',
-                isDefault: false,
+                status: 'active',
+                isDefault: true,
                 lines: [],
               });
               if (!created?.ok || !created.id) {
@@ -263,8 +267,6 @@ export function EngineAssemblyBomPage(props: {
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Название', 'name')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('engine')}>{sortLabel('Марка двигателя', 'engine')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('version')}>{sortLabel('Версия', 'version')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('status')}>{sortLabel('Статус', 'status')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('default')}>{sortLabel('Default', 'default')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('lines')}>{sortLabel('Строк', 'lines')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>{sortLabel('Обновлено', 'updatedAt')}</th>
             </tr>
@@ -272,7 +274,7 @@ export function EngineAssemblyBomPage(props: {
           <tbody>
             {pagedRows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
+                <td colSpan={5} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
                   Нет BOM-спецификаций
                 </td>
               </tr>
@@ -282,8 +284,6 @@ export function EngineAssemblyBomPage(props: {
                   <td>{row.name || '—'}</td>
                   <td>{brandByEngineNomenclatureId.get(String(row.engineNomenclatureId)) || row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId}</td>
                   <td>{Number(row.version ?? 1)}</td>
-                  <td>{row.status || 'draft'}</td>
-                  <td>{row.isDefault ? 'Да' : 'Нет'}</td>
                   <td>{Number(row.linesCount ?? 0)}</td>
                   <td>{row.updatedAt ? new Date(Number(row.updatedAt)).toLocaleString('ru-RU') : '—'}</td>
                 </tr>

@@ -646,10 +646,6 @@ export function sanitizeWarehouseBomRelationSchema(raw: unknown): WarehouseBomRe
       sortOrder: Number.isFinite(Number(rec.sortOrder)) ? Math.trunc(Number(rec.sortOrder)) : (fallback?.sortOrder ?? (idx + 1) * 10),
     });
   }
-  if (!seen.has('other')) {
-    const fallback = fallbackById.get('other') ?? { typeId: 'other', label: 'Прочее', isActive: true, childTypeIds: [], sortOrder: 900 };
-    normalized.push(fallback);
-  }
   if (!seen.has(rootTypeId)) {
     normalized.push({
       typeId: rootTypeId,

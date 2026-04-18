@@ -25,8 +25,6 @@ import {
   upsertWarehouseNomenclature,
 } from '../services/warehouseService.js';
 import {
-  activateWarehouseAssemblyBomAsDefault,
-  archiveWarehouseAssemblyBom,
   buildWarehouseBomExpandedForecast,
   getWarehouseAssemblyBom,
   getWarehouseAssemblyBomPrintPayload,
@@ -405,35 +403,17 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
 });
 
 warehouseRouter.post('/assembly-bom/:id/activate-default', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
-  const id = String(req.params.id || '').trim();
-  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
-  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
-  const result = await activateWarehouseAssemblyBomAsDefault({
-    id,
-    actor: {
-      id: String(user?.id ?? ''),
-      username: String(user?.username ?? 'unknown'),
-      role: String(user?.role ?? 'user'),
-    },
+  return res.status(410).json({
+    ok: false,
+    error: 'Режим default/active отключен: для каждого двигателя используется единая активная BOM.',
   });
-  if (!result.ok) return res.status(400).json(result);
-  return res.json(result);
 });
 
 warehouseRouter.post('/assembly-bom/:id/archive', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
-  const id = String(req.params.id || '').trim();
-  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
-  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
-  const result = await archiveWarehouseAssemblyBom({
-    id,
-    actor: {
-      id: String(user?.id ?? ''),
-      username: String(user?.username ?? 'unknown'),
-      role: String(user?.role ?? 'user'),
-    },
+  return res.status(410).json({
+    ok: false,
+    error: 'Архивирование BOM отключено: используется единая рабочая спецификация на двигатель.',
   });
-  if (!result.ok) return res.status(400).json(result);
-  return res.json(result);
 });
 
 warehouseRouter.get('/assembly-bom/:engineNomenclatureId/history', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
