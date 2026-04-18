@@ -4,7 +4,6 @@ import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
-import type { SearchSelectOption } from '../components/SearchSelect.js';
 
 type BomListRow = {
   id: string;
@@ -56,14 +55,6 @@ function isEngineLikeNomenclatureRow(row: EngineNomenclatureRow): boolean {
   return false;
 }
 
-function toEngineOption(row: EngineNomenclatureRow): SearchSelectOption {
-  return {
-    id: row.id,
-    label: row.name || row.code || row.id,
-    ...(row.code ? { hintText: row.code } : {}),
-  };
-}
-
 export function EngineAssemblyBomPage(props: {
   canEdit: boolean;
   onOpen: (id: string) => void;
@@ -71,9 +62,7 @@ export function EngineAssemblyBomPage(props: {
   const { error: refsError, lookups } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
   const [engineBrandIdFilter, setEngineBrandIdFilter] = useState<string | null>(null);
-  const [engineNomenclatureIdToCreate, setEngineNomenclatureIdToCreate] = useState<string | null>(null);
   const [engineRows, setEngineRows] = useState<EngineNomenclatureRow[]>([]);
-  const [engineOptions, setEngineOptions] = useState<SearchSelectOption[]>([]);
   const [rows, setRows] = useState<BomListRow[]>([]);
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
@@ -126,18 +115,6 @@ export function EngineAssemblyBomPage(props: {
     };
   }, []);
 
-  useEffect(() => {
-    const nextEngineRows = engineBrandIdFilter
-      ? engineRows.filter((row) => row.defaultBrandId === engineBrandIdFilter)
-      : engineRows;
-    const nextOptions = nextEngineRows.map(toEngineOption).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-    setEngineOptions(nextOptions);
-    setEngineNomenclatureIdToCreate((prev) => {
-      if (prev && nextOptions.some((option) => option.id === prev)) return prev;
-      return null;
-    });
-  }, [engineBrandIdFilter, engineRows]);
-
   const engineBrandOptions = useMemo(
     () =>
       (lookups.engineBrands ?? [])
@@ -151,13 +128,14 @@ export function EngineAssemblyBomPage(props: {
     [lookups.engineBrands],
   );
 
-  const engineLabelById = useMemo(() => {
+  const brandByEngineNomenclatureId = useMemo(() => {
     const map = new Map<string, string>();
-    for (const option of engineOptions) {
-      map.set(option.id, option.label);
+    for (const row of engineRows) {
+      if (!row.id || !row.defaultBrandName) continue;
+      map.set(row.id, row.defaultBrandName);
     }
     return map;
-  }, [engineOptions]);
+  }, [engineRows]);
 
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
@@ -197,9 +175,9 @@ export function EngineAssemblyBomPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(260px, 1fr) minmax(320px, 1fr) auto auto' }}>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto' }}>
         <label style={{ display: 'grid', gap: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка BOM)</span>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя</span>
           <SearchSelect
             value={engineBrandIdFilter}
             options={engineBrandOptions}
@@ -211,23 +189,27 @@ export function EngineAssemblyBomPage(props: {
             }}
           />
         </label>
-        <label style={{ display: 'grid', gap: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Двигатель, для которого создается BOM</span>
-          <SearchSelect
-            value={engineNomenclatureIdToCreate}
-            options={engineOptions}
-            placeholder={engineBrandIdFilter ? 'Выберите двигатель' : 'Сначала выберите марку или оставьте пустой фильтр'}
-            showAllWhenEmpty
-            onChange={setEngineNomenclatureIdToCreate}
-          />
-        </label>
         {props.canEdit ? (
           <Button
             onClick={async () => {
-              const selectedEngineLabel = engineLabelById.get(String(engineNomenclatureIdToCreate ?? '')) ?? '';
+              if (!engineBrandIdFilter) {
+                setStatus('Ошибка: сначала выберите марку двигателя.');
+                return;
+              }
+              const enginesForBrand = engineRows
+                .filter((row) => row.defaultBrandId === engineBrandIdFilter)
+                .sort((a, b) => (a.name || a.code || a.id).localeCompare(b.name || b.code || b.id, 'ru'));
+              const selectedEngine = enginesForBrand[0] ?? null;
+              if (!selectedEngine?.id) {
+                setStatus('Ошибка: для выбранной марки не найдена номенклатура двигателя.');
+                return;
+              }
+              if (enginesForBrand.length > 1) {
+                setStatus(`Выбрана первая номенклатура двигателя для марки: ${selectedEngine.name || selectedEngine.code || selectedEngine.id}.`);
+              }
               const created = await window.matrica.warehouse.assemblyBomUpsert({
-                name: selectedEngineLabel ? `BOM ${selectedEngineLabel}` : 'Новая BOM',
-                engineNomenclatureId: engineNomenclatureIdToCreate ?? '',
+                name: `BOM ${engineBrandOptions.find((brand) => brand.id === engineBrandIdFilter)?.label ?? 'марки двигателя'}`,
+                engineNomenclatureId: selectedEngine.id,
                 status: 'draft',
                 isDefault: false,
                 lines: [],
@@ -239,7 +221,7 @@ export function EngineAssemblyBomPage(props: {
               await refresh();
               props.onOpen(String(created.id));
             }}
-            disabled={!engineNomenclatureIdToCreate}
+            disabled={!engineBrandIdFilter}
           >
             Создать BOM
           </Button>
@@ -279,7 +261,7 @@ export function EngineAssemblyBomPage(props: {
           <thead>
             <tr>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Название', 'name')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('engine')}>{sortLabel('Двигатель', 'engine')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('engine')}>{sortLabel('Марка двигателя', 'engine')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('version')}>{sortLabel('Версия', 'version')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('status')}>{sortLabel('Статус', 'status')}</th>
               <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('default')}>{sortLabel('Default', 'default')}</th>
@@ -298,7 +280,7 @@ export function EngineAssemblyBomPage(props: {
               pagedRows.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
                   <td>{row.name || '—'}</td>
-                  <td>{row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId}</td>
+                  <td>{brandByEngineNomenclatureId.get(String(row.engineNomenclatureId)) || row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId}</td>
                   <td>{Number(row.version ?? 1)}</td>
                   <td>{row.status || 'draft'}</td>
                   <td>{row.isDefault ? 'Да' : 'Нет'}</td>

@@ -623,6 +623,53 @@ export async function warehouseAssemblyBomList(
   }
 }
 
+export async function warehouseAssemblyBomSchemaGet(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/assembly-bom/schema';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; schema: Record<string, unknown>; updatedAt: number };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomSchemaSet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> },
+) {
+  const path = '/warehouse/assembly-bom/schema';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        schema: args.schema,
+        ...(args.renames && args.renames.length > 0 ? { renames: args.renames } : {}),
+      }),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; schema: Record<string, unknown>; updatedAt: number; renamedLineCount?: number };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomSchemaUsageGet(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/assembly-bom/schema/usage';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseAssemblyBomGet(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

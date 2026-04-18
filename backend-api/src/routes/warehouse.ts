@@ -30,11 +30,14 @@ import {
   buildWarehouseBomExpandedForecast,
   getWarehouseAssemblyBom,
   getWarehouseAssemblyBomPrintPayload,
+  getWarehouseAssemblyBomComponentTypeUsage,
   listWarehouseAssemblyBomHistory,
   listWarehouseAssemblyBoms,
+  renameWarehouseBomComponentTypes,
   upsertWarehouseAssemblyBom,
 } from '../services/warehouseBomService.js';
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
+import { getGlobalWarehouseBomRelationSchema, setGlobalWarehouseBomRelationSchema } from '../services/clientSettingsService.js';
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
@@ -280,6 +283,57 @@ warehouseRouter.get('/assembly-bom', requirePermission(PermissionCode.ErpDiction
     ...(parsed.data.status ? { status: parsed.data.status } : {}),
   });
   if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/assembly-bom/schema', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  try {
+    const result = await getGlobalWarehouseBomRelationSchema();
+    return res.json({ ok: true, schema: JSON.parse(result.schemaJson), updatedAt: result.updatedAt });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+warehouseRouter.post('/assembly-bom/schema', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    schema: z.unknown(),
+    renames: z
+      .array(
+        z.object({
+          fromTypeId: z.string().min(1),
+          toTypeId: z.string().min(1),
+        }),
+      )
+      .optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+    let renamedLineCount = 0;
+    if (parsed.data.renames && parsed.data.renames.length > 0) {
+      const renameResult = await renameWarehouseBomComponentTypes({
+        renames: parsed.data.renames,
+        actor: {
+          id: String(user?.id ?? ''),
+          username: String(user?.username ?? 'unknown'),
+          role: String(user?.role ?? 'user'),
+        },
+      });
+      if (!renameResult.ok) return res.status(500).json(renameResult);
+      renamedLineCount = renameResult.renamedLineCount;
+    }
+    const result = await setGlobalWarehouseBomRelationSchema({ schema: parsed.data.schema });
+    return res.json({ ok: true, schema: JSON.parse(result.schemaJson), updatedAt: result.updatedAt, renamedLineCount });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+warehouseRouter.get('/assembly-bom/schema/usage', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await getWarehouseAssemblyBomComponentTypeUsage();
+  if (!result.ok) return res.status(500).json(result);
   return res.json(result);
 });
 

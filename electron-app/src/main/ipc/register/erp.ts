@@ -21,6 +21,9 @@ import {
   warehouseAssemblyBomActivateDefault,
   warehouseAssemblyBomArchive,
   warehouseAssemblyBomGet,
+  warehouseAssemblyBomSchemaGet,
+  warehouseAssemblyBomSchemaUsageGet,
+  warehouseAssemblyBomSchemaSet,
   warehouseAssemblyBomHistory,
   warehouseAssemblyBomList,
   warehouseAssemblyBomPrint,
@@ -291,6 +294,27 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
     return warehouseAssemblyBomList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:schema:get', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomSchemaGet(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:schema:set', async (_e, args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomSchemaSet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:schema:usage:get', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomSchemaUsageGet(ctx.sysDb, ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('warehouse:assemblyBom:get', async (_e, id: string) => {

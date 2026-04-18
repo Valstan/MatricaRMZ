@@ -1,5 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { DEFAULT_UI_CONTROL_SETTINGS, UI_DEFAULTS_VERSION, sanitizeUiControlSettings } from '@matricarmz/shared';
+import {
+  DEFAULT_UI_CONTROL_SETTINGS,
+  DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
+  UI_DEFAULTS_VERSION,
+  sanitizeUiControlSettings,
+  sanitizeWarehouseBomRelationSchema,
+} from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
 import { clientSettings } from '../database/schema.js';
@@ -8,7 +14,10 @@ import { logWarn } from '../utils/logger.js';
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 
 type ClientSettingsPatch = Partial<
-  Pick<ClientSettingsRow, 'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiGlobalSettingsJson' | 'uiDefaultsVersion'>
+  Pick<
+    ClientSettingsRow,
+    'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiGlobalSettingsJson' | 'bomRelationSchemaJson' | 'uiDefaultsVersion'
+  >
 >;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
 type ClientSyncAck = { requestId: string; status: 'ok' | 'error'; error?: string | null; at?: number };
@@ -46,6 +55,7 @@ async function ensureClientSettingsSchemaReady() {
           ADD COLUMN IF NOT EXISTS "sync_request_payload" text,
           ADD COLUMN IF NOT EXISTS "last_username" text,
           ADD COLUMN IF NOT EXISTS "ui_global_settings_json" text,
+          ADD COLUMN IF NOT EXISTS "bom_relation_schema_json" text,
           ADD COLUMN IF NOT EXISTS "ui_defaults_version" integer NOT NULL DEFAULT 1;
       `);
       if (!clientSettingsSchemaReadyLogged) {
@@ -80,6 +90,7 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     loggingEnabled: true,
     loggingMode: 'dev',
     uiGlobalSettingsJson: JSON.stringify(DEFAULT_UI_CONTROL_SETTINGS),
+    bomRelationSchemaJson: JSON.stringify(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA),
     uiDefaultsVersion: UI_DEFAULTS_VERSION,
     syncRequestId: null,
     syncRequestType: null,
@@ -110,6 +121,7 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
     loggingEnabled: defaults.loggingEnabled,
     loggingMode: defaults.loggingMode,
     uiGlobalSettingsJson: defaults.uiGlobalSettingsJson,
+    bomRelationSchemaJson: defaults.bomRelationSchemaJson,
     uiDefaultsVersion: defaults.uiDefaultsVersion,
     syncRequestId: defaults.syncRequestId,
     syncRequestType: defaults.syncRequestType,
@@ -172,6 +184,7 @@ export async function updateClientSettings(clientId: string, patch: ClientSettin
       ...(patch.loggingEnabled !== undefined ? { loggingEnabled: patch.loggingEnabled } : {}),
       ...(patch.loggingMode !== undefined ? { loggingMode: patch.loggingMode } : {}),
       ...(patch.uiGlobalSettingsJson !== undefined ? { uiGlobalSettingsJson: patch.uiGlobalSettingsJson } : {}),
+      ...(patch.bomRelationSchemaJson !== undefined ? { bomRelationSchemaJson: patch.bomRelationSchemaJson } : {}),
       ...(patch.uiDefaultsVersion !== undefined ? { uiDefaultsVersion: patch.uiDefaultsVersion } : {}),
       updatedAt: ts,
     })
@@ -260,6 +273,29 @@ export async function setGlobalUiDefaults(args: { settings: unknown; bumpVersion
   return {
     settings: updated.uiGlobalSettingsJson ?? safeSettings,
     version: Number(updated.uiDefaultsVersion ?? nextVersion),
+    updatedAt: Number(updated.updatedAt),
+  };
+}
+
+export async function getGlobalWarehouseBomRelationSchema(): Promise<{ schemaJson: string; updatedAt: number }> {
+  const row = await getOrCreateClientSettings(GLOBAL_CLIENT_SETTINGS_ID);
+  const safeSchemaJson = JSON.stringify(sanitizeWarehouseBomRelationSchema(safeParseJson(row.bomRelationSchemaJson ?? null) ?? DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA));
+  if (safeSchemaJson !== row.bomRelationSchemaJson) {
+    const updated = await updateClientSettings(GLOBAL_CLIENT_SETTINGS_ID, {
+      bomRelationSchemaJson: safeSchemaJson,
+    });
+    return { schemaJson: updated.bomRelationSchemaJson ?? safeSchemaJson, updatedAt: Number(updated.updatedAt) };
+  }
+  return { schemaJson: row.bomRelationSchemaJson ?? safeSchemaJson, updatedAt: Number(row.updatedAt) };
+}
+
+export async function setGlobalWarehouseBomRelationSchema(args: { schema: unknown }): Promise<{ schemaJson: string; updatedAt: number }> {
+  const safeSchemaJson = JSON.stringify(sanitizeWarehouseBomRelationSchema(args.schema));
+  const updated = await updateClientSettings(GLOBAL_CLIENT_SETTINGS_ID, {
+    bomRelationSchemaJson: safeSchemaJson,
+  });
+  return {
+    schemaJson: updated.bomRelationSchemaJson ?? safeSchemaJson,
     updatedAt: Number(updated.updatedAt),
   };
 }

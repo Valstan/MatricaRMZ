@@ -377,6 +377,7 @@ export const clientSettings = pgTable('client_settings', {
   loggingEnabled: boolean('logging_enabled').notNull().default(true),
   loggingMode: text('logging_mode').notNull().default('dev'),
   uiGlobalSettingsJson: text('ui_global_settings_json'),
+  bomRelationSchemaJson: text('bom_relation_schema_json'),
   uiDefaultsVersion: integer('ui_defaults_version').notNull().default(1),
 
   syncRequestId: text('sync_request_id'),

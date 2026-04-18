@@ -523,6 +523,113 @@ export async function getWarehouseAssemblyBomPrintPayload(args: {
   }
 }
 
+export async function getWarehouseAssemblyBomComponentTypeUsage(): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  try {
+    const rows = await db
+      .select({
+        componentType: erpEngineAssemblyBomLines.componentType,
+        status: erpEngineAssemblyBom.status,
+      })
+      .from(erpEngineAssemblyBomLines)
+      .innerJoin(erpEngineAssemblyBom, eq(erpEngineAssemblyBom.id, erpEngineAssemblyBomLines.bomId))
+      .where(and(isNull(erpEngineAssemblyBomLines.deletedAt), isNull(erpEngineAssemblyBom.deletedAt)));
+    const usage = new Map<string, { total: number; active: number; draft: number; archived: number }>();
+    for (const row of rows) {
+      const typeId = String(row.componentType ?? '').trim().toLowerCase();
+      if (!typeId) continue;
+      const status = String(row.status ?? 'draft').trim().toLowerCase();
+      const current = usage.get(typeId) ?? { total: 0, active: 0, draft: 0, archived: 0 };
+      current.total += 1;
+      if (status === 'active') current.active += 1;
+      else if (status === 'archived') current.archived += 1;
+      else current.draft += 1;
+      usage.set(typeId, current);
+    }
+    const resultRows = Array.from(usage.entries())
+      .map(([typeId, count]) => ({
+        typeId,
+        totalLineCount: count.total,
+        activeLineCount: count.active,
+        draftLineCount: count.draft,
+        archivedLineCount: count.archived,
+      }))
+      .sort((a, b) => String(a.typeId).localeCompare(String(b.typeId), 'ru'));
+    return { ok: true, rows: resultRows };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function renameWarehouseBomComponentTypes(args: {
+  renames: Array<{ fromTypeId: string; toTypeId: string }>;
+  actor: Actor;
+}): Promise<Result<{ renamedLineCount: number }>> {
+  try {
+    const normalized = Array.from(
+      new Map(
+        (Array.isArray(args.renames) ? args.renames : [])
+          .map((row) => ({
+            fromTypeId: String(row.fromTypeId ?? '').trim().toLowerCase(),
+            toTypeId: String(row.toTypeId ?? '').trim().toLowerCase(),
+          }))
+          .filter((row) => row.fromTypeId && row.toTypeId && row.fromTypeId !== row.toTypeId)
+          .map((row) => [`${row.fromTypeId}=>${row.toTypeId}`, row]),
+      ).values(),
+    );
+    if (normalized.length === 0) return { ok: true, renamedLineCount: 0 };
+
+    let renamedLineCount = 0;
+    for (const rename of normalized) {
+      const rows = await db
+        .select()
+        .from(erpEngineAssemblyBomLines)
+        .where(and(eq(erpEngineAssemblyBomLines.componentType, rename.fromTypeId), isNull(erpEngineAssemblyBomLines.deletedAt)));
+      if (rows.length === 0) continue;
+      const ts = nowMs();
+      const ids = rows.map((row) => String(row.id));
+      await db
+        .update(erpEngineAssemblyBomLines)
+        .set({
+          componentType: rename.toTypeId,
+          updatedAt: ts,
+          syncStatus: 'synced',
+        })
+        .where(inArray(erpEngineAssemblyBomLines.id, ids as any));
+      const updatedRows = await db.select().from(erpEngineAssemblyBomLines).where(inArray(erpEngineAssemblyBomLines.id, ids as any));
+      renamedLineCount += updatedRows.length;
+      signAndAppendDetailed(
+        updatedRows.map((line) => ({
+          type: 'upsert' as const,
+          table: LedgerTableName.ErpEngineAssemblyBomLines,
+          row_id: String(line.id),
+          row: {
+            id: String(line.id),
+            bom_id: String(line.bomId),
+            component_nomenclature_id: String(line.componentNomenclatureId),
+            component_type: String(line.componentType),
+            qty_per_unit: Number(line.qtyPerUnit),
+            variant_group: line.variantGroup ?? null,
+            is_required: Boolean(line.isRequired),
+            priority: Number(line.priority),
+            notes: line.notes ?? null,
+            created_at: Number(line.createdAt),
+            updated_at: Number(line.updatedAt),
+            deleted_at: line.deletedAt == null ? null : Number(line.deletedAt),
+            sync_status: String(line.syncStatus ?? 'synced'),
+            last_server_seq: line.lastServerSeq == null ? null : Number(line.lastServerSeq),
+          },
+          actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+          ts,
+        })),
+      );
+    }
+
+    return { ok: true, renamedLineCount };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function buildWarehouseBomExpandedForecast(args: {
   engineId: string;
   targetEnginesPerDay?: number;

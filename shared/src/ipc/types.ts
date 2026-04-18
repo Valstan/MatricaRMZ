@@ -549,6 +549,8 @@ import type {
 } from '../domain/aiAgent.js';
 import type {
   EngineAssemblyBomDetails,
+  WarehouseBomRelationTypeUsage,
+  WarehouseBomRelationSchema,
   EngineAssemblyBomExpandedRow,
   EngineAssemblyBomListItem,
   EngineAssemblyBomUpsertInput,
@@ -1306,6 +1308,12 @@ export type MatricaApi = {
       engineNomenclatureId?: string;
       status?: string;
     }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
+    assemblyBomSchemaGet: () => Promise<{ ok: true; schema: WarehouseBomRelationSchema; updatedAt: number } | { ok: false; error: string }>;
+    assemblyBomSchemaSet: (args: {
+      schema: WarehouseBomRelationSchema;
+      renames?: Array<{ fromTypeId: string; toTypeId: string }>;
+    }) => Promise<{ ok: true; schema: WarehouseBomRelationSchema; updatedAt: number; renamedLineCount?: number } | { ok: false; error: string }>;
+    assemblyBomSchemaUsageGet: () => Promise<{ ok: true; rows: WarehouseBomRelationTypeUsage[] } | { ok: false; error: string }>;
     assemblyBomGet: (id: string) => Promise<{ ok: true; bom: EngineAssemblyBomDetails } | { ok: false; error: string }>;
     assemblyBomUpsert: (args: EngineAssemblyBomUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     assemblyBomActivateDefault: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;

@@ -570,3 +570,106 @@ export type EngineAssemblyBomExpandedRow = {
   priority: number;
 };
 
+export type WarehouseBomRelationNode = {
+  typeId: string;
+  label: string;
+  isActive: boolean;
+  childTypeIds: string[];
+  sortOrder: number;
+};
+
+export type WarehouseBomRelationSchema = {
+  format: 'bom_relation_schema_v1';
+  rootTypeId: string;
+  nodes: WarehouseBomRelationNode[];
+};
+
+export type WarehouseBomRelationTypeUsage = {
+  typeId: string;
+  totalLineCount: number;
+  activeLineCount: number;
+  draftLineCount: number;
+  archivedLineCount: number;
+};
+
+export const DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA: WarehouseBomRelationSchema = {
+  format: 'bom_relation_schema_v1',
+  rootTypeId: 'engine',
+  nodes: [
+    { typeId: 'engine', label: 'Двигатель', isActive: true, childTypeIds: ['sleeve'], sortOrder: 10 },
+    { typeId: 'sleeve', label: 'Гильза', isActive: true, childTypeIds: ['piston', 'jacket'], sortOrder: 20 },
+    { typeId: 'piston', label: 'Поршень', isActive: true, childTypeIds: ['ring'], sortOrder: 30 },
+    { typeId: 'ring', label: 'Кольцо', isActive: true, childTypeIds: [], sortOrder: 40 },
+    { typeId: 'jacket', label: 'Рубашка', isActive: true, childTypeIds: ['head'], sortOrder: 50 },
+    { typeId: 'head', label: 'Головка', isActive: true, childTypeIds: [], sortOrder: 60 },
+    { typeId: 'other', label: 'Прочее', isActive: true, childTypeIds: [], sortOrder: 900 },
+  ],
+};
+
+function normalizeRelationTypeId(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9._-]/g, '');
+}
+
+export function sanitizeWarehouseBomRelationSchema(raw: unknown): WarehouseBomRelationSchema {
+  const parsed = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const rootTypeId = normalizeRelationTypeId(parsed.rootTypeId) || DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA.rootTypeId;
+  const rawNodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+  const fallbackById = new Map(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA.nodes.map((node) => [node.typeId, node]));
+  const normalized: WarehouseBomRelationNode[] = [];
+  const seen = new Set<string>();
+  for (const [idx, item] of rawNodes.entries()) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const typeId = normalizeRelationTypeId(rec.typeId);
+    if (!typeId || seen.has(typeId)) continue;
+    seen.add(typeId);
+    const fallback = fallbackById.get(typeId);
+    const childTypeIds = Array.isArray(rec.childTypeIds)
+      ? Array.from(
+          new Set(
+            rec.childTypeIds
+              .map((value) => normalizeRelationTypeId(value))
+              .filter(Boolean)
+              .filter((value) => value !== typeId),
+          ),
+        )
+      : fallback?.childTypeIds ?? [];
+    normalized.push({
+      typeId,
+      label: String(rec.label ?? fallback?.label ?? typeId).trim() || typeId,
+      isActive: rec.isActive === undefined ? true : Boolean(rec.isActive),
+      childTypeIds,
+      sortOrder: Number.isFinite(Number(rec.sortOrder)) ? Math.trunc(Number(rec.sortOrder)) : (fallback?.sortOrder ?? (idx + 1) * 10),
+    });
+  }
+  if (!seen.has('other')) {
+    const fallback = fallbackById.get('other') ?? { typeId: 'other', label: 'Прочее', isActive: true, childTypeIds: [], sortOrder: 900 };
+    normalized.push(fallback);
+  }
+  if (!seen.has(rootTypeId)) {
+    normalized.push({
+      typeId: rootTypeId,
+      label: rootTypeId === 'engine' ? 'Двигатель' : rootTypeId,
+      isActive: true,
+      childTypeIds: [],
+      sortOrder: 5,
+    });
+  }
+  const validIds = new Set(normalized.map((node) => node.typeId));
+  const sanitizedNodes = normalized
+    .map((node) => ({
+      ...node,
+      childTypeIds: node.childTypeIds.filter((childId) => validIds.has(childId)),
+    }))
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || a.label.localeCompare(b.label, 'ru'));
+  return {
+    format: 'bom_relation_schema_v1',
+    rootTypeId,
+    nodes: sanitizedNodes,
+  };
+}
+
