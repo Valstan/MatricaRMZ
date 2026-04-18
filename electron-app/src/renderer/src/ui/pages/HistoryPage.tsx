@@ -114,14 +114,20 @@ function resolveShortcutTile(shortcutId: string, reportPresets?: Array<{ id: str
   }
   if (shortcutId.startsWith('report:')) {
     const presetId = shortcutId.slice(7);
+    if (!presetId) return null;
     const preset = reportPresets?.find((p) => p.id === presetId);
-    if (!preset) return null;
+    const title = (preset?.title ?? '').trim() || `Отчёт (${presetId})`;
     return {
       shortcutId,
       icon: '📊',
-      title: preset.title,
+      title,
       gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)',
-      link: { kind: 'app_link', tab: 'report_preset' as any, reportPresetId: preset.id, breadcrumbs: [preset.title] },
+      link: {
+        kind: 'app_link',
+        tab: 'report_preset' as any,
+        reportPresetId: presetId as any,
+        breadcrumbs: [title],
+      },
     };
   }
   return null;

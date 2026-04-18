@@ -470,6 +470,8 @@ export function App() {
   const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   const [pinnedShortcuts, setPinnedShortcuts] = useState<string[]>([]);
+  /** Сбрасывает применение устаревшего ответа `shortcuts:get`, если за время запроса уже меняли закрепления локально. */
+  const shortcutsMutationEpochRef = useRef(0);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
@@ -939,9 +941,11 @@ export function App() {
     if (!userId) {
       setTabsLayout(null);
       setPinnedShortcuts([]);
+      shortcutsMutationEpochRef.current = 0;
       return;
     }
     let alive = true;
+    const epochAtFetchStart = shortcutsMutationEpochRef.current;
     void window.matrica.settings
       .uiGet({ userId })
       .then((r: any) => {
@@ -953,6 +957,7 @@ export function App() {
       .get({ userId })
       .then((r) => {
         if (!alive) return;
+        if (epochAtFetchStart !== shortcutsMutationEpochRef.current) return;
         if (r?.ok) setPinnedShortcuts(r.ids ?? []);
       })
       .catch(() => {});
@@ -1560,6 +1565,7 @@ export function App() {
   async function addPinnedShortcut(shortcutId: string) {
     const userId = authStatus.user?.id;
     if (!userId || !shortcutId) return;
+    shortcutsMutationEpochRef.current += 1;
     const next = pinnedShortcuts.includes(shortcutId) ? pinnedShortcuts : [...pinnedShortcuts, shortcutId];
     setPinnedShortcuts(next);
     await window.matrica.shortcuts.set({ userId, ids: next }).catch(() => {});
@@ -1568,6 +1574,7 @@ export function App() {
   async function removePinnedShortcut(shortcutId: string) {
     const userId = authStatus.user?.id;
     if (!userId) return;
+    shortcutsMutationEpochRef.current += 1;
     const next = pinnedShortcuts.filter((id) => id !== shortcutId);
     setPinnedShortcuts(next);
     await window.matrica.shortcuts.set({ userId, ids: next }).catch(() => {});
