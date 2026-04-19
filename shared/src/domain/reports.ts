@@ -137,6 +137,8 @@ export type ReportPresetPreviewResult =
       rows: ReportRow[];
       totals?: ReportTotals;
       totalsByGroup?: Array<{ group: string; totals: ReportTotals }>;
+      /** Доп. блоки текста под таблицей (подсказки, пояснения к фильтрам). */
+      footerNotes?: string[];
       /** Детализация работ по нарядам для печати `work_order_payroll`. */
       payrollWorkLines?: WorkOrderPayrollWorkLine[];
       /** Сумма «Начислено»: Σ amountRub по строкам отчёта (та же база, что итог по начислениям). */
@@ -659,8 +661,21 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'assembly_forecast_7d',
     title: 'Прогноз сборки двигателей',
     description:
-      'Прогнозирует сборку по активным default BOM-матрицам (марка двигателя из справочника -> компоненты), с учетом остатков и плановых приходов из складских документов в статусе planned.',
+      'Прогнозирует сборку по активным default BOM-матрицам (марка двигателя из справочника -> компоненты), с учетом остатков и плановых приходов из складских документов в статусе planned. Целевой выпуск в сутки — общий по цеху. Режим приоритета: либо вручную выбранные марки (round-robin внутри группы), либо автоматически — марки из контрактов, которые отстают от графика исполнения. Режимы не смешиваются. Внизу отчёта — подсказки по дефициту комплектующих для приоритетных марок. В фильтре складов учитывайте id «default», если остатки лежат на складе по умолчанию.',
     filters: [
+      {
+        type: 'select',
+        key: 'assemblyPriorityMode',
+        label: 'Приоритет сборки',
+        options: [
+          { value: 'manual', label: 'Вручную (список марок ниже)' },
+          {
+            value: 'contracts',
+            label: 'По отстающим контрактам (авто)',
+            hintText: 'Марки из контрактов с отставанием от графика; ручной список марок не используется.',
+          },
+        ],
+      },
       {
         type: 'multi_select',
         key: 'warehouseIds',
@@ -674,6 +689,12 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         label: 'Марки двигателей (из активных BOM)',
         optionsSource: 'assemblyBrands',
         selectAllByDefault: true,
+      },
+      {
+        type: 'multi_select',
+        key: 'priorityEngineBrandIds',
+        label: 'Приоритетные марки (в первую очередь на сборку)',
+        optionsSource: 'assemblyBrands',
       },
       {
         type: 'number',

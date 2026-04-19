@@ -645,6 +645,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     horizonDays: z.coerce.number().int().min(1).max(31).optional(),
     warehouseIds: z.array(z.string().min(1)).optional(),
     engineBrandIds: z.array(z.string().uuid()).optional(),
+    priorityEngineBrandIds: z.array(z.string().uuid()).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -654,6 +655,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
       ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
       ...(parsed.data.engineBrandIds !== undefined ? { engineBrandIds: parsed.data.engineBrandIds } : {}),
+      ...(parsed.data.priorityEngineBrandIds !== undefined ? { priorityEngineBrandIds: parsed.data.priorityEngineBrandIds } : {}),
     });
     const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
     const rows = forecast.rows.map((r) => ({

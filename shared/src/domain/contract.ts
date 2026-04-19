@@ -382,3 +382,53 @@ export function contractSectionsToLegacy(
     due_date: effectiveContractDueAt(sections),
   };
 }
+
+/** Марки двигателей из всех секций контракта (основная + допсоглашения), порядок — как в данных. */
+export function collectEngineBrandIdsFromContractSections(sections: ContractSections | null | undefined): string[] {
+  if (!sections) return [];
+  const out: string[] = [];
+  const add = (rows: ContractEngineBrandRow[]) => {
+    for (const r of rows) {
+      const id = String(r.engineBrandId ?? '').trim();
+      if (id) out.push(id);
+    }
+  };
+  add(sections.primary.engineBrands);
+  for (const addon of sections.addons) add(addon.engineBrands);
+  return out;
+}
+
+/**
+ * Ожидаемый % исполнения по линейному графику от даты подписания до срока.
+ * Возвращает null, если нет осмысленного интервала дат.
+ */
+export function linearScheduleExpectedProgressPct(args: { signedAt: number | null; dueAt: number | null; now: number }): number | null {
+  const { signedAt, dueAt, now } = args;
+  if (signedAt == null || dueAt == null) return null;
+  const total = dueAt - signedAt;
+  if (total <= 0) return null;
+  const elapsed = now - signedAt;
+  const p = (elapsed / total) * 100;
+  return Math.max(0, Math.min(100, p));
+}
+
+export type ContractScheduleLagInput = {
+  actualProgressPct: number;
+  signedAt: number | null;
+  dueAt: number | null;
+  now: number;
+  /** Минимальный разрыв «ожидаемое − факт», % (по графику подписание→срок). */
+  minGapPct?: number;
+};
+
+/**
+ * Контракт «отстаёт от графика»: просрочен при неполном исполнении или факт существенно ниже линейного ожидания.
+ */
+export function isContractLaggingVsSchedule(input: ContractScheduleLagInput): boolean {
+  const { actualProgressPct, signedAt, dueAt, now, minGapPct = 10 } = input;
+  if (actualProgressPct >= 99.5) return false;
+  if (dueAt != null && now > dueAt) return true;
+  const expected = linearScheduleExpectedProgressPct({ signedAt, dueAt, now });
+  if (expected == null) return false;
+  return expected - actualProgressPct >= minGapPct;
+}

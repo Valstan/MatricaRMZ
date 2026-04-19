@@ -32,7 +32,6 @@ describe('assemblyForecast', () => {
       kits,
       stockByNomenclatureId: stock,
       incomingLines: [],
-      sleeveSearch: '',
     });
     const planned = res.rows.filter((r) => r.engineBrand === 'B1').reduce((a, r) => a + r.plannedEngines, 0);
     expect(planned).toBe(4);
@@ -54,7 +53,6 @@ describe('assemblyForecast', () => {
       kits,
       stockByNomenclatureId: stock,
       incomingLines: [],
-      sleeveSearch: '',
     });
     const shortage = res.rows.filter((r) => r.status === 'shortage');
     expect(shortage.length).toBeGreaterThan(0);
@@ -62,7 +60,35 @@ describe('assemblyForecast', () => {
     expect(shortage[0]?.deficitsSummary).toMatch(/Не удалось набрать/);
   });
 
-  it('lists alternative brands on a partial allocation when another brand can cover remainder', () => {
+  it('allocates priority brands before others when priorityEngineBrandIds is set', () => {
+    const stock = new Map<string, number>([
+      ['a1', 2],
+      ['a2', 2],
+      ['b1', 10],
+      ['b2', 10],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'a1', brandId: 'ba', brandLabel: 'Pri A', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'a2', brandId: 'ba', brandLabel: 'Pri A', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'b1', brandId: 'bb', brandLabel: 'Other B', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'b2', brandId: 'bb', brandLabel: 'Other B', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 1,
+      targetEnginesPerDay: 3,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+      priorityEngineBrandIds: ['ba'],
+    });
+    const pri = res.rows.filter((r) => r.engineBrand === 'Pri A').reduce((a, r) => a + r.plannedEngines, 0);
+    const oth = res.rows.filter((r) => r.engineBrand === 'Other B').reduce((a, r) => a + r.plannedEngines, 0);
+    expect(pri).toBe(2);
+    expect(oth).toBe(1);
+  });
+
+  it('round-robin shares daily target across multiple brands when stock allows', () => {
     const stock = new Map<string, number>([
       ['a1', 14],
       ['a2', 14],
@@ -82,12 +108,13 @@ describe('assemblyForecast', () => {
       kits,
       stockByNomenclatureId: stock,
       incomingLines: [],
-      sleeveSearch: '',
     });
-    const withAlts = res.rows.filter((r) => r.alternativeBrands.trim().length > 0);
-    expect(withAlts.length).toBeGreaterThan(0);
-    const altText = withAlts.map((r) => r.alternativeBrands).join(' ');
-    expect(altText).toMatch(/Brand/);
+    const plannedA = res.rows.filter((r) => r.engineBrand === 'Brand A').reduce((a, r) => a + r.plannedEngines, 0);
+    const plannedB = res.rows.filter((r) => r.engineBrand === 'Brand B').reduce((a, r) => a + r.plannedEngines, 0);
+    expect(plannedA + plannedB).toBe(15);
+    expect(plannedA).toBeGreaterThan(0);
+    expect(plannedB).toBeGreaterThan(0);
+    expect(Math.abs(plannedA - plannedB)).toBeLessThanOrEqual(1);
   });
 
   it('applies incoming plan from a later day before that day allocation', () => {
@@ -109,7 +136,6 @@ describe('assemblyForecast', () => {
         { dayOffset: 1, nomenclatureId: 'p1', qty: 5 },
         { dayOffset: 1, nomenclatureId: 'p2', qty: 5 },
       ],
-      sleeveSearch: '',
     });
     const day0 = res.rows.filter((r) => r.dayOffset === 0);
     const day1 = res.rows.filter((r) => r.dayOffset === 1);
@@ -138,7 +164,6 @@ describe('assemblyForecast', () => {
       kits,
       stockByNomenclatureId: stock,
       incomingLines: [] as const,
-      sleeveSearch: '',
     };
     const a = computeAssemblyForecast({ ...input, incomingLines: [] });
     const b = computeAssemblyForecast({ ...input, incomingLines: [] });
@@ -163,7 +188,6 @@ describe('assemblyForecast', () => {
       kits: [],
       stockByNomenclatureId: new Map(),
       incomingLines: [],
-      sleeveSearch: '',
     });
     expect(res.warnings.some((w) => w.includes('Нет комплектов'))).toBe(true);
   });

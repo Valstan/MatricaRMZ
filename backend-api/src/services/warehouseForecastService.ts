@@ -21,6 +21,8 @@ type ForecastRequest = {
   warehouseIds?: string[];
   /** Фильтр по маркам двигателя из справочника (entities). */
   engineBrandIds?: string[];
+  /** Марки, которые в прогнозе обрабатываются первыми (round-robin внутри группы), затем остальные. */
+  priorityEngineBrandIds?: string[];
 };
 
 async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<string, number>> {
@@ -219,6 +221,9 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(args.targetEnginesPerDay ?? 0)));
   const warehouseIds = Array.isArray(args.warehouseIds) ? args.warehouseIds.map(String) : undefined;
   const engineBrandIds = Array.isArray(args.engineBrandIds) ? args.engineBrandIds.map(String) : undefined;
+  const priorityEngineBrandIds = Array.isArray(args.priorityEngineBrandIds)
+    ? args.priorityEngineBrandIds.map((id) => String(id).trim()).filter(Boolean)
+    : undefined;
   const dbIncomingLines = await loadPlannedIncomingLines({
     horizonDays,
     ...(warehouseIds ? { warehouseIds } : {}),
@@ -240,5 +245,6 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     kits,
     stockByNomenclatureId: stock,
     incomingLines: dbIncomingLines,
+    ...(priorityEngineBrandIds?.length ? { priorityEngineBrandIds } : {}),
   });
 }

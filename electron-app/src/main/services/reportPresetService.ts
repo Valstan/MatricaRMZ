@@ -5,9 +5,14 @@ import { BrowserWindow } from 'electron';
 import {
   REPORT_PRESET_DEFINITIONS,
   STATUS_CODES,
+  aggregateContractExecutionProgress,
+  collectEngineBrandIdsFromContractSections,
   computeObjectProgress,
   effectiveContractDueAt,
+  isContractLaggingVsSchedule,
+  linearScheduleExpectedProgressPct,
   mergeBrandKits,
+  parseContractExecutionParts,
   parseContractSections,
   tryParseWarehousePartNomenclatureMirror,
   type ReportCellValue,
@@ -2531,11 +2536,227 @@ async function buildWarehouseStockPathAuditReport(
   };
 }
 
+function contractLagScore(actualPct: number, signedAt: number | null, dueAt: number | null, now: number): number {
+  const expected = linearScheduleExpectedProgressPct({ signedAt, dueAt, now });
+  if (expected == null) return 0;
+  return Math.max(0, expected - actualPct);
+}
+
+async function loadActiveDefaultBomEngineBrandIds(db: BetterSQLite3Database): Promise<Set<string>> {
+  const rows = await db
+    .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
+    .from(erpEngineAssemblyBom)
+    .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
+  return new Set(rows.map((r) => String(r.engineBrandId ?? '').trim()).filter(Boolean));
+}
+
+function computeContractBasedAssemblyPriorityFromSnapshot(
+  snapshot: Snapshot,
+  filters: ReportPresetFilters | undefined,
+  bomEngineBrandIds: Set<string>,
+): { priorityEngineBrandIds: string[]; footerNotes: string[]; modeHints: string[] } {
+  const now = Date.now();
+  const engineBrandFilter = new Set(asArray(filters?.engineBrandIds).map(String));
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  type Scored = {
+    contractId: string;
+    label: string;
+    score: number;
+    actualPct: number;
+    expected: number | null;
+    daysLeft: number | null;
+    brandIds: string[];
+    pendingEngines: number;
+  };
+  const scored: Scored[] = [];
+  const mismatchNotes: string[] = [];
+  const missingBomBrandLabels = new Map<string, string>();
+
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const st = normalizeText(attrs.status, '').toLowerCase();
+    if (st === 'fulfilled_full' || st === 'fulfilled_partial') continue;
+
+    const sections = parseContractSections(attrs);
+    const signedAt = sections.primary.signedAt ?? asNumberOrNull(attrs.date);
+    const dueAt = effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date);
+    /** Просроченные контракты в приоритете не участвуют. */
+    if (dueAt != null && now > dueAt) continue;
+
+    const executionParts = parseContractExecutionParts(attrs);
+
+    const engineItems: Array<{ statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> }> = [];
+    let pendingEngines = 0;
+    for (const engineId of getIdsByType(snapshot, 'engine')) {
+      const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
+      if (normalizeText(eattrs.contract_id, '') !== contractId) continue;
+      const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
+      for (const code of STATUS_CODES) statusFlags[code] = Boolean(eattrs[code]);
+      engineItems.push({ statusFlags });
+      if (computeObjectProgress(statusFlags) < 99.5) pendingEngines++;
+    }
+
+    const agg = aggregateContractExecutionProgress({ sections, engineItems, executionParts });
+    const actualPct = Math.min(100, Math.max(0, Number(agg.progressPct ?? 0)));
+
+    if (!isContractLaggingVsSchedule({ actualProgressPct: actualPct, signedAt, dueAt, now })) continue;
+
+    const brandIdsAll = collectEngineBrandIdsFromContractSections(sections);
+    if (brandIdsAll.length === 0) continue;
+
+    const brandIdsFiltered = brandIdsAll.filter((id: string) => engineBrandFilter.size === 0 || engineBrandFilter.has(id));
+    const label = resolveContractLabel(contractId, contractOptions);
+    if (brandIdsFiltered.length === 0) {
+      mismatchNotes.push(
+        `Контракт «${label}» отстаёт от графика, но марки из контракта не пересекаются с выбранным фильтром марок BOM — расширьте список марок или снимите фильтр.`,
+      );
+      continue;
+    }
+
+    const inBom = brandIdsFiltered.filter((id) => bomEngineBrandIds.has(id));
+    const missingBom = brandIdsFiltered.filter((id) => !bomEngineBrandIds.has(id));
+    for (const id of missingBom) {
+      const lab = entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
+      missingBomBrandLabels.set(id, lab);
+    }
+
+    if (inBom.length === 0) {
+      mismatchNotes.push(
+        `Контракт «${label}» отстаёт, но по маркам ${missingBom.map((id) => missingBomBrandLabels.get(id) ?? id).join(', ')} нет активной спецификации BOM — строки прогноза сборки для них построить нельзя (заказ по контракту всё равно требует обеспечения).`,
+      );
+      continue;
+    }
+
+    const expected = linearScheduleExpectedProgressPct({ signedAt, dueAt, now });
+    const score = contractLagScore(actualPct, signedAt, dueAt, now);
+    const daysLeft = dueAt != null ? Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000)) : null;
+
+    scored.push({
+      contractId,
+      label,
+      score,
+      actualPct,
+      expected,
+      daysLeft,
+      brandIds: inBom,
+      pendingEngines,
+    });
+  }
+
+  scored.sort((a, b) => b.score - a.score || (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
+
+  const priorityEngineBrandIds: string[] = [];
+  const seen = new Set<string>();
+  for (const row of scored) {
+    for (const bid of row.brandIds) {
+      if (seen.has(bid)) continue;
+      seen.add(bid);
+      priorityEngineBrandIds.push(bid);
+    }
+  }
+
+  const footerNotes: string[] = [...mismatchNotes];
+  const modeHints: string[] = [];
+  if (missingBomBrandLabels.size > 0) {
+    const list = Array.from(missingBomBrandLabels.entries())
+      .map(([id, lab]) => `${lab} (${id})`)
+      .sort((a, b) => a.localeCompare(b, 'ru'));
+    footerNotes.push(
+      `Марки без активной default BOM в справочнике (прогноз сборки в отчёте для них невозможен; по контрактам их всё равно нужно обеспечивать): ${list.join('; ')}.`,
+    );
+  }
+  if (scored.length === 0) {
+    modeHints.push(
+      'Авто: нет контрактов для приоритета (исполненные и просроченные не учитываются; нужны непросроченные контракты с отставанием от графика и марки в BOM).',
+    );
+  } else {
+    modeHints.push(`Авто-приоритет по отставанию: ${priorityEngineBrandIds.length} марок, ${scored.length} контр.`);
+    footerNotes.push('Контракты с отставанием (не исполнены, срок в будущем; самые отстающие — выше):');
+    for (const row of scored.slice(0, 12)) {
+      const duePart = row.daysLeft == null ? 'срок не задан' : `до срока ${row.daysLeft} дн.`;
+      const expPart = row.expected == null ? '—' : `${row.expected.toFixed(0)}%`;
+      footerNotes.push(
+        `• ${row.label}: исполнение ${row.actualPct.toFixed(0)}%, по графику ~${expPart}, ${duePart}, двигателей не завершено: ${row.pendingEngines}.`,
+      );
+    }
+  }
+
+  return { priorityEngineBrandIds, footerNotes, modeHints };
+}
+
+function formatAssemblyDeficitHintsForPriorityBrands(deficitRecommendations: unknown[], priorityLabelSet: Set<string>): string[] {
+  if (priorityLabelSet.size === 0) return [];
+  const lines: Array<{ deficit: number; text: string }> = [];
+  for (const raw of deficitRecommendations) {
+    if (!raw || typeof raw !== 'object') continue;
+    const d = raw as Record<string, unknown>;
+    const brands = Array.isArray(d.usedByBrands) ? (d.usedByBrands as unknown[]).map((b) => String(b).trim()).filter(Boolean) : [];
+    if (!brands.some((b) => priorityLabelSet.has(b))) continue;
+    const partLabel = normalizeText(d.partLabel, '');
+    const deficit = Math.max(0, Math.floor(toNumber(d.deficit)));
+    if (!partLabel || deficit <= 0) continue;
+    const brPart = brands.filter((b) => priorityLabelSet.has(b)).slice(0, 4).join(', ');
+    const stock = Math.max(0, Math.floor(toNumber(d.currentStock)));
+    const incoming = Math.max(0, Math.floor(toNumber(d.totalPlannedIncoming)));
+    const req = Math.max(0, Math.floor(toNumber(d.totalRequired)));
+    let situation: string;
+    if (stock <= 0) {
+      situation = 'уже дефицит на складе';
+    } else if (incoming > 0 && deficit > 0) {
+      situation = 'к концу горизонта не хватит; часть закроет планируемый приход';
+    } else {
+      situation = 'к концу горизонта ожидается дефицит при текущих остатках';
+    }
+    lines.push({
+      deficit,
+      text: `${partLabel} — ${situation}: не хватает ~${deficit} шт. (нужно ~${req}, на складе ${stock}, приход по плану ~${incoming}; марки: ${brPart || '—'})`,
+    });
+  }
+  lines.sort((a, b) => b.deficit - a.deficit);
+  return lines.slice(0, 12).map((l) => l.text);
+}
+
 async function buildAssemblyForecast7dReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
   ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
+  const snapshot = await loadSnapshot(db);
+  const bomBrandIds = await loadActiveDefaultBomEngineBrandIds(db);
+  const mode = normalizeText(filters?.assemblyPriorityMode, 'manual');
+  let priorityEngineBrandIds = asArray(filters?.priorityEngineBrandIds);
+  let contractFooterNotes: string[] = [];
+  let modeHints: string[] = [];
+  const manualBomFooter: string[] = [];
+  if (mode === 'contracts') {
+    const p = computeContractBasedAssemblyPriorityFromSnapshot(snapshot, filters, bomBrandIds);
+    priorityEngineBrandIds = p.priorityEngineBrandIds;
+    contractFooterNotes = p.footerNotes;
+    modeHints = p.modeHints;
+  } else {
+    const manualIds = asArray(filters?.priorityEngineBrandIds)
+      .map((id) => String(id).trim())
+      .filter(Boolean);
+    const missingManual = manualIds.filter((id) => !bomBrandIds.has(id));
+    if (missingManual.length > 0) {
+      const list = missingManual
+        .map((id) => {
+          const lab = entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
+          return `${lab} (${id})`;
+        })
+        .sort((a, b) => a.localeCompare(b, 'ru'));
+      manualBomFooter.push(
+        `Приоритетные марки без активной default BOM (прогноз сборки в отчёте для них невозможен; обеспечение заказывайте отдельно): ${list.join('; ')}.`,
+      );
+    }
+  }
+
+  const priorityLabelSet = new Set<string>();
+  for (const id of priorityEngineBrandIds) {
+    const lb = entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
+    priorityLabelSet.add(lb);
+  }
+
   async function viaApi(): Promise<{ report: OkPreview } | { skip: true } | { error: string }> {
     const apiBaseUrl = String(ctx?.apiBaseUrl ?? '').trim();
     if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
@@ -2548,6 +2769,7 @@ async function buildAssemblyForecast7dReport(
       horizonDays,
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
       ...(engineBrandIds.length > 0 ? { engineBrandIds } : {}),
+      ...(priorityEngineBrandIds.length > 0 ? { priorityEngineBrandIds } : {}),
     };
     try {
       const r = await httpAuthed(
@@ -2580,11 +2802,35 @@ async function buildAssemblyForecast7dReport(
         } as Record<string, ReportCellValue>;
       });
       const warnings = Array.isArray(body.warnings) ? body.warnings.map((w) => String(w)).filter(Boolean) : [];
+      const deficitHints =
+        mode === 'contracts' || priorityEngineBrandIds.length > 0
+          ? formatAssemblyDeficitHintsForPriorityBrands(
+              Array.isArray(body.deficitRecommendations) ? body.deficitRecommendations : [],
+              priorityLabelSet,
+            )
+          : [];
+      const deficitFooter =
+        deficitHints.length > 0
+          ? [
+              'Комплектующие: дефицит или риск дефицита для приоритетных марок (оценка на горизонт × целевой выпуск в сутки; учтены остатки и планируемые приходы):',
+              ...deficitHints,
+            ]
+          : [];
+
+      const footerNotes = [...contractFooterNotes, ...manualBomFooter, ...deficitFooter].filter(Boolean);
       const preset = getPreset('assembly_forecast_7d');
+      const prioritySubtitle =
+        mode === 'contracts'
+          ? `Приоритет: авто по контрактам${priorityEngineBrandIds.length ? ` (${priorityEngineBrandIds.length} марок)` : ''}`
+          : priorityEngineBrandIds.length
+            ? `Приоритет марок (вручную): ${priorityEngineBrandIds.length}`
+            : 'Приоритет марок: нет';
       const subtitleParts = [
         `Цель: ${targetEnginesPerDay}/сутки`,
         `Горизонт: ${horizonDays} дн.`,
         warehouseIds.length ? `Склады: ${warehouseIds.length}` : 'Склады: все (сумма)',
+        prioritySubtitle,
+        ...modeHints,
         ...warnings,
       ];
       return {
@@ -2599,6 +2845,7 @@ async function buildAssemblyForecast7dReport(
             forecastRows: rows.length,
             plannedEngines: rows.reduce((acc, row) => acc + toNumber(row.plannedEngines), 0),
           },
+          ...(footerNotes.length > 0 ? { footerNotes } : {}),
           generatedAt: Date.now(),
         },
       };
@@ -2648,7 +2895,18 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
-        warehouses: buildOptions(snapshot, 'warehouse_ref'),
+        warehouses: (() => {
+          const base = buildOptions(snapshot, 'warehouse_ref');
+          if (base.some((o) => String(o.value) === 'default')) return base;
+          return [
+            {
+              value: 'default',
+              label: 'Склад по умолчанию (default)',
+              searchText: 'default склад',
+            },
+            ...base,
+          ];
+        })(),
       },
     };
   } catch (e) {
@@ -2814,6 +3072,10 @@ export function renderReportHtml(report: OkPreview): string {
     report.totals && Object.keys(report.totals).length > 0
       ? `<div class="totals"><b>Итого по отчету:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
       : '';
+  const footerNotesHtml =
+    report.footerNotes && report.footerNotes.length > 0
+      ? `<div class="footer-notes"><b>Пояснения</b><ul>${report.footerNotes.map((n) => `<li>${htmlEscape(n)}</li>`).join('')}</ul></div>`
+      : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <style>
@@ -2827,6 +3089,8 @@ th{background:#f1f5f9}
 .group{margin:8px 0 12px 0}
 .group ul{margin:6px 0 0 18px;padding:0}
 .metrics-guide{margin-top:12px;padding:10px;border:1px solid #e2e8f0;background:#f8fafc}
+.footer-notes{margin-top:14px;padding:10px;border:1px solid #e5e7eb;border-radius:6px}
+.footer-notes ul{margin:8px 0 0 18px;padding:0}
 </style>
 </head><body>
 <h1>${htmlEscape(report.title)}</h1>
@@ -2835,6 +3099,7 @@ ${totalsByGroupHtml}
 <table><thead><tr>${headers}</tr></thead><tbody>${rows || `<tr><td colspan="${report.columns.length}">Нет данных</td></tr>`}</tbody></table>
 ${totalsHtml}
 ${totalsGuideHtml}
+${footerNotesHtml}
 </body></html>`;
 }
 

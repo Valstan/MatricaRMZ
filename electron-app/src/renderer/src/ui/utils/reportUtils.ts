@@ -264,7 +264,7 @@ export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection
   if (report.presetId === 'work_order_payroll') {
     return [{ id: 'payroll-form', title: 'Печатная форма', html: renderWorkOrderPayrollFormInnerHtml(report) }];
   }
-  return [
+  const sections: PrintSection[] = [
     { id: 'table', title: 'Данные отчета', html: renderReportTableHtml(report) },
     {
       id: 'totals',
@@ -297,4 +297,12 @@ export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection
           : '<div class="muted">Нет данных</div>',
     },
   ];
+  if (report.footerNotes && report.footerNotes.length > 0) {
+    sections.splice(1, 0, {
+      id: 'footer-notes',
+      title: 'Пояснения',
+      html: `<ul>${report.footerNotes.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`,
+    });
+  }
+  return sections;
 }

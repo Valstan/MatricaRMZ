@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { aggregateContractExecutionProgress, computeObjectProgress, type ContractSections } from './contract.js';
+import {
+  aggregateContractExecutionProgress,
+  computeObjectProgress,
+  isContractLaggingVsSchedule,
+  linearScheduleExpectedProgressPct,
+  type ContractSections,
+} from './contract.js';
 
 describe('contract domain regressions', () => {
   it('prioritizes customer accepted as 100% progress', () => {
@@ -53,6 +59,30 @@ describe('contract domain regressions', () => {
     expect(result.totalCount).toBe(4);
     expect(result.completedCount).toBe(4);
     expect(result.progressPct).toBe(100);
+  });
+
+  it('linear schedule expected progress is halfway at midpoint', () => {
+    const signedAt = 1_000_000;
+    const dueAt = signedAt + 100 * 24 * 60 * 60 * 1000;
+    const mid = signedAt + 50 * 24 * 60 * 60 * 1000;
+    expect(linearScheduleExpectedProgressPct({ signedAt, dueAt, now: signedAt })).toBe(0);
+    expect(linearScheduleExpectedProgressPct({ signedAt, dueAt, now: mid })).toBe(50);
+    expect(linearScheduleExpectedProgressPct({ signedAt, dueAt, now: dueAt })).toBe(100);
+  });
+
+  it('detects lag when actual is far below expected linear progress', () => {
+    const signedAt = 1_000_000;
+    const dueAt = signedAt + 100 * 24 * 60 * 60 * 1000;
+    const now = signedAt + 50 * 24 * 60 * 60 * 1000;
+    expect(isContractLaggingVsSchedule({ actualProgressPct: 20, signedAt, dueAt, now, minGapPct: 10 })).toBe(true);
+    expect(isContractLaggingVsSchedule({ actualProgressPct: 45, signedAt, dueAt, now, minGapPct: 10 })).toBe(false);
+  });
+
+  it('treats overdue contracts as lagging until nearly complete', () => {
+    const dueAt = 1_000_000;
+    const now = dueAt + 24 * 60 * 60 * 1000;
+    expect(isContractLaggingVsSchedule({ actualProgressPct: 50, signedAt: null, dueAt, now })).toBe(true);
+    expect(isContractLaggingVsSchedule({ actualProgressPct: 100, signedAt: null, dueAt, now })).toBe(false);
   });
 });
 

@@ -35,6 +35,12 @@ export type AssemblyForecastComputeInput = {
   /** Текущие доступные остатки по nomenclatureId (уже с учётом reserved при необходимости на стороне вызывающего). */
   stockByNomenclatureId: ReadonlyMap<string, number>;
   incomingLines: AssemblyForecastIncomingLine[];
+  /**
+   * UUID марок двигателя из справочника (без суффикса варианта BOM `::...`).
+   * Если задано: сначала дневная цель распределяется round-robin только между комплектами этих марок (порядок — как в массиве),
+   * затем оставшийся лимит дня — между остальными марками.
+   */
+  priorityEngineBrandIds?: string[];
 };
 
 export type AssemblyForecastDayRow = {
@@ -139,6 +145,33 @@ function findAlternativeBrands(
   return alts.slice(0, 8).join(', ');
 }
 
+/** Базовый id марки двигателя (до суффикса варианта BOM `uuid::variant`). */
+export function baseEngineBrandIdFromKitBrandId(brandId: string): string {
+  const bid = String(brandId ?? '').trim();
+  const sep = bid.indexOf('::');
+  return sep >= 0 ? bid.slice(0, sep) : bid;
+}
+
+function kitMatchesPriorityEngineBrand(kit: AssemblyEngineBrandKit, priorityIds: Set<string>): boolean {
+  const base = baseEngineBrandIdFromKitBrandId(kit.brandId);
+  return priorityIds.has(base);
+}
+
+/** Порядок round-robin внутри приоритетной группы — как в списке приоритетов, затем по подписи. */
+function sortKitsByPriorityList(pool: AssemblyEngineBrandKit[], priorityOrder: string[]): AssemblyEngineBrandKit[] {
+  const orderIdx = new Map(priorityOrder.map((id, i) => [id.trim(), i] as const));
+  return [...pool].sort((a, b) => {
+    const ba = baseEngineBrandIdFromKitBrandId(a.brandId);
+    const bb = baseEngineBrandIdFromKitBrandId(b.brandId);
+    const ia = orderIdx.get(ba);
+    const ib = orderIdx.get(bb);
+    if (ia !== undefined && ib !== undefined && ia !== ib) return ia - ib;
+    if (ia !== undefined && ib === undefined) return -1;
+    if (ib !== undefined && ia === undefined) return 1;
+    return a.brandLabel.localeCompare(b.brandLabel, 'ru');
+  });
+}
+
 /**
  * Собирает комплекты по марке: объединяет строки совместимости с одинаковой парой brand+part.
  */
@@ -201,41 +234,60 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   const rows: AssemblyForecastDayRow[] = [];
   const stock = cloneStockMap(input.stockByNomenclatureId);
 
-  function allocateGreedy(day: number, pool: AssemblyEngineBrandKit[], labelSuffix: string) {
+  const priorityOrderRaw = (input.priorityEngineBrandIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  const prioritySet = new Set(priorityOrderRaw);
+
+  /**
+   * Распределяет часть дневной цели (remainingBudget) **по кругу** по переданному пулу комплектов.
+   */
+  function allocateDayRoundRobin(
+    day: number,
+    pool: AssemblyEngineBrandKit[],
+    labelSuffix: string,
+    initialBudget: number,
+    sortPool: (p: AssemblyEngineBrandKit[]) => AssemblyEngineBrandKit[],
+  ): number {
     const dayLabel = `День ${day + 1}`;
-    let remaining = target;
+    let remaining = initialBudget;
+    if (pool.length === 0 || remaining <= 0) return remaining;
+    const order = sortPool(pool);
+    const enginesByBrand = new Map<string, number>();
+
     while (remaining > 0) {
-      const ordered = [...pool].sort((a, b) => {
-        const ma = maxEnginesForKit(stock, a);
-        const mb = maxEnginesForKit(stock, b);
-        if (mb !== ma) return mb - ma;
-        return a.brandLabel.localeCompare(b.brandLabel, 'ru');
-      });
       let progressed = false;
-      for (const kit of ordered) {
+      for (const kit of order) {
         if (remaining <= 0) break;
-        const can = Math.min(remaining, maxEnginesForKit(stock, kit));
-        if (can <= 0) continue;
-        consumeKit(stock, kit, can);
-        remaining -= can;
+        if (maxEnginesForKit(stock, kit) <= 0) continue;
+        consumeKit(stock, kit, 1);
+        remaining -= 1;
         progressed = true;
-        const status: AssemblyForecastDayRow['status'] = remaining === 0 && target > 0 ? 'ok' : 'waiting';
-        rows.push({
-          dayOffset: day,
-          dayLabel,
-          engineBrand: labelSuffix ? `${kit.brandLabel}${labelSuffix}` : kit.brandLabel,
-          brandId: kit.brandId,
-          plannedEngines: can,
-          status,
-          requiredComponentsSummary: summarizeKit(kit, can),
-          deficitsSummary: '',
-          alternativeBrands: remaining > 0 ? findAlternativeBrands(kits, kit.brandId, stock, remaining) : '',
-        });
+        enginesByBrand.set(kit.brandId, (enginesByBrand.get(kit.brandId) ?? 0) + 1);
       }
       if (!progressed) break;
     }
+
+    const entryList = Array.from(enginesByBrand.entries()).filter(([, n]) => n > 0);
+    entryList.forEach(([brandId, plannedEngines]) => {
+      const kit = pool.find((k) => k.brandId === brandId);
+      if (!kit) return;
+      const status: AssemblyForecastDayRow['status'] = remaining === 0 && target > 0 ? 'ok' : 'waiting';
+      rows.push({
+        dayOffset: day,
+        dayLabel,
+        engineBrand: labelSuffix ? `${kit.brandLabel}${labelSuffix}` : kit.brandLabel,
+        brandId,
+        plannedEngines,
+        status,
+        requiredComponentsSummary: summarizeKit(kit, plannedEngines),
+        deficitsSummary: '',
+        alternativeBrands: '',
+      });
+    });
+
     return remaining;
   }
+
+  const sortAlpha = (pool: AssemblyEngineBrandKit[]) => [...pool].sort((a, b) => a.brandLabel.localeCompare(b.brandLabel, 'ru'));
 
   for (let day = 0; day < horizon; day++) {
     applyIncomingForDay(stock, day, input.incomingLines);
@@ -243,7 +295,22 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
 
     let remaining = target;
     if (remaining > 0) {
-      remaining = allocateGreedy(day, kits, '');
+      if (prioritySet.size > 0) {
+        const priorityKits = kits.filter((k) => kitMatchesPriorityEngineBrand(k, prioritySet));
+        const otherKits = kits.filter((k) => !kitMatchesPriorityEngineBrand(k, prioritySet));
+        remaining = allocateDayRoundRobin(day, priorityKits, '', remaining, (p) => sortKitsByPriorityList(p, priorityOrderRaw));
+        remaining = allocateDayRoundRobin(day, otherKits, '', remaining, sortAlpha);
+      } else {
+        remaining = allocateDayRoundRobin(day, kits, '', remaining, sortAlpha);
+      }
+    }
+
+    const dayBrandRows = rows.filter((r) => r.dayOffset === day && r.brandId && r.engineBrand !== '(не распределено)');
+    if (remaining > 0 && target > 0 && dayBrandRows.length > 0) {
+      const lastBrandRow = dayBrandRows[dayBrandRows.length - 1];
+      if (lastBrandRow) {
+        lastBrandRow.alternativeBrands = findAlternativeBrands(kits, lastBrandRow.brandId, stock, remaining);
+      }
     }
 
     if (remaining > 0 && target > 0) {

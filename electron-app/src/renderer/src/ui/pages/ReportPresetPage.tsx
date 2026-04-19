@@ -525,12 +525,21 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                 const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
                 const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
                 const selectedLabels = options.filter((o) => selected.includes(o.value));
+                const priorityManualDisabled =
+                  activePreset?.id === 'assembly_forecast_7d' &&
+                  filter.key === 'priorityEngineBrandIds' &&
+                  String(activeFilters.assemblyPriorityMode ?? 'manual') === 'contracts';
                 return (
                   <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontWeight: 700 }}>{filter.label}</span>
                       <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
                     </div>
+                    {priorityManualDisabled ? (
+                      <div className="ui-muted" style={{ fontSize: 12 }}>
+                        В режиме «По отстающим контрактам» ручной список не используется — приоритетные марки подбираются автоматически.
+                      </div>
+                    ) : null}
                     <MultiSearchSelect
                       values={selected}
                       options={options.map((option) => ({
@@ -540,7 +549,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                         ...(option.searchText ? { searchText: option.searchText } : {}),
                       }))}
                       placeholder="Начните вводить или вставьте текст"
-                      disabled={busy}
+                      disabled={busy || priorityManualDisabled}
                       query={activeFilterSearch[filter.key] ?? ''}
                       onQueryChange={(next) => patchFilterSearch(filter.key, next)}
                       onChange={(next) => patchFilter(filter.key, next)}
@@ -623,6 +632,18 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                 {preview.totals && Object.keys(preview.totals).length > 0 ? (
                   <div style={{ fontWeight: 700 }}>
                     Итого по отчету: {formatReportTotals(preview.totals).join(', ')}
+                  </div>
+                ) : null}
+                {preview.footerNotes && preview.footerNotes.length > 0 ? (
+                  <div style={{ display: 'grid', gap: 6, marginTop: 8, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <div style={{ fontWeight: 700 }}>Пояснения</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {preview.footerNotes.map((line, i) => (
+                        <li key={`fn-${i}`} className="ui-muted">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ) : null}
               </>
