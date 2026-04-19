@@ -19,7 +19,6 @@ export function NomenclatureDetailsPage(props: {
   const [movements, setMovements] = useState<WarehouseMovementListItem[]>([]);
   const [instances, setInstances] = useState<EngineInstanceListItem[]>([]);
   const [code, setCode] = useState('');
-  const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [itemType, setItemType] = useState('material');
   const [category, setCategory] = useState<'engine' | 'component' | 'assembly'>('component');
@@ -32,7 +31,6 @@ export function NomenclatureDetailsPage(props: {
   const [isSerialTracked, setIsSerialTracked] = useState(false);
   const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
   const [specJson, setSpecJson] = useState('');
-  const [isActive, setIsActive] = useState(true);
   const [instanceSerial, setInstanceSerial] = useState('');
   const [instanceContractId, setInstanceContractId] = useState<string | null>(null);
   const [instanceWarehouseId, setInstanceWarehouseId] = useState<string | null>('default');
@@ -56,8 +54,7 @@ export function NomenclatureDetailsPage(props: {
         return;
       }
       setRow(found);
-      setCode(String(found.code ?? ''));
-      setSku(String(found.sku ?? found.code ?? ''));
+      setCode(String(found.code ?? found.sku ?? ''));
       setName(String(found.name ?? ''));
       setItemType(String(found.itemType ?? 'material'));
       setCategory((String(found.category ?? 'component') as 'engine' | 'component' | 'assembly') ?? 'component');
@@ -70,7 +67,6 @@ export function NomenclatureDetailsPage(props: {
       setIsSerialTracked(found.isSerialTracked === true);
       setDefaultWarehouseId(found.defaultWarehouseId ?? null);
       setSpecJson(String(found.specJson ?? ''));
-      setIsActive(found.isActive !== false);
       if (stock?.ok) {
         setBalances(stock.rows ?? []);
       } else {
@@ -101,7 +97,7 @@ export function NomenclatureDetailsPage(props: {
               const result = await window.matrica.warehouse.nomenclatureUpsert({
                 id: props.id,
                 code: code.trim(),
-                sku: sku.trim() || null,
+                sku: null,
                 name: name.trim(),
                 itemType: itemType as NomenclatureItemType,
                 category,
@@ -114,7 +110,7 @@ export function NomenclatureDetailsPage(props: {
                 isSerialTracked,
                 defaultWarehouseId,
                 specJson: specJson.trim() || null,
-                isActive,
+                isActive: true,
               });
               if (!result?.ok) {
                 setStatus(`Ошибка: ${String(result?.error ?? 'не удалось сохранить')}`);
@@ -156,9 +152,7 @@ export function NomenclatureDetailsPage(props: {
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 10 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, alignItems: 'center' }}>
           <div>Код</div>
-          <Input value={code} disabled={!canEditNomenclatureFields} onChange={(e) => setCode(e.target.value)} />
-          <div>SKU</div>
-          <Input value={sku} disabled={!canEditNomenclatureFields} onChange={(e) => setSku(e.target.value)} />
+          <Input value={code} disabled={!canEditNomenclatureFields} onChange={(e) => setCode(e.target.value)} placeholder="Внутренний код / артикул" />
           <div>Наименование</div>
           <Input value={name} disabled={!canEditNomenclatureFields} onChange={(e) => setName(e.target.value)} />
           <div>Тип</div>
@@ -168,12 +162,6 @@ export function NomenclatureDetailsPage(props: {
                 {item.label}
               </option>
             ))}
-          </select>
-          <div>Категория</div>
-          <select value={category} disabled={!canEditNomenclatureFields} onChange={(e) => setCategory(e.target.value as 'engine' | 'component' | 'assembly')} style={{ padding: '8px 10px' }}>
-            <option value="engine">Двигатель</option>
-            <option value="component">Комплектующая</option>
-            <option value="assembly">Сборка</option>
           </select>
           <div>Группа</div>
           <SearchSelect
@@ -218,11 +206,6 @@ export function NomenclatureDetailsPage(props: {
             placeholder="Склад по умолчанию"
             onChange={setDefaultWarehouseId}
           />
-          <div>Активность</div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={isActive} disabled={!canEditNomenclatureFields} onChange={(e) => setIsActive(e.target.checked)} />
-            Активна
-          </label>
           <div>Спецификация (JSON)</div>
           <textarea value={specJson} disabled={!canEditNomenclatureFields} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
         </div>

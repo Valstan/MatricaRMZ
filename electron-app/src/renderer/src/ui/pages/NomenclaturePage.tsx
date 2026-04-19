@@ -8,19 +8,7 @@ import { WarehouseListPager, type WarehouseListPageSize } from '../components/Wa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
-type SortKey =
-  | 'code'
-  | 'sku'
-  | 'name'
-  | 'itemType'
-  | 'category'
-  | 'group'
-  | 'unit'
-  | 'warehouse'
-  | 'brand'
-  | 'serial'
-  | 'barcode'
-  | 'status';
+type SortKey = 'name' | 'itemType' | 'group' | 'unit';
 
 export function NomenclaturePage(props: {
   onOpen: (id: string) => void;
@@ -33,7 +21,6 @@ export function NomenclaturePage(props: {
   const [itemType, setItemType] = useState<NomenclatureItemType | ''>('');
   const [directoryKind, setDirectoryKind] = useState<string>('');
   const [groupId, setGroupId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -42,7 +29,7 @@ export function NomenclaturePage(props: {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [activeFilter, directoryKind, groupId, itemType, query]);
+  }, [directoryKind, groupId, itemType, query]);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,8 +41,6 @@ export function NomenclaturePage(props: {
         ...(itemType ? { itemType } : {}),
         ...(directoryKind ? { directoryKind } : {}),
         ...(groupId ? { groupId } : {}),
-        ...(activeFilter === 'active' ? { isActive: true } : {}),
-        ...(activeFilter === 'inactive' ? { isActive: false } : {}),
       });
       if (!result?.ok) {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
@@ -67,7 +52,7 @@ export function NomenclaturePage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [activeFilter, directoryKind, groupId, itemType, pageIndex, pageSize, query]);
+  }, [directoryKind, groupId, itemType, pageIndex, pageSize, query]);
 
   useEffect(() => {
     void refresh();
@@ -77,18 +62,10 @@ export function NomenclaturePage(props: {
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
       let cmp = 0;
-      if (sortKey === 'code') cmp = String(a.code ?? '').localeCompare(String(b.code ?? ''), 'ru');
-      else if (sortKey === 'sku') cmp = String(a.sku ?? '').localeCompare(String(b.sku ?? ''), 'ru');
-      else if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
+      if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       else if (sortKey === 'itemType') cmp = String(a.itemType ?? '').localeCompare(String(b.itemType ?? ''), 'ru');
-      else if (sortKey === 'category') cmp = String(a.category ?? '').localeCompare(String(b.category ?? ''), 'ru');
       else if (sortKey === 'group') cmp = String(a.groupName ?? '').localeCompare(String(b.groupName ?? ''), 'ru');
       else if (sortKey === 'unit') cmp = String(a.unitName ?? '').localeCompare(String(b.unitName ?? ''), 'ru');
-      else if (sortKey === 'warehouse') cmp = String(a.defaultWarehouseName ?? '').localeCompare(String(b.defaultWarehouseName ?? ''), 'ru');
-      else if (sortKey === 'brand') cmp = String(a.defaultBrandName ?? '').localeCompare(String(b.defaultBrandName ?? ''), 'ru');
-      else if (sortKey === 'serial') cmp = Number(a.isSerialTracked ? 1 : 0) - Number(b.isSerialTracked ? 1 : 0);
-      else if (sortKey === 'barcode') cmp = String(a.barcode ?? '').localeCompare(String(b.barcode ?? ''), 'ru');
-      else if (sortKey === 'status') cmp = Number(a.isActive === false ? 0 : 1) - Number(b.isActive === false ? 0 : 1);
       if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       return cmp * dir;
     });
@@ -115,7 +92,7 @@ export function NomenclaturePage(props: {
           display: 'grid',
           gap: 8,
           alignItems: 'center',
-          gridTemplateColumns: 'auto minmax(240px, 1fr) minmax(190px, 0.7fr) minmax(190px, 0.8fr) minmax(200px, 0.8fr) auto auto auto',
+          gridTemplateColumns: 'auto minmax(240px, 1fr) minmax(190px, 0.7fr) minmax(190px, 0.8fr) minmax(200px, 0.8fr) auto auto',
         }}
       >
         {props.canEdit ? (
@@ -140,7 +117,7 @@ export function NomenclaturePage(props: {
             Добавить позицию
           </Button>
         ) : null}
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по коду, наименованию, штрихкоду..." />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по наименованию, коду, штрихкоду…" />
         <select value={itemType} onChange={(e) => setItemType((e.target.value || '') as NomenclatureItemType | '')} style={{ minWidth: 180, padding: '8px 10px' }}>
           {WAREHOUSE_ITEM_TYPE_OPTIONS.map((item) => (
             <option key={item.id || 'all'} value={item.id}>
@@ -162,11 +139,6 @@ export function NomenclaturePage(props: {
           placeholder="Группа номенклатуры"
           onChange={setGroupId}
         />
-        <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')} style={{ padding: '8px 10px' }}>
-          <option value="active">Только активные</option>
-          <option value="all">Все</option>
-          <option value="inactive">Только неактивные</option>
-        </select>
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
@@ -195,42 +167,34 @@ export function NomenclaturePage(props: {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('code')}>{sortLabel('Код', 'code')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('sku')}>{sortLabel('SKU', 'sku')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Наименование', 'name')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('itemType')}>{sortLabel('Тип', 'itemType')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('category')}>{sortLabel('Категория', 'category')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('group')}>{sortLabel('Группа', 'group')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('unit')}>{sortLabel('Ед.', 'unit')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('warehouse')}>{sortLabel('Склад по умолчанию', 'warehouse')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('brand')}>{sortLabel('Марка по умолч.', 'brand')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('serial')}>{sortLabel('Серийный учет', 'serial')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('barcode')}>{sortLabel('Штрихкод', 'barcode')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('status')}>{sortLabel('Статус', 'status')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220 }} onClick={() => onSort('name')}>
+                {sortLabel('Наименование', 'name')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' }} onClick={() => onSort('itemType')}>
+                {sortLabel('Тип', 'itemType')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer', minWidth: 140 }} onClick={() => onSort('group')}>
+                {sortLabel('Группа', 'group')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' }} onClick={() => onSort('unit')}>
+                {sortLabel('Ед.', 'unit')}
+              </th>
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={12} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>
+                <td colSpan={4} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>
                   Нет данных
                 </td>
               </tr>
             ) : (
               sorted.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
-                  <td>{row.code || '—'}</td>
-                  <td>{row.sku || row.code || '—'}</td>
-                  <td>{row.name || '—'}</td>
+                  <td style={{ wordBreak: 'break-word' }}>{row.name || '—'}</td>
                   <td>{WAREHOUSE_ITEM_TYPE_OPTIONS.find((item) => item.id === row.itemType)?.label ?? String(row.itemType ?? '—')}</td>
-                  <td>{row.category || '—'}</td>
                   <td>{row.groupName || '—'}</td>
                   <td>{row.unitName || '—'}</td>
-                  <td>{row.defaultWarehouseName || '—'}</td>
-                  <td>{row.defaultBrandName || '—'}</td>
-                  <td>{row.isSerialTracked ? 'Да' : 'Нет'}</td>
-                  <td>{row.barcode || '—'}</td>
-                  <td>{row.isActive === false ? 'Неактивна' : 'Активна'}</td>
                 </tr>
               ))
             )}
