@@ -12,7 +12,7 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -975,8 +975,7 @@ export function EmployeeDetailsPage(props: {
     setPersonnelNumber(vPersonnel == null ? '' : String(vPersonnel));
     const birthMs = typeof vBirth === 'number' ? vBirth : vBirth != null ? Number(vBirth) : null;
     setBirthDate(toInputDate(Number.isFinite(birthMs as number) ? (birthMs as number) : null));
-    const status = String(vStatus ?? '').toLowerCase();
-    setEmploymentStatus(status === 'fired' ? 'fired' : 'working');
+    setEmploymentStatus(parseEmploymentStatusAttr(vStatus == null ? '' : String(vStatus)));
     const hireMs = typeof vHire === 'number' ? vHire : vHire != null ? Number(vHire) : null;
     setHireDate(toInputDate(Number.isFinite(hireMs as number) ? (hireMs as number) : null));
     const termMs = typeof vTermination === 'number' ? vTermination : vTermination != null ? Number(vTermination) : null;

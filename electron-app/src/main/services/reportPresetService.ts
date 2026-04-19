@@ -28,6 +28,8 @@ import {
   type ReportPresetPreviewRequest,
   type ReportPresetPreviewResult,
   type ReportPresetPrintResult,
+  employmentStatusLabelRu,
+  resolveEmploymentStatusCode,
 } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBom, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
@@ -36,6 +38,12 @@ import { httpAuthed } from './httpClient.js';
 import { prependUtf8Bom } from './reportCsvEncoding.js';
 import { resolveEngineShippingState } from './reportEngineShippingState.js';
 import { renderWorkOrderPayrollFullHtml } from '../../renderer/src/ui/utils/workOrderPayrollReportLayoutHtml.js';
+
+/** Локальная SQLite без миграции BOM по марке — колонки `engine_brand_id` ещё нет; не роняем страницу отчётов. */
+function isSqliteMissingEngineBrandIdColumn(e: unknown): boolean {
+  const msg = String(e ?? '');
+  return /no such column/i.test(msg) && msg.includes('engine_brand_id');
+}
 
 type Snapshot = {
   entityTypeIdByCode: Map<string, string>;
@@ -337,17 +345,6 @@ function statusLabel(status: string): string {
     default:
       return status || '—';
   }
-}
-
-function normalizeEmploymentStatusCode(rawStatus: unknown, terminationDate: number | null): 'working' | 'fired' {
-  const normalized = normalizeText(rawStatus, '').toLowerCase();
-  if (normalized === 'fired' || normalized.includes('уволен')) return 'fired';
-  if (terminationDate != null && terminationDate > 0) return 'fired';
-  return 'working';
-}
-
-function employmentStatusLabel(code: 'working' | 'fired'): string {
-  return code === 'fired' ? 'уволен' : 'работает';
 }
 
 function matchesDueState(dueAt: number | null, now: number, dueState: string): boolean {
@@ -1843,7 +1840,7 @@ async function buildEmployeesRosterReport(
     const departmentId = normalizeText(attrs.department_id, '');
     if (departmentFilter.length > 0 && (!departmentId || !departmentFilter.includes(departmentId))) continue;
     const terminationDate = asNumberOrNull(attrs.termination_date);
-    const employmentCode = normalizeEmploymentStatusCode(attrs.employment_status, terminationDate);
+    const employmentCode = resolveEmploymentStatusCode(normalizeText(attrs.employment_status, ''), terminationDate);
     if (employmentFilter !== 'all' && employmentCode !== employmentFilter) continue;
     const fullName = normalizeText(
       attrs.full_name,
@@ -1859,7 +1856,7 @@ async function buildEmployeesRosterReport(
       departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)'),
       hireDate,
       terminationDate,
-      employmentStatus: employmentStatusLabel(employmentCode),
+      employmentStatus: employmentStatusLabelRu(employmentCode),
     });
   }
 
@@ -2543,11 +2540,16 @@ function contractLagScore(actualPct: number, signedAt: number | null, dueAt: num
 }
 
 async function loadActiveDefaultBomEngineBrandIds(db: BetterSQLite3Database): Promise<Set<string>> {
-  const rows = await db
-    .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
-    .from(erpEngineAssemblyBom)
-    .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
-  return new Set(rows.map((r) => String(r.engineBrandId ?? '').trim()).filter(Boolean));
+  try {
+    const rows = await db
+      .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
+      .from(erpEngineAssemblyBom)
+      .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
+    return new Set(rows.map((r) => String(r.engineBrandId ?? '').trim()).filter(Boolean));
+  } catch (e) {
+    if (isSqliteMissingEngineBrandIdColumn(e)) return new Set();
+    throw e;
+  }
 }
 
 function computeContractBasedAssemblyPriorityFromSnapshot(
@@ -2862,10 +2864,16 @@ async function buildAssemblyForecast7dReport(
 
 async function buildAssemblyBomEngineOptions(db: BetterSQLite3Database): Promise<ReportFilterOption[]> {
   const snapshot = await loadSnapshot(db);
-  const rows = await db
-    .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
-    .from(erpEngineAssemblyBom)
-    .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
+  let rows: Array<{ engineBrandId: string | null }>;
+  try {
+    rows = await db
+      .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
+      .from(erpEngineAssemblyBom)
+      .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
+  } catch (e) {
+    if (isSqliteMissingEngineBrandIdColumn(e)) rows = [];
+    else throw e;
+  }
   const unique = new Map<string, ReportFilterOption>();
   for (const row of rows) {
     const id = String(row.engineBrandId ?? '').trim();

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { formatEmploymentStatusAttrForUi } from '@matricarmz/shared';
+
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -103,7 +105,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const filtered = useMemo(() => {
     return rows.filter((row) =>
       matchesQueryInRecord(query, row, [
-        String(row.employmentStatus ?? '').toLowerCase() === 'fired' ? 'уволен' : 'работает',
+        formatEmploymentStatusAttrForUi(row.employmentStatus),
         row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
       ]),
     );
@@ -119,10 +121,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         return String(row.position ?? '').toLowerCase();
       case 'departmentName':
         return String(row.departmentName ?? '').toLowerCase();
-      case 'employmentStatus': {
-        const status = String(row.employmentStatus ?? '').toLowerCase();
-        return status === 'fired' ? 'уволен' : status ? status : 'работает';
-      }
+      case 'employmentStatus':
+        return formatEmploymentStatusAttrForUi(row.employmentStatus);
       case 'access':
         return row.accessEnabled === true ? formatAccessRole(row.systemRole).toLowerCase() : 'запрещено';
       case 'updatedAt':
@@ -220,10 +220,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       { title: 'Подразделение', value: (row: Row) => row.departmentName || '—' },
       {
         title: 'Статус',
-        value: (row: Row) => {
-          const status = String(row.employmentStatus ?? '').toLowerCase();
-          return status === 'fired' ? 'уволен' : status || 'работает';
-        },
+        value: (row: Row) => formatEmploymentStatusAttrForUi(row.employmentStatus),
       },
       {
         title: 'Доступ',
@@ -285,8 +282,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
               </tr>
             )}
             {items.map((row) => {
-              const status = String(row.employmentStatus ?? '').toLowerCase();
-              const statusLabel = status === 'fired' ? 'уволен' : status ? status : 'работает';
+              const statusLabel = formatEmploymentStatusAttrForUi(row.employmentStatus);
               const accessState = row.accessEnabled;
               const accessLabel = accessState === true ? formatAccessRole(row.systemRole) : 'запрещено';
               const accessColor = accessState === true ? '#065f46' : '#b91c1c';
