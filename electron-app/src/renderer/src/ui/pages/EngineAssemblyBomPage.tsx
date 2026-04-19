@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { pickEngineNomenclatureIdForEngineBrand } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -34,9 +33,6 @@ export function EngineAssemblyBomPage(props: {
   const [pageIndex, setPageIndex] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [nomenclatureMetaRows, setNomenclatureMetaRows] = useState<
-    Array<{ id: string; defaultBrandId?: string | null; itemType?: string | null; category?: string | null }>
-  >([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -58,27 +54,6 @@ export function EngineAssemblyBomPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      const result = await window.matrica.warehouse.nomenclatureList({ isActive: true, limit: 5000 });
-      if (!alive || !result?.ok) return;
-      const rows = result.rows ?? [];
-      setNomenclatureMetaRows(
-        rows.map((row) => ({
-          id: String((row as { id?: string }).id ?? ''),
-          defaultBrandId: ((row as { defaultBrandId?: string | null }).defaultBrandId ?? null) as string | null,
-          itemType: ((row as { itemType?: string | null }).itemType ?? null) as string | null,
-          category: ((row as { category?: string | null }).category ?? null) as string | null,
-        })),
-      );
-    };
-    void load();
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const engineBrandOptions = useMemo(
     () =>
@@ -169,17 +144,9 @@ export function EngineAssemblyBomPage(props: {
                 props.onOpen(String(existing.id));
                 return;
               }
-              const engineNomId = pickEngineNomenclatureIdForEngineBrand(nomenclatureMetaRows, engineBrandIdFilter);
-              if (!engineNomId) {
-                setStatus(
-                  'Ошибка: для выбранной марки не найдена номенклатура «двигатель» (тип engine с полем «марка по умолчанию»). Создайте её в номенклатуре склада и повторите.',
-                );
-                return;
-              }
               const created = await window.matrica.warehouse.assemblyBomUpsert({
                 name: `BOM ${engineBrandOptions.find((brand) => brand.id === engineBrandIdFilter)?.label ?? 'марки двигателя'}`,
                 engineBrandId: engineBrandIdFilter,
-                engineNomenclatureId: engineNomId,
                 status: 'active',
                 isDefault: true,
                 lines: [],

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   buildEngineBomSkeletonBlockLines,
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
-  pickEngineNomenclatureIdForEngineBrand,
+  pickBomDraftStubNomenclatureFromMeta,
   sanitizeWarehouseBomRelationSchema,
   type WarehouseBomRelationNode,
   type WarehouseBomRelationSchema,
@@ -763,11 +763,11 @@ export function EngineAssemblyBomDetailsPage(props: {
     const stubFromLine = data.lines.map((l) => String(l.componentNomenclatureId ?? '').trim()).find(Boolean);
     const stub =
       stubFromLine ||
-      pickEngineNomenclatureIdForEngineBrand(nomenclatureMetaRows, data.header.engineBrandId) ||
+      pickBomDraftStubNomenclatureFromMeta(nomenclatureMetaRows, data.header.engineBrandId) ||
       '';
     if (!stub) {
       setStatus(
-        'Нужна заглушка номенклатуры: укажите компонент хотя бы в одной строке или создайте номенклатуру «двигатель» с маркой по умолчанию для выбранной марки.',
+        'Нет ни одной позиции номенклатуры — добавьте хотя бы одну запись склада, чтобы построить черновые строки блока (техническая заглушка для FK).',
       );
       return;
     }
@@ -884,15 +884,12 @@ export function EngineAssemblyBomDetailsPage(props: {
     }
     setSavingBom(true);
     try {
-      const engineNomId =
-        (data.header.engineNomenclatureId && String(data.header.engineNomenclatureId).trim()) ||
-        pickEngineNomenclatureIdForEngineBrand(nomenclatureMetaRows, data.header.engineBrandId) ||
-        '';
+      const explicitHeaderNom = data.header.engineNomenclatureId && String(data.header.engineNomenclatureId).trim();
       const result = await window.matrica.warehouse.assemblyBomUpsert({
         id: data.header.id,
         name: data.header.name,
         engineBrandId: data.header.engineBrandId,
-        ...(engineNomId ? { engineNomenclatureId: engineNomId } : {}),
+        ...(explicitHeaderNom ? { engineNomenclatureId: explicitHeaderNom } : {}),
         version: data.header.version,
         status: data.header.status,
         isDefault: data.header.isDefault,
@@ -919,7 +916,7 @@ export function EngineAssemblyBomDetailsPage(props: {
     } finally {
       setSavingBom(false);
     }
-  }, [data, lineValidation.errors.length, nomenclatureMetaRows, refresh]);
+  }, [data, lineValidation.errors.length, refresh]);
 
   const requestCloseBomCard = useCallback(() => {
     if (!(showSchemaEditor ? isSchemaDirty : isBomDirty)) {

@@ -594,7 +594,7 @@ export type EngineAssemblyBomUpsertInput = {
   lines: EngineAssemblyBomLineInput[];
 };
 
-/** Клиентский аналог pickStub на сервере: первая номенклатура engine с defaultBrandId = марке. */
+/** Legacy: номенклатура типа engine с defaultBrandId = марке (колонка `engine_nomenclature_id`), если такие позиции ведёте. */
 export function pickEngineNomenclatureIdForEngineBrand(
   nomenclatureRows: Array<{
     id: string;
@@ -613,6 +613,29 @@ export function pickEngineNomenclatureIdForEngineBrand(
   };
   const hit = nomenclatureRows.find((r) => String(r.defaultBrandId ?? '').trim() === brand && isEngine(r));
   return hit ? String(hit.id) : null;
+}
+
+/**
+ * Клиентский выбор номенклатуры для технической заглушки в черновых строках BOM (совпадает с порядком на сервере).
+ * Марка спецификации задаётся только через `engine_brand_id`; здесь нужен любой валидный id из загруженного списка.
+ */
+export function pickBomDraftStubNomenclatureFromMeta(
+  nomenclatureRows: Array<{
+    id: string;
+    defaultBrandId?: string | null;
+    itemType?: string | null;
+    category?: string | null;
+  }>,
+  engineBrandId: string,
+): string | null {
+  const engine = pickEngineNomenclatureIdForEngineBrand(nomenclatureRows, engineBrandId);
+  if (engine) return engine;
+  const brand = String(engineBrandId ?? '').trim();
+  if (!brand) return null;
+  const byBrand = nomenclatureRows.find((r) => String(r.defaultBrandId ?? '').trim() === brand);
+  if (byBrand?.id) return String(byBrand.id).trim();
+  const first = nomenclatureRows.find((r) => String(r.id ?? '').trim());
+  return first ? String(first.id).trim() : null;
 }
 
 export type EngineAssemblyBomExpandedRow = {

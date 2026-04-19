@@ -57,8 +57,8 @@ async function loadSanitizedBomRelationSchema(): Promise<WarehouseBomRelationSch
   }
 }
 
-/** Любая номенклатура «двигатель» для марки — только для технической заглушки в черновых строках BOM (FK), не смысловая привязка спецификации. */
-async function pickStubNomenclatureIdForBrand(engineBrandId: string): Promise<string | null> {
+/** Legacy-колонка `engine_nomenclature_id`: только тип engine, привязанный к марке (если ведёте такие позиции). */
+async function pickEngineNomenclatureIdForBrand(engineBrandId: string): Promise<string | null> {
   const brand = String(engineBrandId).trim();
   if (!brand) return null;
   const enginePred = or(eq(erpNomenclature.itemType, 'engine'), eq(erpNomenclature.category, 'engine'));
@@ -84,6 +84,49 @@ async function pickStubNomenclatureIdForBrand(engineBrandId: string): Promise<st
     .orderBy(desc(erpNomenclatureEngineBrand.isDefault), asc(erpNomenclature.name))
     .limit(1);
   return byJunction[0]?.id ? String(byJunction[0].id) : null;
+}
+
+/**
+ * Техническая заглушка для component_nomenclature_id в черновых строках BOM (FK в номенклатуру).
+ * Смысловая привязка BOM к марке — только `engine_brand_id`; здесь нужен любой существующий id.
+ */
+async function pickLineDraftStubNomenclatureId(engineBrandId: string): Promise<string | null> {
+  const engineStub = await pickEngineNomenclatureIdForBrand(engineBrandId);
+  if (engineStub) return engineStub;
+
+  const brand = String(engineBrandId).trim();
+  if (!brand) return null;
+
+  const anyByDefaultBrand = await db
+    .select({ id: erpNomenclature.id })
+    .from(erpNomenclature)
+    .where(and(eq(erpNomenclature.defaultBrandId, brand), isNull(erpNomenclature.deletedAt)))
+    .orderBy(asc(erpNomenclature.name))
+    .limit(1);
+  if (anyByDefaultBrand[0]?.id) return String(anyByDefaultBrand[0].id);
+
+  const byJunctionAny = await db
+    .select({ id: erpNomenclature.id })
+    .from(erpNomenclature)
+    .innerJoin(erpNomenclatureEngineBrand, eq(erpNomenclatureEngineBrand.nomenclatureId, erpNomenclature.id))
+    .where(
+      and(
+        eq(erpNomenclatureEngineBrand.engineBrandId, brand),
+        isNull(erpNomenclatureEngineBrand.deletedAt),
+        isNull(erpNomenclature.deletedAt),
+      ),
+    )
+    .orderBy(desc(erpNomenclatureEngineBrand.isDefault), asc(erpNomenclature.name))
+    .limit(1);
+  if (byJunctionAny[0]?.id) return String(byJunctionAny[0].id);
+
+  const anyActive = await db
+    .select({ id: erpNomenclature.id })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt))
+    .orderBy(asc(erpNomenclature.name))
+    .limit(1);
+  return anyActive[0]?.id ? String(anyActive[0].id) : null;
 }
 
 type BomLineInput = {
@@ -294,7 +337,7 @@ export async function upsertWarehouseAssemblyBom(args: {
   id?: string;
   name: string;
   engineBrandId: string;
-  /** Явная номенклатура «двигатель»; иначе подставляется stub по марке. */
+  /** Опционально: legacy-колонка — номенклатура типа engine для марки; иначе null. Черновые строки используют отдельный resolve. */
   engineNomenclatureId?: string | null;
   version?: number;
   status?: string;
@@ -338,19 +381,20 @@ export async function upsertWarehouseAssemblyBom(args: {
     const ts = nowMs();
     const status = 'active';
     const version = Math.max(1, Math.trunc(Number(args.version ?? 1)));
-    const stubId = await pickStubNomenclatureIdForBrand(requestedBrandId);
-    if (!stubId) {
+    const lineStubId = await pickLineDraftStubNomenclatureId(requestedBrandId);
+    if (!lineStubId) {
       return {
         ok: false,
         error:
-          'Для выбранной марки нет номенклатуры типа «двигатель». Создайте позицию с типом/категорией engine и привязкой к этой марке (поле «марка по умолчанию» или связь в справочнике), затем повторите сохранение BOM.',
+          'В номенклатуре склада нет ни одной активной позиции — для черновых строк BOM нужен валидный идентификатор (техническая заглушка). Добавьте хотя бы одну позицию в номенклатуру и повторите.',
       };
     }
     const explicitNom = args.engineNomenclatureId != null && String(args.engineNomenclatureId).trim() ? String(args.engineNomenclatureId).trim() : null;
+    const headerEngineNom = explicitNom ?? (await pickEngineNomenclatureIdForBrand(requestedBrandId));
     const base = {
       name: String(args.name ?? '').trim() || `BOM ${version}`,
       engineBrandId: requestedBrandId,
-      engineNomenclatureId: explicitNom ?? stubId,
+      engineNomenclatureId: headerEngineNom,
       version,
       status,
       isDefault: true,
@@ -382,7 +426,7 @@ export async function upsertWarehouseAssemblyBom(args: {
       const variantGroupId = `__kit_${blockToken.slice(0, 12)}`;
       const lineKeyPrefix = `b${blockToken.slice(0, 10)}`;
       sourceLines = buildEngineBomSkeletonBlockLines({
-        stubComponentNomenclatureId: stubId,
+        stubComponentNomenclatureId: lineStubId,
         schema: sanitizedSchema,
         variantGroupId,
         lineKeyPrefix,
