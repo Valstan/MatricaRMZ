@@ -345,6 +345,8 @@ export async function upsertWarehouseAssemblyBom(args: {
   id?: string;
   name: string;
   engineBrandId: string;
+  /** Явная номенклатура «двигатель»; иначе подставляется stub по марке. */
+  engineNomenclatureId?: string | null;
   version?: number;
   status?: string;
   isDefault?: boolean;
@@ -395,10 +397,11 @@ export async function upsertWarehouseAssemblyBom(args: {
           'Для выбранной марки нет номенклатуры типа «двигатель». Создайте позицию с типом/категорией engine и привязкой к этой марке (поле «марка по умолчанию» или связь в справочнике), затем повторите сохранение BOM.',
       };
     }
+    const explicitNom = args.engineNomenclatureId != null && String(args.engineNomenclatureId).trim() ? String(args.engineNomenclatureId).trim() : null;
     const base = {
       name: String(args.name ?? '').trim() || `BOM ${version}`,
       engineBrandId: requestedBrandId,
-      engineNomenclatureId: null as string | null,
+      engineNomenclatureId: explicitNom ?? stubId,
       version,
       status,
       isDefault: true,

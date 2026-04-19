@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
+  pickEngineNomenclatureIdForEngineBrand,
   sanitizeWarehouseBomRelationSchema,
   type WarehouseBomRelationNode,
   type WarehouseBomRelationSchema,
@@ -275,6 +276,9 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [showTechnicalFields, setShowTechnicalFields] = useState(false);
   const [componentOptions, setComponentOptions] = useState<SearchSelectOption[]>([]);
+  const [nomenclatureMetaRows, setNomenclatureMetaRows] = useState<
+    Array<{ id: string; defaultBrandId?: string | null; itemType?: string | null; category?: string | null }>
+  >([]);
   const [bomOccupancyRows, setBomOccupancyRows] = useState<BomOccupancyRow[]>([]);
   const { lookups, error: warehouseRefsError } = useWarehouseReferenceData();
 
@@ -510,6 +514,14 @@ export function EngineAssemblyBomDetailsPage(props: {
       });
       if (!alive || !result?.ok) return;
       const rows = result.rows ?? [];
+      setNomenclatureMetaRows(
+        rows.map((row) => ({
+          id: String((row as { id?: string }).id ?? ''),
+          defaultBrandId: ((row as { defaultBrandId?: string | null }).defaultBrandId ?? null) as string | null,
+          itemType: ((row as { itemType?: string | null }).itemType ?? null) as string | null,
+          category: ((row as { category?: string | null }).category ?? null) as string | null,
+        })),
+      );
       setComponentOptions(
         rows.map((row) => ({
           id: String((row as { id?: string }).id ?? ''),
@@ -793,10 +805,15 @@ export function EngineAssemblyBomDetailsPage(props: {
     }
     setSavingBom(true);
     try {
+      const engineNomId =
+        (data.header.engineNomenclatureId && String(data.header.engineNomenclatureId).trim()) ||
+        pickEngineNomenclatureIdForEngineBrand(nomenclatureMetaRows, data.header.engineBrandId) ||
+        '';
       const result = await window.matrica.warehouse.assemblyBomUpsert({
         id: data.header.id,
         name: data.header.name,
         engineBrandId: data.header.engineBrandId,
+        ...(engineNomId ? { engineNomenclatureId: engineNomId } : {}),
         version: data.header.version,
         status: data.header.status,
         isDefault: data.header.isDefault,
@@ -823,7 +840,7 @@ export function EngineAssemblyBomDetailsPage(props: {
     } finally {
       setSavingBom(false);
     }
-  }, [data, lineValidation.errors.length, refresh]);
+  }, [data, lineValidation.errors.length, nomenclatureMetaRows, refresh]);
 
   const requestCloseBomCard = useCallback(() => {
     if (!(showSchemaEditor ? isSchemaDirty : isBomDirty)) {

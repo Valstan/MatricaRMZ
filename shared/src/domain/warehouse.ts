@@ -582,12 +582,38 @@ export type EngineAssemblyBomUpsertInput = {
   id?: string;
   name: string;
   engineBrandId: string;
+  /**
+   * Номенклатура «двигатель» для марки (колонка legacy). Сервер может вывести сам;
+   * поле нужно для совместимости со старым API, где оно было обязательным в теле POST.
+   */
+  engineNomenclatureId?: string | null;
   version?: number;
   status?: EngineAssemblyBomStatus | string;
   isDefault?: boolean;
   notes?: string | null;
   lines: EngineAssemblyBomLineInput[];
 };
+
+/** Клиентский аналог pickStub на сервере: первая номенклатура engine с defaultBrandId = марке. */
+export function pickEngineNomenclatureIdForEngineBrand(
+  nomenclatureRows: Array<{
+    id: string;
+    defaultBrandId?: string | null;
+    itemType?: string | null;
+    category?: string | null;
+  }>,
+  engineBrandId: string,
+): string | null {
+  const brand = String(engineBrandId ?? '').trim();
+  if (!brand) return null;
+  const isEngine = (r: (typeof nomenclatureRows)[number]) => {
+    const it = String(r.itemType ?? '').toLowerCase();
+    const cat = String(r.category ?? '').toLowerCase();
+    return it === 'engine' || cat === 'engine';
+  };
+  const hit = nomenclatureRows.find((r) => String(r.defaultBrandId ?? '').trim() === brand && isEngine(r));
+  return hit ? String(hit.id) : null;
+}
 
 export type EngineAssemblyBomExpandedRow = {
   componentNomenclatureId: string;
