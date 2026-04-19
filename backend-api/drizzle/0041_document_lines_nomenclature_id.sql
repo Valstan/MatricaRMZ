@@ -1,7 +1,7 @@
 -- Add nomenclature_id column to erp_document_lines for unified stock accounting.
 -- Previously nomenclatureId was stored only in payload_json; this makes it a first-class column.
 
-ALTER TABLE "erp_document_lines" ADD COLUMN "nomenclature_id" uuid;
+ALTER TABLE "erp_document_lines" ADD COLUMN IF NOT EXISTS "nomenclature_id" uuid;
 DO $$ BEGIN
   ALTER TABLE "erp_document_lines" ADD CONSTRAINT "erp_document_lines_nomenclature_id_erp_nomenclature_id_fk"
     FOREIGN KEY ("nomenclature_id") REFERENCES "erp_nomenclature"("id") ON DELETE no action ON UPDATE no action;
