@@ -3159,7 +3159,7 @@ export function App() {
 
         {tab === 'engine_brands' && (
           <EngineBrandsPage
-            onOpen={openNomenclature}
+            onOpen={openEngineBrand}
             canCreate={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />

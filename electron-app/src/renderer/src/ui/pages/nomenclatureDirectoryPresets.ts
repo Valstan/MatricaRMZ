@@ -15,19 +15,6 @@ export type NomenclatureDirectoryPreset = {
   createConfig: NomenclatureCreateConfig;
 };
 
-export const ENGINE_BRANDS_PRESET: NomenclatureDirectoryPreset = {
-  directoryKind: 'engine_brand',
-  emptyText: 'Нет марок двигателя',
-  searchPlaceholder: 'Поиск марок двигателя...',
-  createButtonText: 'Добавить марку',
-  createConfig: {
-    codePrefix: 'BR',
-    name: 'Новая марка двигателя',
-    itemType: 'engine',
-    category: 'engine',
-  },
-};
-
 export const PARTS_PRESET: NomenclatureDirectoryPreset = {
   directoryKind: 'part',
   emptyText: 'Нет деталей',

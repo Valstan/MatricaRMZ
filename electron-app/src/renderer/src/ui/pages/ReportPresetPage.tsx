@@ -495,6 +495,45 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                     </div>
                   );
                 }
+                if (
+                  filter.type === 'select' &&
+                  activePreset.id === 'assembly_forecast_7d' &&
+                  filter.key === 'assemblyPriorityMode'
+                ) {
+                  const asmOpts = filter.options ?? [];
+                  const pm = String(activeFilters[filter.key] ?? asmOpts[0]?.value ?? 'manual');
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>
+                          ✕
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {asmOpts.map((o) => (
+                          <label
+                            key={o.value}
+                            style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: busy ? 'default' : 'pointer' }}
+                          >
+                            <input
+                              type="radio"
+                              name="assemblyPriorityMode"
+                              checked={pm === o.value}
+                              disabled={busy}
+                              onChange={() => patchFilter(filter.key, o.value)}
+                              style={{ marginTop: 3 }}
+                            />
+                            <span>
+                              <div style={{ fontWeight: 600 }}>{o.label}</div>
+                              {o.hintText ? <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>{o.hintText}</div> : null}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
                 if (filter.type === 'select') {
                   const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
                   const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
@@ -515,6 +554,8 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                         options={options}
                         placeholder="Начните вводить для поиска"
                         disabled={busy}
+                        showAllWhenEmpty
+                        emptyQueryLimit={100}
                         query={activeFilterSearch[filter.key] ?? ''}
                         onQueryChange={(next) => patchFilterSearch(filter.key, next)}
                         onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
