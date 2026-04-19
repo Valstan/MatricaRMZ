@@ -541,7 +541,10 @@ export type EngineAssemblyBomLine = {
 export type EngineAssemblyBom = {
   id: string;
   name: string;
-  engineNomenclatureId: string;
+  /** Марка двигателя из справочника (entities). */
+  engineBrandId: string;
+  /** Устарело: привязка к номенклатуре; не используется в новых спецификациях. */
+  engineNomenclatureId?: string | null;
   version: number;
   status: EngineAssemblyBomStatus | string;
   isDefault: boolean;
@@ -552,8 +555,8 @@ export type EngineAssemblyBom = {
 };
 
 export type EngineAssemblyBomListItem = EngineAssemblyBom & {
-  engineNomenclatureCode: string | null;
-  engineNomenclatureName: string | null;
+  engineNomenclatureCode?: string | null;
+  engineNomenclatureName?: string | null;
   linesCount: number;
 };
 
@@ -578,7 +581,7 @@ export type EngineAssemblyBomLineInput = {
 export type EngineAssemblyBomUpsertInput = {
   id?: string;
   name: string;
-  engineNomenclatureId: string;
+  engineBrandId: string;
   version?: number;
   status?: EngineAssemblyBomStatus | string;
   isDefault?: boolean;

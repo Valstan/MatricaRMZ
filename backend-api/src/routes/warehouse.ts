@@ -282,12 +282,14 @@ warehouseRouter.delete('/engine-instances/:id', requirePermission(PermissionCode
 
 warehouseRouter.get('/assembly-bom', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const schema = z.object({
+    engineBrandId: z.string().uuid().optional(),
     engineNomenclatureId: z.string().uuid().optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await listWarehouseAssemblyBoms({
+    ...(parsed.data.engineBrandId ? { engineBrandId: parsed.data.engineBrandId } : {}),
     ...(parsed.data.engineNomenclatureId ? { engineNomenclatureId: parsed.data.engineNomenclatureId } : {}),
     ...(parsed.data.status ? { status: parsed.data.status } : {}),
   });
@@ -374,7 +376,7 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
   const schema = z.object({
     id: z.string().uuid().optional(),
     name: z.string().min(1),
-    engineNomenclatureId: z.string().uuid(),
+    engineBrandId: z.string().uuid(),
     version: z.coerce.number().int().min(1).optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
     isDefault: z.boolean().optional(),
@@ -402,7 +404,7 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
   const result = await upsertWarehouseAssemblyBom({
     ...(parsed.data.id ? { id: parsed.data.id } : {}),
     name: parsed.data.name,
-    engineNomenclatureId: parsed.data.engineNomenclatureId,
+    engineBrandId: parsed.data.engineBrandId,
     ...(parsed.data.version !== undefined ? { version: parsed.data.version } : {}),
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
     ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
@@ -443,10 +445,10 @@ warehouseRouter.post('/assembly-bom/:id/archive', requirePermission(PermissionCo
   });
 });
 
-warehouseRouter.get('/assembly-bom/:engineNomenclatureId/history', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
-  const engineNomenclatureId = String(req.params.engineNomenclatureId || '').trim();
-  if (!engineNomenclatureId) return res.status(400).json({ ok: false, error: 'engineNomenclatureId обязателен' });
-  const result = await listWarehouseAssemblyBomHistory({ engineNomenclatureId });
+warehouseRouter.get('/assembly-bom/:engineBrandId/history', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const engineBrandId = String(req.params.engineBrandId || '').trim();
+  if (!engineBrandId) return res.status(400).json({ ok: false, error: 'engineBrandId обязателен' });
+  const result = await listWarehouseAssemblyBomHistory({ engineBrandId });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -640,7 +642,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     targetEnginesPerDay: z.coerce.number().int().min(0).max(500),
     horizonDays: z.coerce.number().int().min(1).max(31).optional(),
     warehouseIds: z.array(z.string().min(1)).optional(),
-    engineNomenclatureIds: z.array(z.string().uuid()).optional(),
+    engineBrandIds: z.array(z.string().uuid()).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -649,7 +651,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       targetEnginesPerDay: parsed.data.targetEnginesPerDay,
       ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
       ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
-      ...(parsed.data.engineNomenclatureIds !== undefined ? { engineNomenclatureIds: parsed.data.engineNomenclatureIds } : {}),
+      ...(parsed.data.engineBrandIds !== undefined ? { engineBrandIds: parsed.data.engineBrandIds } : {}),
     });
     const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
     const rows = forecast.rows.map((r) => ({
@@ -669,7 +671,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
 
 warehouseRouter.get('/forecast/bom', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
   const schema = z.object({
-    engineId: z.string().uuid(),
+    engineBrandId: z.string().uuid(),
     targetEnginesPerDay: z.coerce.number().int().min(0).max(500).optional(),
     horizonDays: z.coerce.number().int().min(1).max(31).optional(),
     warehouseIds: z
@@ -684,7 +686,7 @@ warehouseRouter.get('/forecast/bom', requirePermission(PermissionCode.ErpRegiste
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await buildWarehouseBomExpandedForecast({
-    engineId: parsed.data.engineId,
+    engineBrandId: parsed.data.engineBrandId,
     ...(parsed.data.targetEnginesPerDay !== undefined ? { targetEnginesPerDay: parsed.data.targetEnginesPerDay } : {}),
     ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
     ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),

@@ -50,7 +50,11 @@ export function SuggestInput(props: {
 }) {
   const disabled = props.disabled === true;
   const dropdown = useSuggestionDropdown(
-    props.options.map((o) => ({ id: o.value, label: o.value, hintText: o.description })),
+    props.options.map((o) =>
+      o.description != null && o.description !== ''
+        ? { id: o.value, label: o.value, hintText: o.description }
+        : { id: o.value, label: o.value },
+    ),
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [createBusy, setCreateBusy] = React.useState(false);

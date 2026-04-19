@@ -1,9 +1,12 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
-import { computeAssemblyForecast, type AssemblyComponentRole, type AssemblyEngineBrandKit } from '@matricarmz/shared';
+import { computeAssemblyForecast, EntityTypeCode, type AssemblyComponentRole, type AssemblyEngineBrandKit } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import {
+  attributeDefs,
+  attributeValues,
+  entityTypes,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomLines,
   erpNomenclature,
@@ -16,7 +19,8 @@ type ForecastRequest = {
   targetEnginesPerDay: number;
   horizonDays?: number;
   warehouseIds?: string[];
-  engineNomenclatureIds?: string[];
+  /** Фильтр по маркам двигателя из справочника (entities). */
+  engineBrandIds?: string[];
 };
 
 async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<string, number>> {
@@ -69,14 +73,59 @@ function bomComponentTypeToRole(raw: string): AssemblyComponentRole {
   return 'other';
 }
 
-async function loadActiveDefaultBomKits(engineFilter?: string[]): Promise<AssemblyEngineBrandKit[]> {
+function safeJsonText(raw: string): string {
+  try {
+    const v = JSON.parse(raw);
+    if (v == null) return '';
+    return String(v);
+  } catch {
+    return raw;
+  }
+}
+
+async function loadEngineBrandDisplayNames(brandIds: string[]): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(brandIds.map((id) => String(id).trim()).filter(Boolean)));
+  const fallback = new Map<string, string>();
+  for (const id of ids) fallback.set(id, id);
+  if (ids.length === 0) return fallback;
+
+  const typeRow = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, EntityTypeCode.EngineBrand), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  const typeId = typeRow[0]?.id ? String(typeRow[0].id) : '';
+  if (!typeId) return fallback;
+
+  const defRow = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), eq(attributeDefs.code, 'name'), isNull(attributeDefs.deletedAt)))
+    .limit(1);
+  const nameDefId = defRow[0]?.id ? String(defRow[0].id) : '';
+  if (!nameDefId) return fallback;
+
+  const vals = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(inArray(attributeValues.entityId, ids as any), eq(attributeValues.attributeDefId, nameDefId as any), isNull(attributeValues.deletedAt)));
+
+  const out = new Map(fallback);
+  for (const row of vals) {
+    const label = safeJsonText(row.valueJson == null ? '' : String(row.valueJson)).trim();
+    if (label) out.set(String(row.entityId), label);
+  }
+  return out;
+}
+
+async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<AssemblyEngineBrandKit[]> {
   const conditions = [
     eq(erpEngineAssemblyBom.status, 'active'),
     eq(erpEngineAssemblyBom.isDefault, true),
     isNull(erpEngineAssemblyBom.deletedAt),
   ];
-  if (engineFilter && engineFilter.length > 0) {
-    conditions.push(inArray(erpEngineAssemblyBom.engineNomenclatureId, engineFilter as any));
+  if (engineBrandFilter && engineBrandFilter.length > 0) {
+    conditions.push(inArray(erpEngineAssemblyBom.engineBrandId, engineBrandFilter as any));
   }
   const headerRows = await db
     .select()
@@ -84,20 +133,21 @@ async function loadActiveDefaultBomKits(engineFilter?: string[]): Promise<Assemb
     .where(and(...conditions));
   if (headerRows.length === 0) return [];
   const bomIds = headerRows.map((row) => String(row.id));
-  const engineIds = headerRows.map((row) => String(row.engineNomenclatureId));
+  const brandIds = headerRows.map((row) => String(row.engineBrandId));
   const lineRows = await db
     .select()
     .from(erpEngineAssemblyBomLines)
     .where(and(inArray(erpEngineAssemblyBomLines.bomId, bomIds as any), isNull(erpEngineAssemblyBomLines.deletedAt)));
   const componentIds = Array.from(new Set(lineRows.map((row) => String(row.componentNomenclatureId))));
   const nomenclatureRows =
-    componentIds.length + engineIds.length > 0
+    componentIds.length > 0
       ? await db
           .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
           .from(erpNomenclature)
-          .where(inArray(erpNomenclature.id, Array.from(new Set([...componentIds, ...engineIds])) as any))
+          .where(inArray(erpNomenclature.id, componentIds as any))
       : [];
   const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+  const brandLabels = await loadEngineBrandDisplayNames(brandIds);
   const linesByBom = new Map<string, typeof lineRows>();
   for (const line of lineRows) {
     const bomId = String(line.bomId);
@@ -107,8 +157,8 @@ async function loadActiveDefaultBomKits(engineFilter?: string[]): Promise<Assemb
   }
   const kits: AssemblyEngineBrandKit[] = [];
   for (const header of headerRows) {
-    const engineId = String(header.engineNomenclatureId);
-    const engineMeta = nomenclatureById.get(engineId);
+    const engineBrandId = String(header.engineBrandId);
+    const brandTitle = brandLabels.get(engineBrandId) ?? engineBrandId;
     const bomLines = linesByBom.get(String(header.id)) ?? [];
     const lineRecords = bomLines
       .map((line) => {
@@ -155,12 +205,8 @@ async function loadActiveDefaultBomKits(engineFilter?: string[]): Promise<Assemb
       }));
       if (parts.length === 0) continue;
       kits.push({
-        brandId: groupKey ? `${engineId}::${groupKey}` : engineId,
-        brandLabel: groupKey
-          ? `${engineMeta?.name ? String(engineMeta.name) : engineId} [${groupKey}]`
-          : engineMeta?.name
-            ? String(engineMeta.name)
-            : engineId,
+        brandId: groupKey ? `${engineBrandId}::${groupKey}` : engineBrandId,
+        brandLabel: groupKey ? `${brandTitle} [${groupKey}]` : brandTitle,
         parts,
       });
     }
@@ -172,16 +218,16 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(args.horizonDays ?? 7))));
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(args.targetEnginesPerDay ?? 0)));
   const warehouseIds = Array.isArray(args.warehouseIds) ? args.warehouseIds.map(String) : undefined;
-  const engineNomenclatureIds = Array.isArray(args.engineNomenclatureIds) ? args.engineNomenclatureIds.map(String) : undefined;
+  const engineBrandIds = Array.isArray(args.engineBrandIds) ? args.engineBrandIds.map(String) : undefined;
   const dbIncomingLines = await loadPlannedIncomingLines({
     horizonDays,
     ...(warehouseIds ? { warehouseIds } : {}),
   });
-  const kits = await loadActiveDefaultBomKits(engineNomenclatureIds);
+  const kits = await loadActiveDefaultBomKits(engineBrandIds);
   if (kits.length === 0) {
     return {
       rows: [],
-      warnings: ['Нет активных default BOM для выбранных двигателей.'],
+      warnings: ['Нет активных default BOM для выбранных марок двигателей.'],
       deficitRecommendations: [],
     };
   }

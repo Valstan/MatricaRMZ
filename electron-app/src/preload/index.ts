@@ -425,7 +425,8 @@ const matricaApi = {
     documentPlan: async (id: string) => ipcRenderer.invoke('warehouse:documents:plan', id),
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
     documentCancel: async (id: string) => ipcRenderer.invoke('warehouse:documents:cancel', id),
-    assemblyBomList: async (args?: { engineNomenclatureId?: string; status?: string }) => ipcRenderer.invoke('warehouse:assemblyBom:list', args),
+    assemblyBomList: async (args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string }) =>
+      ipcRenderer.invoke('warehouse:assemblyBom:list', args),
     assemblyBomSchemaGet: async () => ipcRenderer.invoke('warehouse:assemblyBom:schema:get'),
     assemblyBomSchemaSet: async (args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:schema:set', args),
@@ -435,7 +436,7 @@ const matricaApi = {
     assemblyBomDelete: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:delete', id),
     assemblyBomActivateDefault: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:activateDefault', id),
     assemblyBomArchive: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:archive', id),
-    assemblyBomHistory: async (args: { engineNomenclatureId: string }) => ipcRenderer.invoke('warehouse:assemblyBom:history', args),
+    assemblyBomHistory: async (args: { engineBrandId: string }) => ipcRenderer.invoke('warehouse:assemblyBom:history', args),
     assemblyBomPrint: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:print', id),
     engineInstancesList: async (args?: { nomenclatureId?: string; contractId?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number }) =>
       ipcRenderer.invoke('warehouse:engineInstances:list', args),
@@ -444,7 +445,7 @@ const matricaApi = {
     movementsList: async (args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number }) =>
       ipcRenderer.invoke('warehouse:movements:list', args),
     forecastIncomingGet: async (args: { from: number; to: number; warehouseId?: string }) => ipcRenderer.invoke('warehouse:forecast:incoming:get', args),
-    forecastBomGet: async (args: { engineId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] }) =>
+    forecastBomGet: async (args: { engineBrandId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] }) =>
       ipcRenderer.invoke('warehouse:forecast:bom:get', args),
   },
   files: {

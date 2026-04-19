@@ -1,6 +1,9 @@
 import type { LedgerTableName } from '@matricarmz/ledger';
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 
+import { db } from '../../database/db.js';
+import { erpNomenclature, erpNomenclatureEngineBrand } from '../../database/schema.js';
 import { queryState } from '../../ledger/ledgerService.js';
 import { applyPushBatch } from './applyPushBatch.js';
 
@@ -66,7 +69,8 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
       if ((base as any).is_default == null) (base as any).is_default = false;
       return base;
     case SyncTableName.ErpEngineAssemblyBom:
-      if (!(base as any).engine_nomenclature_id || !(base as any).name) return null;
+      if (!(base as any).name) return null;
+      if (!(base as any).engine_brand_id && !(base as any).engine_nomenclature_id) return null;
       if ((base as any).version == null) (base as any).version = 1;
       if (!(base as any).status) (base as any).status = 'draft';
       if ((base as any).is_default == null) (base as any).is_default = false;
@@ -100,6 +104,47 @@ async function loadAllRows(table: LedgerTableName) {
   return all;
 }
 
+async function resolveEngineBrandIdFromLegacyNomenclature(nomenclatureId: string): Promise<string | null> {
+  const nomId = String(nomenclatureId).trim();
+  if (!nomId) return null;
+  const row = await db
+    .select({ defaultBrandId: erpNomenclature.defaultBrandId })
+    .from(erpNomenclature)
+    .where(and(eq(erpNomenclature.id, nomId as any), isNull(erpNomenclature.deletedAt)))
+    .limit(1);
+  const fromDefault = row[0]?.defaultBrandId ? String(row[0].defaultBrandId) : '';
+  if (fromDefault) return fromDefault;
+  const jb = await db
+    .select({ engineBrandId: erpNomenclatureEngineBrand.engineBrandId })
+    .from(erpNomenclatureEngineBrand)
+    .where(and(eq(erpNomenclatureEngineBrand.nomenclatureId, nomId as any), isNull(erpNomenclatureEngineBrand.deletedAt)))
+    .orderBy(desc(erpNomenclatureEngineBrand.isDefault), asc(erpNomenclatureEngineBrand.createdAt))
+    .limit(1);
+  return jb[0]?.engineBrandId ? String(jb[0].engineBrandId) : null;
+}
+
+async function enrichEngineAssemblyBomRowsForReplay(rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    if ((row as any).engine_brand_id) {
+      out.push(row);
+      continue;
+    }
+    const nomId = (row as any).engine_nomenclature_id;
+    if (!nomId) {
+      out.push(row);
+      continue;
+    }
+    const brandId = await resolveEngineBrandIdFromLegacyNomenclature(String(nomId));
+    if (brandId) {
+      out.push({ ...row, engine_brand_id: brandId });
+    } else {
+      out.push(row);
+    }
+  }
+  return out;
+}
+
 export async function replayLedgerToDb(actor: { id: string; username: string; role: string }) {
   if (!actor?.id) {
     throw new Error('actor is required');
@@ -108,9 +153,12 @@ export async function replayLedgerToDb(actor: { id: string; username: string; ro
   for (const regEntry of SyncTableRegistry.entries()) {
     const rows = await loadAllRows(regEntry.ledgerName as LedgerTableName);
     if (rows.length === 0) continue;
-    const normalized = rows
+    let normalized = rows
       .map((row) => normalizeRow(regEntry.syncName, row as Record<string, unknown>))
       .filter((row): row is Record<string, unknown> => !!row);
+    if (regEntry.syncName === SyncTableName.ErpEngineAssemblyBom && normalized.length > 0) {
+      normalized = await enrichEngineAssemblyBomRowsForReplay(normalized);
+    }
     if (normalized.length > 0) upserts.push({ table: regEntry.syncName, rows: normalized });
   }
 

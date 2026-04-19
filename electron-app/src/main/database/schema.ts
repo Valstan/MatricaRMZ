@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Временные поля храним как Unix-time в миллисекундах (int),
@@ -467,7 +468,9 @@ export const erpEngineAssemblyBom = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    engineNomenclatureId: text('engine_nomenclature_id').notNull(),
+    engineBrandId: text('engine_brand_id').notNull(),
+    /** Устарело: привязка к номенклатуре «двигатель»; смысловая привязка BOM — engine_brand_id. */
+    engineNomenclatureId: text('engine_nomenclature_id'),
     version: integer('version').notNull().default(1),
     status: text('status').notNull().default('draft'),
     isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
@@ -479,9 +482,14 @@ export const erpEngineAssemblyBom = sqliteTable(
     lastServerSeq: integer('last_server_seq'),
   },
   (t) => ({
-    engineVersionUq: uniqueIndex('erp_engine_assembly_bom_engine_version_uq').on(t.engineNomenclatureId, t.version),
-    engineIdx: index('erp_engine_assembly_bom_engine_idx').on(t.engineNomenclatureId),
+    brandVersionUq: uniqueIndex('erp_engine_assembly_bom_brand_version_uq')
+      .on(t.engineBrandId, t.version)
+      .where(sql`${t.deletedAt} is null`),
+    brandIdx: index('erp_engine_assembly_bom_brand_idx').on(t.engineBrandId),
     statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
+    activeDefaultBrandUq: uniqueIndex('erp_engine_assembly_bom_active_default_brand_uq')
+      .on(t.engineBrandId)
+      .where(sql`${t.deletedAt} is null and ${t.status} = 'active' and ${t.isDefault} = 1`),
   }),
 );
 

@@ -95,7 +95,8 @@ export const erpEngineInstanceRowSchema = z.object({
 export const erpEngineAssemblyBomRowSchema = z.object({
   ...baseErpFields,
   name: z.string().min(1),
-  engine_nomenclature_id: z.string().uuid(),
+  engine_brand_id: z.string().uuid(),
+  engine_nomenclature_id: z.string().uuid().nullable().optional(),
   version: z.number().int().min(1),
   status: z.enum(['draft', 'active', 'archived']),
   is_default: z.boolean(),

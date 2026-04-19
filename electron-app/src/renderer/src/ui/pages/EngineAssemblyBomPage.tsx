@@ -8,7 +8,8 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 type BomListRow = {
   id: string;
   name: string;
-  engineNomenclatureId: string;
+  engineBrandId: string;
+  engineNomenclatureId?: string | null;
   engineNomenclatureCode?: string | null;
   engineNomenclatureName?: string | null;
   version: number;
@@ -18,41 +19,7 @@ type BomListRow = {
   updatedAt: number;
 };
 
-type EngineNomenclatureRow = {
-  id: string;
-  code: string;
-  name: string;
-  itemType: string;
-  category: string;
-  defaultBrandId: string;
-  defaultBrandName: string;
-  isSerialTracked: boolean;
-};
-
-type SortKey = 'name' | 'engine' | 'version' | 'lines' | 'updatedAt';
-
-function toEngineNomenclatureRow(input: unknown): EngineNomenclatureRow {
-  const row = (input ?? {}) as Record<string, unknown>;
-  return {
-    id: String(row.id ?? '').trim(),
-    code: String(row.code ?? '').trim(),
-    name: String(row.name ?? '').trim(),
-    itemType: String(row.itemType ?? '').trim().toLowerCase(),
-    category: String(row.category ?? '').trim().toLowerCase(),
-    defaultBrandId: String(row.defaultBrandId ?? '').trim(),
-    defaultBrandName: String(row.defaultBrandName ?? '').trim(),
-    isSerialTracked: Boolean(row.isSerialTracked),
-  };
-}
-
-/** Позиции номенклатуры «двигатель» для BOM (не любая деталь с полем марки). */
-function isAssemblyBomEngineNomenclature(row: EngineNomenclatureRow): boolean {
-  if (!row.id) return false;
-  if (row.itemType === 'engine') return true;
-  if (row.category === 'engine') return true;
-  if (row.isSerialTracked && row.defaultBrandId) return true;
-  return false;
-}
+type SortKey = 'name' | 'brand' | 'version' | 'lines' | 'updatedAt';
 
 export function EngineAssemblyBomPage(props: {
   canEdit: boolean;
@@ -61,7 +28,6 @@ export function EngineAssemblyBomPage(props: {
   const { error: refsError, lookups } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
   const [engineBrandIdFilter, setEngineBrandIdFilter] = useState<string | null>(null);
-  const [engineRows, setEngineRows] = useState<EngineNomenclatureRow[]>([]);
   const [rows, setRows] = useState<BomListRow[]>([]);
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
@@ -71,48 +37,23 @@ export function EngineAssemblyBomPage(props: {
   const refresh = useCallback(async () => {
     try {
       setStatus('Загрузка BOM...');
-      const result = await window.matrica.warehouse.assemblyBomList();
+      const result = await window.matrica.warehouse.assemblyBomList(
+        engineBrandIdFilter ? { engineBrandId: engineBrandIdFilter } : undefined,
+      );
       if (!result?.ok) {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
         return;
       }
-      let nextRows = (result.rows ?? []) as BomListRow[];
-      if (engineBrandIdFilter) {
-        const allowedEngineIds = new Set(
-          engineRows
-            .filter((row) => row.defaultBrandId === engineBrandIdFilter)
-            .map((row) => row.id),
-        );
-        nextRows = nextRows.filter((row) => allowedEngineIds.has(String(row.engineNomenclatureId)));
-      }
-      setRows(nextRows);
+      setRows((result.rows ?? []) as BomListRow[]);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [engineBrandIdFilter, engineRows]);
+  }, [engineBrandIdFilter]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    let alive = true;
-    const loadEngineOptions = async () => {
-      const list = await window.matrica.warehouse.nomenclatureList({
-        isActive: true,
-        limit: 5000,
-      });
-      if (!alive || !list?.ok) return;
-      const parsed = (list.rows ?? []).map(toEngineNomenclatureRow);
-      const nextEngineRows = parsed.filter(isAssemblyBomEngineNomenclature);
-      setEngineRows(nextEngineRows);
-    };
-    void loadEngineOptions();
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const engineBrandOptions = useMemo(
     () =>
@@ -127,28 +68,32 @@ export function EngineAssemblyBomPage(props: {
     [lookups.engineBrands],
   );
 
-  const brandByEngineNomenclatureId = useMemo(() => {
+  const brandLabelById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const row of engineRows) {
-      if (!row.id || !row.defaultBrandName) continue;
-      map.set(row.id, row.defaultBrandName);
+    for (const b of lookups.engineBrands ?? []) {
+      const id = String(b.id ?? '').trim();
+      if (!id) continue;
+      map.set(id, String(b.label ?? '').trim() || id);
     }
     return map;
-  }, [engineRows]);
+  }, [lookups.engineBrands]);
 
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
-      else if (sortKey === 'engine') cmp = String(a.engineNomenclatureName ?? a.engineNomenclatureCode ?? '').localeCompare(String(b.engineNomenclatureName ?? b.engineNomenclatureCode ?? ''), 'ru');
-      else if (sortKey === 'version') cmp = Number(a.version ?? 0) - Number(b.version ?? 0);
+      else if (sortKey === 'brand') {
+        const la = brandLabelById.get(String(a.engineBrandId)) ?? String(a.engineBrandId ?? '');
+        const lb = brandLabelById.get(String(b.engineBrandId)) ?? String(b.engineBrandId ?? '');
+        cmp = la.localeCompare(lb, 'ru');
+      } else if (sortKey === 'version') cmp = Number(a.version ?? 0) - Number(b.version ?? 0);
       else if (sortKey === 'lines') cmp = Number(a.linesCount ?? 0) - Number(b.linesCount ?? 0);
       else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
       if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       return cmp * dir;
     });
-  }, [rows, sortDir, sortKey]);
+  }, [brandLabelById, rows, sortDir, sortKey]);
   const pagedRows = useMemo(() => {
     const start = pageIndex * pageSize;
     return sortedRows.slice(start, start + pageSize);
@@ -174,11 +119,11 @@ export function EngineAssemblyBomPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя</span>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка)</span>
           <SearchSelect
             value={engineBrandIdFilter}
             options={engineBrandOptions}
-            placeholder="Выберите марку двигателя"
+            placeholder="Все марки"
             showAllWhenEmpty
             onChange={(value) => {
               setPageIndex(0);
@@ -193,26 +138,15 @@ export function EngineAssemblyBomPage(props: {
                 setStatus('Ошибка: сначала выберите марку двигателя.');
                 return;
               }
-              const enginesForBrand = engineRows
-                .filter((row) => row.defaultBrandId === engineBrandIdFilter)
-                .sort((a, b) => (a.name || a.code || a.id).localeCompare(b.name || b.code || b.id, 'ru'));
-              const selectedEngine = enginesForBrand[0] ?? null;
-              if (!selectedEngine?.id) {
-                setStatus('Ошибка: для выбранной марки не найдена номенклатура двигателя.');
-                return;
-              }
-              const existing = rows.find((row) => String(row.engineNomenclatureId) === String(selectedEngine.id));
+              const existing = rows.find((row) => String(row.engineBrandId) === String(engineBrandIdFilter));
               if (existing?.id) {
-                setStatus('Для выбранного двигателя спецификация уже существует. Открываем текущую карточку.');
+                setStatus('Для выбранной марки спецификация уже есть. Открываем текущую карточку.');
                 props.onOpen(String(existing.id));
                 return;
               }
-              if (enginesForBrand.length > 1) {
-                setStatus(`Выбрана первая номенклатура двигателя для марки: ${selectedEngine.name || selectedEngine.code || selectedEngine.id}.`);
-              }
               const created = await window.matrica.warehouse.assemblyBomUpsert({
                 name: `BOM ${engineBrandOptions.find((brand) => brand.id === engineBrandIdFilter)?.label ?? 'марки двигателя'}`,
-                engineNomenclatureId: selectedEngine.id,
+                engineBrandId: engineBrandIdFilter,
                 status: 'active',
                 isDefault: true,
                 lines: [],
@@ -247,11 +181,21 @@ export function EngineAssemblyBomPage(props: {
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Название', 'name')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('engine')}>{sortLabel('Марка двигателя', 'engine')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('version')}>{sortLabel('Версия', 'version')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('lines')}>{sortLabel('Строк', 'lines')}</th>
-              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>{sortLabel('Обновлено', 'updatedAt')}</th>
+              <th style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220, width: '38%' }} onClick={() => onSort('name')}>
+                {sortLabel('Название', 'name')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer', minWidth: 200 }} onClick={() => onSort('brand')}>
+                {sortLabel('Марка двигателя', 'brand')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('version')}>
+                {sortLabel('Версия', 'version')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('lines')}>
+                {sortLabel('Строк', 'lines')}
+              </th>
+              <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+                {sortLabel('Обновлено', 'updatedAt')}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -264,8 +208,15 @@ export function EngineAssemblyBomPage(props: {
             ) : (
               pagedRows.map((row) => (
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
-                  <td>{row.name || '—'}</td>
-                  <td>{brandByEngineNomenclatureId.get(String(row.engineNomenclatureId)) || row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId}</td>
+                  <td style={{ whiteSpace: 'normal', wordBreak: 'break-word', verticalAlign: 'top' }}>{row.name || '—'}</td>
+                  <td style={{ whiteSpace: 'normal', wordBreak: 'break-word', verticalAlign: 'top' }}>
+                    <div>{brandLabelById.get(String(row.engineBrandId)) || row.engineBrandId || '—'}</div>
+                    {row.engineNomenclatureName || row.engineNomenclatureCode ? (
+                      <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>
+                        Устар. номенклатура: {row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId || '—'}
+                      </div>
+                    ) : null}
+                  </td>
                   <td>{Number(row.version ?? 1)}</td>
                   <td>{Number(row.linesCount ?? 0)}</td>
                   <td>{row.updatedAt ? new Date(Number(row.updatedAt)).toLocaleString('ru-RU') : '—'}</td>

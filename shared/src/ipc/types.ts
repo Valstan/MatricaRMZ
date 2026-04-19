@@ -1309,6 +1309,7 @@ export type MatricaApi = {
     documentPost: (id: string) => Promise<{ ok: true; id: string; posted?: boolean } | { ok: false; error: string }>;
     documentCancel: (id: string) => Promise<{ ok: true; id: string; status: 'cancelled' } | { ok: false; error: string }>;
     assemblyBomList: (args?: {
+      engineBrandId?: string;
       engineNomenclatureId?: string;
       status?: string;
     }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
@@ -1323,10 +1324,10 @@ export type MatricaApi = {
     assemblyBomDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     assemblyBomActivateDefault: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     assemblyBomArchive: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-    assemblyBomHistory: (args: { engineNomenclatureId: string }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
+    assemblyBomHistory: (args: { engineBrandId: string }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
     assemblyBomPrint: (id: string) => Promise<{ ok: true; payload: EngineAssemblyBomDetails } | { ok: false; error: string }>;
     forecastBomGet: (args: {
-      engineId: string;
+      engineBrandId: string;
       targetEnginesPerDay?: number;
       horizonDays?: number;
       warehouseIds?: string[];

@@ -288,6 +288,13 @@
       "when": 1776376200000,
       "tag": "0041_document_lines_nomenclature_id",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1779129600000,
+      "tag": "0042_bom_engine_brand",
+      "breakpoints": true
     }
   ]
 }

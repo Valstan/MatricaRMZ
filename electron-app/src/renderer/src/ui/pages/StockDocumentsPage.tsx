@@ -25,7 +25,7 @@ function loadIncludedStatuses(): string[] {
     if (raw) {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) {
-        const allow = new Set(order);
+        const allow = new Set<string>(order);
         const picked = parsed.filter((x): x is string => typeof x === 'string' && allow.has(x));
         if (picked.length > 0) return order.filter((id) => picked.includes(id));
       }

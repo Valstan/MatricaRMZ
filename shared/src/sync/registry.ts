@@ -213,6 +213,7 @@ const ERP_ENGINE_INSTANCE_FIELDS: readonly FieldMapping[] = [
 const ERP_ENGINE_ASSEMBLY_BOM_FIELDS: readonly FieldMapping[] = [
   { db: 'id', dto: 'id' },
   { db: 'name', dto: 'name' },
+  { db: 'engineBrandId', dto: 'engine_brand_id' },
   { db: 'engineNomenclatureId', dto: 'engine_nomenclature_id' },
   { db: 'version', dto: 'version' },
   { db: 'status', dto: 'status' },
@@ -382,7 +383,7 @@ const ENTRIES: readonly SyncTableEntry[] = [
     schema: erpEngineAssemblyBomRowSchema,
     fields: ERP_ENGINE_ASSEMBLY_BOM_FIELDS,
     conflictTarget: ['id'],
-    dependsOn: [SyncTableName.ErpNomenclature],
+    dependsOn: [SyncTableName.Entities, SyncTableName.ErpNomenclature],
   },
   {
     syncName: SyncTableName.ErpEngineAssemblyBomLines,

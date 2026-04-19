@@ -976,9 +976,11 @@ export const erpEngineAssemblyBom = pgTable(
   {
     id: uuid('id').primaryKey(),
     name: text('name').notNull(),
-    engineNomenclatureId: uuid('engine_nomenclature_id')
+    engineBrandId: uuid('engine_brand_id')
       .notNull()
-      .references(() => erpNomenclature.id),
+      .references(() => entities.id),
+    /** Устарело: раньше привязка к номенклатуре «двигатель»; оставлено для данных до миграции / отладки. */
+    engineNomenclatureId: uuid('engine_nomenclature_id').references(() => erpNomenclature.id),
     version: integer('version').notNull().default(1),
     status: text('status').notNull().default('draft'),
     isDefault: boolean('is_default').notNull().default(false),
@@ -990,13 +992,13 @@ export const erpEngineAssemblyBom = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
-    engineVersionUq: uniqueIndex('erp_engine_assembly_bom_engine_version_uq')
-      .on(t.engineNomenclatureId, t.version)
+    brandVersionUq: uniqueIndex('erp_engine_assembly_bom_brand_version_uq')
+      .on(t.engineBrandId, t.version)
       .where(sql`${t.deletedAt} is null`),
-    engineIdx: index('erp_engine_assembly_bom_engine_idx').on(t.engineNomenclatureId),
+    brandIdx: index('erp_engine_assembly_bom_brand_idx').on(t.engineBrandId),
     statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
-    activeDefaultEngineUq: uniqueIndex('erp_engine_assembly_bom_active_default_engine_uq')
-      .on(t.engineNomenclatureId)
+    activeDefaultBrandUq: uniqueIndex('erp_engine_assembly_bom_active_default_brand_uq')
+      .on(t.engineBrandId)
       .where(sql`${t.deletedAt} is null and ${t.status} = 'active' and ${t.isDefault} = true`),
   }),
 );

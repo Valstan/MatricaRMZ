@@ -2542,12 +2542,12 @@ async function buildAssemblyForecast7dReport(
     const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
     const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(filters?.horizonDays ?? 7))));
     const warehouseIds = asArray(filters?.warehouseIds);
-    const engineNomenclatureIds = asArray(filters?.engineNomenclatureIds);
+    const engineBrandIds = asArray(filters?.engineBrandIds);
     const payload = {
       targetEnginesPerDay,
       horizonDays,
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
-      ...(engineNomenclatureIds.length > 0 ? { engineNomenclatureIds } : {}),
+      ...(engineBrandIds.length > 0 ? { engineBrandIds } : {}),
     };
     try {
       const r = await httpAuthed(
@@ -2614,25 +2614,21 @@ async function buildAssemblyForecast7dReport(
 }
 
 async function buildAssemblyBomEngineOptions(db: BetterSQLite3Database): Promise<ReportFilterOption[]> {
+  const snapshot = await loadSnapshot(db);
   const rows = await db
-    .select({
-      engineId: erpEngineAssemblyBom.engineNomenclatureId,
-      name: erpNomenclature.name,
-      code: erpNomenclature.code,
-    })
+    .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
     .from(erpEngineAssemblyBom)
-    .leftJoin(erpNomenclature, eq(erpNomenclature.id, erpEngineAssemblyBom.engineNomenclatureId))
     .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
   const unique = new Map<string, ReportFilterOption>();
   for (const row of rows) {
-    const id = String(row.engineId ?? '').trim();
+    const id = String(row.engineBrandId ?? '').trim();
     if (!id || unique.has(id)) continue;
-    const label = String(row.name ?? '').trim() || id;
-    const code = String(row.code ?? '').trim();
+    const label = entityLabel(snapshot.attrsByEntity.get(id), id);
+    const searchText = joinOptionSearch([label, id]);
     unique.set(id, {
       value: id,
-      label: code ? `${label} (${code})` : label,
-      ...(code ? { searchText: `${label} ${code} ${id}` } : { searchText: `${label} ${id}` }),
+      label: label.trim() ? label : id,
+      ...(searchText ? { searchText } : {}),
     });
   }
   return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));

@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 4;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 5;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -160,6 +160,101 @@ const MIGRATIONS: Migration[] = [
         sqlite.exec(`ALTER TABLE erp_document_lines ADD COLUMN nomenclature_id text;`);
       }
       sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_document_lines_nomenclature_idx ON erp_document_lines(nomenclature_id);`);
+    },
+  },
+  {
+    from: 4,
+    to: 5,
+    name: 'erp_engine_assembly_bom engine_brand_id',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom')`).all() as Array<{ name: string }>;
+      if (cols.length === 0) return;
+      if (cols.some((c) => c.name === 'engine_brand_id')) return;
+
+      sqlite.exec('PRAGMA foreign_keys=OFF;');
+      try {
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;`);
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_idx;`);
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_engine_uq;`);
+
+        sqlite.exec(`
+          CREATE TABLE __erp_engine_assembly_bom_mig (
+            id text PRIMARY KEY NOT NULL,
+            name text NOT NULL,
+            engine_brand_id text NOT NULL,
+            engine_nomenclature_id text,
+            version integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'draft',
+            is_default integer NOT NULL DEFAULT 0,
+            notes text,
+            created_at integer NOT NULL,
+            updated_at integer NOT NULL,
+            deleted_at integer,
+            sync_status text NOT NULL DEFAULT 'synced',
+            last_server_seq integer
+          );
+        `);
+
+        sqlite.exec(`
+          INSERT INTO __erp_engine_assembly_bom_mig (
+            id, name, engine_brand_id, engine_nomenclature_id, version, status, is_default, notes,
+            created_at, updated_at, deleted_at, sync_status, last_server_seq
+          )
+          SELECT
+            b.id,
+            b.name,
+            COALESCE(
+              (SELECT n.default_brand_id FROM erp_nomenclature n
+                WHERE n.id = b.engine_nomenclature_id AND n.default_brand_id IS NOT NULL AND n.deleted_at IS NULL
+                LIMIT 1),
+              (SELECT neb.engine_brand_id FROM erp_nomenclature_engine_brand neb
+                WHERE neb.nomenclature_id = b.engine_nomenclature_id AND neb.deleted_at IS NULL
+                ORDER BY neb.is_default DESC, neb.created_at ASC
+                LIMIT 1),
+              ''
+            ),
+            b.engine_nomenclature_id,
+            b.version,
+            b.status,
+            b.is_default,
+            b.notes,
+            b.created_at,
+            b.updated_at,
+            b.deleted_at,
+            b.sync_status,
+            b.last_server_seq
+          FROM erp_engine_assembly_bom b;
+        `);
+
+        const bad = sqlite
+          .prepare(
+            `SELECT COUNT(*) AS c FROM __erp_engine_assembly_bom_mig WHERE deleted_at IS NULL AND (engine_brand_id IS NULL OR engine_brand_id = '')`,
+          )
+          .get() as { c: number };
+        if (Number(bad?.c ?? 0) > 0) {
+          sqlite.exec(`DROP TABLE __erp_engine_assembly_bom_mig;`);
+          throw new Error(
+            'erp_engine_assembly_bom: cannot resolve engine_brand_id for non-deleted rows; sync masterdata / nomenclature brands first',
+          );
+        }
+
+        sqlite.exec(`DROP TABLE erp_engine_assembly_bom;`);
+        sqlite.exec(`ALTER TABLE __erp_engine_assembly_bom_mig RENAME TO erp_engine_assembly_bom;`);
+
+        sqlite.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_brand_version_uq
+            ON erp_engine_assembly_bom(engine_brand_id, version) WHERE deleted_at IS NULL;
+        `);
+        sqlite.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_active_default_brand_uq
+            ON erp_engine_assembly_bom(engine_brand_id)
+            WHERE deleted_at IS NULL AND status = 'active' AND is_default = 1;
+        `);
+        sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_brand_idx ON erp_engine_assembly_bom(engine_brand_id);`);
+        sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);`);
+      } finally {
+        sqlite.exec('PRAGMA foreign_keys=ON;');
+      }
     },
   },
 ];

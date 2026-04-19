@@ -301,7 +301,7 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseForecastIncomingGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
-  ipcMain.handle('warehouse:assemblyBom:list', async (_e, args?: { engineNomenclatureId?: string; status?: string }) => {
+  ipcMain.handle('warehouse:assemblyBom:list', async (_e, args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
@@ -364,11 +364,11 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseAssemblyBomArchive(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
-  ipcMain.handle('warehouse:assemblyBom:history', async (_e, args: { engineNomenclatureId: string }) => {
+  ipcMain.handle('warehouse:assemblyBom:history', async (_e, args: { engineBrandId: string }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(args?.engineNomenclatureId || ''));
+    return warehouseAssemblyBomHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(args?.engineBrandId || ''));
   });
 
   ipcMain.handle('warehouse:assemblyBom:print', async (_e, id: string) => {
@@ -380,7 +380,7 @@ export function registerErpIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'warehouse:forecast:bom:get',
-    async (_e, args: { engineId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] }) => {
+    async (_e, args: { engineBrandId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] }) => {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
       const gate = await requirePermOrResult(ctx, 'erp.registers.view');
       if (!gate.ok) return gate as any;

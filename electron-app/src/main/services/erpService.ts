@@ -621,10 +621,11 @@ export async function warehouseForecastIncomingGet(
 export async function warehouseAssemblyBomList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { engineNomenclatureId?: string; status?: string },
+  args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string },
 ) {
   try {
     const qp = new URLSearchParams();
+    if (args?.engineBrandId) qp.set('engineBrandId', args.engineBrandId);
     if (args?.engineNomenclatureId) qp.set('engineNomenclatureId', args.engineNomenclatureId);
     if (args?.status) qp.set('status', args.status);
     const path = `/warehouse/assembly-bom${qp.toString() ? `?${qp.toString()}` : ''}`;
@@ -767,9 +768,9 @@ export async function warehouseAssemblyBomArchive(
 export async function warehouseAssemblyBomHistory(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  engineNomenclatureId: string,
+  engineBrandId: string,
 ) {
-  const path = `/warehouse/assembly-bom/${encodeURIComponent(engineNomenclatureId)}/history`;
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(engineBrandId)}/history`;
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
@@ -799,11 +800,11 @@ export async function warehouseAssemblyBomPrint(
 export async function warehouseForecastBomGet(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { engineId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] },
+  args: { engineBrandId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] },
 ) {
   try {
     const qp = new URLSearchParams();
-    qp.set('engineId', args.engineId);
+    qp.set('engineBrandId', args.engineBrandId);
     if (args.targetEnginesPerDay !== undefined) qp.set('targetEnginesPerDay', String(Math.trunc(args.targetEnginesPerDay)));
     if (args.horizonDays !== undefined) qp.set('horizonDays', String(Math.trunc(args.horizonDays)));
     if (args.warehouseIds && args.warehouseIds.length > 0) qp.set('warehouseIds', args.warehouseIds.join(','));

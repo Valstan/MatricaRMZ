@@ -659,7 +659,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'assembly_forecast_7d',
     title: 'Прогноз сборки двигателей',
     description:
-      'Прогнозирует сборку по активным default BOM-матрицам (двигатель -> компоненты), с учетом остатков и плановых приходов из складских документов в статусе planned.',
+      'Прогнозирует сборку по активным default BOM-матрицам (марка двигателя из справочника -> компоненты), с учетом остатков и плановых приходов из складских документов в статусе planned.',
     filters: [
       {
         type: 'multi_select',
@@ -670,8 +670,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
       {
         type: 'multi_select',
-        key: 'engineNomenclatureIds',
-        label: 'Двигатели (из активных BOM)',
+        key: 'engineBrandIds',
+        label: 'Марки двигателей (из активных BOM)',
         optionsSource: 'assemblyBrands',
         selectAllByDefault: true,
       },
