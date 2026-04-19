@@ -3,6 +3,34 @@ import { rankLookupOptions } from '../utils/searchMatching.js';
 
 type SuggestOption = { id: string; label: string; searchText?: string; hintText?: string };
 
+/** Ширина строк подписи/подсказки (приближённо к SearchSelect), плюс отступы и бейдж. */
+const MEASURE_LABEL_FONT = '600 14px system-ui, "Segoe UI", sans-serif';
+const MEASURE_HINT_FONT = '400 11px system-ui, "Segoe UI", sans-serif';
+
+function estimateSuggestListContentWidth(items: ReadonlyArray<{ label: string; hintText?: string }>): number {
+  if (items.length === 0) return 220;
+  let maxPx = 200;
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const limit = Math.min(items.length, 500);
+      for (let i = 0; i < limit; i++) {
+        const o = items[i];
+        const label = String(o?.label ?? '');
+        const hint = String(o?.hintText ?? '');
+        ctx.font = MEASURE_LABEL_FONT;
+        maxPx = Math.max(maxPx, ctx.measureText(label).width);
+        if (hint) {
+          ctx.font = MEASURE_HINT_FONT;
+          maxPx = Math.max(maxPx, ctx.measureText(hint).width);
+        }
+      }
+    }
+  }
+  return Math.ceil(maxPx) + 140;
+}
+
 export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -42,7 +70,8 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
       const padding = 8;
       const viewportW = window.innerWidth;
       const viewportH = window.innerHeight;
-      const width = Math.min(rect.width, Math.max(160, viewportW - padding * 2));
+      const contentW = estimateSuggestListContentWidth(filtered);
+      const width = Math.min(Math.max(rect.width, contentW, 160), viewportW - padding * 2);
 
       let left = rect.left;
       if (left + width > viewportW - padding) left = viewportW - padding - width;
@@ -76,7 +105,7 @@ export function useSuggestionDropdown<T extends SuggestOption>(options: T[]) {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [open]);
+  }, [open, filtered]);
 
   useEffect(() => {
     if (!open) return;

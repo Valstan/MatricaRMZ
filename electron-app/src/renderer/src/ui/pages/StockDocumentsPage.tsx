@@ -1,12 +1,44 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { WarehouseDocumentListItem, WarehouseDocumentType } from '@matricarmz/shared';
+import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
-import { lookupToSelectOptions, warehouseDocTypeLabel, WAREHOUSE_DOC_STATUS_OPTIONS, WAREHOUSE_DOC_TYPE_OPTIONS } from '../utils/warehouseUi.js';
+import {
+  lookupToSelectOptions,
+  warehouseDocTypeLabel,
+  warehouseDocumentStatusLabel,
+  WAREHOUSE_DOC_TYPE_OPTIONS,
+} from '../utils/warehouseUi.js';
+
+const LS_STATUS_IN = 'matrica.warehouse.documents.statusIn';
+const LS_HIDE_CANCELLED_LEGACY = 'matrica.warehouse.documents.hideCancelled';
+
+function loadIncludedStatuses(): string[] {
+  const order = [...WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER];
+  try {
+    const raw = localStorage.getItem(LS_STATUS_IN);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const allow = new Set(order);
+        const picked = parsed.filter((x): x is string => typeof x === 'string' && allow.has(x));
+        if (picked.length > 0) return order.filter((id) => picked.includes(id));
+      }
+    }
+    const legacyHide = localStorage.getItem(LS_HIDE_CANCELLED_LEGACY);
+    if (legacyHide !== 'false') {
+      return order.filter((id) => id !== 'cancelled');
+    }
+  } catch {
+    /* noop */
+  }
+  return order;
+}
 
 type SortKey = 'docNo' | 'docType' | 'docDate' | 'status' | 'warehouse' | 'counterparty' | 'reason' | 'lines' | 'qty';
 
@@ -19,7 +51,7 @@ export function StockDocumentsPage(props: {
   const [rows, setRows] = useState<WarehouseDocumentListItem[]>([]);
   const [status, setStatus] = useState('');
   const [docType, setDocType] = useState<WarehouseDocumentType | ''>((props.defaultDocType as WarehouseDocumentType) ?? '');
-  const [docStatus, setDocStatus] = useState('');
+  const [includedStatuses, setIncludedStatuses] = useState<string[]>(loadIncludedStatuses);
   const [query, setQuery] = useState('');
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState('');
@@ -30,18 +62,33 @@ export function StockDocumentsPage(props: {
   const [sortKey, setSortKey] = useState<SortKey>('docDate');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  function persistIncludedStatuses(next: string[]) {
+    setIncludedStatuses(next);
+    try {
+      localStorage.setItem(LS_STATUS_IN, JSON.stringify(next));
+    } catch {
+      /* noop */
+    }
+  }
+
   useEffect(() => {
     setPageIndex(0);
-  }, [docStatus, docType, fromDate, query, toDate, warehouseId]);
+  }, [includedStatuses, docType, fromDate, query, toDate, warehouseId]);
 
   const refresh = useCallback(async () => {
     try {
+      if (includedStatuses.length === 0) {
+        setRows([]);
+        setHasMore(false);
+        setStatus('');
+        return;
+      }
       setStatus('Загрузка документов...');
       const result = await window.matrica.warehouse.documentsList({
         limit: pageSize,
         offset: pageIndex * pageSize,
         ...(docType ? { docType } : {}),
-        ...(docStatus ? { status: docStatus } : {}),
+        statusIn: includedStatuses,
         ...(query.trim() ? { search: query.trim() } : {}),
         ...(warehouseId ? { warehouseId } : {}),
         ...(fromDate ? { fromDate: new Date(`${fromDate}T00:00:00`).getTime() } : {}),
@@ -57,7 +104,7 @@ export function StockDocumentsPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [docStatus, docType, fromDate, pageIndex, pageSize, query, toDate, warehouseId]);
+  }, [includedStatuses, docType, fromDate, pageIndex, pageSize, query, toDate, warehouseId]);
 
   useEffect(() => {
     setDocType((props.defaultDocType as WarehouseDocumentType) ?? '');
@@ -74,7 +121,11 @@ export function StockDocumentsPage(props: {
       if (sortKey === 'docNo') cmp = String(a.docNo ?? '').localeCompare(String(b.docNo ?? ''), 'ru');
       else if (sortKey === 'docType') cmp = String(a.docType ?? '').localeCompare(String(b.docType ?? ''), 'ru');
       else if (sortKey === 'docDate') cmp = Number(a.docDate ?? 0) - Number(b.docDate ?? 0);
-      else if (sortKey === 'status') cmp = String(a.status ?? '').localeCompare(String(b.status ?? ''), 'ru');
+      else if (sortKey === 'status')
+        cmp = warehouseDocumentStatusLabel(String(a.status ?? '')).localeCompare(
+          warehouseDocumentStatusLabel(String(b.status ?? '')),
+          'ru',
+        );
       else if (sortKey === 'warehouse') cmp = String(a.warehouseName ?? '').localeCompare(String(b.warehouseName ?? ''), 'ru');
       else if (sortKey === 'counterparty') cmp = String(a.counterpartyName ?? '').localeCompare(String(b.counterpartyName ?? ''), 'ru');
       else if (sortKey === 'reason') cmp = String(a.reasonLabel ?? a.reason ?? '').localeCompare(String(b.reasonLabel ?? b.reason ?? ''), 'ru');
@@ -109,13 +160,7 @@ export function StockDocumentsPage(props: {
             </option>
           ))}
         </select>
-        <select value={docStatus} onChange={(e) => setDocStatus(e.target.value)} style={{ minWidth: 180, padding: '8px 10px' }}>
-          {WAREHOUSE_DOC_STATUS_OPTIONS.map((item) => (
-            <option key={item.id || 'all'} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+        <WarehouseDocumentStatusFilterDropdown value={includedStatuses} onChange={persistIncludedStatuses} />
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру, основанию, складу, контрагенту..." />
         <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
         <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
@@ -155,6 +200,10 @@ export function StockDocumentsPage(props: {
         </Button>
       </div>
 
+      {includedStatuses.length === 0 ? (
+        <div style={{ color: 'var(--warning, #b8860b)', fontSize: 14 }}>Отметьте хотя бы один статус в фильтре «Статусы», чтобы загрузить список.</div>
+      ) : null}
+
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
@@ -168,7 +217,7 @@ export function StockDocumentsPage(props: {
         onPageIndexChange={setPageIndex}
         rowCount={rows.length}
         hasMore={hasMore}
-        disabled={status === 'Загрузка документов...'}
+        disabled={status === 'Загрузка документов...' || includedStatuses.length === 0}
       />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
@@ -190,7 +239,7 @@ export function StockDocumentsPage(props: {
             {displayRows.length === 0 ? (
               <tr>
                 <td colSpan={9} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 12 }}>
-                  Нет документов
+                  {includedStatuses.length === 0 ? 'Выберите статусы в фильтре выше' : 'Нет документов'}
                 </td>
               </tr>
             ) : (
@@ -199,7 +248,7 @@ export function StockDocumentsPage(props: {
                   <td>{row.docNo || '—'}</td>
                   <td>{warehouseDocTypeLabel(row.docType)}</td>
                   <td>{row.docDate ? new Date(Number(row.docDate)).toLocaleString('ru-RU') : '—'}</td>
-                  <td>{row.status || '—'}</td>
+                  <td>{warehouseDocumentStatusLabel(row.status)}</td>
                   <td>{row.warehouseName || row.warehouseId || '—'}</td>
                   <td>{row.counterpartyName || '—'}</td>
                   <td>{row.reasonLabel || row.reason || '—'}</td>

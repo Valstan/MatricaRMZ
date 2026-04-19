@@ -1287,9 +1287,15 @@ export async function listWarehouseStock(args?: {
   }
 }
 
+const WAREHOUSE_DOC_LIST_STATUSES = new Set(['draft', 'planned', 'posted', 'cancelled']);
+
 export async function listWarehouseDocuments(args?: {
   docType?: string;
   status?: string;
+  /** Исключить документы в статусе cancelled (для списка «без мусора»). */
+  excludeCancelled?: boolean;
+  /** Показывать только документы с этими статусами (если задано — имеет приоритет над status/excludeCancelled). */
+  statusIn?: string[];
   fromDate?: number;
   toDate?: number;
   search?: string;
@@ -1321,10 +1327,20 @@ export async function listWarehouseDocuments(args?: {
       linesByHeaderId.set(key, list);
     }
     const search = String(args?.search ?? '').trim().toLowerCase();
+    const statusInSanitized =
+      args?.statusIn !== undefined
+        ? [...new Set(args.statusIn.map(String).map((s) => s.trim()).filter((s) => WAREHOUSE_DOC_LIST_STATUSES.has(s)))]
+        : null;
     const filtered = rows.filter((row) => {
       if (!isStockDocType(String(row.docType))) return false;
       if (args?.docType && String(row.docType) !== String(args.docType)) return false;
-      if (args?.status && String(row.status) !== String(args.status)) return false;
+      if (statusInSanitized !== null) {
+        if (statusInSanitized.length === 0) return false;
+        if (!statusInSanitized.includes(String(row.status))) return false;
+      } else {
+        if (args?.excludeCancelled && String(row.status) === 'cancelled') return false;
+        if (args?.status && String(row.status) !== String(args.status)) return false;
+      }
       if (args?.fromDate !== undefined && Number(row.docDate) < Number(args.fromDate)) return false;
       if (args?.toDate !== undefined && Number(row.docDate) > Number(args.toDate)) return false;
       const headerPayload = parseWarehouseHeaderPayload(row.payloadJson);

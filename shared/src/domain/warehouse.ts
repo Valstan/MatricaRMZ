@@ -216,6 +216,39 @@ export const WarehouseDocumentTypeLabels: Record<WarehouseDocumentType, string> 
   [WarehouseDocumentType.StockInventory]: 'Инвентаризация',
 };
 
+/** Значения `erp_document_headers.status` для складских документов (в БД — латиница). */
+export const WarehouseDocumentWorkflowStatus = {
+  Draft: 'draft',
+  Planned: 'planned',
+  Posted: 'posted',
+  Cancelled: 'cancelled',
+} as const;
+
+export type WarehouseDocumentWorkflowStatus =
+  (typeof WarehouseDocumentWorkflowStatus)[keyof typeof WarehouseDocumentWorkflowStatus];
+
+/** Подписи для интерфейса (русский язык). */
+export const WarehouseDocumentStatusLabels: Record<string, string> = {
+  [WarehouseDocumentWorkflowStatus.Draft]: 'Черновик',
+  [WarehouseDocumentWorkflowStatus.Planned]: 'Запланировано',
+  [WarehouseDocumentWorkflowStatus.Posted]: 'Проведён',
+  [WarehouseDocumentWorkflowStatus.Cancelled]: 'Отменён',
+};
+
+export function warehouseDocumentStatusLabel(status: string | null | undefined): string {
+  const s = String(status ?? '').trim();
+  if (!s) return '—';
+  return WarehouseDocumentStatusLabels[s] ?? s;
+}
+
+/** Порядок статусов в фильтре списка складских документов. */
+export const WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER: readonly WarehouseDocumentWorkflowStatus[] = [
+  WarehouseDocumentWorkflowStatus.Draft,
+  WarehouseDocumentWorkflowStatus.Planned,
+  WarehouseDocumentWorkflowStatus.Posted,
+  WarehouseDocumentWorkflowStatus.Cancelled,
+];
+
 export const WarehouseLookupKind = {
   Warehouses: 'warehouses',
   NomenclatureGroups: 'nomenclature_groups',

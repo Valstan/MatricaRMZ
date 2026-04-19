@@ -191,6 +191,14 @@ warehouseRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsV
   const schema = z.object({
     docType: z.string().optional(),
     status: z.string().optional(),
+    statusIn: z
+      .string()
+      .optional()
+      .transform((s) => (s === undefined ? undefined : s.split(',').map((x) => x.trim()).filter(Boolean))),
+    excludeCancelled: z
+      .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')])
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
     fromDate: z.coerce.number().int().optional(),
     toDate: z.coerce.number().int().optional(),
     search: z.string().optional(),
@@ -203,6 +211,8 @@ warehouseRouter.get('/documents', requirePermission(PermissionCode.ErpDocumentsV
   const result = await listWarehouseDocuments({
     ...(parsed.data.docType !== undefined ? { docType: parsed.data.docType } : {}),
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+    ...(parsed.data.statusIn !== undefined ? { statusIn: parsed.data.statusIn } : {}),
+    ...(parsed.data.excludeCancelled === true ? { excludeCancelled: true } : {}),
     ...(parsed.data.fromDate !== undefined ? { fromDate: parsed.data.fromDate } : {}),
     ...(parsed.data.toDate !== undefined ? { toDate: parsed.data.toDate } : {}),
     ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),

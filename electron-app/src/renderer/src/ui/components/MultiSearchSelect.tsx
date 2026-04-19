@@ -200,8 +200,8 @@ export function MultiSearchSelect(props: {
                       }}
                     >
                       <input type="checkbox" checked={checked} onChange={() => toggle(o.id)} />
-                      <span style={{ display: 'grid', gap: 2, color: 'var(--text)' }}>
-                        <span>
+                      <span style={{ display: 'grid', gap: 2, color: 'var(--text)', minWidth: 'min-content' }}>
+                        <span style={{ whiteSpace: 'nowrap' }}>
                           {highlightParts.map((part, partIdx) => (
                             <span
                               key={`${o.id}-part-${partIdx}`}
@@ -212,7 +212,7 @@ export function MultiSearchSelect(props: {
                           ))}
                         </span>
                         {hintParts && hintParts.some((part) => part.text) ? (
-                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                             {hintParts.map((part, partIdx) => (
                               <span
                                 key={`${o.id}-hint-${partIdx}`}

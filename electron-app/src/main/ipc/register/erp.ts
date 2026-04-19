@@ -202,7 +202,18 @@ export function registerErpIpc(ctx: IpcContext) {
     'warehouse:documents:list',
     async (
       _e,
-      args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string; limit?: number; offset?: number },
+      args?: {
+        status?: string;
+        docType?: string;
+        excludeCancelled?: boolean;
+        statusIn?: string[];
+        fromDate?: number;
+        toDate?: number;
+        search?: string;
+        warehouseId?: string;
+        limit?: number;
+        offset?: number;
+      },
     ) => {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
       const gate = await requirePermOrResult(ctx, 'erp.documents.view');

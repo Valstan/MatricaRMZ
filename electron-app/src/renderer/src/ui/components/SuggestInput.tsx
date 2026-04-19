@@ -49,7 +49,9 @@ export function SuggestInput(props: {
   style?: React.CSSProperties;
 }) {
   const disabled = props.disabled === true;
-  const dropdown = useSuggestionDropdown(props.options.map((o) => ({ id: o.value, label: o.value })));
+  const dropdown = useSuggestionDropdown(
+    props.options.map((o) => ({ id: o.value, label: o.value, hintText: o.description })),
+  );
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [createBusy, setCreateBusy] = React.useState(false);
 
@@ -204,8 +206,10 @@ export function SuggestInput(props: {
                         background: focused ? 'rgba(96, 165, 250, 0.18)' : 'transparent',
                       }}
                     >
-                      <div style={{ fontWeight: 700, color: 'var(--text)' }}>{highlightMatch(o.label, dropdown.query)}</div>
-                      {meta?.description ? <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)' }}>{meta.description}</div> : null}
+                      <div style={{ fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>{highlightMatch(o.label, dropdown.query)}</div>
+                      {meta?.description ? (
+                        <div style={{ marginTop: 2, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{meta.description}</div>
+                      ) : null}
                     </div>
                   );
                 })}

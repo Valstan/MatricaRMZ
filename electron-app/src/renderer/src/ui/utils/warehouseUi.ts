@@ -3,6 +3,7 @@ import {
   WarehouseDocumentType,
   WarehouseDocumentTypeLabels,
   type WarehouseLookupOption,
+  warehouseDocumentStatusLabel,
 } from '@matricarmz/shared';
 import { mapWarehouseLookupOptions } from './selectOptions.js';
 
@@ -32,13 +33,7 @@ export const WAREHOUSE_DOC_TYPE_OPTIONS: Array<{ id: WarehouseDocumentType | '';
   { id: WarehouseDocumentType.StockInventory, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockInventory] },
 ];
 
-export const WAREHOUSE_DOC_STATUS_OPTIONS = [
-  { id: '', label: 'Все статусы' },
-  { id: 'draft', label: 'Черновик' },
-  { id: 'planned', label: 'Запланирован' },
-  { id: 'posted', label: 'Проведен' },
-  { id: 'cancelled', label: 'Отменен' },
-];
+export { warehouseDocumentStatusLabel };
 
 export function warehouseDocTypeLabel(docType: string | null | undefined): string {
   if (!docType) return '—';

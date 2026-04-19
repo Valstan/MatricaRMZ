@@ -301,8 +301,8 @@ export function SearchSelect(props: {
                         minHeight: 38,
                       }}
                     >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ flex: 1, minWidth: 'min-content' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                           {highlightParts.map((part, partIdx) => (
                             <span
                               key={`${option.id}-part-${partIdx}`}
@@ -313,7 +313,7 @@ export function SearchSelect(props: {
                           ))}
                         </div>
                         {hintParts && hintParts.some((part) => part.text) ? (
-                          <div style={{ marginTop: 1, fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ marginTop: 1, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                             {hintParts.map((part, partIdx) => (
                               <span
                                 key={`${option.id}-hint-${partIdx}`}

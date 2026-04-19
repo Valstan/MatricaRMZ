@@ -411,6 +411,8 @@ const matricaApi = {
     documentsList: async (args?: {
       status?: string;
       docType?: string;
+      excludeCancelled?: boolean;
+      statusIn?: string[];
       fromDate?: number;
       toDate?: number;
       search?: string;

@@ -1292,6 +1292,10 @@ export type MatricaApi = {
     documentsList: (args?: {
       status?: string;
       docType?: WarehouseDocumentType;
+      /** Не возвращать отменённые документы (если в фильтре не выбран явно статус «Отменён»). */
+      excludeCancelled?: boolean;
+      /** Показывать только документы с этими статусами (имеет приоритет над status/excludeCancelled). */
+      statusIn?: string[];
       fromDate?: number;
       toDate?: number;
       search?: string;

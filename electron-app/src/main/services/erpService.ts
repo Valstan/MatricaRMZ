@@ -478,12 +478,26 @@ export async function warehouseStockList(
 export async function warehouseDocumentsList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { status?: string; docType?: string; fromDate?: number; toDate?: number; search?: string; warehouseId?: string; limit?: number; offset?: number },
+  args?: {
+    status?: string;
+    docType?: string;
+    excludeCancelled?: boolean;
+    /** Список статусов для отображения; пустой массив — явно «ничего не показывать». */
+    statusIn?: string[];
+    fromDate?: number;
+    toDate?: number;
+    search?: string;
+    warehouseId?: string;
+    limit?: number;
+    offset?: number;
+  },
 ) {
   try {
     const qp = new URLSearchParams();
     if (args?.status) qp.set('status', args.status);
     if (args?.docType) qp.set('docType', args.docType);
+    if (args?.excludeCancelled === true) qp.set('excludeCancelled', 'true');
+    if (args?.statusIn !== undefined) qp.set('statusIn', args.statusIn.join(','));
     if (args?.fromDate !== undefined) qp.set('fromDate', String(Math.trunc(args.fromDate)));
     if (args?.toDate !== undefined) qp.set('toDate', String(Math.trunc(args.toDate)));
     if (args?.search) qp.set('search', args.search);

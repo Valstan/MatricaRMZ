@@ -9,7 +9,12 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
-import { lookupToSelectOptions, warehouseDocTypeLabel, WAREHOUSE_DOC_TYPE_OPTIONS } from '../utils/warehouseUi.js';
+import {
+  lookupToSelectOptions,
+  warehouseDocTypeLabel,
+  warehouseDocumentStatusLabel,
+  WAREHOUSE_DOC_TYPE_OPTIONS,
+} from '../utils/warehouseUi.js';
 
 type EditableLine = {
   id: string;
@@ -502,7 +507,7 @@ export function StockDocumentDetailsPage(props: {
           )}
           <div>Статус</div>
           <div>
-            {document?.header.status || 'draft'}
+            {warehouseDocumentStatusLabel(document?.header.status ?? 'draft')}
             {document?.header.warehouseName ? ` • ${document.header.warehouseName}` : ''}
             {document?.header.counterpartyName ? ` • ${document.header.counterpartyName}` : ''}
           </div>
