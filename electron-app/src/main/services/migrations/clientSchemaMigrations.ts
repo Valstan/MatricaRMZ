@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 5;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 6;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -255,6 +255,23 @@ const MIGRATIONS: Migration[] = [
       } finally {
         sqlite.exec('PRAGMA foreign_keys=ON;');
       }
+    },
+  },
+  {
+    from: 5,
+    to: 6,
+    name: 'bom_lines unique index includes component_type',
+    up: async (_db, sqlite) => {
+      const idx = sqlite
+        .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='erp_engine_assembly_bom_lines_variant_component_uq'`)
+        .get() as { name?: string } | undefined;
+      if (idx?.name) {
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_lines_variant_component_uq;`);
+      }
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_lines_variant_component_uq
+          ON erp_engine_assembly_bom_lines(bom_id, variant_group, component_nomenclature_id, component_type);
+      `);
     },
   },
 ];

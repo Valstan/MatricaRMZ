@@ -518,6 +518,7 @@ export const erpEngineAssemblyBomLines = sqliteTable(
       t.bomId,
       t.variantGroup,
       t.componentNomenclatureId,
+      t.componentType,
     ),
   }),
 );

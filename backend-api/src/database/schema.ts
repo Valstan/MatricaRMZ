@@ -1029,7 +1029,7 @@ export const erpEngineAssemblyBomLines = pgTable(
     bomIdx: index('erp_engine_assembly_bom_lines_bom_idx').on(t.bomId),
     componentIdx: index('erp_engine_assembly_bom_lines_component_idx').on(t.componentNomenclatureId),
     bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq')
-      .on(t.bomId, t.variantGroup, t.componentNomenclatureId)
+      .on(t.bomId, t.variantGroup, t.componentNomenclatureId, t.componentType)
       .where(sql`${t.deletedAt} is null`),
   }),
 );
