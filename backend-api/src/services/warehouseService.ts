@@ -1586,7 +1586,9 @@ export async function createWarehouseDocument(args: {
           updatedAt: ts,
         })
         .where(eq(erpDocumentHeaders.id, id));
-      await db.update(erpDocumentLines).set({ deletedAt: ts, updatedAt: ts }).where(and(eq(erpDocumentLines.headerId, id), isNull(erpDocumentLines.deletedAt)));
+      // Полное удаление строк: уникальный индекс (header_id, line_no) не учитывает deleted_at,
+      // поэтому «мягкое» удаление не позволяет вставить новые строки с теми же line_no.
+      await db.delete(erpDocumentLines).where(eq(erpDocumentLines.headerId, id));
     } else {
       await db.insert(erpDocumentHeaders).values({
         id,

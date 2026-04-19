@@ -25,6 +25,9 @@ yarn-error.log*
 # Electron
 *.log
 
+# Local release helper cache (downloaded installers)
+.release-cache/
+
 # Release artifacts (не коммитим артефакты сборки)
 electron-app/release
 electron-app/dist
