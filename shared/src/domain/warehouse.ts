@@ -731,3 +731,91 @@ export function sanitizeWarehouseBomRelationSchema(raw: unknown): WarehouseBomRe
   };
 }
 
+/** Типы узлов, которые участвуют в стартовом скелете BOM (совпадает с KNOWN в backend warehouseBomService). */
+const BOM_SKELETON_KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']);
+
+/** Нормализация ключей узла/родителя в BOM (как на сервере). */
+export function normalizeBomRelationKey(raw: string | null | undefined): string | null {
+  const value = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '');
+  return value || null;
+}
+
+export type EngineBomSkeletonBlockLine = {
+  componentNomenclatureId: string;
+  componentType: string;
+  qtyPerUnit: number;
+  variantGroup: string;
+  lineKey: string | null;
+  parentLineKey: string | null;
+  isRequired: boolean;
+  priority: number;
+  notes: string | null;
+};
+
+/**
+ * Один связный блок строк по глобальной схеме: один variantGroup на все строки блока,
+ * ключи узлов уникальны в пределах блока за счёт префикса (несколько блоков в одной BOM).
+ */
+export function buildEngineBomSkeletonBlockLines(args: {
+  schema: WarehouseBomRelationSchema;
+  stubComponentNomenclatureId: string;
+  /** Один и тот же для всех строк блока (вариант сборки). */
+  variantGroupId: string;
+  /** Уникальный среди блоков префикс для lineKey/parentLineKey (например b-abc12). */
+  lineKeyPrefix: string;
+}): EngineBomSkeletonBlockLine[] {
+  const rootId = String(args.schema.rootTypeId ?? 'engine').trim().toLowerCase();
+  const nodes = (args.schema.nodes ?? []).filter((n) => n && n.isActive !== false);
+  const stubId = String(args.stubComponentNomenclatureId).trim();
+  const vg = String(args.variantGroupId).trim();
+  const prefixRaw = String(args.lineKeyPrefix).trim() || 'block';
+  const prefix = normalizeBomRelationKey(prefixRaw) || 'block';
+
+  const parentTypeFor = (typeId: string): string | null => {
+    const tid = String(typeId).trim().toLowerCase();
+    for (const n of nodes) {
+      const nid = String(n.typeId ?? '').trim().toLowerCase();
+      const kids = (n.childTypeIds ?? []).map((c) => String(c).trim().toLowerCase());
+      if (!kids.includes(tid)) continue;
+      if (nid === rootId) return null;
+      return nid;
+    }
+    return null;
+  };
+
+  const candidates = nodes
+    .map((n) => ({
+      typeId: String(n.typeId ?? '').trim().toLowerCase(),
+      sortOrder: Number.isFinite(Number(n.sortOrder)) ? Math.trunc(Number(n.sortOrder)) : 100,
+    }))
+    .filter((n) => n.typeId && n.typeId !== rootId && BOM_SKELETON_KNOWN_COMPONENT_TYPES.has(n.typeId))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.typeId.localeCompare(b.typeId, 'ru'));
+
+  const seen = new Set<string>();
+  const lines: EngineBomSkeletonBlockLine[] = [];
+  for (const row of candidates) {
+    const typeId = row.typeId;
+    if (seen.has(typeId)) continue;
+    seen.add(typeId);
+    const parentType = parentTypeFor(typeId);
+    const lineKey = normalizeBomRelationKey(`${prefix}-${typeId}`);
+    const parentLineKey = parentType ? normalizeBomRelationKey(`${prefix}-${parentType}`) : null;
+    lines.push({
+      componentNomenclatureId: stubId,
+      componentType: typeId,
+      qtyPerUnit: 0,
+      variantGroup: vg,
+      lineKey,
+      parentLineKey,
+      isRequired: true,
+      priority: row.sortOrder,
+      notes: 'Черновик строки: укажите номенклатуру компонента.',
+    });
+  }
+  return lines;
+}
+

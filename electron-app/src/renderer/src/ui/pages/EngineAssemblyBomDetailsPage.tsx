@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  buildEngineBomSkeletonBlockLines,
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
   pickEngineNomenclatureIdForEngineBrand,
   sanitizeWarehouseBomRelationSchema,
@@ -143,6 +144,10 @@ function prepareLines(lines: BomLine[]): PreparedLine[] {
   }));
 }
 
+function variantScopeKeyPrepared(line: PreparedLine): string {
+  return line.normalizedVariantGroup || '__base__';
+}
+
 function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string, string[]>, requiredComponentTypes?: string[]): {
   errors: string[];
   warnings: string[];
@@ -157,89 +162,115 @@ function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string
     else current.warnings.push(message);
     lineIssues.set(idx, current);
   };
-  const keyToIndexes = new Map<string, number[]>();
-  const uniqueLineByKey = new Map<string, PreparedLine>();
+
+  const byScope = new Map<string, PreparedLine[]>();
   for (const line of lines) {
-    if (!line.normalizedLineKey) continue;
-    const list = keyToIndexes.get(line.normalizedLineKey) ?? [];
-    list.push(line.idx);
-    keyToIndexes.set(line.normalizedLineKey, list);
-  }
-  for (const [key, indexes] of keyToIndexes) {
-    if (indexes.length <= 1) continue;
-    errors.push(`Дубли ключа узла "${key}" в строках: ${indexes.map((idx) => idx + 1).join(', ')}.`);
-    for (const idx of indexes) {
-      pushLineIssue(idx, 'error', `Дубликат ключа узла "${key}".`);
-    }
-    uniqueLineByKey.delete(key);
-  }
-  for (const line of lines) {
-    if (!line.normalizedLineKey) continue;
-    if ((keyToIndexes.get(line.normalizedLineKey)?.length ?? 0) !== 1) continue;
-    uniqueLineByKey.set(line.normalizedLineKey, line);
-  }
-  for (const line of lines) {
-    if (!line.componentNomenclatureId) {
-      errors.push(`Строка ${line.idx + 1}: не выбран компонент.`);
-      pushLineIssue(line.idx, 'error', 'Не выбран компонент.');
-    }
-    if (line.normalizedParentLineKey && !line.normalizedLineKey) {
-      errors.push(`Строка ${line.idx + 1}: для родителя нужно указать ключ узла.`);
-      pushLineIssue(line.idx, 'error', 'Для родителя нужно указать ключ узла.');
-    }
-    if (line.normalizedParentLineKey && !keyToIndexes.has(line.normalizedParentLineKey)) {
-      errors.push(`Строка ${line.idx + 1}: родительский узел "${line.normalizedParentLineKey}" не найден.`);
-      pushLineIssue(line.idx, 'error', `Родитель "${line.normalizedParentLineKey}" не найден.`);
-    }
-    if (line.normalizedLineKey && line.normalizedParentLineKey && line.normalizedLineKey === line.normalizedParentLineKey) {
-      errors.push(`Строка ${line.idx + 1}: узел не может ссылаться сам на себя.`);
-      pushLineIssue(line.idx, 'error', 'Узел не может ссылаться сам на себя.');
-    }
-    if (line.qtyPerUnit <= 0 && line.isRequired !== false) {
-      warnings.push(`Строка ${line.idx + 1}: обязательный компонент с нулевым количеством.`);
-      pushLineIssue(line.idx, 'warning', 'Обязательный компонент с нулевым количеством.');
-    }
-    if (line.normalizedParentLineKey) {
-      const parentLine = uniqueLineByKey.get(line.normalizedParentLineKey);
-      const allowedChildren = relationRules?.get(String(parentLine?.componentType ?? '')) ?? null;
-      if (parentLine && Array.isArray(allowedChildren) && allowedChildren.length > 0 && !allowedChildren.includes(String(line.componentType))) {
-        warnings.push(
-          `Строка ${line.idx + 1}: связь "${String(parentLine.componentType)} -> ${String(line.componentType)}" не описана в глобальной схеме.`,
-        );
-        pushLineIssue(line.idx, 'warning', 'Связь не описана в глобальной схеме.');
-      }
-    }
+    const sk = variantScopeKeyPrepared(line);
+    const arr = byScope.get(sk) ?? [];
+    arr.push(line);
+    byScope.set(sk, arr);
   }
 
-  const keyToParent = new Map<string, string | null>();
-  for (const line of lines) {
-    if (!line.normalizedLineKey || !keyToIndexes.has(line.normalizedLineKey) || keyToIndexes.get(line.normalizedLineKey)!.length !== 1) continue;
-    keyToParent.set(line.normalizedLineKey, line.normalizedParentLineKey ?? null);
-  }
-  for (const key of keyToParent.keys()) {
-    const chain = new Set<string>();
-    let current: string | null = key;
-    while (current) {
-      if (chain.has(current)) {
-        errors.push(`Обнаружен цикл в связях BOM: ${Array.from(chain).join(' -> ')} -> ${current}.`);
-        for (const chainKey of chain) {
-          const related = keyToIndexes.get(chainKey) ?? [];
-          for (const idx of related) {
-            pushLineIssue(idx, 'error', 'Узел участвует в циклической зависимости.');
-          }
-        }
-        break;
+  for (const [scope, scopeLines] of byScope) {
+    const keyToIndexes = new Map<string, number[]>();
+    const uniqueLineByKey = new Map<string, PreparedLine>();
+    for (const line of scopeLines) {
+      if (!line.normalizedLineKey) continue;
+      const list = keyToIndexes.get(line.normalizedLineKey) ?? [];
+      list.push(line.idx);
+      keyToIndexes.set(line.normalizedLineKey, list);
+    }
+    for (const [key, indexes] of keyToIndexes) {
+      if (indexes.length <= 1) continue;
+      errors.push(`Вариант «${scope}»: дубли ключа узла "${key}" в строках: ${indexes.map((idx) => idx + 1).join(', ')}.`);
+      for (const idx of indexes) {
+        pushLineIssue(idx, 'error', `Дубликат ключа узла "${key}".`);
       }
-      chain.add(current);
-      current = keyToParent.get(current) ?? null;
+    }
+    for (const line of scopeLines) {
+      if (!line.normalizedLineKey) continue;
+      if ((keyToIndexes.get(line.normalizedLineKey)?.length ?? 0) !== 1) continue;
+      uniqueLineByKey.set(line.normalizedLineKey, line);
+    }
+    for (const line of scopeLines) {
+      if (!line.componentNomenclatureId) {
+        errors.push(`Строка ${line.idx + 1}: не выбран компонент.`);
+        pushLineIssue(line.idx, 'error', 'Не выбран компонент.');
+      }
+      if (line.normalizedParentLineKey && !line.normalizedLineKey) {
+        errors.push(`Строка ${line.idx + 1}: для родителя нужно указать ключ узла.`);
+        pushLineIssue(line.idx, 'error', 'Для родителя нужно указать ключ узла.');
+      }
+      if (line.normalizedParentLineKey && !keyToIndexes.has(line.normalizedParentLineKey)) {
+        errors.push(
+          `Строка ${line.idx + 1}: родительский узел "${line.normalizedParentLineKey}" не найден в этом варианте (вариант «${scope}»).`,
+        );
+        pushLineIssue(line.idx, 'error', `Родитель "${line.normalizedParentLineKey}" не найден в варианте.`);
+      }
+      if (line.normalizedLineKey && line.normalizedParentLineKey && line.normalizedLineKey === line.normalizedParentLineKey) {
+        errors.push(`Строка ${line.idx + 1}: узел не может ссылаться сам на себя.`);
+        pushLineIssue(line.idx, 'error', 'Узел не может ссылаться сам на себя.');
+      }
+      if (line.qtyPerUnit <= 0 && line.isRequired !== false) {
+        warnings.push(`Строка ${line.idx + 1}: обязательный компонент с нулевым количеством.`);
+        pushLineIssue(line.idx, 'warning', 'Обязательный компонент с нулевым количеством.');
+      }
+      if (line.normalizedParentLineKey) {
+        const parentLine = uniqueLineByKey.get(line.normalizedParentLineKey);
+        const allowedChildren = relationRules?.get(String(parentLine?.componentType ?? '')) ?? null;
+        if (parentLine && Array.isArray(allowedChildren) && allowedChildren.length > 0 && !allowedChildren.includes(String(line.componentType))) {
+          warnings.push(
+            `Строка ${line.idx + 1}: связь "${String(parentLine.componentType)} -> ${String(line.componentType)}" не описана в глобальной схеме.`,
+          );
+          pushLineIssue(line.idx, 'warning', 'Связь не описана в глобальной схеме.');
+        }
+      }
+    }
+
+    const keyToParent = new Map<string, string | null>();
+    for (const line of scopeLines) {
+      if (!line.normalizedLineKey || !keyToIndexes.has(line.normalizedLineKey) || keyToIndexes.get(line.normalizedLineKey)!.length !== 1) continue;
+      keyToParent.set(line.normalizedLineKey, line.normalizedParentLineKey ?? null);
+    }
+    for (const key of keyToParent.keys()) {
+      const chain = new Set<string>();
+      let current: string | null = key;
+      while (current) {
+        if (chain.has(current)) {
+          errors.push(`Вариант «${scope}»: обнаружен цикл в связях BOM: ${Array.from(chain).join(' -> ')} -> ${current}.`);
+          for (const chainKey of chain) {
+            const related = keyToIndexes.get(chainKey) ?? [];
+            for (const idx of related) {
+              pushLineIssue(idx, 'error', 'Узел участвует в циклической зависимости.');
+            }
+          }
+          break;
+        }
+        chain.add(current);
+        current = keyToParent.get(current) ?? null;
+      }
     }
   }
 
   if (Array.isArray(requiredComponentTypes) && requiredComponentTypes.length > 0) {
-    const presentTypes = new Set(lines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
-    for (const requiredType of requiredComponentTypes.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean)) {
-      if (presentTypes.has(requiredType)) continue;
-      errors.push(`В спецификации отсутствует обязательный тип компонента "${requiredType}" из глобальной схемы.`);
+    const onlyBase = byScope.size === 1 && byScope.has('__base__');
+    if (onlyBase) {
+      const presentTypes = new Set(lines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+      for (const requiredType of requiredComponentTypes.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean)) {
+        if (presentTypes.has(requiredType)) continue;
+        errors.push(`В спецификации отсутствует обязательный тип компонента "${requiredType}" из глобальной схемы.`);
+      }
+    } else {
+      for (const [scope, scopeLines] of byScope) {
+        if (scope === '__base__') continue;
+        if (scopeLines.length === 0) continue;
+        if (!scope.startsWith('__kit_')) continue;
+        const presentTypes = new Set(scopeLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+        for (const requiredType of requiredComponentTypes.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean)) {
+          if (presentTypes.has(requiredType)) continue;
+          errors.push(`В варианте «${scope}» отсутствует обязательный тип компонента "${requiredType}" из глобальной схемы.`);
+        }
+      }
     }
   }
 
@@ -418,8 +449,14 @@ export function EngineAssemblyBomDetailsPage(props: {
   const parentOptionsByLineIdx = useMemo(() => {
     const map = new Map<number, SearchSelectOption[]>();
     for (const line of preparedLines) {
+      const scope = variantScopeKeyPrepared(line);
       const options = preparedLines
-        .filter((candidate) => candidate.idx !== line.idx && candidate.normalizedLineKey)
+        .filter(
+          (candidate) =>
+            candidate.idx !== line.idx &&
+            Boolean(candidate.normalizedLineKey) &&
+            variantScopeKeyPrepared(candidate) === scope,
+        )
         .map((candidate) => ({
           id: String(candidate.normalizedLineKey),
           label: `${candidate.normalizedLineKey} - ${candidate.componentLabel}`,
@@ -719,6 +756,48 @@ export function EngineAssemblyBomDetailsPage(props: {
     },
     [],
   );
+
+  const appendVariantBlockFromSchema = useCallback(() => {
+    if (!props.canEdit || !data) return;
+    const safeSchema = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
+    const stubFromLine = data.lines.map((l) => String(l.componentNomenclatureId ?? '').trim()).find(Boolean);
+    const stub =
+      stubFromLine ||
+      pickEngineNomenclatureIdForEngineBrand(nomenclatureMetaRows, data.header.engineBrandId) ||
+      '';
+    if (!stub) {
+      setStatus(
+        'Нужна заглушка номенклатуры: укажите компонент хотя бы в одной строке или создайте номенклатуру «двигатель» с маркой по умолчанию для выбранной марки.',
+      );
+      return;
+    }
+    const blockToken =
+      typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
+        ? globalThis.crypto.randomUUID().replace(/-/g, '')
+        : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const variantGroupId = `__kit_${blockToken.slice(0, 12)}`;
+    const lineKeyPrefix = `b${blockToken.slice(0, 10)}`;
+    const skeleton = buildEngineBomSkeletonBlockLines({
+      schema: safeSchema,
+      stubComponentNomenclatureId: stub,
+      variantGroupId,
+      lineKeyPrefix,
+    });
+    const appended: BomLine[] = skeleton.map((row) => ({
+      id: '',
+      componentNomenclatureId: row.componentNomenclatureId,
+      componentType: row.componentType,
+      qtyPerUnit: row.qtyPerUnit,
+      variantGroup: row.variantGroup,
+      lineKey: row.lineKey,
+      parentLineKey: row.parentLineKey,
+      isRequired: row.isRequired,
+      priority: row.priority,
+      notes: row.notes,
+    }));
+    setData((prev) => (prev ? { ...prev, lines: [...prev.lines, ...appended] } : prev));
+    setStatus(`Добавлен вариант сборки «${variantGroupId}». Заполните номенклатуру и сохраните BOM.`);
+  }, [bomRelationSchema, data, nomenclatureMetaRows, props.canEdit]);
 
   const resetSchemaDraft = useCallback(() => {
     const safe = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
@@ -1687,7 +1766,7 @@ export function EngineAssemblyBomDetailsPage(props: {
           )}
 
           {props.canEdit ? (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <Button
                 variant="ghost"
                 onClick={() =>
@@ -1715,6 +1794,9 @@ export function EngineAssemblyBomDetailsPage(props: {
                 }
               >
                 Добавить строку
+              </Button>
+              <Button variant="ghost" onClick={() => appendVariantBlockFromSchema()} title="Новый набор строк по глобальной схеме со своим вариантом (variant group); связи только внутри набора.">
+                Добавить вариант сборки (из схемы)
               </Button>
               <Button
                 onClick={() => void saveBom()}

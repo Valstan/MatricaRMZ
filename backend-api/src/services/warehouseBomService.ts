@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import {
+  buildEngineBomSkeletonBlockLines,
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
+  normalizeBomRelationKey,
   sanitizeWarehouseBomRelationSchema,
   type WarehouseBomRelationSchema,
 } from '@matricarmz/shared';
@@ -39,15 +41,12 @@ function normalizeComponentType(raw: string | undefined): 'sleeve' | 'piston' | 
   return 'other';
 }
 
-function normalizeRelationKey(raw: string | null | undefined): string | null {
-  const value = String(raw ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9._-]/g, '');
-  return value || null;
-}
 const KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']);
+
+function variantScopeKey(v: string | null | undefined): string {
+  const s = String(v ?? '').trim();
+  return s.length > 0 ? s : '__base__';
+}
 
 async function loadSanitizedBomRelationSchema(): Promise<WarehouseBomRelationSchema> {
   try {
@@ -56,56 +55,6 @@ async function loadSanitizedBomRelationSchema(): Promise<WarehouseBomRelationSch
   } catch {
     return DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA;
   }
-}
-
-/** Стартовые строки BOM по глобальной схеме (узел/родитель, тип компонента). componentNomenclatureId — заглушка (любая валидная номенклатура того же семейства марки), уникальность по variantGroup. */
-function buildSkeletonBomLinesFromSchema(args: { stubComponentNomenclatureId: string; schema: WarehouseBomRelationSchema }): BomLineInput[] {
-  const rootId = String(args.schema.rootTypeId ?? 'engine').trim().toLowerCase();
-  const nodes = (args.schema.nodes ?? []).filter((n) => n && n.isActive !== false);
-
-  const parentTypeFor = (typeId: string): string | null => {
-    const tid = String(typeId).trim().toLowerCase();
-    for (const n of nodes) {
-      const nid = String(n.typeId ?? '').trim().toLowerCase();
-      const kids = (n.childTypeIds ?? []).map((c) => String(c).trim().toLowerCase());
-      if (!kids.includes(tid)) continue;
-      if (nid === rootId) return null;
-      return nid;
-    }
-    return null;
-  };
-
-  const candidates = nodes
-    .map((n) => ({
-      typeId: String(n.typeId ?? '').trim().toLowerCase(),
-      sortOrder: Number.isFinite(Number(n.sortOrder)) ? Math.trunc(Number(n.sortOrder)) : 100,
-    }))
-    .filter((n) => n.typeId && n.typeId !== rootId && KNOWN_COMPONENT_TYPES.has(n.typeId))
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.typeId.localeCompare(b.typeId, 'ru'));
-
-  const seen = new Set<string>();
-  const stubId = String(args.stubComponentNomenclatureId).trim();
-  const lines: BomLineInput[] = [];
-  for (const row of candidates) {
-    const typeId = row.typeId;
-    if (seen.has(typeId)) continue;
-    seen.add(typeId);
-    const parentType = parentTypeFor(typeId);
-    const lineKey = normalizeRelationKey(typeId);
-    const parentLineKey = parentType ? normalizeRelationKey(parentType) : null;
-    lines.push({
-      componentNomenclatureId: stubId,
-      componentType: typeId,
-      qtyPerUnit: 0,
-      variantGroup: `__bom_init__${typeId}`,
-      lineKey,
-      parentLineKey,
-      isRequired: true,
-      priority: row.sortOrder,
-      notes: 'Черновик строки: укажите номенклатуру компонента.',
-    });
-  }
-  return lines;
 }
 
 /** Любая номенклатура «двигатель» для марки — только для технической заглушки в черновых строках BOM (FK), не смысловая привязка спецификации. */
@@ -429,7 +378,15 @@ export async function upsertWarehouseAssemblyBom(args: {
     const sanitizedSchema = await loadSanitizedBomRelationSchema();
     let sourceLines = Array.isArray(args.lines) ? args.lines : [];
     if (sourceLines.length === 0) {
-      sourceLines = buildSkeletonBomLinesFromSchema({ stubComponentNomenclatureId: stubId, schema: sanitizedSchema });
+      const blockToken = randomUUID().replace(/-/g, '');
+      const variantGroupId = `__kit_${blockToken.slice(0, 12)}`;
+      const lineKeyPrefix = `b${blockToken.slice(0, 10)}`;
+      sourceLines = buildEngineBomSkeletonBlockLines({
+        stubComponentNomenclatureId: stubId,
+        schema: sanitizedSchema,
+        variantGroupId,
+        lineKeyPrefix,
+      });
     }
 
     const normalizedLines = sourceLines
@@ -440,8 +397,8 @@ export async function upsertWarehouseAssemblyBom(args: {
         componentType: normalizeComponentType(line.componentType),
         qtyPerUnit: Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0))),
         variantGroup: line.variantGroup == null ? null : String(line.variantGroup).trim() || null,
-        lineKey: normalizeRelationKey(line.lineKey == null ? null : String(line.lineKey)),
-        parentLineKey: normalizeRelationKey(line.parentLineKey == null ? null : String(line.parentLineKey)),
+        lineKey: normalizeBomRelationKey(line.lineKey == null ? null : String(line.lineKey)),
+        parentLineKey: normalizeBomRelationKey(line.parentLineKey == null ? null : String(line.parentLineKey)),
         isRequired: line.isRequired !== false,
         priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
         notesText: line.notes == null ? null : String(line.notes),
@@ -461,51 +418,82 @@ export async function upsertWarehouseAssemblyBom(args: {
         .filter((typeId) => typeId && typeId !== rootId && KNOWN_COMPONENT_TYPES.has(typeId)),
     );
     // Пустую карточку BOM (ещё без строк) можно создать и постепенно заполнять; полнота по схеме проверяется, когда уже есть строки.
+    const linesByVariantScope = new Map<string, typeof normalizedLines>();
+    for (const line of normalizedLines) {
+      const sk = variantScopeKey(line.variantGroup);
+      const arr = linesByVariantScope.get(sk) ?? [];
+      arr.push(line);
+      linesByVariantScope.set(sk, arr);
+    }
     if (requiredTypes.size > 0 && normalizedLines.length > 0) {
-      const presentTypes = new Set(normalizedLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
-      const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
-      if (missingTypes.length > 0) {
-        return {
-          ok: false,
-          error: `BOM не сохранен: отсутствуют обязательные типы из глобальной схемы: ${missingTypes.join(', ')}`,
-        };
+      const onlyBase = linesByVariantScope.size === 1 && linesByVariantScope.has('__base__');
+      if (onlyBase) {
+        const presentTypes = new Set(normalizedLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+        const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
+        if (missingTypes.length > 0) {
+          return {
+            ok: false,
+            error: `BOM не сохранен: отсутствуют обязательные типы из глобальной схемы: ${missingTypes.join(', ')}`,
+          };
+        }
+      } else {
+        for (const [scope, scopeLines] of linesByVariantScope) {
+          if (scope === '__base__') continue;
+          if (scopeLines.length === 0) continue;
+          // Старые черновики с отдельным variantGroup на каждую строку (__bom_init__*) не требуют полного набора в каждой «подгруппе».
+          if (!scope.startsWith('__kit_')) continue;
+          const presentTypes = new Set(scopeLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+          const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
+          if (missingTypes.length > 0) {
+            return {
+              ok: false,
+              error: `BOM не сохранен: в варианте «${scope}» отсутствуют обязательные типы из глобальной схемы: ${missingTypes.join(', ')}`,
+            };
+          }
+        }
       }
     }
 
-    const keyCounts = new Map<string, number>();
-    for (const line of normalizedLines) {
-      if (!line.lineKey) continue;
-      keyCounts.set(line.lineKey, (keyCounts.get(line.lineKey) ?? 0) + 1);
-    }
-    const lineKeys = new Set(Array.from(keyCounts.keys()));
     const validationErrors: string[] = [];
-    for (const [key, count] of keyCounts.entries()) {
-      if (count > 1) validationErrors.push(`дубли ключа узла "${key}"`);
-    }
-    for (const line of normalizedLines) {
-      if (line.parentLineKey && !line.lineKey) validationErrors.push('строка с родителем должна иметь собственный ключ узла');
-      if (line.parentLineKey && !lineKeys.has(line.parentLineKey)) {
-        validationErrors.push(`родительский узел "${line.parentLineKey}" не найден`);
+    for (const [scope, scopeLines] of linesByVariantScope) {
+      const keyCounts = new Map<string, number>();
+      for (const line of scopeLines) {
+        if (!line.lineKey) continue;
+        keyCounts.set(line.lineKey, (keyCounts.get(line.lineKey) ?? 0) + 1);
       }
-      if (line.lineKey && line.parentLineKey && line.lineKey === line.parentLineKey) {
-        validationErrors.push(`узел "${line.lineKey}" не может ссылаться сам на себя`);
+      const lineKeys = new Set(Array.from(keyCounts.keys()));
+      for (const [key, count] of keyCounts.entries()) {
+        if (count > 1) validationErrors.push(`вариант «${scope}»: дубли ключа узла "${key}"`);
       }
-    }
-    const keyToParent = new Map<string, string | null>();
-    for (const line of normalizedLines) {
-      if (!line.lineKey || (keyCounts.get(line.lineKey) ?? 0) > 1) continue;
-      keyToParent.set(line.lineKey, line.parentLineKey ?? null);
-    }
-    for (const key of keyToParent.keys()) {
-      const chain = new Set<string>();
-      let current: string | null = key;
-      while (current) {
-        if (chain.has(current)) {
-          validationErrors.push(`обнаружен цикл в связях BOM: ${Array.from(chain).join(' -> ')} -> ${current}`);
-          break;
+      for (const line of scopeLines) {
+        if (line.parentLineKey && !line.lineKey) {
+          validationErrors.push(`вариант «${scope}»: строка с родителем должна иметь собственный ключ узла`);
         }
-        chain.add(current);
-        current = keyToParent.get(current) ?? null;
+        if (line.parentLineKey && !lineKeys.has(line.parentLineKey)) {
+          validationErrors.push(`вариант «${scope}»: родительский узел "${line.parentLineKey}" не найден среди узлов этого варианта`);
+        }
+        if (line.lineKey && line.parentLineKey && line.lineKey === line.parentLineKey) {
+          validationErrors.push(`вариант «${scope}»: узел "${line.lineKey}" не может ссылаться сам на себя`);
+        }
+      }
+      const keyToParent = new Map<string, string | null>();
+      for (const line of scopeLines) {
+        if (!line.lineKey || (keyCounts.get(line.lineKey) ?? 0) > 1) continue;
+        keyToParent.set(line.lineKey, line.parentLineKey ?? null);
+      }
+      for (const key of keyToParent.keys()) {
+        const chain = new Set<string>();
+        let current: string | null = key;
+        while (current) {
+          if (chain.has(current)) {
+            validationErrors.push(
+              `вариант «${scope}»: обнаружен цикл в связях BOM: ${Array.from(chain).join(' -> ')} -> ${current}`,
+            );
+            break;
+          }
+          chain.add(current);
+          current = keyToParent.get(current) ?? null;
+        }
       }
     }
     if (validationErrors.length > 0) {
