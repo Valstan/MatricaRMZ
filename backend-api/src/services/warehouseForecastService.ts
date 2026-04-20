@@ -236,6 +236,8 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
       rows: [],
       warnings: ['Нет активных default BOM для выбранных марок двигателей.'],
       deficitRecommendations: [],
+      horizonMissingByBrand: [],
+      horizonComponentNeeds: [],
     };
   }
   const stock = await loadNomenclatureStockMap(warehouseIds);
