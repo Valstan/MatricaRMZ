@@ -1,8 +1,15 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
-import { computeAssemblyForecast, EntityTypeCode, type AssemblyComponentRole, type AssemblyEngineBrandKit } from '@matricarmz/shared';
+import {
+  computeAssemblyForecast,
+  EntityTypeCode,
+  type AssemblyComponentRole,
+  type AssemblyEngineBrandKit,
+  type AssemblyWarehouseStockBin,
+} from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
+import { listWarehouseLookups } from './warehouseService.js';
 import {
   attributeDefs,
   attributeValues,
@@ -38,6 +45,49 @@ async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<st
     map.set(nid, (map.get(nid) ?? 0) + avail);
   }
   return map;
+}
+
+async function loadWarehouseIdToLabelMap(): Promise<Map<string, string>> {
+  try {
+    const res = await listWarehouseLookups();
+    if (!res.ok) return new Map([['default', 'Основной склад']]);
+    const m = new Map<string, string>();
+    for (const w of res.lookups.warehouses) {
+      const id = String(w.id ?? '').trim();
+      if (!id) continue;
+      let lab = String(w.label ?? '').trim();
+      if (!lab || isUuidLike(lab)) lab = id === 'default' ? 'Основной склад' : 'Склад';
+      m.set(id, lab);
+    }
+    if (!m.has('default')) m.set('default', 'Основной склад');
+    return m;
+  } catch {
+    return new Map([['default', 'Основной склад']]);
+  }
+}
+
+async function loadNomenclatureWarehouseBins(
+  warehouseIds: string[] | undefined,
+  warehouseLabels: Map<string, string>,
+): Promise<Map<string, AssemblyWarehouseStockBin[]>> {
+  const rows = await db.select().from(erpRegStockBalance);
+  const detail = new Map<string, AssemblyWarehouseStockBin[]>();
+  for (const row of rows as any[]) {
+    const wh = String(row.warehouseId ?? 'default');
+    if (warehouseIds?.length && !warehouseIds.includes(wh)) continue;
+    const nid = row.nomenclatureId ? String(row.nomenclatureId) : '';
+    if (!nid) continue;
+    const avail = Math.max(0, Math.floor(Number(row.qty ?? 0) - Number(row.reservedQty ?? 0)));
+    if (avail <= 0) continue;
+    let label = warehouseLabels.get(wh) ?? '';
+    if (!label.trim() || isUuidLike(label)) {
+      label = wh === 'default' ? 'Основной склад' : 'Склад';
+    }
+    const arr = detail.get(nid) ?? [];
+    arr.push({ warehouseId: wh, warehouseLabel: label, qty: avail });
+    detail.set(nid, arr);
+  }
+  return detail;
 }
 
 async function loadPlannedIncomingLines(args: { horizonDays: number; warehouseIds?: string[] }) {
@@ -84,6 +134,53 @@ function safeJsonText(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+/** UUID v4 — в подписях отчёта оператору не показываем. */
+function isUuidLike(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s).trim());
+}
+
+function displayEngineBrandTitle(engineBrandId: string, resolvedTitle: string): string {
+  const t = String(resolvedTitle ?? '').trim();
+  if (t && !isUuidLike(t)) return t;
+  return isUuidLike(engineBrandId) ? 'Марка двигателя (без названия)' : t || engineBrandId;
+}
+
+/** Подпись комплектующей в прогнозе: без сырого id номенклатуры, если в БД нет человекочитаемого имени. */
+function partLabelForAssemblyForecast(
+  compMeta: { name?: string | null; code?: string | null } | undefined,
+  compId: string,
+): string {
+  const nameRaw = compMeta?.name != null ? String(compMeta.name).trim() : '';
+  const codeRaw = compMeta?.code != null ? String(compMeta.code).trim() : '';
+  const name =
+    nameRaw && !isUuidLike(nameRaw)
+      ? nameRaw
+      : isUuidLike(compId)
+        ? 'Позиция без названия'
+        : nameRaw
+          ? 'Позиция без названия'
+          : String(compId);
+  if (codeRaw && !isUuidLike(codeRaw)) return `${name} (${codeRaw})`;
+  return name;
+}
+
+/** Внутренние ключи варианта BOM `__kit_*` в отчёте не показываем — только порядковый вариант при нескольких. */
+function assemblyForecastBrandLabelForVariant(
+  brandTitle: string,
+  groupKey: string | null,
+  technicalGroupKeys: string[],
+): string {
+  if (!groupKey) return brandTitle;
+  const gk = String(groupKey);
+  if (gk.startsWith('__kit_')) {
+    if (technicalGroupKeys.length <= 1) return brandTitle;
+    const idx = technicalGroupKeys.indexOf(gk);
+    const n = idx >= 0 ? idx + 1 : 1;
+    return `${brandTitle} (вариант ${n})`;
+  }
+  return `${brandTitle} [${gk}]`;
 }
 
 async function loadEngineBrandDisplayNames(brandIds: string[]): Promise<Map<string, string>> {
@@ -161,7 +258,7 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
   const kits: AssemblyEngineBrandKit[] = [];
   for (const header of headerRows) {
     const engineBrandId = String(header.engineBrandId);
-    const brandTitle = brandLabels.get(engineBrandId) ?? engineBrandId;
+    const brandTitle = displayEngineBrandTitle(engineBrandId, brandLabels.get(engineBrandId) ?? engineBrandId);
     const bomLines = linesByBom.get(String(header.id)) ?? [];
     const lineRecords = bomLines
       .map((line) => {
@@ -169,15 +266,13 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
         const compMeta = nomenclatureById.get(compId);
         const qtyPerEngine = Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0)));
         if (!compId || qtyPerEngine <= 0) return null;
-        const name = compMeta?.name ? String(compMeta.name) : compId;
-        const code = compMeta?.code ? String(compMeta.code) : '';
         const meta = parseWarehouseBomLineMeta(line.notes);
         const variantGroup = String(line.variantGroup ?? '').trim() || null;
         return {
           compId,
           qtyPerEngine,
           role: bomComponentTypeToRole(String(line.componentType)),
-          partLabel: code ? `${name} (${code})` : name,
+          partLabel: partLabelForAssemblyForecast(compMeta, compId),
           variantGroup,
           lineKey: meta.lineKey,
           parentLineKey: meta.parentLineKey,
@@ -194,6 +289,10 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
       grouped.set(line.variantGroup, arr);
     }
 
+    const technicalGroupKeys = Array.from(grouped.keys())
+      .filter((k) => String(k).startsWith('__kit_'))
+      .sort((a, b) => String(a).localeCompare(String(b)));
+
     const groupEntries = grouped.size > 0 ? Array.from(grouped.entries()) : [[null, []] as const];
     for (const [groupKey, groupLines] of groupEntries) {
       const merged = [...baseLines, ...groupLines];
@@ -207,9 +306,10 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
         partLabel: line.partLabel,
       }));
       if (parts.length === 0) continue;
+      const displayBrandLabel = assemblyForecastBrandLabelForVariant(brandTitle, groupKey, technicalGroupKeys);
       kits.push({
         brandId: groupKey ? `${engineBrandId}::${groupKey}` : engineBrandId,
-        brandLabel: groupKey ? `${brandTitle} [${groupKey}]` : brandTitle,
+        brandLabel: displayBrandLabel,
         parts,
       });
     }
@@ -240,7 +340,8 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
       horizonComponentNeeds: [],
     };
   }
-  const stock = await loadNomenclatureStockMap(warehouseIds);
+  const [stock, whLabels] = await Promise.all([loadNomenclatureStockMap(warehouseIds), loadWarehouseIdToLabelMap()]);
+  const warehouseStockBins = await loadNomenclatureWarehouseBins(warehouseIds, whLabels);
 
   return computeAssemblyForecast({
     horizonDays,
@@ -249,6 +350,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     warehouseId: warehouseIds?.length === 1 ? warehouseIds[0]! : null,
     kits,
     stockByNomenclatureId: stock,
+    warehouseStockBins,
     incomingLines: dbIncomingLines,
     ...(priorityEngineBrandIds?.length ? { priorityEngineBrandIds } : {}),
   });

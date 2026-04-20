@@ -25,13 +25,27 @@ type TabsLayoutPrefs = {
   activeGroup?: string | null;
 };
 
-function parsePinnedShortcuts(raw: string | null): Record<string, string[]> {
+function parsePinnedShortcuts(raw: string | null): Record<string, unknown> {
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, string[]>;
-  } catch {}
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // ignore invalid JSON
+  }
   return {};
+}
+
+/** Гарантирует массив строк (в БД иногда попадали не-массивы — тогда UI перебирал символы строки). */
+function normalizeShortcutList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x).trim()).filter((s) => s.length > 0);
+  }
+  if (typeof value === 'string') {
+    const s = value.trim();
+    return s ? [s] : [];
+  }
+  return [];
 }
 
 function parseTabsLayout(raw: string | null): Record<string, TabsLayoutPrefs> {
@@ -305,7 +319,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
       if (!userId) return { ok: true as const, ids: [] as string[] };
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiPinnedShortcuts);
       const byUser = parsePinnedShortcuts(raw);
-      return { ok: true as const, ids: byUser[userId] ?? [] };
+      return { ok: true as const, ids: normalizeShortcutList(byUser[userId]) };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }
@@ -315,7 +329,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
     try {
       const userId = String(args?.userId ?? '').trim();
       if (!userId) return { ok: false as const, error: 'userId required' };
-      const ids = Array.isArray(args?.ids) ? args.ids.map(String).filter(Boolean) : [];
+      const ids = normalizeShortcutList(args?.ids);
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiPinnedShortcuts);
       const byUser = parsePinnedShortcuts(raw);
       byUser[userId] = ids;

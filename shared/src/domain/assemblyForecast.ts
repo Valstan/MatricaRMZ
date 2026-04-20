@@ -26,6 +26,13 @@ export type AssemblyForecastIncomingLine = {
   qty: number;
 };
 
+/** Остаток номенклатуры на конкретном складе (подпись — для оператора, без технических id). */
+export type AssemblyWarehouseStockBin = {
+  warehouseId: string;
+  warehouseLabel: string;
+  qty: number;
+};
+
 export type AssemblyForecastComputeInput = {
   horizonDays: number;
   targetEnginesPerDay: number;
@@ -39,6 +46,11 @@ export type AssemblyForecastComputeInput = {
   kits: AssemblyEngineBrandKit[];
   /** Текущие доступные остатки по nomenclatureId (уже с учётом reserved при необходимости на стороне вызывающего). */
   stockByNomenclatureId: ReadonlyMap<string, number>;
+  /**
+   * Опционально: остатки по складам для подсказок «с какого склада взять».
+   * Сумма по bins для номенклатуры должна совпадать с stockByNomenclatureId (после применения incoming — см. ниже).
+   */
+  warehouseStockBins?: ReadonlyMap<string, ReadonlyArray<AssemblyWarehouseStockBin>>;
   incomingLines: AssemblyForecastIncomingLine[];
   /**
    * UUID марок двигателя из справочника (без суффикса варианта BOM `::...`).
@@ -109,6 +121,204 @@ function cloneStockMap(map: ReadonlyMap<string, number>): Map<string, number> {
   return new Map(Array.from(map.entries(), ([k, v]) => [k, Math.max(0, Math.floor(v))]));
 }
 
+/** Виртуальный склад для количества из «планируемых приходов», пока не привязано к физической ячейке. */
+const PLANNED_INCOMING_WAREHOUSE_ID = '__planned_incoming__';
+
+type MutableWarehouseBin = { warehouseId: string; warehouseLabel: string; qty: number };
+type MutableWarehouseState = Map<string, MutableWarehouseBin[]>;
+
+type WhPartAcc = Map<string, { partLabel: string; byLabel: Map<string, number> }>;
+
+function cloneWarehouseBinsFromInput(
+  src: ReadonlyMap<string, ReadonlyArray<AssemblyWarehouseStockBin>>,
+): MutableWarehouseState {
+  const out: MutableWarehouseState = new Map();
+  for (const [nid, bins] of src.entries()) {
+    const id = String(nid || '').trim();
+    if (!id) continue;
+    const rows = bins.map((b) => ({
+      warehouseId: String(b.warehouseId),
+      warehouseLabel: String(b.warehouseLabel || '').trim() || 'Склад',
+      qty: Math.max(0, Math.floor(b.qty)),
+    })).filter((b) => b.qty > 0);
+    if (rows.length > 0) out.set(id, rows);
+  }
+  return out;
+}
+
+function applyIncomingToWarehouseBins(
+  state: MutableWarehouseState | null,
+  dayOffset: number,
+  lines: AssemblyForecastIncomingLine[],
+) {
+  if (!state) return;
+  const label = 'К поступлению по плану';
+  for (const line of lines) {
+    if (line.dayOffset !== dayOffset) continue;
+    const id = String(line.nomenclatureId || '').trim();
+    if (!id) continue;
+    const qty = Math.max(0, Math.floor(line.qty));
+    if (!qty) continue;
+    const rows = state.get(id) ?? [];
+    const idx = rows.findIndex((r) => r.warehouseId === PLANNED_INCOMING_WAREHOUSE_ID);
+    if (idx >= 0) {
+      const prev = rows[idx]!;
+      rows[idx] = { warehouseId: prev.warehouseId, warehouseLabel: prev.warehouseLabel, qty: prev.qty + qty };
+    } else {
+      rows.push({ warehouseId: PLANNED_INCOMING_WAREHOUSE_ID, warehouseLabel: label, qty });
+    }
+    state.set(id, rows);
+  }
+}
+
+function getAvailableAt(state: MutableWarehouseState, nomenclatureId: string, warehouseId: string): number {
+  const rows = state.get(nomenclatureId);
+  if (!rows) return 0;
+  const row = rows.find((r) => r.warehouseId === warehouseId);
+  return row ? Math.max(0, Math.floor(row.qty)) : 0;
+}
+
+function takeFromWarehouse(state: MutableWarehouseState, nomenclatureId: string, warehouseId: string, take: number) {
+  if (take <= 0) return;
+  const rows = state.get(nomenclatureId);
+  if (!rows) return;
+  const row = rows.find((r) => r.warehouseId === warehouseId);
+  if (!row) return;
+  row.qty = Math.max(0, Math.floor(row.qty) - take);
+}
+
+function collectWarehouseIdsForNomenclatures(state: MutableWarehouseState, nomenclatureIds: string[]): string[] {
+  const ids = new Set<string>();
+  for (const nid of nomenclatureIds) {
+    for (const r of state.get(nid) ?? []) {
+      if (r.qty > 0) ids.add(r.warehouseId);
+    }
+  }
+  return Array.from(ids);
+}
+
+function warehouseSortKey(state: MutableWarehouseState, warehouseId: string, sampleNomenclatureIds: string[]): string {
+  for (const nid of sampleNomenclatureIds) {
+    const rows = state.get(nid) ?? [];
+    const row = rows.find((r) => r.warehouseId === warehouseId);
+    if (row) return row.warehouseLabel;
+  }
+  return warehouseId;
+}
+
+function isPlannedWarehouseId(id: string): boolean {
+  return id === PLANNED_INCOMING_WAREHOUSE_ID;
+}
+
+/**
+ * Списание по складам: сначала один склад на весь комплект, если возможно; иначе — по позициям, физические склады раньше «плана прихода».
+ */
+function allocateKitConsumptionFromBins(
+  state: MutableWarehouseState,
+  kit: AssemblyEngineBrandKit,
+  engines: number,
+): Map<string, Map<string, number>> | null {
+  if (engines <= 0) return null;
+  const needs = kit.parts
+    .filter((p) => p.qtyPerEngine > 0)
+    .map((p) => ({
+      nomenclatureId: p.nomenclatureId,
+      partLabel: p.partLabel,
+      role: p.role,
+      need: engines * Math.max(0, Math.floor(p.qtyPerEngine)),
+    }))
+    .filter((x) => x.need > 0);
+  if (needs.length === 0) return null;
+
+  const sampleIds = needs.map((n) => n.nomenclatureId);
+  const candidateWh = collectWarehouseIdsForNomenclatures(state, sampleIds);
+  const sortedWh = [...candidateWh].sort((a, b) =>
+    warehouseSortKey(state, a, sampleIds).localeCompare(warehouseSortKey(state, b, sampleIds), 'ru'),
+  );
+
+  for (const wid of sortedWh) {
+    let ok = true;
+    for (const n of needs) {
+      if (getAvailableAt(state, n.nomenclatureId, wid) < n.need) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const out = new Map<string, Map<string, number>>();
+    for (const n of needs) {
+      const rows = state.get(n.nomenclatureId) ?? [];
+      const row = rows.find((r) => r.warehouseId === wid);
+      const label = row?.warehouseLabel ?? 'Склад';
+      takeFromWarehouse(state, n.nomenclatureId, wid, n.need);
+      const m = out.get(n.nomenclatureId) ?? new Map<string, number>();
+      m.set(label, n.need);
+      out.set(n.nomenclatureId, m);
+    }
+    return out;
+  }
+
+  const out = new Map<string, Map<string, number>>();
+  const orderedNeeds = [...needs].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+  for (const n of orderedNeeds) {
+    let left = n.need;
+    const rows = [...(state.get(n.nomenclatureId) ?? [])].filter((r) => r.qty > 0);
+    rows.sort((a, b) => {
+      const pa = isPlannedWarehouseId(a.warehouseId) ? 1 : 0;
+      const pb = isPlannedWarehouseId(b.warehouseId) ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      if (b.qty !== a.qty) return b.qty - a.qty;
+      return a.warehouseLabel.localeCompare(b.warehouseLabel, 'ru');
+    });
+    for (const row of rows) {
+      if (left <= 0) break;
+      const avail = Math.max(0, Math.floor(row.qty));
+      if (avail <= 0) continue;
+      const t = Math.min(left, avail);
+      takeFromWarehouse(state, n.nomenclatureId, row.warehouseId, t);
+      const m = out.get(n.nomenclatureId) ?? new Map<string, number>();
+      m.set(row.warehouseLabel, (m.get(row.warehouseLabel) ?? 0) + t);
+      out.set(n.nomenclatureId, m);
+      left -= t;
+    }
+  }
+  return out;
+}
+
+function mergeConsumptionIntoWhAcc(acc: WhPartAcc, kit: AssemblyEngineBrandKit, delta: Map<string, Map<string, number>>) {
+  for (const [nid, labelMap] of delta.entries()) {
+    const part = kit.parts.find((p) => p.nomenclatureId === nid);
+    const row = acc.get(nid) ?? { partLabel: part?.partLabel ?? nid, byLabel: new Map<string, number>() };
+    for (const [lbl, q] of labelMap.entries()) {
+      row.byLabel.set(lbl, (row.byLabel.get(lbl) ?? 0) + q);
+    }
+    acc.set(nid, row);
+  }
+}
+
+export function formatWarehouseKitConsumptionSummary(kit: AssemblyEngineBrandKit, acc: WhPartAcc): string {
+  const lines: string[] = [];
+  const parts = [...kit.parts]
+    .filter((p) => p.qtyPerEngine > 0)
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+  for (const p of parts) {
+    const row = acc.get(p.nomenclatureId);
+    if (!row) continue;
+    const splits = Array.from(row.byLabel.entries())
+      .filter(([, q]) => q > 0)
+      .sort((a, b) => a[0].localeCompare(b[0], 'ru'));
+    const total = splits.reduce((s, [, q]) => s + q, 0);
+    if (total <= 0) continue;
+    if (splits.length === 1) {
+      const one = splits[0]!;
+      lines.push(`${p.partLabel}: ${total} шт. — склад «${one[0]}»: ${one[1]} шт.`);
+    } else {
+      lines.push(`${p.partLabel}: ${total} шт. — ${splits.map(([lb, q]) => `«${lb}»: ${q} шт.`).join('; ')}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function applyIncomingForDay(stock: Map<string, number>, dayOffset: number, lines: AssemblyForecastIncomingLine[]) {
   for (const line of lines) {
     if (line.dayOffset !== dayOffset) continue;
@@ -149,21 +359,84 @@ function summarizeKit(kit: AssemblyEngineBrandKit, engines: number): string {
     .filter((p) => p.qtyPerEngine > 0)
     .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
     .map((p) => `${p.partLabel}×${engines * p.qtyPerEngine}`);
-  return parts.join('; ');
+  return parts.join('\n');
 }
 
-function findAlternativeBrands(
-  kits: AssemblyEngineBrandKit[],
-  excludeBrandId: string,
-  stock: Map<string, number>,
-  target: number,
-): string {
-  const alts: string[] = [];
-  for (const kit of kits) {
-    if (kit.brandId === excludeBrandId) continue;
-    if (maxEnginesForKit(stock, kit) >= target) alts.push(kit.brandLabel);
+function getOrCreateWhPartAcc(map: Map<string, WhPartAcc>, brandId: string): WhPartAcc {
+  let a = map.get(brandId);
+  if (!a) {
+    a = new Map();
+    map.set(brandId, a);
   }
-  return alts.slice(0, 8).join(', ');
+  return a;
+}
+
+/**
+ * Человекочитаемый статус строки прогноза для экрана отчёта.
+ */
+export function assemblyForecastStatusLabelRu(status: AssemblyForecastDayRow['status']): string {
+  switch (status) {
+    case 'ok':
+      return 'Хватает';
+    case 'waiting':
+      return 'Частично';
+    case 'shortage':
+      return 'Не хватает';
+    default:
+      return String(status ?? '').trim() || '—';
+  }
+}
+
+/**
+ * Строка «не закрыт план за день»: какие марки можно было бы набирать при поставке и разбор остатков по комплектующим на 1 двигатель.
+ */
+export function formatAssemblyShortageRowForOperator(
+  kits: AssemblyEngineBrandKit[],
+  stock: ReadonlyMap<string, number>,
+  remaining: number,
+  target: number,
+): { engineBrand: string; requiredComponentsSummary: string } {
+  const uniqueLabels = [...new Set(kits.map((k) => k.brandLabel))].sort((a, b) => a.localeCompare(b, 'ru'));
+  const brandHint =
+    uniqueLabels.length <= 8
+      ? uniqueLabels.join(', ')
+      : `${uniqueLabels.slice(0, 7).join(', ')}… (+${uniqueLabels.length - 7})`;
+
+  const detailLines: string[] = [];
+  const sortedKits = [...kits].sort((a, b) => a.brandLabel.localeCompare(b.brandLabel, 'ru'));
+  for (const kit of sortedKits.slice(0, 12)) {
+    const parts = [...kit.parts]
+      .filter((p) => p.qtyPerEngine > 0)
+      .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+    const chunks: string[] = [];
+    for (const p of parts.slice(0, 24)) {
+      const need = Math.max(0, Math.floor(p.qtyPerEngine));
+      const have = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
+      if (have >= need) {
+        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need} — хватает`);
+      } else {
+        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need}, не хватает ${need - have} шт. (склад поставки неизвестен)`);
+      }
+    }
+    if (chunks.length > 0) detailLines.push(`${kit.brandLabel}:\n${chunks.join('\n')}`);
+  }
+
+  const head = `Не удалось набрать ${remaining} из ${target} двиг. за день (остатки на конец дня).`;
+  const body = detailLines.join('\n');
+  return {
+    engineBrand: `Не закрыто ${remaining} двиг. При поставке комплектующих возможны марки: ${brandHint}`,
+    requiredComponentsSummary: body ? `${head}\n${body}` : head,
+  };
+}
+
+function mergeHorizonMissingByDisplayLabel(rows: AssemblyHorizonMissingBrand[]): AssemblyHorizonMissingBrand[] {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    m.set(r.brandLabel, (m.get(r.brandLabel) ?? 0) + r.missingEngines);
+  }
+  return Array.from(m.entries())
+    .map(([brandLabel, missingEngines]) => ({ brandId: '', brandLabel, missingEngines }))
+    .sort((a, b) => b.missingEngines - a.missingEngines || a.brandLabel.localeCompare(b.brandLabel, 'ru'));
 }
 
 /** Базовый id марки двигателя (до суффикса варианта BOM `uuid::variant`). */
@@ -255,6 +528,9 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
 
   const rows: AssemblyForecastDayRow[] = [];
   const stock = cloneStockMap(input.stockByNomenclatureId);
+  let warehouseBins: MutableWarehouseState | null = input.warehouseStockBins
+    ? cloneWarehouseBinsFromInput(input.warehouseStockBins)
+    : null;
 
   const priorityOrderRaw = (input.priorityEngineBrandIds ?? []).map((id) => String(id).trim()).filter(Boolean);
   const prioritySet = new Set(priorityOrderRaw);
@@ -282,6 +558,7 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     const startIdx = Math.max(0, order.findIndex((k) => k.brandId === startBrandId));
     let cursor = startIdx >= 0 ? startIdx : 0;
     const enginesByBrand = new Map<string, number>();
+    const whAccByBrand = new Map<string, WhPartAcc>();
     let lastUsedBrandId: string | null = null;
 
     while (remaining > 0) {
@@ -298,6 +575,13 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
         }
         const run = Math.max(1, Math.min(remaining, sameBrandBatchSize, maxForCurrent));
         consumeKit(stock, kit, run);
+        if (warehouseBins) {
+          const delta = allocateKitConsumptionFromBins(warehouseBins, kit, run);
+          if (delta) {
+            const acc = getOrCreateWhPartAcc(whAccByBrand, kit.brandId);
+            mergeConsumptionIntoWhAcc(acc, kit, delta);
+          }
+        }
         remaining -= run;
         progressed = true;
         lastUsedBrandId = kit.brandId;
@@ -316,6 +600,11 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
       const kit = pool.find((k) => k.brandId === brandId);
       if (!kit) return;
       const status: AssemblyForecastDayRow['status'] = remaining === 0 && target > 0 ? 'ok' : 'waiting';
+      const whAcc = whAccByBrand.get(brandId);
+      const requiredSummary =
+        warehouseBins && whAcc && whAcc.size > 0
+          ? formatWarehouseKitConsumptionSummary(kit, whAcc)
+          : summarizeKit(kit, plannedEngines);
       rows.push({
         dayOffset: day,
         dayLabel,
@@ -323,7 +612,7 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
         brandId,
         plannedEngines,
         status,
-        requiredComponentsSummary: summarizeKit(kit, plannedEngines),
+        requiredComponentsSummary: requiredSummary,
         deficitsSummary: '',
         alternativeBrands: '',
       });
@@ -336,6 +625,7 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
 
   for (let day = 0; day < horizon; day++) {
     applyIncomingForDay(stock, day, input.incomingLines);
+    applyIncomingToWarehouseBins(warehouseBins, day, input.incomingLines);
     const dayLabel = `День ${day + 1}`;
 
     let remaining = target;
@@ -350,24 +640,17 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
       }
     }
 
-    const dayBrandRows = rows.filter((r) => r.dayOffset === day && r.brandId && r.engineBrand !== '(не распределено)');
-    if (remaining > 0 && target > 0 && dayBrandRows.length > 0) {
-      const lastBrandRow = dayBrandRows[dayBrandRows.length - 1];
-      if (lastBrandRow) {
-        lastBrandRow.alternativeBrands = findAlternativeBrands(kits, lastBrandRow.brandId, stock, remaining);
-      }
-    }
-
     if (remaining > 0 && target > 0) {
+      const shortage = formatAssemblyShortageRowForOperator(kits, stock, remaining, target);
       rows.push({
         dayOffset: day,
         dayLabel,
-        engineBrand: '(не распределено)',
+        engineBrand: shortage.engineBrand,
         brandId: '',
         plannedEngines: 0,
         status: 'shortage',
-        requiredComponentsSummary: '',
-        deficitsSummary: `Не удалось набрать ${remaining} двиг. из целевых ${target} за день`,
+        requiredComponentsSummary: shortage.requiredComponentsSummary,
+        deficitsSummary: '',
         alternativeBrands: '',
       });
     }
@@ -487,7 +770,7 @@ function computeHorizonCoverageGap(args: {
     }
   }
 
-  const horizonMissingByBrand = missingByBrand.sort((a, b) => b.missingEngines - a.missingEngines || a.brandLabel.localeCompare(b.brandLabel, 'ru'));
+  const horizonMissingByBrand = mergeHorizonMissingByDisplayLabel(missingByBrand);
   const horizonComponentNeeds = Array.from(partNeedMap.values())
     .sort((a, b) => b.requiredQty - a.requiredQty || a.partLabel.localeCompare(b.partLabel, 'ru'))
     .map((p) => ({

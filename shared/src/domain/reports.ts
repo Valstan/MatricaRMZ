@@ -41,6 +41,8 @@ export type ReportFilterSpec =
       type: 'date_range';
       key: string;
       label: string;
+      /** Подсказка при наведении на название фильтра (краткое описание смысла). */
+      labelHint?: string;
       startKey: string;
       endKey: string;
     }
@@ -52,6 +54,7 @@ export type ReportFilterSpec =
       options?: ReportFilterOption[];
       /** Если true — UI предзаполнит фильтр всеми доступными значениями. */
       selectAllByDefault?: boolean;
+      labelHint?: string;
     }
   | {
       type: 'select';
@@ -59,11 +62,13 @@ export type ReportFilterSpec =
       label: string;
       optionsSource?: ReportOptionSource;
       options?: ReportFilterOption[];
+      labelHint?: string;
     }
   | {
       type: 'checkbox';
       key: string;
       label: string;
+      labelHint?: string;
     }
   | {
       type: 'number';
@@ -73,6 +78,7 @@ export type ReportFilterSpec =
       max?: number;
       step?: number;
       defaultValue?: number;
+      labelHint?: string;
     }
   | {
       type: 'text';
@@ -80,6 +86,7 @@ export type ReportFilterSpec =
       label: string;
       placeholder?: string;
       defaultValue?: string;
+      labelHint?: string;
     };
 
 export type ReportColumn = {
@@ -660,56 +667,59 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {
     id: 'assembly_forecast_7d',
     title: 'Прогноз сборки двигателей',
-    description:
-      'Прогнозирует сборку по активным default BOM-матрицам (марка из справочника → компоненты BOM), с учётом остатков и плановых приходов (planned). Целевой выпуск в сутки — общий по цеху (если комплектующих не хватает, за день наберётся меньше цели — это видно в строках «не хватает»). Режим приоритета: вручную выбранные марки или авто по непросроченным контрактам с отставанием от графика (просроченные контракты в авто-режиме не учитываются). Режимы не смешиваются. Марки в фильтрах — из справочника «Марки двигателей»; расчёт строк прогноза только для марок, у которых есть активная default BOM. Внизу — подсказки по дефициту. В фильтре складов учитывайте id «default».',
+    description: '',
     filters: [
       {
         type: 'select',
         key: 'assemblyPriorityMode',
         label: 'Приоритет сборки',
+        labelHint:
+          'Задаёт порядок марок на сборку. «Вручную» — по списку «Приоритетные марки». «По контрактам» — автоматически по непросроченным контрактам с отставанием от линейного графика (просроченные не учитываются). Режимы не смешиваются.',
         options: [
-          { value: 'manual', label: 'Вручную — приоритетные марки ниже' },
-          {
-            value: 'contracts',
-            label: 'Авто — по контрактам с отставанием от графика',
-            hintText:
-              'Берутся непросроченные контракты, где исполнение отстаёт от линейного графика. Просроченные контракты не участвуют. Ручной список приоритетных марок отключается.',
-          },
+          { value: 'manual', label: 'Вручную' },
+          { value: 'contracts', label: 'По контрактам' },
         ],
       },
       {
         type: 'multi_select',
         key: 'warehouseIds',
         label: 'Склады',
+        labelHint: 'Остатки и расход — только по выбранным складам. Пустой список после загрузки опций означает все склады.',
         optionsSource: 'warehouses',
         selectAllByDefault: true,
       },
       {
         type: 'multi_select',
         key: 'engineBrandIds',
-        label: 'Марки двигателей (справочник; в прогнозе участвуют только с активной default BOM)',
+        label: 'Марки двигателей',
+        labelHint:
+          'В расчёт попадают марки с активной default BOM. Пусто (после загрузки) — все такие марки из справочника.',
         optionsSource: 'brands',
         selectAllByDefault: true,
       },
       {
         type: 'multi_select',
         key: 'priorityEngineBrandIds',
-        label: 'Приоритетные марки (в первую очередь на сборку; справочник марок)',
+        label: 'Приоритетные марки',
+        labelHint:
+          'В режиме «Вручную» — в первую очередь на сборку. В режиме «По контрактам» список задаётся автоматически.',
         optionsSource: 'brands',
       },
       {
         type: 'number',
         key: 'targetEnginesPerDay',
-        label: 'Целевой выпуск двигателей в сутки',
+        label: 'Количество двигателей в сутки',
+        labelHint: 'Целевой общий выпуск за сутки по цеху; при дефиците факт может быть ниже.',
         min: 0,
         max: 500,
         step: 1,
-        defaultValue: 4,
+        defaultValue: 1,
       },
       {
         type: 'number',
         key: 'sameBrandBatchSize',
-        label: 'Серия одинаковой марки в день (стараться подряд)',
+        label: 'Одинаковая марка в сутки',
+        labelHint: 'Не больше указанного числа двигателей одной марки за сутки (стараться подряд).',
         min: 1,
         max: 500,
         step: 1,
@@ -718,7 +728,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       {
         type: 'number',
         key: 'horizonDays',
-        label: 'Горизонт прогноза (дней)',
+        label: 'Горизонт, дней',
+        labelHint: 'На сколько суток вперёд строится план.',
         min: 1,
         max: 31,
         step: 1,
@@ -731,8 +742,6 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'plannedEngines', label: 'Кол-во двигателей', kind: 'number', align: 'right' },
       { key: 'status', label: 'Статус' },
       { key: 'requiredComponentsSummary', label: 'Расход комплектующих (факт за день)' },
-      { key: 'deficitsSummary', label: 'Дефицит' },
-      { key: 'alternativeBrands', label: 'Альтернативные марки' },
     ],
   },
 ];

@@ -86,4 +86,14 @@ describe('settings IPC shortcuts handlers', () => {
     expect(getNoUser).toEqual({ ok: true, ids: [] });
     expect(setNoUser).toEqual({ ok: false, error: 'userId required' });
   });
+
+  it('normalizes stored shortcuts when value was a single string instead of array', async () => {
+    hoisted.settings.set(
+      'ui.pinnedShortcuts',
+      JSON.stringify({ u1: 'report:assembly_forecast_7d' }),
+    );
+    const getHandler = hoisted.ipcHandlers.get('shortcuts:get');
+    const u1 = await getHandler!(null, { userId: 'u1' });
+    expect(u1).toEqual({ ok: true, ids: ['report:assembly_forecast_7d'] });
+  });
 });

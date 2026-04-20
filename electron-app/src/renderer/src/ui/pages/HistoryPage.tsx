@@ -106,19 +106,22 @@ const TAB_SHORTCUT_META: Record<string, { icon: string; title: string; gradient:
 };
 
 function resolveShortcutTile(shortcutId: string, reportPresets?: Array<{ id: string; title: string }>): PinnedTile | null {
-  if (shortcutId.startsWith('tab:')) {
-    const tabId = shortcutId.slice(4);
+  const normalized = String(shortcutId ?? '').trim();
+  if (!normalized) return null;
+  if (normalized.toLowerCase().startsWith('tab:')) {
+    const tabId = normalized.slice(4);
     const meta = TAB_SHORTCUT_META[tabId];
     if (!meta) return null;
-    return { shortcutId, icon: meta.icon, title: meta.title, gradient: meta.gradient, link: { kind: 'app_link', tab: tabId as any, breadcrumbs: [meta.title] } };
+    return { shortcutId: normalized, icon: meta.icon, title: meta.title, gradient: meta.gradient, link: { kind: 'app_link', tab: tabId as any, breadcrumbs: [meta.title] } };
   }
-  if (shortcutId.startsWith('report:')) {
-    const presetId = shortcutId.slice(7);
+  const reportMatch = /^report:(.+)$/i.exec(normalized);
+  if (reportMatch) {
+    const presetId = reportMatch[1].trim();
     if (!presetId) return null;
     const preset = reportPresets?.find((p) => p.id === presetId);
     const title = (preset?.title ?? '').trim() || `Отчёт (${presetId})`;
     return {
-      shortcutId,
+      shortcutId: normalized,
       icon: '📊',
       title,
       gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)',
@@ -199,7 +202,7 @@ export function HistoryPage(props: {
 
   useEffect(() => {
     let alive = true;
-    const hasPinnedReports = (props.pinnedShortcuts ?? []).some((id) => id.startsWith('report:'));
+    const hasPinnedReports = (props.pinnedShortcuts ?? []).some((id) => /^report:/i.test(String(id).trim()));
     if (!hasPinnedReports) { setReportPresets([]); return; }
     void window.matrica.reports.presetList().then((r) => {
       if (!alive || !r?.ok) return;
@@ -216,7 +219,7 @@ export function HistoryPage(props: {
 
   useEffect(() => {
     if (!pinnedContextMenu) return;
-    const handler = (e: MouseEvent) => {
+    const handler = () => {
       setPinnedContextMenu(null);
     };
     const keyHandler = (e: KeyboardEvent) => {

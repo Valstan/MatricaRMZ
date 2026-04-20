@@ -37,6 +37,33 @@ describe('assemblyForecast', () => {
     expect(planned).toBe(4);
   });
 
+  it('requiredComponentsSummary включает подпись склада при warehouseStockBins', () => {
+    const stock = new Map<string, number>([
+      ['p1', 20],
+      ['p2', 20],
+    ]);
+    const warehouseStockBins = new Map([
+      ['p1', [{ warehouseId: 'w1', warehouseLabel: 'Склад цеха', qty: 20 }]],
+      ['p2', [{ warehouseId: 'w1', warehouseLabel: 'Склад цеха', qty: 20 }]],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: 'b1', brandLabel: 'B1', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 1,
+      targetEnginesPerDay: 2,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      warehouseStockBins,
+      incomingLines: [],
+    });
+    const row = res.rows.find((r) => r.engineBrand === 'B1' && r.plannedEngines > 0);
+    expect(row?.requiredComponentsSummary).toContain('Склад цеха');
+    expect(row?.requiredComponentsSummary?.includes('\n')).toBe(true);
+  });
+
   it('emits shortage row when stock cannot satisfy target', () => {
     const stock = new Map<string, number>([
       ['p1', 1],
@@ -57,7 +84,7 @@ describe('assemblyForecast', () => {
     const shortage = res.rows.filter((r) => r.status === 'shortage');
     expect(shortage.length).toBeGreaterThan(0);
     expect(shortage[0]?.plannedEngines).toBe(0);
-    expect(shortage[0]?.deficitsSummary).toMatch(/Не удалось набрать/);
+    expect(shortage[0]?.requiredComponentsSummary).toMatch(/Не удалось набрать/);
   });
 
   it('allocates priority brands before others when priorityEngineBrandIds is set', () => {
@@ -274,7 +301,7 @@ describe('assemblyForecast', () => {
       stockByNomenclatureId: stock,
       incomingLines: [],
     });
-    const gapBrandA = res.horizonMissingByBrand.find((x) => x.brandId === 'ba');
+    const gapBrandA = res.horizonMissingByBrand.find((x) => x.brandLabel === 'Brand A');
     expect(gapBrandA?.missingEngines).toBe(5);
     const needs = res.horizonComponentNeeds;
     expect(needs.length).toBeGreaterThan(0);

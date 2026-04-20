@@ -30,6 +30,7 @@ import {
   type ReportPresetPrintResult,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
+  assemblyForecastStatusLabelRu,
 } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBom, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
@@ -2641,7 +2642,7 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
 
     if (inBom.length === 0) {
       mismatchNotes.push(
-        `Контракт «${label}» отстаёт, но по маркам ${missingBom.map((id) => missingBomBrandLabels.get(id) ?? id).join(', ')} нет активной спецификации BOM — строки прогноза сборки для них построить нельзя (заказ по контракту всё равно требует обеспечения).`,
+        `Контракт «${label}» отстаёт, но по маркам ${missingBom.map((id) => missingBomBrandLabels.get(id) ?? '—').join(', ')} нет активной спецификации BOM — строки прогноза сборки для них построить нельзя (заказ по контракту всё равно требует обеспечения).`,
       );
       continue;
     }
@@ -2682,7 +2683,7 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
   const modeHints: string[] = [];
   if (missingBomBrandLabels.size > 0) {
     const list = Array.from(missingBomBrandLabels.entries())
-      .map(([id, lab]) => `${lab} (${id})`)
+      .map(([, lab]) => lab)
       .sort((a, b) => a.localeCompare(b, 'ru'));
     footerNotes.push(
       `Марки без активной default BOM в справочнике (прогноз сборки в отчёте для них невозможен; по контрактам их всё равно нужно обеспечивать): ${list.join('; ')}.`,
@@ -2706,6 +2707,24 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
   }
 
   return { priorityEngineBrandIds, footerNotes, modeHints };
+}
+
+/** Убирает из текста отчёта для оператора внутренние маркеры вариантов BOM и UUID. */
+const ASSEMBLY_FORECAST_UUID_TOKEN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+const ASSEMBLY_FORECAST_KIT_MARKER = /\s*\[__kit_[^\]]+]/gi;
+
+function isUuidLike(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s).trim());
+}
+
+function sanitizeAssemblyForecastOperatorText(raw: string): string {
+  let s = String(raw ?? '');
+  s = s.replace(ASSEMBLY_FORECAST_KIT_MARKER, '');
+  s = s.replace(ASSEMBLY_FORECAST_UUID_TOKEN, '');
+  s = s.replace(/\(\s*\)/g, '');
+  s = s.replace(/;\s*;/g, ';');
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s;
 }
 
 function formatAssemblyDeficitHintsForPriorityBrands(deficitRecommendations: unknown[], priorityLabelSet: Set<string>): string[] {
@@ -2733,7 +2752,9 @@ function formatAssemblyDeficitHintsForPriorityBrands(deficitRecommendations: unk
     }
     lines.push({
       deficit,
-      text: `${partLabel} — ${situation}: не хватает ~${deficit} шт. (нужно ~${req}, на складе ${stock}, приход по плану ~${incoming}; марки: ${brPart || '—'})`,
+      text: sanitizeAssemblyForecastOperatorText(
+        `${partLabel} — ${situation}: не хватает ~${deficit} шт. (нужно ~${req}, на складе ${stock}, приход по плану ~${incoming}; марки: ${brPart || '—'})`,
+      ),
     });
   }
   lines.sort((a, b) => b.deficit - a.deficit);
@@ -2769,8 +2790,9 @@ async function buildAssemblyForecast7dReport(
     if (missingManual.length > 0 && !assemblyForecastApiEnabled) {
       const list = missingManual
         .map((id) => {
-          const lab = entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
-          return `${lab} (${id})`;
+          const lab = entityLabel(snapshot.attrsByEntity.get(id), id).trim();
+          if (lab && !isUuidLike(lab)) return lab;
+          return 'марка без названия в справочнике';
         })
         .sort((a, b) => a.localeCompare(b, 'ru'));
       manualBomFooter.push(
@@ -2788,7 +2810,7 @@ async function buildAssemblyForecast7dReport(
   async function viaApi(): Promise<{ report: OkPreview } | { skip: true } | { error: string }> {
     const apiBaseUrl = String(ctx?.apiBaseUrl ?? '').trim();
     if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
-    const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
+    const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 1)));
     const sameBrandBatchSize = Math.max(1, Math.floor(Number(filters?.sameBrandBatchSize ?? 2)));
     const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(filters?.horizonDays ?? 7))));
     const warehouseIds = asArray(filters?.warehouseIds);
@@ -2821,22 +2843,26 @@ async function buildAssemblyForecast7dReport(
       const rowsRaw = Array.isArray(body.rows) ? body.rows : [];
       const rows = rowsRaw.map((row) => {
         const r0 = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+        const rawStatus = normalizeText(r0.status, '');
+        const statusCode =
+          rawStatus === 'ok' || rawStatus === 'waiting' || rawStatus === 'shortage' ? rawStatus : 'shortage';
         return {
-          dayLabel: normalizeText(r0.dayLabel, ''),
-          engineBrand: normalizeText(r0.engineBrand, ''),
+          dayLabel: sanitizeAssemblyForecastOperatorText(normalizeText(r0.dayLabel, '')),
+          engineBrand: sanitizeAssemblyForecastOperatorText(normalizeText(r0.engineBrand, '')),
           plannedEngines: Math.max(0, toNumber(r0.plannedEngines)),
-          status: normalizeText(r0.status, ''),
-          requiredComponentsSummary: normalizeText(r0.requiredComponentsSummary, ''),
-          deficitsSummary: normalizeText(r0.deficitsSummary, ''),
-          alternativeBrands: normalizeText(r0.alternativeBrands, ''),
+          status: assemblyForecastStatusLabelRu(statusCode),
+          requiredComponentsSummary: sanitizeAssemblyForecastOperatorText(normalizeText(r0.requiredComponentsSummary, '')),
+          _assemblyStatusCode: statusCode,
         } as Record<string, ReportCellValue>;
       });
-      const warnings = Array.isArray(body.warnings) ? body.warnings.map((w) => String(w)).filter(Boolean) : [];
+      const warnings = Array.isArray(body.warnings)
+        ? body.warnings.map((w) => sanitizeAssemblyForecastOperatorText(String(w))).filter(Boolean)
+        : [];
       const horizonMissingByBrand = Array.isArray(body.horizonMissingByBrand)
         ? body.horizonMissingByBrand
             .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : {}))
             .map((x) => ({
-              brandLabel: normalizeText(x.brandLabel, ''),
+              brandLabel: sanitizeAssemblyForecastOperatorText(normalizeText(x.brandLabel, '')),
               missingEngines: Math.max(0, Math.floor(toNumber(x.missingEngines))),
             }))
             .filter((x) => x.brandLabel && x.missingEngines > 0)
@@ -2845,9 +2871,11 @@ async function buildAssemblyForecast7dReport(
         ? body.horizonComponentNeeds
             .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : {}))
             .map((x) => ({
-              partLabel: normalizeText(x.partLabel, ''),
+              partLabel: sanitizeAssemblyForecastOperatorText(normalizeText(x.partLabel, '')),
               requiredQty: Math.max(0, Math.floor(toNumber(x.requiredQty))),
-              forBrands: Array.isArray(x.forBrands) ? x.forBrands.map((b) => normalizeText(b, '')).filter(Boolean) : [],
+              forBrands: Array.isArray(x.forBrands)
+                ? x.forBrands.map((b) => sanitizeAssemblyForecastOperatorText(normalizeText(b, ''))).filter(Boolean)
+                : [],
             }))
             .filter((x) => x.partLabel && x.requiredQty > 0)
         : [];
@@ -2868,22 +2896,30 @@ async function buildAssemblyForecast7dReport(
       const horizonGapFooter =
         horizonMissingByBrand.length > 0
           ? [
-              `Недовыпуск на горизонт ${horizonDays} дн. (цель ${targetEnginesPerDay}/сутки):`,
+              sanitizeAssemblyForecastOperatorText(`Недовыпуск на горизонт ${horizonDays} дн. (цель ${targetEnginesPerDay}/сутки):`),
               ...horizonMissingByBrand
                 .slice(0, 20)
-                .map((b) => `${b.brandLabel}: не хватает собрать ещё ~${b.missingEngines} двиг.`),
+                .map((b) =>
+                  sanitizeAssemblyForecastOperatorText(`${b.brandLabel}: не хватает собрать ещё ~${b.missingEngines} двиг.`),
+                ),
               ...(horizonComponentNeeds.length > 0
                 ? [
                     'Чтобы закрыть горизонт, дополнительно нужны комплектующие (оценка):',
                     ...horizonComponentNeeds
                       .slice(0, 30)
-                      .map((p) => `${p.partLabel}: ~${p.requiredQty} шт.${p.forBrands.length ? ` (марки: ${p.forBrands.slice(0, 4).join(', ')})` : ''}`),
+                      .map((p) =>
+                        sanitizeAssemblyForecastOperatorText(
+                          `${p.partLabel}: ~${p.requiredQty} шт.${p.forBrands.length ? ` (марки: ${p.forBrands.slice(0, 4).join(', ')})` : ''}`,
+                        ),
+                      ),
                   ]
                 : []),
             ]
           : [];
 
-      const footerNotes = [...contractFooterNotes, ...manualBomFooter, ...deficitFooter, ...horizonGapFooter].filter(Boolean);
+      const footerNotes = [...contractFooterNotes, ...manualBomFooter, ...deficitFooter, ...horizonGapFooter]
+        .filter(Boolean)
+        .map(sanitizeAssemblyForecastOperatorText);
       const preset = getPreset('assembly_forecast_7d');
       const prioritySubtitle =
         mode === 'contracts'
@@ -2892,12 +2928,14 @@ async function buildAssemblyForecast7dReport(
             ? `Приоритет марок (вручную): ${priorityEngineBrandIds.length}`
             : 'Приоритет марок: нет';
       const subtitleParts = [
-        `Цель: ${targetEnginesPerDay}/сутки`,
-        `Серия одной марки: ${sameBrandBatchSize}`,
-        `Горизонт: ${horizonDays} дн.`,
-        warehouseIds.length ? `Склады: ${warehouseIds.length}` : 'Склады: все (сумма)',
-        prioritySubtitle,
-        ...modeHints,
+        sanitizeAssemblyForecastOperatorText(`Цель: ${targetEnginesPerDay}/сутки`),
+        sanitizeAssemblyForecastOperatorText(`Серия одной марки: ${sameBrandBatchSize}`),
+        sanitizeAssemblyForecastOperatorText(`Горизонт: ${horizonDays} дн.`),
+        sanitizeAssemblyForecastOperatorText(
+          warehouseIds.length ? `Склады: ${warehouseIds.length}` : 'Склады: все (сумма)',
+        ),
+        sanitizeAssemblyForecastOperatorText(prioritySubtitle),
+        ...modeHints.map(sanitizeAssemblyForecastOperatorText),
         ...warnings,
       ];
       return {
@@ -3166,9 +3204,142 @@ export function buildReport1cXml(report: OkPreview): string {
   ].join('\n');
 }
 
+function assemblyForecastPdfStatusClass(statusText: string): string {
+  if (statusText === 'Хватает') return 'afp-st-ok';
+  if (statusText === 'Частично') return 'afp-st-wait';
+  if (statusText === 'Не хватает') return 'afp-st-bad';
+  return 'afp-st-neu';
+}
+
+function renderAssemblyForecastPdfConsumptionLines(text: string): string {
+  const lines = text.split('\n').filter((s) => s.trim().length > 0);
+  if (lines.length <= 1) return htmlEscape(text);
+  return lines.map((line) => `<div class="afp-cons">${htmlEscape(line)}</div>`).join('');
+}
+
+function renderAssemblyForecastPdfTable(report: OkPreview): string {
+  const style = `<style>
+.afp-wrap{font-size:12px;color:#0b1220}
+.afp-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden}
+.afp-th{padding:9px 10px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1;font-weight:800;font-size:11px;text-align:left}
+.afp-td{padding:9px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top;line-height:1.45}
+.afp-tr-ok{background:#ecfdf5;box-shadow:inset 3px 0 0 0 #16a34a}
+.afp-tr-wait{background:#fffbeb;box-shadow:inset 3px 0 0 0 #d97706}
+.afp-tr-short{background:#fef2f2;box-shadow:inset 3px 0 0 0 #dc2626}
+.afp-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:0.03em;border:1px solid transparent}
+.afp-st-ok{background:rgba(22,163,74,0.14);color:#14532d;border-color:rgba(22,163,74,0.35)}
+.afp-st-wait{background:rgba(217,119,6,0.16);color:#7c2d12;border-color:rgba(217,119,6,0.4)}
+.afp-st-bad{background:rgba(220,38,38,0.12);color:#7f1d1d;border-color:rgba(220,38,38,0.35)}
+.afp-st-neu{background:#f8fafc;color:#475569;border-color:#e2e8f0}
+.afp-cons{padding:5px 0 5px 8px;margin-bottom:5px;border-left:2px solid rgba(37,99,235,0.35);background:rgba(248,250,252,0.95);border-radius:0 6px 6px 0}
+.afp-cons:last-child{margin-bottom:0}
+</style>`;
+  const head = report.columns
+    .map(
+      (c) =>
+        `<th class="afp-th" style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`,
+    )
+    .join('');
+  const body =
+    report.rows.length > 0
+      ? report.rows
+          .map((row) => {
+            const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
+            const trClass =
+              code === 'ok' ? 'afp-tr-ok' : code === 'waiting' ? 'afp-tr-wait' : code === 'shortage' ? 'afp-tr-short' : '';
+            const tds = report.columns
+              .map((column) => {
+                const text = formatCell(column, (row[column.key] ?? null) as ReportCellValue);
+                if (column.key === 'status') {
+                  const cls = assemblyForecastPdfStatusClass(text);
+                  return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}"><span class="afp-st ${cls}">${htmlEscape(text)}</span></td>`;
+                }
+                if (column.key === 'requiredComponentsSummary') {
+                  return `<td class="afp-td" style="text-align:left">${renderAssemblyForecastPdfConsumptionLines(text)}</td>`;
+                }
+                return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}">${htmlEscape(text)}</td>`;
+              })
+              .join('');
+            return `<tr class="${trClass}">${tds}</tr>`;
+          })
+          .join('')
+      : `<tr><td class="afp-td" colspan="${report.columns.length}" style="text-align:center;color:#64748b">Нет данных</td></tr>`;
+  return `${style}<div class="afp-wrap"><table class="afp-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function renderAssemblyForecastPdfFooter(lines: string[]): string {
+  const style = `<style>
+.afp-fn{border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-top:12px}
+.afp-fn-h{padding:8px 12px;font-weight:800;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;background:linear-gradient(180deg,#f1f5f9,#f8fafc);border-bottom:1px solid #e2e8f0}
+.afp-fn-line{padding:7px 12px;font-size:11.5px;line-height:1.45;color:#475569;border-bottom:1px solid #f1f5f9}
+.afp-fn-line:last-child{border-bottom:none}
+.afp-fn-lead{margin:8px 10px 4px;padding:7px 10px;font-weight:800;font-size:11.5px;color:#0b1220;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px}
+.afp-fn-bul{padding-left:20px;position:relative}
+.afp-fn-bul:before{content:'';position:absolute;left:10px;top:0.85em;width:4px;height:4px;border-radius:50%;background:#94a3b8}
+</style>`;
+  const LEAD = [
+    'Недовыпуск',
+    'Комплектующие:',
+    'Чтобы закрыть',
+    'Марки без',
+    'Контракт «',
+    'Авто-приоритет',
+    'Авто: нет контрактов',
+    'Приоритет:',
+    'Приоритетные марки',
+  ];
+  const body = lines
+    .map((line) => {
+      const t = line.trim();
+      if (t.startsWith('•')) {
+        return `<div class="afp-fn-line afp-fn-bul">${htmlEscape(line)}</div>`;
+      }
+      if (LEAD.some((p) => t.startsWith(p))) {
+        return `<div class="afp-fn-lead">${htmlEscape(line)}</div>`;
+      }
+      return `<div class="afp-fn-line">${htmlEscape(line)}</div>`;
+    })
+    .join('');
+  return `${style}<div class="afp-fn"><div class="afp-fn-h">Пояснения</div>${body}</div>`;
+}
+
 export function renderReportHtml(report: OkPreview): string {
   if (report.presetId === 'work_order_payroll') {
     return renderWorkOrderPayrollFullHtml(report);
+  }
+  if (report.presetId === 'assembly_forecast_7d') {
+    const subtitleChips = (report.subtitle ?? '')
+      .split(' | ')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map(
+        (chunk) =>
+          `<span style="display:inline-block;margin:3px 4px 0 0;padding:4px 9px;border-radius:999px;border:1px solid #e2e8f0;background:#f8fafc;font-size:11px;color:#475569">${htmlEscape(chunk)}</span>`,
+      )
+      .join('');
+    const metaHtml = subtitleChips
+      ? `<div style="margin:0 0 12px 0;line-height:1.4">${subtitleChips}</div>`
+      : `<div class="meta">${htmlEscape(report.subtitle ?? '')}</div>`;
+    const tableBlock = renderAssemblyForecastPdfTable(report);
+    const totalsHtml =
+      report.totals && Object.keys(report.totals).length > 0
+        ? `<div style="margin-top:12px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:12px"><b>Итого по отчёту:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
+        : '';
+    const footerNotesHtml =
+      report.footerNotes && report.footerNotes.length > 0 ? renderAssemblyForecastPdfFooter(report.footerNotes) : '';
+    return `<!doctype html>
+<html><head><meta charset="utf-8"/>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;font-size:12px;padding:16px;color:#0b1220}
+h1{font-size:16px;margin:0 0 8px 0}
+</style>
+</head><body>
+<h1>${htmlEscape(report.title)}</h1>
+${metaHtml}
+${tableBlock}
+${totalsHtml}
+${footerNotesHtml}
+</body></html>`;
   }
   const headers = report.columns.map((c) => `<th style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`).join('');
   const rows = report.rows

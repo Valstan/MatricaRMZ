@@ -14,6 +14,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { AssemblyForecastReportView } from '../components/AssemblyForecastReportView.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import {
@@ -76,6 +77,10 @@ const selectedTagStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 };
+
+function filterLabelHint(filter: ReportFilterSpec): string | undefined {
+  return 'labelHint' in filter && filter.labelHint ? filter.labelHint : undefined;
+}
 
 export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: boolean; userId: string; onBack: () => void }) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
@@ -376,6 +381,223 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     };
   }, [activePreset]);
 
+  function renderAssemblyForecastFilters() {
+    if (!activePreset || activePreset.id !== 'assembly_forecast_7d') return null;
+    const filterOf = (key: string) => activePreset.filters.find((fl) => 'key' in fl && (fl as { key: string }).key === key) as ReportFilterSpec | undefined;
+    const prio = filterOf('assemblyPriorityMode');
+    const whF = filterOf('warehouseIds');
+    const engF = filterOf('engineBrandIds');
+    const priF = filterOf('priorityEngineBrandIds');
+    const tgtF = filterOf('targetEnginesPerDay');
+    const batchF = filterOf('sameBrandBatchSize');
+    const horF = filterOf('horizonDays');
+    if (!prio || !whF || !engF || !priF || !tgtF || !batchF || !horF) return null;
+    if (prio.type !== 'select' || whF.type !== 'multi_select' || engF.type !== 'multi_select' || priF.type !== 'multi_select') return null;
+    if (tgtF.type !== 'number' || batchF.type !== 'number' || horF.type !== 'number') return null;
+
+    const warehouseOpts = optionSets.warehouses ?? [];
+    const brandOpts = optionSets.brands ?? [];
+    const pm = String(activeFilters.assemblyPriorityMode ?? prio.options?.[0]?.value ?? 'manual');
+    const selWh = Array.isArray(activeFilters.warehouseIds) ? (activeFilters.warehouseIds as string[]) : [];
+    const selBrand = Array.isArray(activeFilters.engineBrandIds) ? (activeFilters.engineBrandIds as string[]) : [];
+    const selPriBrand = Array.isArray(activeFilters.priorityEngineBrandIds) ? (activeFilters.priorityEngineBrandIds as string[]) : [];
+
+    const allWhIds = warehouseOpts.map((o) => String(o.value));
+    const allBrandIds = brandOpts.map((o) => String(o.value));
+    const allWhSelected = allWhIds.length > 0 && selWh.length === allWhIds.length && allWhIds.every((id) => selWh.includes(id));
+    const allBrandsSelected =
+      allBrandIds.length > 0 && selBrand.length === allBrandIds.length && allBrandIds.every((id) => selBrand.includes(id));
+
+    const whLabels = warehouseOpts.filter((o) => selWh.includes(String(o.value)));
+    const brandLabels = brandOpts.filter((o) => selBrand.includes(String(o.value)));
+    const priBrandLabels = brandOpts.filter((o) => selPriBrand.includes(String(o.value)));
+
+    const priorityManualDisabled = pm === 'contracts';
+
+    function renderAfNumber(filter: Extract<ReportFilterSpec, { type: 'number' }>) {
+      const raw = activeFilters[filter.key];
+      const num = typeof raw === 'number' ? raw : Number(raw);
+      const safe = Number.isFinite(num) ? num : filter.defaultValue ?? 0;
+      return (
+        <div className="report-preset-af-row" key={filter.key}>
+          <div className="report-preset-af-label" title={filterLabelHint(filter)}>
+            {filter.label}
+          </div>
+          <div className="report-preset-af-main">
+            <Input
+              type="number"
+              min={filter.min}
+              max={filter.max}
+              step={filter.step ?? 1}
+              value={String(safe)}
+              onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
+              disabled={busy}
+              style={{ width: '100%', minHeight: 36 }}
+            />
+          </div>
+          <button type="button" onClick={() => resetFilter(filter)} title="Сбросить" style={filterResetBtnStyle}>
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="report-preset-af-stack">
+        <Button type="button" variant="primary" size="lg" className="report-preset-af-reset-all" onClick={resetAllFilters} disabled={busy}>
+          Сбросить все фильтры
+        </Button>
+
+        <div className="report-preset-af-row">
+          <div className="report-preset-af-label" title={filterLabelHint(prio)}>
+            {prio.label}
+          </div>
+          <div className="report-preset-af-main">
+            <div className="report-preset-af-toggle">
+              <button
+                type="button"
+                className="report-preset-af-pill"
+                data-active={pm === 'manual' ? 'true' : 'false'}
+                disabled={busy}
+                title="Приоритет задаётся списком «Приоритетные марки»."
+                onClick={() => patchFilter('assemblyPriorityMode', 'manual')}
+              >
+                Вручную
+              </button>
+              <button
+                type="button"
+                className="report-preset-af-pill"
+                data-active={pm === 'contracts' ? 'true' : 'false'}
+                disabled={busy}
+                title="Автовыбор по непросрочным контрактам с отставанием от линейного графика."
+                onClick={() => patchFilter('assemblyPriorityMode', 'contracts')}
+              >
+                По контрактам
+              </button>
+            </div>
+          </div>
+          <button type="button" onClick={() => resetFilter(prio)} title="Сбросить" style={filterResetBtnStyle}>
+            ✕
+          </button>
+        </div>
+
+        <div className="report-preset-af-block">
+          <div className="report-preset-af-label" title={filterLabelHint(whF)}>
+            {whF.label}
+          </div>
+          <div className="report-preset-af-main" style={{ width: '100%', minWidth: 0 }}>
+            <MultiSearchSelect
+              values={selWh}
+              options={warehouseOpts.map((option) => ({
+                id: option.value,
+                label: option.label,
+                ...(option.hintText ? { hintText: option.hintText } : {}),
+                ...(option.searchText ? { searchText: option.searchText } : {}),
+              }))}
+              placeholder="Нажмите и выберите склады"
+              disabled={busy}
+              query={activeFilterSearch[whF.key] ?? ''}
+              onQueryChange={(next) => patchFilterSearch(whF.key, next)}
+              onChange={(next) => patchFilter(whF.key, next)}
+            />
+          </div>
+          <button type="button" onClick={() => resetFilter(whF)} title="Сбросить" style={filterResetBtnStyle}>
+            ✕
+          </button>
+          {warehouseOpts.length === 0 ? (
+            <div className="report-preset-af-meta">Загрузка списка складов…</div>
+          ) : (
+            <div className="report-preset-af-meta">
+              {allWhSelected
+                ? `В расчёте все склады (${whLabels.length}): ${whLabels.map((o) => o.label).join(' · ')}`
+                : `Участвуют: ${whLabels.map((o) => o.label).join(' · ')}`}
+            </div>
+          )}
+        </div>
+
+        <div className="report-preset-af-block">
+          <div className="report-preset-af-label" title={filterLabelHint(engF)}>
+            {engF.label}
+          </div>
+          <div className="report-preset-af-main" style={{ width: '100%', minWidth: 0 }}>
+            <MultiSearchSelect
+              values={selBrand}
+              options={brandOpts.map((option) => ({
+                id: option.value,
+                label: option.label,
+                ...(option.hintText ? { hintText: option.hintText } : {}),
+                ...(option.searchText ? { searchText: option.searchText } : {}),
+              }))}
+              placeholder="Нажмите и выберите марки"
+              disabled={busy}
+              query={activeFilterSearch[engF.key] ?? ''}
+              onQueryChange={(next) => patchFilterSearch(engF.key, next)}
+              onChange={(next) => patchFilter(engF.key, next)}
+            />
+          </div>
+          <button type="button" onClick={() => resetFilter(engF)} title="Сбросить" style={filterResetBtnStyle}>
+            ✕
+          </button>
+          {brandOpts.length === 0 ? (
+            <div className="report-preset-af-meta">Загрузка списка марок…</div>
+          ) : allBrandsSelected ? (
+            <div className="report-preset-af-meta">Выбраны все марки двигателей (с активной default BOM).</div>
+          ) : (
+            <div className="report-preset-af-meta report-preset-af-tags">
+              {brandLabels.map((o) => (
+                <span key={o.value} className="report-preset-af-tag" title={o.label}>
+                  {o.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="report-preset-af-block">
+          <div className="report-preset-af-label" title={filterLabelHint(priF)}>
+            {priF.label}
+          </div>
+          <div className="report-preset-af-main" style={{ width: '100%', minWidth: 0 }}>
+            <MultiSearchSelect
+              values={selPriBrand}
+              options={brandOpts.map((option) => ({
+                id: option.value,
+                label: option.label,
+                ...(option.hintText ? { hintText: option.hintText } : {}),
+                ...(option.searchText ? { searchText: option.searchText } : {}),
+              }))}
+              placeholder="Нажмите и выберите марки"
+              disabled={busy || priorityManualDisabled}
+              query={activeFilterSearch[priF.key] ?? ''}
+              onQueryChange={(next) => patchFilterSearch(priF.key, next)}
+              onChange={(next) => patchFilter(priF.key, next)}
+            />
+          </div>
+          <button type="button" onClick={() => resetFilter(priF)} title="Сбросить" style={filterResetBtnStyle}>
+            ✕
+          </button>
+          {priorityManualDisabled ? (
+            <div className="report-preset-af-meta">В режиме «По контрактам» список задаётся автоматически.</div>
+          ) : selPriBrand.length === 0 ? (
+            <div className="report-preset-af-meta">Приоритет по маркам не задан.</div>
+          ) : (
+            <div className="report-preset-af-meta report-preset-af-tags">
+              {priBrandLabels.map((o) => (
+                <span key={o.value} className="report-preset-af-tag" title={o.label}>
+                  {o.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {renderAfNumber(tgtF)}
+        {renderAfNumber(batchF)}
+        {renderAfNumber(horF)}
+      </div>
+    );
+  }
+
   function renderFilterControl(filter: ReportFilterSpec) {
     if (filter.type === 'date_range') {
       return (
@@ -466,45 +688,6 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         </div>
       );
     }
-    if (
-      filter.type === 'select' &&
-      activePreset?.id === 'assembly_forecast_7d' &&
-      filter.key === 'assemblyPriorityMode'
-    ) {
-      const asmOpts = filter.options ?? [];
-      const pm = String(activeFilters[filter.key] ?? asmOpts[0]?.value ?? 'manual');
-      return (
-        <div key={filter.key} style={{ display: 'grid', gap: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700 }}>{filter.label}</span>
-            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>
-              ✕
-            </button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {asmOpts.map((o) => (
-              <label
-                key={o.value}
-                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: busy ? 'default' : 'pointer' }}
-              >
-                <input
-                  type="radio"
-                  name="assemblyPriorityMode"
-                  checked={pm === o.value}
-                  disabled={busy}
-                  onChange={() => patchFilter(filter.key, o.value)}
-                  style={{ marginTop: 3 }}
-                />
-                <span>
-                  <div style={{ fontWeight: 600 }}>{o.label}</div>
-                  {o.hintText ? <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>{o.hintText}</div> : null}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-      );
-    }
     if (filter.type === 'select') {
       const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
       const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
@@ -537,21 +720,12 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
     const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
     const selectedLabels = options.filter((o) => selected.includes(o.value));
-    const priorityManualDisabled =
-      activePreset?.id === 'assembly_forecast_7d' &&
-      filter.key === 'priorityEngineBrandIds' &&
-      String(activeFilters.assemblyPriorityMode ?? 'manual') === 'contracts';
     return (
       <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontWeight: 700 }}>{filter.label}</span>
           <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
         </div>
-        {priorityManualDisabled ? (
-          <div className="ui-muted" style={{ fontSize: 12 }}>
-            В режиме «По отстающим контрактам» ручной список не используется — приоритетные марки подбираются автоматически.
-          </div>
-        ) : null}
         <MultiSearchSelect
           values={selected}
           options={options.map((option) => ({
@@ -561,7 +735,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
             ...(option.searchText ? { searchText: option.searchText } : {}),
           }))}
           placeholder="Начните вводить или вставьте текст"
-          disabled={busy || priorityManualDisabled}
+          disabled={busy}
           query={activeFilterSearch[filter.key] ?? ''}
           onQueryChange={(next) => patchFilterSearch(filter.key, next)}
           onChange={(next) => patchFilter(filter.key, next)}
@@ -595,7 +769,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         }
       >
         {activePreset ? (
-          <div className="ui-muted">{activePreset.description}</div>
+          activePreset.description.trim() ? <div className="ui-muted">{activePreset.description}</div> : null
         ) : (
           <div className="ui-muted">Шаблон не найден. Вернитесь к списку отчётов.</div>
         )}
@@ -625,6 +799,11 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
       <SectionCard title={activePreset ? `Фильтры и настройки: ${activePreset.title}` : 'Фильтры и настройки'}>
         {!activePreset ? (
           <div className="ui-muted">Выберите шаблон отчета.</div>
+        ) : activePreset.id === 'assembly_forecast_7d' ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ color: 'var(--muted)', fontSize: 12 }}>Отчёт формируется автоматически при изменении фильтров.</div>
+            {renderAssemblyForecastFilters()}
+          </div>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -645,7 +824,6 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
               <div className="report-preset-filter-block-title">Настройки расчёта</div>
               <div className="report-preset-filter-grid">{filterGroups.settings.map((filter) => renderFilterControl(filter))}</div>
             </div>
-
           </div>
         )}
       </SectionCard>
@@ -656,9 +834,13 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
           <div className="ui-muted">Отчет формируется автоматически при изменении фильтров.</div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
-            {preview.subtitle ? <div className="ui-muted">{preview.subtitle}</div> : null}
+            {preview.presetId !== 'assembly_forecast_7d' && preview.subtitle ? (
+              <div className="ui-muted">{preview.subtitle}</div>
+            ) : null}
             {preview.presetId === 'work_order_payroll' ? (
               <div className="work-order-payroll-onscreen" dangerouslySetInnerHTML={{ __html: renderWorkOrderPayrollFormInnerHtml(preview) }} />
+            ) : preview.presetId === 'assembly_forecast_7d' ? (
+              <AssemblyForecastReportView preview={preview} />
             ) : (
               <>
                 <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
@@ -676,7 +858,10 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                       {preview.rows.map((row, idx) => (
                         <tr key={`report-row-${idx}`}>
                           {preview.columns.map((column) => (
-                            <td key={`${idx}-${column.key}`} style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}>
+                            <td
+                              key={`${idx}-${column.key}`}
+                              style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}
+                            >
                               {formatReportCell(column.kind ?? 'text', (row[column.key] ?? null) as ReportCellValue, column.key)}
                             </td>
                           ))}

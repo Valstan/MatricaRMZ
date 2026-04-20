@@ -268,8 +268,12 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.documents.post');
     if (!gate.ok) return gate as any;
     const id = typeof arg === 'string' ? arg : arg?.id;
-    const expectedUpdatedAt = typeof arg === 'object' ? arg?.expectedUpdatedAt : undefined;
-    return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), { expectedUpdatedAt });
+    const rawEv = typeof arg === 'object' && arg != null ? arg.expectedUpdatedAt : undefined;
+    const postArgs =
+      rawEv !== undefined && rawEv !== null && Number.isFinite(Number(rawEv))
+        ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
+        : undefined;
+    return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), postArgs);
   });
 
   ipcMain.handle('warehouse:documents:plan', async (_e, id: string) => {
@@ -284,8 +288,12 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
     if (!gate.ok) return gate as any;
     const id = typeof arg === 'string' ? arg : arg?.id;
-    const expectedUpdatedAt = typeof arg === 'object' ? arg?.expectedUpdatedAt : undefined;
-    return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), { expectedUpdatedAt });
+    const rawEv = typeof arg === 'object' && arg != null ? arg.expectedUpdatedAt : undefined;
+    const cancelArgs =
+      rawEv !== undefined && rawEv !== null && Number.isFinite(Number(rawEv))
+        ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
+        : undefined;
+    return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), cancelArgs);
   });
 
   ipcMain.handle(

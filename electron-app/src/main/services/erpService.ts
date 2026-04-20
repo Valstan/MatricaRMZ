@@ -10,7 +10,6 @@ import {
   markWarehouseCommandFailed,
 } from './warehouseCommandOutboxService.js';
 import {
-  entities,
   erpDocumentHeaders,
   erpDocumentLines,
   erpNomenclature,
@@ -542,10 +541,16 @@ async function drainWarehouseCommandOutboxOnce(db: BetterSQLite3Database, apiBas
           await markWarehouseCommandFailed(db, row.id, 'documentId is required');
           continue;
         }
-        const result = await warehouseDocumentCancelRemote(db, apiBaseUrl, documentId, {
-          clientOperationId: row.clientOperationId,
-          expectedUpdatedAt: Number(row.body.expectedUpdatedAt ?? 0) || undefined,
-        });
+        const cancelExtras: { clientOperationId?: string; expectedUpdatedAt?: number } = {};
+        if (row.clientOperationId) cancelExtras.clientOperationId = row.clientOperationId;
+        const ev = Number((row.body as { expectedUpdatedAt?: unknown }).expectedUpdatedAt ?? 0);
+        if (Number.isFinite(ev) && ev !== 0) cancelExtras.expectedUpdatedAt = Math.trunc(ev);
+        const result = await warehouseDocumentCancelRemote(
+          db,
+          apiBaseUrl,
+          documentId,
+          Object.keys(cancelExtras).length > 0 ? cancelExtras : undefined,
+        );
         if (!result.ok) {
           await markWarehouseCommandFailed(db, row.id, result.error);
           continue;

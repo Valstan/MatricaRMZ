@@ -237,7 +237,117 @@ export function buildReportMetricNotesHtml(totals: Record<string, unknown>): str
     .filter((line): line is string => line !== null);
 }
 
+function assemblyForecastRowIsBold(report: PreviewOk, row: Record<string, ReportCellValue>): boolean {
+  if (report.presetId !== 'assembly_forecast_7d') return false;
+  return String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '') === 'ok';
+}
+
+function assemblyForecastStatusPrintClass(statusText: string): string {
+  if (statusText === 'Хватает') return 'afp-st-ok';
+  if (statusText === 'Частично') return 'afp-st-wait';
+  if (statusText === 'Не хватает') return 'afp-st-bad';
+  return 'afp-st-neu';
+}
+
+function renderAssemblyForecastConsumptionPrint(text: string): string {
+  const lines = text.split('\n').filter((s) => s.trim().length > 0);
+  if (lines.length <= 1) return escapeHtml(text);
+  return lines.map((line) => `<div class="afp-cons">${escapeHtml(line)}</div>`).join('');
+}
+
+/** Печать / предпросмотр: компактные стили без внешнего CSS. */
+export function renderAssemblyForecastTableForPrint(report: PreviewOk): string {
+  const style = `<style>
+.afp-wrap{font-size:12px;color:#0b1220}
+.afp-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden}
+.afp-th{padding:9px 10px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1;font-weight:800;font-size:11px;text-align:left}
+.afp-td{padding:9px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top;line-height:1.45}
+.afp-tr-ok{background:#ecfdf5;box-shadow:inset 3px 0 0 0 #16a34a}
+.afp-tr-wait{background:#fffbeb;box-shadow:inset 3px 0 0 0 #d97706}
+.afp-tr-short{background:#fef2f2;box-shadow:inset 3px 0 0 0 #dc2626}
+.afp-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:0.03em;border:1px solid transparent}
+.afp-st-ok{background:rgba(22,163,74,0.14);color:#14532d;border-color:rgba(22,163,74,0.35)}
+.afp-st-wait{background:rgba(217,119,6,0.16);color:#7c2d12;border-color:rgba(217,119,6,0.4)}
+.afp-st-bad{background:rgba(220,38,38,0.12);color:#7f1d1d;border-color:rgba(220,38,38,0.35)}
+.afp-st-neu{background:#f8fafc;color:#475569;border-color:#e2e8f0}
+.afp-cons{padding:5px 0 5px 8px;margin-bottom:5px;border-left:2px solid rgba(37,99,235,0.35);background:rgba(248,250,252,0.95);border-radius:0 6px 6px 0}
+.afp-cons:last-child{margin-bottom:0}
+</style>`;
+
+  const head = report.columns
+    .map(
+      (c) =>
+        `<th class="afp-th" style="text-align:${c.align === 'right' ? 'right' : 'left'}">${escapeHtml(c.label)}</th>`,
+    )
+    .join('');
+  const body =
+    report.rows.length > 0
+      ? report.rows
+          .map((row) => {
+            const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
+            const trClass =
+              code === 'ok' ? 'afp-tr-ok' : code === 'waiting' ? 'afp-tr-wait' : code === 'shortage' ? 'afp-tr-short' : '';
+            const cells = report.columns
+              .map((column) => {
+                const value = row[column.key] ?? null;
+                const text = formatReportCell(column.kind ?? 'text', value as ReportCellValue, column.key);
+                if (column.key === 'status') {
+                  const cls = assemblyForecastStatusPrintClass(text);
+                  return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}"><span class="afp-st ${cls}">${escapeHtml(text)}</span></td>`;
+                }
+                if (column.key === 'requiredComponentsSummary') {
+                  return `<td class="afp-td" style="text-align:left">${renderAssemblyForecastConsumptionPrint(text)}</td>`;
+                }
+                return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}">${escapeHtml(text)}</td>`;
+              })
+              .join('');
+            return `<tr class="${trClass}">${cells}</tr>`;
+          })
+          .join('')
+      : `<tr><td class="afp-td" colspan="${report.columns.length}" style="text-align:center;color:#64748b">Нет данных</td></tr>`;
+  return `${style}<div class="afp-wrap"><table class="afp-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+export function renderAssemblyForecastFooterForPrint(lines: string[]): string {
+  const style = `<style>
+.afp-fn{border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-top:10px}
+.afp-fn-h{padding:8px 12px;font-weight:800;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;background:linear-gradient(180deg,#f1f5f9,#f8fafc);border-bottom:1px solid #e2e8f0}
+.afp-fn-line{padding:7px 12px;font-size:11.5px;line-height:1.45;color:#475569;border-bottom:1px solid #f1f5f9}
+.afp-fn-line:last-child{border-bottom:none}
+.afp-fn-lead{margin:8px 10px 4px;padding:7px 10px;font-weight:800;font-size:11.5px;color:#0b1220;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px}
+.afp-fn-bul{padding-left:20px;position:relative}
+.afp-fn-bul:before{content:'';position:absolute;left:10px;top:0.85em;width:4px;height:4px;border-radius:50%;background:#94a3b8}
+</style>`;
+  const LEAD = [
+    'Недовыпуск',
+    'Комплектующие:',
+    'Чтобы закрыть',
+    'Марки без',
+    'Контракт «',
+    'Авто-приоритет',
+    'Авто: нет контрактов',
+    'Приоритет:',
+    'Приоритетные марки',
+  ];
+  const body = lines
+    .map((line) => {
+      const t = line.trim();
+      if (t.startsWith('•')) {
+        return `<div class="afp-fn-line afp-fn-bul">${escapeHtml(line)}</div>`;
+      }
+      if (LEAD.some((p) => t.startsWith(p))) {
+        return `<div class="afp-fn-lead">${escapeHtml(line)}</div>`;
+      }
+      return `<div class="afp-fn-line">${escapeHtml(line)}</div>`;
+    })
+    .join('');
+  return `${style}<div class="afp-fn"><div class="afp-fn-h">Пояснения</div>${body}</div>`;
+}
+
 export function renderReportTableHtml(report: PreviewOk) {
+  if (report.presetId === 'assembly_forecast_7d') {
+    return renderAssemblyForecastTableForPrint(report);
+  }
   const head = report.columns
     .map((column) => `<th style="text-align:${column.align === 'right' ? 'right' : 'left'}">${escapeHtml(column.label)}</th>`)
     .join('');
@@ -245,6 +355,7 @@ export function renderReportTableHtml(report: PreviewOk) {
     report.rows.length > 0
       ? report.rows
           .map((row) => {
+            const bold = assemblyForecastRowIsBold(report, row);
             const cells = report.columns
               .map((column) => {
                 const value = row[column.key] ?? null;
@@ -252,7 +363,7 @@ export function renderReportTableHtml(report: PreviewOk) {
                 return `<td style="text-align:${column.align === 'right' ? 'right' : 'left'}">${escapeHtml(text)}</td>`;
               })
               .join('');
-            return `<tr>${cells}</tr>`;
+            return `<tr style="${bold ? 'font-weight:700' : ''}">${cells}</tr>`;
           })
           .join('')
       : `<tr><td colspan="${report.columns.length}">Нет данных</td></tr>`;
@@ -301,7 +412,10 @@ export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection
     sections.splice(1, 0, {
       id: 'footer-notes',
       title: 'Пояснения',
-      html: `<ul>${report.footerNotes.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`,
+      html:
+        report.presetId === 'assembly_forecast_7d'
+          ? renderAssemblyForecastFooterForPrint(report.footerNotes)
+          : `<ul>${report.footerNotes.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`,
     });
   }
   return sections;

@@ -88,8 +88,6 @@ describe('report presets regressions', () => {
       'plannedEngines',
       'status',
       'requiredComponentsSummary',
-      'deficitsSummary',
-      'alternativeBrands',
     ]);
   });
 

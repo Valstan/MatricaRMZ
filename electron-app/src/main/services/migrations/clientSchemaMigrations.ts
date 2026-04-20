@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 7;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 8;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -301,6 +301,24 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS warehouse_command_outbox_aggregate_idx
           ON warehouse_command_outbox(aggregate_type, aggregate_id);
       `);
+    },
+  },
+  {
+    from: 7,
+    to: 8,
+    name: 'erp_nomenclature directory_kind and directory_ref_id',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_nomenclature')`).all() as Array<{ name: string }>;
+      const names = new Set(cols.map((c) => c.name));
+      if (!names.has('directory_kind')) {
+        sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN directory_kind text;`);
+      }
+      if (!names.has('directory_ref_id')) {
+        sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN directory_ref_id text;`);
+      }
+      sqlite.exec(
+        `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,
+      );
     },
   },
 ];

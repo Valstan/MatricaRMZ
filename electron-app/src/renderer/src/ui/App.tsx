@@ -958,7 +958,15 @@ export function App() {
       .then((r) => {
         if (!alive) return;
         if (epochAtFetchStart !== shortcutsMutationEpochRef.current) return;
-        if (r?.ok) setPinnedShortcuts(r.ids ?? []);
+        if (r?.ok) {
+          const raw = r.ids as unknown;
+          const ids = Array.isArray(raw)
+            ? raw.map((x) => String(x).trim()).filter((s) => s.length > 0)
+            : typeof raw === 'string' && raw.trim()
+              ? [raw.trim()]
+              : [];
+          setPinnedShortcuts(ids);
+        }
       })
       .catch(() => {});
     return () => {
@@ -1564,24 +1572,30 @@ export function App() {
 
   async function addPinnedShortcut(shortcutId: string) {
     const userId = authStatus.user?.id;
-    if (!userId || !shortcutId) return;
+    const id = String(shortcutId ?? '').trim();
+    if (!userId || !id) return;
     shortcutsMutationEpochRef.current += 1;
-    const next = pinnedShortcuts.includes(shortcutId) ? pinnedShortcuts : [...pinnedShortcuts, shortcutId];
-    setPinnedShortcuts(next);
-    await window.matrica.shortcuts.set({ userId, ids: next }).catch(() => {});
+    let nextForSave: string[] = [];
+    setPinnedShortcuts((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      nextForSave = list.includes(id) ? list : [...list, id];
+      return nextForSave;
+    });
+    await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
   }
 
   async function removePinnedShortcut(shortcutId: string) {
     const userId = authStatus.user?.id;
     if (!userId) return;
+    const id = String(shortcutId ?? '').trim();
     shortcutsMutationEpochRef.current += 1;
-    const next = pinnedShortcuts.filter((id) => id !== shortcutId);
-    setPinnedShortcuts(next);
-    await window.matrica.shortcuts.set({ userId, ids: next }).catch(() => {});
-  }
-
-  function isShortcutPinned(shortcutId: string) {
-    return pinnedShortcuts.includes(shortcutId);
+    let nextForSave: string[] = [];
+    setPinnedShortcuts((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      nextForSave = list.filter((x) => x !== id);
+      return nextForSave;
+    });
+    await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
   }
 
   function updateHiddenTabs(nextHidden: MenuTabId[]) {
