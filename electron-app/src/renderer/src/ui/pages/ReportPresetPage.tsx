@@ -367,6 +367,218 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     }
   }
 
+  const filterGroups = useMemo(() => {
+    if (!activePreset) return { selection: [] as ReportFilterSpec[], settings: [] as ReportFilterSpec[] };
+    const isSetting = (filter: ReportFilterSpec) => filter.type === 'number' || filter.type === 'text' || filter.type === 'checkbox';
+    return {
+      selection: activePreset.filters.filter((f) => !isSetting(f)),
+      settings: activePreset.filters.filter((f) => isSetting(f)),
+    };
+  }, [activePreset]);
+
+  function renderFilterControl(filter: ReportFilterSpec) {
+    if (filter.type === 'date_range') {
+      return (
+        <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 700 }}>{filter.label}</span>
+            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            <Input
+              type="date"
+              value={toInputDate(activeFilters[filter.startKey])}
+              onChange={(e) => patchFilter(filter.startKey, fromInputDate(e.target.value, 'start'))}
+            />
+            <Input
+              type="date"
+              value={toInputDate(activeFilters[filter.endKey])}
+              onChange={(e) => patchFilter(filter.endKey, fromInputDate(e.target.value, 'end'))}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {DATE_PERIOD_PRESETS.map((p) => (
+              <button key={p.title} type="button" title={p.title} onClick={() => applyDatePreset(filter, p)} style={periodBtnStyle}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    if (filter.type === 'checkbox') {
+      return (
+        <label key={filter.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <input
+            type="checkbox"
+            checked={Boolean(activeFilters[filter.key])}
+            onChange={(e) => patchFilter(filter.key, e.target.checked)}
+          />
+          <span>{filter.label}</span>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); resetFilter(filter); }}
+            title="Сбросить фильтр"
+            style={filterResetBtnStyle}
+          >
+            ✕
+          </button>
+        </label>
+      );
+    }
+    if (filter.type === 'number') {
+      const raw = activeFilters[filter.key];
+      const num = typeof raw === 'number' ? raw : Number(raw);
+      const safe = Number.isFinite(num) ? num : filter.defaultValue ?? 0;
+      return (
+        <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 700 }}>{filter.label}</span>
+            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+          </div>
+          <Input
+            type="number"
+            min={filter.min}
+            max={filter.max}
+            step={filter.step ?? 1}
+            value={String(safe)}
+            onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
+            disabled={busy}
+          />
+        </div>
+      );
+    }
+    if (filter.type === 'text') {
+      const textVal = String(activeFilters[filter.key] ?? filter.defaultValue ?? '');
+      return (
+        <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 700 }}>{filter.label}</span>
+            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+          </div>
+          <Input
+            type="text"
+            value={textVal}
+            placeholder={filter.placeholder}
+            onChange={(e) => patchFilter(filter.key, e.target.value)}
+            disabled={busy}
+          />
+        </div>
+      );
+    }
+    if (
+      filter.type === 'select' &&
+      activePreset?.id === 'assembly_forecast_7d' &&
+      filter.key === 'assemblyPriorityMode'
+    ) {
+      const asmOpts = filter.options ?? [];
+      const pm = String(activeFilters[filter.key] ?? asmOpts[0]?.value ?? 'manual');
+      return (
+        <div key={filter.key} style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 700 }}>{filter.label}</span>
+            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>
+              ✕
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {asmOpts.map((o) => (
+              <label
+                key={o.value}
+                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: busy ? 'default' : 'pointer' }}
+              >
+                <input
+                  type="radio"
+                  name="assemblyPriorityMode"
+                  checked={pm === o.value}
+                  disabled={busy}
+                  onChange={() => patchFilter(filter.key, o.value)}
+                  style={{ marginTop: 3 }}
+                />
+                <span>
+                  <div style={{ fontWeight: 600 }}>{o.label}</div>
+                  {o.hintText ? <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>{o.hintText}</div> : null}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    if (filter.type === 'select') {
+      const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+      const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
+      const options = sourceOptions.map((option) => ({
+        id: option.value,
+        label: option.label,
+        ...(option.hintText ? { hintText: option.hintText } : {}),
+        ...(option.searchText ? { searchText: option.searchText } : {}),
+      }));
+      return (
+        <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 700 }}>{filter.label}</span>
+            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+          </div>
+          <SearchSelect
+            value={value || null}
+            options={options}
+            placeholder="Начните вводить для поиска"
+            disabled={busy}
+            showAllWhenEmpty
+            emptyQueryLimit={100}
+            query={activeFilterSearch[filter.key] ?? ''}
+            onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+            onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
+          />
+        </div>
+      );
+    }
+    const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+    const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
+    const selectedLabels = options.filter((o) => selected.includes(o.value));
+    const priorityManualDisabled =
+      activePreset?.id === 'assembly_forecast_7d' &&
+      filter.key === 'priorityEngineBrandIds' &&
+      String(activeFilters.assemblyPriorityMode ?? 'manual') === 'contracts';
+    return (
+      <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 700 }}>{filter.label}</span>
+          <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+        </div>
+        {priorityManualDisabled ? (
+          <div className="ui-muted" style={{ fontSize: 12 }}>
+            В режиме «По отстающим контрактам» ручной список не используется — приоритетные марки подбираются автоматически.
+          </div>
+        ) : null}
+        <MultiSearchSelect
+          values={selected}
+          options={options.map((option) => ({
+            id: option.value,
+            label: option.label,
+            ...(option.hintText ? { hintText: option.hintText } : {}),
+            ...(option.searchText ? { searchText: option.searchText } : {}),
+          }))}
+          placeholder="Начните вводить или вставьте текст"
+          disabled={busy || priorityManualDisabled}
+          query={activeFilterSearch[filter.key] ?? ''}
+          onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+          onChange={(next) => patchFilter(filter.key, next)}
+        />
+        {selectedLabels.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {selectedLabels.map((o) => (
+              <span key={o.value} style={selectedTagStyle} title={o.label}>
+                {o.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <SectionCard
@@ -389,7 +601,28 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         )}
       </SectionCard>
 
-      <SectionCard title={activePreset ? `Фильтры: ${activePreset.title}` : 'Фильтры'}>
+      <div className="card-action-bar" style={{ position: 'sticky', top: 0, zIndex: 8, background: 'var(--surface)', padding: '6px 0' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button variant="ghost" tone="info" onClick={() => void openPreviewWindow()} disabled={busy || !activePreset}>
+            Предпросмотр
+          </Button>
+          <Button variant="ghost" tone="neutral" onClick={() => void runPrint()} disabled={busy || !activePreset}>
+            Печать
+          </Button>
+          <Button variant="ghost" tone="success" onClick={() => void savePdf()} disabled={busy || !props.canExport || !activePreset}>
+            Сохранить PDF
+          </Button>
+          <Button variant="ghost" tone="success" onClick={() => void saveCsv()} disabled={busy || !props.canExport || !activePreset}>
+            Сохранить CSV
+          </Button>
+          <Button variant="ghost" tone="success" onClick={() => void save1cXml()} disabled={busy || !props.canExport || !activePreset}>
+            Выгрузка 1С (XML)
+          </Button>
+        </div>
+      </div>
+
+      <div className="report-preset-split-layout">
+      <SectionCard title={activePreset ? `Фильтры и настройки: ${activePreset.title}` : 'Фильтры и настройки'}>
         {!activePreset ? (
           <div className="ui-muted">Выберите шаблон отчета.</div>
         ) : (
@@ -404,228 +637,15 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                 </button>
               )}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
-              {activePreset.filters.map((filter) => {
-                if (filter.type === 'date_range') {
-                  return (
-                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                        <Input
-                          type="date"
-                          value={toInputDate(activeFilters[filter.startKey])}
-                          onChange={(e) => patchFilter(filter.startKey, fromInputDate(e.target.value, 'start'))}
-                        />
-                        <Input
-                          type="date"
-                          value={toInputDate(activeFilters[filter.endKey])}
-                          onChange={(e) => patchFilter(filter.endKey, fromInputDate(e.target.value, 'end'))}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {DATE_PERIOD_PRESETS.map((p) => (
-                          <button key={p.title} type="button" title={p.title} onClick={() => applyDatePreset(filter, p)} style={periodBtnStyle}>
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                }
-                if (filter.type === 'checkbox') {
-                  return (
-                    <label key={filter.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(activeFilters[filter.key])}
-                        onChange={(e) => patchFilter(filter.key, e.target.checked)}
-                      />
-                      <span>{filter.label}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); resetFilter(filter); }}
-                        title="Сбросить фильтр"
-                        style={filterResetBtnStyle}
-                      >
-                        ✕
-                      </button>
-                    </label>
-                  );
-                }
-                if (filter.type === 'number') {
-                  const raw = activeFilters[filter.key];
-                  const num = typeof raw === 'number' ? raw : Number(raw);
-                  const safe = Number.isFinite(num) ? num : filter.defaultValue ?? 0;
-                  return (
-                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
-                      </div>
-                      <Input
-                        type="number"
-                        min={filter.min}
-                        max={filter.max}
-                        step={filter.step ?? 1}
-                        value={String(safe)}
-                        onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
-                        disabled={busy}
-                      />
-                    </div>
-                  );
-                }
-                if (filter.type === 'text') {
-                  const textVal = String(activeFilters[filter.key] ?? filter.defaultValue ?? '');
-                  return (
-                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
-                      </div>
-                      <Input
-                        type="text"
-                        value={textVal}
-                        placeholder={filter.placeholder}
-                        onChange={(e) => patchFilter(filter.key, e.target.value)}
-                        disabled={busy}
-                      />
-                    </div>
-                  );
-                }
-                if (
-                  filter.type === 'select' &&
-                  activePreset.id === 'assembly_forecast_7d' &&
-                  filter.key === 'assemblyPriorityMode'
-                ) {
-                  const asmOpts = filter.options ?? [];
-                  const pm = String(activeFilters[filter.key] ?? asmOpts[0]?.value ?? 'manual');
-                  return (
-                    <div key={filter.key} style={{ display: 'grid', gap: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>
-                          ✕
-                        </button>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {asmOpts.map((o) => (
-                          <label
-                            key={o.value}
-                            style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: busy ? 'default' : 'pointer' }}
-                          >
-                            <input
-                              type="radio"
-                              name="assemblyPriorityMode"
-                              checked={pm === o.value}
-                              disabled={busy}
-                              onChange={() => patchFilter(filter.key, o.value)}
-                              style={{ marginTop: 3 }}
-                            />
-                            <span>
-                              <div style={{ fontWeight: 600 }}>{o.label}</div>
-                              {o.hintText ? <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>{o.hintText}</div> : null}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                }
-                if (filter.type === 'select') {
-                  const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
-                  const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
-                  const options = sourceOptions.map((option) => ({
-                    id: option.value,
-                    label: option.label,
-                    ...(option.hintText ? { hintText: option.hintText } : {}),
-                    ...(option.searchText ? { searchText: option.searchText } : {}),
-                  }));
-                  return (
-                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                        <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
-                      </div>
-                      <SearchSelect
-                        value={value || null}
-                        options={options}
-                        placeholder="Начните вводить для поиска"
-                        disabled={busy}
-                        showAllWhenEmpty
-                        emptyQueryLimit={100}
-                        query={activeFilterSearch[filter.key] ?? ''}
-                        onQueryChange={(next) => patchFilterSearch(filter.key, next)}
-                        onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
-                      />
-                    </div>
-                  );
-                }
-                const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
-                const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
-                const selectedLabels = options.filter((o) => selected.includes(o.value));
-                const priorityManualDisabled =
-                  activePreset?.id === 'assembly_forecast_7d' &&
-                  filter.key === 'priorityEngineBrandIds' &&
-                  String(activeFilters.assemblyPriorityMode ?? 'manual') === 'contracts';
-                return (
-                  <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
-                      <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
-                    </div>
-                    {priorityManualDisabled ? (
-                      <div className="ui-muted" style={{ fontSize: 12 }}>
-                        В режиме «По отстающим контрактам» ручной список не используется — приоритетные марки подбираются автоматически.
-                      </div>
-                    ) : null}
-                    <MultiSearchSelect
-                      values={selected}
-                      options={options.map((option) => ({
-                        id: option.value,
-                        label: option.label,
-                        ...(option.hintText ? { hintText: option.hintText } : {}),
-                        ...(option.searchText ? { searchText: option.searchText } : {}),
-                      }))}
-                      placeholder="Начните вводить или вставьте текст"
-                      disabled={busy || priorityManualDisabled}
-                      query={activeFilterSearch[filter.key] ?? ''}
-                      onQueryChange={(next) => patchFilterSearch(filter.key, next)}
-                      onChange={(next) => patchFilter(filter.key, next)}
-                    />
-                    {selectedLabels.length > 0 && (
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {selectedLabels.map((o) => (
-                          <span key={o.value} style={selectedTagStyle} title={o.label}>
-                            {o.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="report-preset-filter-block report-preset-filter-block-selection">
+              <div className="report-preset-filter-block-title">Фильтры отбора</div>
+              <div className="report-preset-filter-grid">{filterGroups.selection.map((filter) => renderFilterControl(filter))}</div>
+            </div>
+            <div className="report-preset-filter-block report-preset-filter-block-settings">
+              <div className="report-preset-filter-block-title">Настройки расчёта</div>
+              <div className="report-preset-filter-grid">{filterGroups.settings.map((filter) => renderFilterControl(filter))}</div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button variant="ghost" tone="info" onClick={() => void openPreviewWindow()} disabled={busy}>
-                Предпросмотр
-              </Button>
-              <Button variant="ghost" tone="neutral" onClick={() => void runPrint()} disabled={busy}>
-                Печать
-              </Button>
-              <Button variant="ghost" tone="success" onClick={() => void savePdf()} disabled={busy || !props.canExport}>
-                Сохранить PDF
-              </Button>
-              <Button variant="ghost" tone="success" onClick={() => void saveCsv()} disabled={busy || !props.canExport}>
-                Сохранить CSV
-              </Button>
-              <Button variant="ghost" tone="success" onClick={() => void save1cXml()} disabled={busy || !props.canExport}>
-                Выгрузка 1С (XML)
-              </Button>
-            </div>
           </div>
         )}
       </SectionCard>
@@ -692,6 +712,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
           </div>
         )}
       </SectionCard>
+      </div>
     </div>
   );
 }

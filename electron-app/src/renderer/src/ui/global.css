@@ -1149,4 +1149,52 @@ table.list-table.list-table--catalog {
   }
 }
 
+.report-preset-split-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.report-preset-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 8px;
+}
+
+.report-preset-filter-grid > * {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.report-preset-filter-block {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.report-preset-filter-block-title {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.report-preset-filter-block-selection {
+  border-left: 3px solid rgba(37, 99, 235, 0.55);
+}
+
+.report-preset-filter-block-settings {
+  border-left: 3px solid rgba(22, 163, 74, 0.55);
+}
+
+@media (max-width: 1280px) {
+  .report-preset-split-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 
