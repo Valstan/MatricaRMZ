@@ -325,12 +325,52 @@ export function StockDocumentDetailsPage(props: {
       setStatus(`Ошибка: ${error}`);
       return;
     }
-    const result = await window.matrica.warehouse.documentPost(props.id);
+    const saveResult = await window.matrica.warehouse.documentCreate({
+      id: props.id,
+      docType,
+      status: 'draft',
+      docNo: docNo.trim(),
+      docDate: new Date(`${docDate}T00:00:00`).getTime(),
+      header: {
+        warehouseId: warehouseId ?? null,
+        ...(isIncoming ? { expectedDate: new Date(`${expectedDate}T00:00:00`).getTime() } : {}),
+        ...(isIncoming ? { sourceType } : {}),
+        ...(isIncoming && sourceRef.trim() ? { sourceRef: sourceRef.trim() } : {}),
+        ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
+        reason: reason.trim() || null,
+        counterpartyId,
+      },
+      ...(document?.header?.updatedAt != null ? { expectedUpdatedAt: Number(document.header.updatedAt) } : {}),
+      lines: lines.map((line) => ({
+        qty: Number(line.qty || 0),
+        ...(line.price.trim() ? { price: Number(line.price) } : {}),
+        ...(line.price.trim() ? { cost: Number(line.price) } : {}),
+        ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
+        ...(line.unit.trim() ? { unit: line.unit.trim() } : {}),
+        ...(line.batch.trim() ? { batch: line.batch.trim() } : {}),
+        ...(line.note.trim() ? { note: line.note.trim() } : {}),
+        ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
+        ...(line.fromWarehouseId ? { fromWarehouseId: line.fromWarehouseId } : {}),
+        ...(line.toWarehouseId ? { toWarehouseId: line.toWarehouseId } : {}),
+        ...(line.bookQty.trim() ? { bookQty: Number(line.bookQty) } : {}),
+        ...(line.actualQty.trim() ? { actualQty: Number(line.actualQty) } : {}),
+        ...(line.adjustmentQty.trim() ? { adjustmentQty: Number(line.adjustmentQty) } : {}),
+        ...(line.reason.trim() ? { reason: line.reason.trim() } : {}),
+      })),
+    });
+    if (!saveResult?.ok) {
+      setStatus(`Ошибка: ${String(saveResult?.error ?? 'не удалось сохранить документ перед проведением')}`);
+      return;
+    }
+    const result = await window.matrica.warehouse.documentPost({
+      id: props.id,
+      ...(document?.header?.updatedAt != null ? { expectedUpdatedAt: Number(document.header.updatedAt) } : {}),
+    });
     if (!result?.ok) {
       setStatus(`Ошибка: ${String(result?.error ?? 'не удалось провести документ')}`);
       return;
     }
-    setStatus('Документ проведен.');
+    setStatus(result.queued ? 'Команда на проведение поставлена в очередь.' : 'Документ проведен.');
     await load();
   }
 
@@ -386,12 +426,15 @@ export function StockDocumentDetailsPage(props: {
   }
 
   async function cancelDocument() {
-    const result = await window.matrica.warehouse.documentCancel(props.id);
+    const result = await window.matrica.warehouse.documentCancel({
+      id: props.id,
+      ...(document?.header?.updatedAt != null ? { expectedUpdatedAt: Number(document.header.updatedAt) } : {}),
+    });
     if (!result?.ok) {
       setStatus(`Ошибка: ${String(result?.error ?? 'не удалось отменить документ')}`);
       return;
     }
-    setStatus('Документ отменен.');
+    setStatus(result.queued ? 'Команда на отмену поставлена в очередь.' : 'Документ отменен.');
     await load();
   }
 

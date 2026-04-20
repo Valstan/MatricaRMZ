@@ -142,7 +142,7 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseNomenclatureList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    return warehouseNomenclatureList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 
@@ -150,7 +150,7 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse lookups are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseLookupsGet(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    return warehouseLookupsGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('warehouse:nomenclature:upsert', async (_e, args: Record<string, unknown>) => {
@@ -194,7 +194,7 @@ export function registerErpIpc(ctx: IpcContext) {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse stock is not available' };
       const gate = await requirePermOrResult(ctx, 'erp.registers.view');
       if (!gate.ok) return gate as any;
-      return warehouseStockList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+      return warehouseStockList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 
@@ -218,7 +218,7 @@ export function registerErpIpc(ctx: IpcContext) {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
       const gate = await requirePermOrResult(ctx, 'erp.documents.view');
       if (!gate.ok) return gate as any;
-      return warehouseDocumentsList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+      return warehouseDocumentsList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 
@@ -231,7 +231,7 @@ export function registerErpIpc(ctx: IpcContext) {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse instances are not available' };
       const gate = await requirePermOrResult(ctx, 'erp.registers.view');
       if (!gate.ok) return gate as any;
-      return warehouseEngineInstancesList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+      return warehouseEngineInstancesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 
@@ -253,7 +253,7 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.documents.view');
     if (!gate.ok) return gate as any;
-    return warehouseDocumentGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+    return warehouseDocumentGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
   ipcMain.handle('warehouse:documents:create', async (_e, args: Record<string, unknown>) => {
@@ -263,11 +263,13 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseDocumentCreate(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
-  ipcMain.handle('warehouse:documents:post', async (_e, id: string) => {
+  ipcMain.handle('warehouse:documents:post', async (_e, arg: string | { id: string; expectedUpdatedAt?: number }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.documents.post');
     if (!gate.ok) return gate as any;
-    return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+    const id = typeof arg === 'string' ? arg : arg?.id;
+    const expectedUpdatedAt = typeof arg === 'object' ? arg?.expectedUpdatedAt : undefined;
+    return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), { expectedUpdatedAt });
   });
 
   ipcMain.handle('warehouse:documents:plan', async (_e, id: string) => {
@@ -277,11 +279,13 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseDocumentPlan(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
-  ipcMain.handle('warehouse:documents:cancel', async (_e, id: string) => {
+  ipcMain.handle('warehouse:documents:cancel', async (_e, arg: string | { id: string; expectedUpdatedAt?: number }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
     if (!gate.ok) return gate as any;
-    return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+    const id = typeof arg === 'string' ? arg : arg?.id;
+    const expectedUpdatedAt = typeof arg === 'object' ? arg?.expectedUpdatedAt : undefined;
+    return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), { expectedUpdatedAt });
   });
 
   ipcMain.handle(
@@ -290,7 +294,7 @@ export function registerErpIpc(ctx: IpcContext) {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse movements are not available' };
       const gate = await requirePermOrResult(ctx, 'erp.registers.view');
       if (!gate.ok) return gate as any;
-      return warehouseMovementsList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+      return warehouseMovementsList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 
@@ -298,21 +302,21 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.registers.view');
     if (!gate.ok) return gate as any;
-    return warehouseForecastIncomingGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    return warehouseForecastIncomingGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle('warehouse:assemblyBom:list', async (_e, args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    return warehouseAssemblyBomList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle('warehouse:assemblyBom:schema:get', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomSchemaGet(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    return warehouseAssemblyBomSchemaGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('warehouse:assemblyBom:schema:set', async (_e, args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) => {
@@ -326,14 +330,14 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomSchemaUsageGet(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    return warehouseAssemblyBomSchemaUsageGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('warehouse:assemblyBom:get', async (_e, id: string) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+    return warehouseAssemblyBomGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
   ipcMain.handle('warehouse:assemblyBom:upsert', async (_e, args: Record<string, unknown>) => {
@@ -368,14 +372,14 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(args?.engineBrandId || ''));
+    return warehouseAssemblyBomHistory(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(args?.engineBrandId || ''));
   });
 
   ipcMain.handle('warehouse:assemblyBom:print', async (_e, id: string) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseAssemblyBomPrint(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+    return warehouseAssemblyBomPrint(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
   ipcMain.handle(
@@ -384,7 +388,7 @@ export function registerErpIpc(ctx: IpcContext) {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
       const gate = await requirePermOrResult(ctx, 'erp.registers.view');
       if (!gate.ok) return gate as any;
-      return warehouseForecastBomGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+      return warehouseForecastBomGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 }

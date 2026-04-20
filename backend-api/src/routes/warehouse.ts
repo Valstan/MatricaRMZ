@@ -37,6 +37,7 @@ import {
 } from '../services/warehouseBomService.js';
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
 import { getGlobalWarehouseBomRelationSchema, setGlobalWarehouseBomRelationSchema } from '../services/clientSettingsService.js';
+import { getIdempotentCommandResult, saveIdempotentCommandResult } from '../services/commandIdempotencyService.js';
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
@@ -514,10 +515,18 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
         }),
       )
       .default([]),
+    clientOperationId: z.string().uuid().optional(),
+    expectedUpdatedAt: z.coerce.number().int().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const clientOperationId = parsed.data.clientOperationId ? String(parsed.data.clientOperationId) : '';
+  const clientId = String(req.header('x-client-id') || req.header('x-clientid') || user?.id || 'unknown');
+  if (clientOperationId) {
+    const cached = await getIdempotentCommandResult({ clientId, clientOperationId });
+    if (cached && cached.ok === true) return res.json(cached);
+  }
   const result = await createWarehouseDocument({
     ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
     docType: parsed.data.docType,
@@ -558,6 +567,7 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
         }
       : {}),
     ...(parsed.data.payloadJson !== undefined ? { payloadJson: parsed.data.payloadJson } : {}),
+    ...(parsed.data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: parsed.data.expectedUpdatedAt } : {}),
     actor: {
       id: String(user?.id ?? ''),
       username: String(user?.username ?? 'unknown'),
@@ -565,15 +575,31 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
     },
   });
   if (!result.ok) return res.status(400).json(result);
+  if (clientOperationId) {
+    await saveIdempotentCommandResult({
+      clientId,
+      clientOperationId,
+      commandType: 'warehouse_document_upsert',
+      aggregateId: parsed.data.id ?? result.id,
+      request: req.body as Record<string, unknown>,
+      response: result as Record<string, unknown>,
+    });
+  }
   return res.json(result);
 });
 
 warehouseRouter.post('/documents/:id/plan', requirePermission(PermissionCode.ErpDocumentsEdit), async (req, res) => {
+  const bodySchema = z.object({
+    expectedUpdatedAt: z.coerce.number().int().optional(),
+  });
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsedBody = bodySchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) return res.status(400).json({ ok: false, error: parsedBody.error.flatten() });
   const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
   const result = await planWarehouseDocument({
     documentId: id,
+    ...(parsedBody.data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: parsedBody.data.expectedUpdatedAt } : {}),
     actor: {
       id: String(user?.id ?? ''),
       username: String(user?.username ?? 'unknown'),
@@ -585,11 +611,17 @@ warehouseRouter.post('/documents/:id/plan', requirePermission(PermissionCode.Erp
 });
 
 warehouseRouter.post('/documents/:id/post', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const bodySchema = z.object({
+    expectedUpdatedAt: z.coerce.number().int().optional(),
+  });
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsedBody = bodySchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) return res.status(400).json({ ok: false, error: parsedBody.error.flatten() });
   const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
   const result = await postWarehouseDocument({
     documentId: id,
+    ...(parsedBody.data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: parsedBody.data.expectedUpdatedAt } : {}),
     actor: {
       id: String(user?.id ?? ''),
       username: String(user?.username ?? 'unknown'),
@@ -601,11 +633,24 @@ warehouseRouter.post('/documents/:id/post', requirePermission(PermissionCode.Erp
 });
 
 warehouseRouter.post('/documents/:id/cancel', requirePermission(PermissionCode.ErpDocumentsEdit), async (req, res) => {
+  const bodySchema = z.object({
+    clientOperationId: z.string().uuid().optional(),
+    expectedUpdatedAt: z.coerce.number().int().optional(),
+  });
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsedBody = bodySchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) return res.status(400).json({ ok: false, error: parsedBody.error.flatten() });
   const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const clientOperationId = parsedBody.data.clientOperationId ? String(parsedBody.data.clientOperationId) : '';
+  const clientId = String(req.header('x-client-id') || req.header('x-clientid') || user?.id || 'unknown');
+  if (clientOperationId) {
+    const cached = await getIdempotentCommandResult({ clientId, clientOperationId });
+    if (cached && cached.ok === true) return res.json(cached);
+  }
   const result = await cancelWarehouseDocument({
     documentId: id,
+    ...(parsedBody.data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: parsedBody.data.expectedUpdatedAt } : {}),
     actor: {
       id: String(user?.id ?? ''),
       username: String(user?.username ?? 'unknown'),
@@ -613,6 +658,16 @@ warehouseRouter.post('/documents/:id/cancel', requirePermission(PermissionCode.E
     },
   });
   if (!result.ok) return res.status(400).json(result);
+  if (clientOperationId) {
+    await saveIdempotentCommandResult({
+      clientId,
+      clientOperationId,
+      commandType: 'warehouse_document_cancel',
+      aggregateId: id,
+      request: { id, ...(req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}) },
+      response: result as Record<string, unknown>,
+    });
+  }
   return res.json(result);
 });
 

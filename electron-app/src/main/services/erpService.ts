@@ -1,6 +1,22 @@
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
+import { SettingsKey, settingsGetNumber } from './settingsStore.js';
+import {
+  enqueueWarehouseCommand,
+  listDueWarehouseCommands,
+  markWarehouseCommandApplied,
+  markWarehouseCommandFailed,
+} from './warehouseCommandOutboxService.js';
+import {
+  entities,
+  erpDocumentHeaders,
+  erpDocumentLines,
+  erpNomenclature,
+  erpRegStockBalance,
+  erpRegStockMovements,
+} from '../database/schema.js';
 
 type ErpModule = 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
 type ErpCardModule = 'parts' | 'tools' | 'employees';
@@ -69,6 +85,119 @@ function formatHttpError(
   return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
 }
 
+type OfflineReadMeta = {
+  dataSource: 'remote' | 'local';
+  isStale: boolean;
+  lastSyncedAt: number | null;
+};
+
+async function buildOfflineReadMeta(db: BetterSQLite3Database, dataSource: 'remote' | 'local'): Promise<OfflineReadMeta> {
+  const lastSyncedAt = await settingsGetNumber(db, SettingsKey.LastAppliedAt, 0);
+  return {
+    dataSource,
+    isStale: dataSource === 'local',
+    lastSyncedAt: Number(lastSyncedAt) > 0 ? Number(lastSyncedAt) : null,
+  };
+}
+
+async function localWarehouseNomenclatureList(
+  db: BetterSQLite3Database,
+  args?: {
+    id?: string;
+    search?: string;
+    itemType?: string;
+    directoryKind?: string;
+    groupId?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; meta: OfflineReadMeta }> {
+  const where = [isNull(erpNomenclature.deletedAt)];
+  if (args?.id) where.push(eq(erpNomenclature.id, String(args.id)));
+  if (args?.itemType) where.push(eq(erpNomenclature.itemType, String(args.itemType)));
+  if (args?.directoryKind) where.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+  if (args?.groupId) where.push(eq(erpNomenclature.groupId, String(args.groupId)));
+  if (args?.isActive !== undefined) where.push(eq(erpNomenclature.isActive, Boolean(args.isActive)));
+  const rows = await db
+    .select()
+    .from(erpNomenclature)
+    .where(and(...where))
+    .orderBy(asc(erpNomenclature.name), asc(erpNomenclature.code));
+  const search = String(args?.search ?? '').trim().toLowerCase();
+  const filtered = search
+    ? rows.filter((row) => `${String(row.code ?? '')} ${String(row.name ?? '')}`.toLowerCase().includes(search))
+    : rows;
+  const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
+  const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
+  const page = limit == null ? filtered : filtered.slice(offset, offset + limit + 1);
+  const hasMore = limit == null ? false : page.length > limit;
+  return {
+    ok: true,
+    rows: (hasMore ? page.slice(0, limit!) : page) as Array<Record<string, unknown>>,
+    hasMore,
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseStockList(
+  db: BetterSQLite3Database,
+  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; meta: OfflineReadMeta }> {
+  const where = [];
+  if (args?.warehouseId) where.push(eq(erpRegStockBalance.warehouseId, String(args.warehouseId)));
+  if (args?.nomenclatureId) where.push(eq(erpRegStockBalance.nomenclatureId, String(args.nomenclatureId)));
+  const balances = await db
+    .select()
+    .from(erpRegStockBalance)
+    .where(where.length > 0 ? and(...where) : undefined)
+    .orderBy(asc(erpRegStockBalance.warehouseId));
+  const nomenclatureIds = Array.from(new Set(balances.map((row) => String(row.nomenclatureId ?? '')).filter(Boolean)));
+  const nomRows =
+    nomenclatureIds.length > 0
+      ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
+      : [];
+  const byId = new Map(nomRows.map((row) => [String(row.id), row] as const));
+  const search = String(args?.search ?? '').trim().toLowerCase();
+  const mapped = balances
+    .map((row) => {
+      const nom = byId.get(String(row.nomenclatureId ?? ''));
+      const qty = Number(row.qty ?? 0);
+      const reservedQty = Number(row.reservedQty ?? 0);
+      return {
+        ...row,
+        nomenclatureCode: nom?.code ?? null,
+        nomenclatureName: nom?.name ?? null,
+        itemType: nom?.itemType ?? null,
+        minStock: nom?.minStock ?? null,
+        maxStock: nom?.maxStock ?? null,
+        availableQty: qty - reservedQty,
+      } as Record<string, unknown>;
+    })
+    .filter((row) => {
+      if (args?.lowStockOnly !== true) return true;
+      const minStock = Number(row.minStock ?? NaN);
+      const qty = Number(row.qty ?? 0);
+      return Number.isFinite(minStock) ? qty <= minStock : false;
+    })
+    .filter((row) => {
+      if (!search) return true;
+      return `${String(row.nomenclatureCode ?? '')} ${String(row.nomenclatureName ?? '')} ${String(row.warehouseId ?? '')}`
+        .toLowerCase()
+        .includes(search);
+    });
+  const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
+  const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
+  const page = limit == null ? mapped : mapped.slice(offset, offset + limit + 1);
+  const hasMore = limit == null ? false : page.length > limit;
+  return {
+    ok: true,
+    rows: hasMore ? page.slice(0, limit!) : page,
+    hasMore,
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
 async function erpAuthed(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -88,6 +217,99 @@ async function erpAuthed(
     }
   }
   return first;
+}
+
+async function localWarehouseDocumentsList(
+  db: BetterSQLite3Database,
+  args?: {
+    status?: string;
+    docType?: string;
+    excludeCancelled?: boolean;
+    statusIn?: string[];
+    fromDate?: number;
+    toDate?: number;
+    search?: string;
+    warehouseId?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; meta: OfflineReadMeta }> {
+  const where = [isNull(erpDocumentHeaders.deletedAt)];
+  if (args?.status) where.push(eq(erpDocumentHeaders.status, String(args.status)));
+  if (args?.docType) where.push(eq(erpDocumentHeaders.docType, String(args.docType)));
+  if (args?.fromDate !== undefined) where.push(sql`${erpDocumentHeaders.docDate} >= ${Math.trunc(Number(args.fromDate))}`);
+  if (args?.toDate !== undefined) where.push(sql`${erpDocumentHeaders.docDate} <= ${Math.trunc(Number(args.toDate))}`);
+  const headerRows = await db
+    .select()
+    .from(erpDocumentHeaders)
+    .where(and(...where))
+    .orderBy(desc(erpDocumentHeaders.docDate), desc(erpDocumentHeaders.createdAt));
+  const statusIn = Array.isArray(args?.statusIn) ? new Set(args!.statusIn.map((x) => String(x).trim()).filter(Boolean)) : null;
+  const filtered = headerRows.filter((row) => {
+    if (statusIn) return statusIn.size > 0 && statusIn.has(String(row.status));
+    if (args?.excludeCancelled === true && String(row.status) === 'cancelled') return false;
+    const payload = String(row.payloadJson ?? '');
+    if (args?.warehouseId && !payload.includes(String(args.warehouseId))) return false;
+    const search = String(args?.search ?? '').trim().toLowerCase();
+    if (!search) return true;
+    return `${String(row.docNo ?? '')} ${String(row.docType ?? '')} ${payload}`.toLowerCase().includes(search);
+  });
+  const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
+  const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
+  const page = limit == null ? filtered : filtered.slice(offset, offset + limit + 1);
+  const hasMore = limit == null ? false : page.length > limit;
+  return {
+    ok: true,
+    rows: (hasMore ? page.slice(0, limit!) : page) as Array<Record<string, unknown>>,
+    hasMore,
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseDocumentGet(
+  db: BetterSQLite3Database,
+  id: string,
+): Promise<{ ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> }; meta: OfflineReadMeta } | { ok: false; error: string }> {
+  const header = await db
+    .select()
+    .from(erpDocumentHeaders)
+    .where(and(eq(erpDocumentHeaders.id, String(id)), isNull(erpDocumentHeaders.deletedAt)))
+    .limit(1);
+  const row = header[0];
+  if (!row) return { ok: false, error: 'Документ не найден в локальном кэше' };
+  const lines = await db
+    .select()
+    .from(erpDocumentLines)
+    .where(and(eq(erpDocumentLines.headerId, String(id)), isNull(erpDocumentLines.deletedAt)))
+    .orderBy(asc(erpDocumentLines.lineNo));
+  return {
+    ok: true,
+    document: {
+      header: row as Record<string, unknown>,
+      lines: lines as Array<Record<string, unknown>>,
+    },
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseMovementsList(
+  db: BetterSQLite3Database,
+  args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; meta: OfflineReadMeta }> {
+  const where = [];
+  if (args?.nomenclatureId) where.push(eq(erpRegStockMovements.nomenclatureId, String(args.nomenclatureId)));
+  if (args?.warehouseId) where.push(eq(erpRegStockMovements.warehouseId, String(args.warehouseId)));
+  if (args?.documentHeaderId) where.push(eq(erpRegStockMovements.documentHeaderId, String(args.documentHeaderId)));
+  if (args?.fromDate !== undefined) where.push(sql`${erpRegStockMovements.performedAt} >= ${Math.trunc(Number(args.fromDate))}`);
+  if (args?.toDate !== undefined) where.push(sql`${erpRegStockMovements.performedAt} <= ${Math.trunc(Number(args.toDate))}`);
+  const limit = Math.max(1, Math.min(10_000, Math.trunc(Number(args?.limit ?? 500))));
+  const rows = await db
+    .select()
+    .from(erpRegStockMovements)
+    .where(where.length > 0 ? and(...where) : undefined)
+    .orderBy(desc(erpRegStockMovements.performedAt))
+    .limit(limit);
+  return { ok: true, rows: rows as Array<Record<string, unknown>>, meta: await buildOfflineReadMeta(db, 'local') };
 }
 
 export async function erpDictionaryList(db: BetterSQLite3Database, apiBaseUrl: string, moduleName: ErpModule) {
@@ -255,6 +477,87 @@ async function warehouseAuthed(
   return first;
 }
 
+async function warehouseDocumentCreateRemote(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const path = '/warehouse/documents';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function warehouseDocumentCancelRemote(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+  args?: { clientOperationId?: string; expectedUpdatedAt?: number },
+): Promise<{ ok: true; id: string; status: string } | { ok: false; error: string }> {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/cancel`;
+  try {
+    const body: Record<string, unknown> = {};
+    if (args?.clientOperationId) body.clientOperationId = args.clientOperationId;
+    if (args?.expectedUpdatedAt != null) body.expectedUpdatedAt = Math.trunc(Number(args.expectedUpdatedAt));
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      ...(Object.keys(body).length > 0
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {}),
+    });
+    if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true, id: String(r.json.id ?? id), status: String(r.json.status ?? 'cancelled') };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function drainWarehouseCommandOutboxOnce(db: BetterSQLite3Database, apiBaseUrl: string): Promise<void> {
+  const due = await listDueWarehouseCommands(db, 15);
+  for (const row of due) {
+    try {
+      if (row.commandType === 'document_upsert') {
+        const payload = { ...row.body, clientOperationId: row.clientOperationId };
+        const result = await warehouseDocumentCreateRemote(db, apiBaseUrl, payload);
+        if (!result.ok) {
+          await markWarehouseCommandFailed(db, row.id, result.error);
+          continue;
+        }
+      } else if (row.commandType === 'document_cancel') {
+        const documentId = String(row.body.documentId ?? '').trim();
+        if (!documentId) {
+          await markWarehouseCommandFailed(db, row.id, 'documentId is required');
+          continue;
+        }
+        const result = await warehouseDocumentCancelRemote(db, apiBaseUrl, documentId, {
+          clientOperationId: row.clientOperationId,
+          expectedUpdatedAt: Number(row.body.expectedUpdatedAt ?? 0) || undefined,
+        });
+        if (!result.ok) {
+          await markWarehouseCommandFailed(db, row.id, result.error);
+          continue;
+        }
+      }
+      await markWarehouseCommandApplied(db, row.id);
+    } catch (e) {
+      await markWarehouseCommandFailed(db, row.id, String(e));
+    }
+  }
+}
+
 export async function warehouseNomenclatureList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -281,11 +584,18 @@ export async function warehouseNomenclatureList(
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/nomenclature${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 60_000 });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.ok) {
+      const local = await localWarehouseNomenclatureList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
   } catch (e) {
-    return { ok: false as const, error: String(e) };
+    const local = await localWarehouseNomenclatureList(db, args);
+    return { ...local, warning: String(e) } as const;
   }
 }
 
@@ -458,6 +768,7 @@ export async function warehouseStockList(
   args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
 ) {
   try {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
     const qp = new URLSearchParams();
     if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
     if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
@@ -467,11 +778,18 @@ export async function warehouseStockList(
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/stock${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.ok) {
+      const local = await localWarehouseStockList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
   } catch (e) {
-    return { ok: false as const, error: String(e) };
+    const local = await localWarehouseStockList(db, args);
+    return { ...local, warning: String(e) } as const;
   }
 }
 
@@ -493,6 +811,7 @@ export async function warehouseDocumentsList(
   },
 ) {
   try {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
     const qp = new URLSearchParams();
     if (args?.status) qp.set('status', args.status);
     if (args?.docType) qp.set('docType', args.docType);
@@ -506,11 +825,18 @@ export async function warehouseDocumentsList(
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/documents${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.ok) {
+      const local = await localWarehouseDocumentsList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
   } catch (e) {
-    return { ok: false as const, error: String(e) };
+    const local = await localWarehouseDocumentsList(db, args);
+    return { ...local, warning: String(e) } as const;
   }
 }
 
@@ -522,11 +848,20 @@ export async function warehouseDocumentGet(
   const path = `/warehouse/documents/${encodeURIComponent(id)}`;
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.ok) {
+      const local = await localWarehouseDocumentGet(db, id);
+      if (!local.ok) return { ok: false as const, error: formatHttpError(r, path) };
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } };
+    return {
+      ...(r.json as { ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
   } catch (e) {
-    return { ok: false as const, error: String(e) };
+    const local = await localWarehouseDocumentGet(db, id);
+    if (!local.ok) return { ok: false as const, error: String(e) };
+    return { ...local, warning: String(e) } as const;
   }
 }
 
@@ -535,29 +870,45 @@ export async function warehouseDocumentCreate(
   apiBaseUrl: string,
   args: Record<string, unknown>,
 ) {
-  const path = '/warehouse/documents';
-  try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
-    });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return { ok: true as const, id: String(r.json.id) };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
+  const result = await warehouseDocumentCreateRemote(db, apiBaseUrl, args);
+  if (result.ok) {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    return { ok: true as const, id: result.id, queued: false };
   }
+  const queued = await enqueueWarehouseCommand(db, {
+    commandType: 'document_upsert',
+    aggregateType: 'warehouse_document',
+    aggregateId: args.id == null ? null : String(args.id),
+    body: args,
+  });
+  return {
+    ok: true as const,
+    id: String(args.id ?? queued.id),
+    queued: true,
+    clientOperationId: queued.clientOperationId,
+    warning: result.error,
+  };
 }
 
 export async function warehouseDocumentPost(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   id: string,
+  args?: { expectedUpdatedAt?: number },
 ) {
   const path = `/warehouse/documents/${encodeURIComponent(id)}/post`;
   try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    const body: Record<string, unknown> = {};
+    if (args?.expectedUpdatedAt != null) body.expectedUpdatedAt = Math.trunc(Number(args.expectedUpdatedAt));
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      ...(Object.keys(body).length > 0
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {}),
+    });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
     return { ok: true as const, id: String(r.json.id ?? id) };
@@ -586,16 +937,27 @@ export async function warehouseDocumentCancel(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   id: string,
+  args?: { expectedUpdatedAt?: number },
 ) {
-  const path = `/warehouse/documents/${encodeURIComponent(id)}/cancel`;
-  try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return { ok: true as const, id: String(r.json.id ?? id), status: String(r.json.status ?? 'cancelled') };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
+  const result = await warehouseDocumentCancelRemote(db, apiBaseUrl, id, args);
+  if (result.ok) {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    return { ok: true as const, id: result.id, status: result.status, queued: false };
   }
+  const queued = await enqueueWarehouseCommand(db, {
+    commandType: 'document_cancel',
+    aggregateType: 'warehouse_document',
+    aggregateId: id,
+    body: { documentId: id, ...(args?.expectedUpdatedAt != null ? { expectedUpdatedAt: args.expectedUpdatedAt } : {}) },
+  });
+  return {
+    ok: true as const,
+    id,
+    status: 'cancel_queued',
+    queued: true,
+    clientOperationId: queued.clientOperationId,
+    warning: result.error,
+  };
 }
 
 export async function warehouseForecastIncomingGet(
@@ -833,10 +1195,17 @@ export async function warehouseMovementsList(
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     const path = `/warehouse/movements${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.ok) {
+      const local = await localWarehouseMovementsList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>> }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
   } catch (e) {
-    return { ok: false as const, error: String(e) };
+    const local = await localWarehouseMovementsList(db, args);
+    return { ...local, warning: String(e) } as const;
   }
 }

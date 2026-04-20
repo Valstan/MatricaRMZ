@@ -1553,6 +1553,7 @@ export async function createWarehouseDocument(args: {
   header?: HeaderPayloadInput | null;
   payloadJson?: string | null;
   lines: DocLineInput[];
+  expectedUpdatedAt?: number;
   actor: Actor;
 }): Promise<Result<{ id: string }>> {
   try {
@@ -1583,11 +1584,14 @@ export async function createWarehouseDocument(args: {
     });
     if (args.id) {
       const existing = await db
-        .select({ id: erpDocumentHeaders.id, status: erpDocumentHeaders.status })
+        .select({ id: erpDocumentHeaders.id, status: erpDocumentHeaders.status, updatedAt: erpDocumentHeaders.updatedAt })
         .from(erpDocumentHeaders)
         .where(and(eq(erpDocumentHeaders.id, id), isNull(erpDocumentHeaders.deletedAt)))
         .limit(1);
       if (!existing[0]) return { ok: false, error: 'Документ для обновления не найден' };
+      if (args.expectedUpdatedAt != null && Number(existing[0].updatedAt) !== Math.trunc(Number(args.expectedUpdatedAt))) {
+        return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
+      }
       if (String(existing[0].status) !== 'draft') return { ok: false, error: 'Можно редактировать только документ в статусе черновика' };
       await db
         .update(erpDocumentHeaders)
@@ -1660,6 +1664,7 @@ export async function createWarehouseDocument(args: {
 export async function cancelWarehouseDocument(args: {
   documentId: string;
   actor: Actor;
+  expectedUpdatedAt?: number;
 }): Promise<Result<{ id: string; status: 'cancelled' }>> {
   try {
     const ts = nowMs();
@@ -1670,6 +1675,9 @@ export async function cancelWarehouseDocument(args: {
       .limit(1);
     const header = headerRows[0];
     if (!header) return { ok: false, error: 'Документ не найден' };
+    if (args.expectedUpdatedAt != null && Number(header.updatedAt) !== Math.trunc(Number(args.expectedUpdatedAt))) {
+      return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
+    }
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
     if (String(header.status) === 'posted') return { ok: false, error: 'Проведенный документ нельзя отменить без сторнирующей операции' };
     if (String(header.status) === 'cancelled') return { ok: true, id: args.documentId, status: 'cancelled' };
@@ -1693,6 +1701,7 @@ export async function cancelWarehouseDocument(args: {
 export async function planWarehouseDocument(args: {
   documentId: string;
   actor: Actor;
+  expectedUpdatedAt?: number;
 }): Promise<Result<{ id: string; planned: boolean }>> {
   try {
     const ts = nowMs();
@@ -1703,6 +1712,9 @@ export async function planWarehouseDocument(args: {
       .limit(1);
     const header = headers[0];
     if (!header) return { ok: false, error: 'Документ не найден' };
+    if (args.expectedUpdatedAt != null && Number(header.updatedAt) !== Math.trunc(Number(args.expectedUpdatedAt))) {
+      return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
+    }
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
     if (!isIncomingDocType(String(header.docType))) return { ok: false, error: 'Планирование доступно только для документов прихода' };
     if (String(header.status) === 'posted') return { ok: false, error: 'Проведенный документ нельзя перевести в planned' };
@@ -1745,6 +1757,7 @@ export async function planWarehouseDocument(args: {
 export async function postWarehouseDocument(args: {
   documentId: string;
   actor: Actor;
+  expectedUpdatedAt?: number;
 }): Promise<Result<{ id: string; posted: boolean }>> {
   try {
     const ts = nowMs();
@@ -1755,6 +1768,9 @@ export async function postWarehouseDocument(args: {
       .limit(1);
     const header = headers[0];
     if (!header) return { ok: false, error: 'Документ не найден' };
+    if (args.expectedUpdatedAt != null && Number(header.updatedAt) !== Math.trunc(Number(args.expectedUpdatedAt))) {
+      return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
+    }
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
     if (String(header.status) === 'posted') return { ok: true, id: args.documentId, posted: true };
     if (isIncomingDocType(String(header.docType)) && String(header.status) !== 'planned') {

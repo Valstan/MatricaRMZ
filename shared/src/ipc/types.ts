@@ -1306,8 +1306,10 @@ export type MatricaApi = {
     documentGet: (id: string) => Promise<{ ok: true; document: WarehouseDocumentDetails } | { ok: false; error: string }>;
     documentCreate: (args: WarehouseDocumentUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     documentPlan: (id: string) => Promise<{ ok: true; id: string; planned?: boolean } | { ok: false; error: string }>;
-    documentPost: (id: string) => Promise<{ ok: true; id: string; posted?: boolean } | { ok: false; error: string }>;
-    documentCancel: (id: string) => Promise<{ ok: true; id: string; status: 'cancelled' } | { ok: false; error: string }>;
+    documentPost: (arg: string | { id: string; expectedUpdatedAt?: number }) => Promise<{ ok: true; id: string; posted?: boolean; queued?: boolean } | { ok: false; error: string }>;
+    documentCancel: (
+      arg: string | { id: string; expectedUpdatedAt?: number },
+    ) => Promise<{ ok: true; id: string; status: string; queued?: boolean } | { ok: false; error: string }>;
     assemblyBomList: (args?: {
       engineBrandId?: string;
       engineNomenclatureId?: string;

@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 6;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 7;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -271,6 +271,35 @@ const MIGRATIONS: Migration[] = [
       sqlite.exec(`
         CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_lines_variant_component_uq
           ON erp_engine_assembly_bom_lines(bom_id, variant_group, component_nomenclature_id, component_type);
+      `);
+    },
+  },
+  {
+    from: 6,
+    to: 7,
+    name: 'warehouse command outbox table',
+    up: async (_db, sqlite) => {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS warehouse_command_outbox (
+          id text PRIMARY KEY NOT NULL,
+          client_operation_id text NOT NULL,
+          command_type text NOT NULL,
+          aggregate_type text NOT NULL DEFAULT 'warehouse_document',
+          aggregate_id text,
+          payload_json text NOT NULL,
+          status text NOT NULL DEFAULT 'pending',
+          attempts integer NOT NULL DEFAULT 0,
+          next_retry_at integer NOT NULL DEFAULT 0,
+          last_error text,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS warehouse_command_outbox_client_operation_id_uq
+          ON warehouse_command_outbox(client_operation_id);
+        CREATE INDEX IF NOT EXISTS warehouse_command_outbox_status_next_retry_idx
+          ON warehouse_command_outbox(status, next_retry_at);
+        CREATE INDEX IF NOT EXISTS warehouse_command_outbox_aggregate_idx
+          ON warehouse_command_outbox(aggregate_type, aggregate_id);
       `);
     },
   },

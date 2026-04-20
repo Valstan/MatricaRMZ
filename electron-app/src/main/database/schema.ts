@@ -646,6 +646,29 @@ export const erpJournalDocuments = sqliteTable(
   }),
 );
 
+export const warehouseCommandOutbox = sqliteTable(
+  'warehouse_command_outbox',
+  {
+    id: text('id').primaryKey(),
+    clientOperationId: text('client_operation_id').notNull(),
+    commandType: text('command_type').notNull(),
+    aggregateType: text('aggregate_type').notNull().default('warehouse_document'),
+    aggregateId: text('aggregate_id'),
+    payloadJson: text('payload_json').notNull(),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextRetryAt: integer('next_retry_at').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    clientOperationIdUq: uniqueIndex('warehouse_command_outbox_client_operation_id_uq').on(t.clientOperationId),
+    statusNextRetryIdx: index('warehouse_command_outbox_status_next_retry_idx').on(t.status, t.nextRetryAt),
+    aggregateIdx: index('warehouse_command_outbox_aggregate_idx').on(t.aggregateType, t.aggregateId),
+  }),
+);
+
 export const syncState = sqliteTable('sync_state', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

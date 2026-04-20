@@ -216,6 +216,26 @@ export const syncState = pgTable('sync_state', {
   lastPulledAt: bigint('last_pulled_at', { mode: 'number' }),
 });
 
+export const commandIdempotency = pgTable(
+  'command_idempotency',
+  {
+    id: uuid('id').primaryKey(),
+    clientId: text('client_id').notNull(),
+    clientOperationId: text('client_operation_id').notNull(),
+    commandType: text('command_type').notNull(),
+    aggregateId: text('aggregate_id'),
+    requestJson: text('request_json'),
+    responseJson: text('response_json'),
+    status: text('status').notNull().default('applied'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    clientOpUq: uniqueIndex('command_idempotency_client_operation_uq').on(t.clientId, t.clientOperationId),
+    statusIdx: index('command_idempotency_status_idx').on(t.status, t.updatedAt),
+  }),
+);
+
 // -----------------------------
 // Auth (server-side only, не участвует в синхронизации)
 // -----------------------------
