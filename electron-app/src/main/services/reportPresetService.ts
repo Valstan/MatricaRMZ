@@ -56,6 +56,14 @@ type ReportBuildContext = {
   sysDb?: BetterSQLite3Database;
   apiBaseUrl?: string;
 };
+const ASSEMBLY_BOM_BRAND_OPTIONS_TTL_MS = 60_000;
+let assemblyBomBrandOptionsCache:
+  | {
+      apiBaseUrl: string;
+      expiresAt: number;
+      options: ReportFilterOption[];
+    }
+  | null = null;
 
 type DefectSupplyPresetRow = {
   contractId: string;
@@ -2552,10 +2560,14 @@ async function loadActiveDefaultBomEngineBrandIds(db: BetterSQLite3Database): Pr
   }
 }
 
+/**
+ * @param bomEngineBrandIds `null` — локальный список BOM неизвестен (например, таблицы не заполнены из sync);
+ *   тогда марки из контракта не отфильтровываем по локальной SQLite, проверка остаётся на сервере прогноза.
+ */
 function computeContractBasedAssemblyPriorityFromSnapshot(
   snapshot: Snapshot,
   filters: ReportPresetFilters | undefined,
-  bomEngineBrandIds: Set<string>,
+  bomEngineBrandIds: Set<string> | null,
 ): { priorityEngineBrandIds: string[]; footerNotes: string[]; modeHints: string[] } {
   const now = Date.now();
   const engineBrandFilter = new Set(asArray(filters?.engineBrandIds).map(String));
@@ -2615,8 +2627,10 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
       continue;
     }
 
-    const inBom = brandIdsFiltered.filter((id) => bomEngineBrandIds.has(id));
-    const missingBom = brandIdsFiltered.filter((id) => !bomEngineBrandIds.has(id));
+    const bomSet = bomEngineBrandIds;
+    const inBom =
+      bomSet == null ? brandIdsFiltered : brandIdsFiltered.filter((id) => bomSet.has(id));
+    const missingBom = bomSet == null ? [] : brandIdsFiltered.filter((id) => !bomSet.has(id));
     for (const id of missingBom) {
       const lab = entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
       missingBomBrandLabels.set(id, lab);
@@ -2725,13 +2739,17 @@ async function buildAssemblyForecast7dReport(
 ): Promise<ReportPresetPreviewResult> {
   const snapshot = await loadSnapshot(db);
   const bomBrandIds = await loadActiveDefaultBomEngineBrandIds(db);
+  /** Прогноз всегда считается на сервере; локальные таблицы BOM в SQLite могут быть пустыми (ledger pull их не заполняет). */
+  const assemblyForecastApiEnabled = Boolean(ctx?.sysDb && String(ctx?.apiBaseUrl ?? '').trim());
   const mode = normalizeText(filters?.assemblyPriorityMode, 'manual');
   let priorityEngineBrandIds = asArray(filters?.priorityEngineBrandIds);
   let contractFooterNotes: string[] = [];
   let modeHints: string[] = [];
   const manualBomFooter: string[] = [];
   if (mode === 'contracts') {
-    const p = computeContractBasedAssemblyPriorityFromSnapshot(snapshot, filters, bomBrandIds);
+    const contractBomIds =
+      assemblyForecastApiEnabled && bomBrandIds.size === 0 ? null : bomBrandIds;
+    const p = computeContractBasedAssemblyPriorityFromSnapshot(snapshot, filters, contractBomIds);
     priorityEngineBrandIds = p.priorityEngineBrandIds;
     contractFooterNotes = p.footerNotes;
     modeHints = p.modeHints;
@@ -2740,7 +2758,7 @@ async function buildAssemblyForecast7dReport(
       .map((id) => String(id).trim())
       .filter(Boolean);
     const missingManual = manualIds.filter((id) => !bomBrandIds.has(id));
-    if (missingManual.length > 0) {
+    if (missingManual.length > 0 && !assemblyForecastApiEnabled) {
       const list = missingManual
         .map((id) => {
           const lab = entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
@@ -2862,8 +2880,68 @@ async function buildAssemblyForecast7dReport(
   return { ok: false, error: 'Локальный fallback отключен: отчет использует BOM-прогноз только через backend API.' };
 }
 
-async function buildAssemblyBomEngineOptions(db: BetterSQLite3Database): Promise<ReportFilterOption[]> {
-  const snapshot = await loadSnapshot(db);
+async function buildAssemblyBomEngineOptions(
+  db: BetterSQLite3Database,
+  snapshot: Snapshot,
+  ctx?: ReportBuildContext,
+): Promise<ReportFilterOption[]> {
+  const normalizedApiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  const canUseApi = Boolean(ctx?.sysDb && normalizedApiBase);
+  const buildOptionsByIds = (brandIds: string[]) => {
+    const unique = new Map<string, ReportFilterOption>();
+    for (const rawId of brandIds) {
+      const id = String(rawId ?? '').trim();
+      if (!id || unique.has(id)) continue;
+      const label = entityLabel(snapshot.attrsByEntity.get(id), id);
+      const searchText = joinOptionSearch([label, id]);
+      unique.set(id, {
+        value: id,
+        label: label.trim() ? label : id,
+        ...(searchText ? { searchText } : {}),
+      });
+    }
+    return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  };
+
+  if (canUseApi) {
+    const now = Date.now();
+    if (
+      assemblyBomBrandOptionsCache &&
+      assemblyBomBrandOptionsCache.apiBaseUrl === normalizedApiBase &&
+      assemblyBomBrandOptionsCache.expiresAt > now
+    ) {
+      return assemblyBomBrandOptionsCache.options;
+    }
+    try {
+      const res = await httpAuthed(
+        ctx!.sysDb!,
+        normalizedApiBase,
+        '/warehouse/assembly-bom?status=active',
+        { method: 'GET' },
+        { timeoutMs: 15_000 },
+      );
+      if (res.ok && res.json && typeof res.json === 'object' && (res.json as Record<string, unknown>).ok === true) {
+        const rows = Array.isArray((res.json as Record<string, unknown>).rows)
+          ? ((res.json as Record<string, unknown>).rows as unknown[])
+          : [];
+        const ids = rows
+          .map((row) => (row && typeof row === 'object' ? (row as Record<string, unknown>) : {}))
+          .filter((row) => row.isDefault === true)
+          .map((row) => String(row.engineBrandId ?? '').trim())
+          .filter(Boolean);
+        const options = buildOptionsByIds(ids);
+        assemblyBomBrandOptionsCache = {
+          apiBaseUrl: normalizedApiBase,
+          expiresAt: now + ASSEMBLY_BOM_BRAND_OPTIONS_TTL_MS,
+          options,
+        };
+        return options;
+      }
+    } catch {
+      // Fallback to local SQLite below.
+    }
+  }
+
   let rows: Array<{ engineBrandId: string | null }>;
   try {
     rows = await db
@@ -2874,22 +2952,10 @@ async function buildAssemblyBomEngineOptions(db: BetterSQLite3Database): Promise
     if (isSqliteMissingEngineBrandIdColumn(e)) rows = [];
     else throw e;
   }
-  const unique = new Map<string, ReportFilterOption>();
-  for (const row of rows) {
-    const id = String(row.engineBrandId ?? '').trim();
-    if (!id || unique.has(id)) continue;
-    const label = entityLabel(snapshot.attrsByEntity.get(id), id);
-    const searchText = joinOptionSearch([label, id]);
-    unique.set(id, {
-      value: id,
-      label: label.trim() ? label : id,
-      ...(searchText ? { searchText } : {}),
-    });
-  }
-  return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  return buildOptionsByIds(rows.map((row) => String(row.engineBrandId ?? '').trim()).filter(Boolean));
 }
 
-export async function getReportPresetList(db: BetterSQLite3Database): Promise<ReportPresetListResult> {
+export async function getReportPresetList(db: BetterSQLite3Database, ctx?: ReportBuildContext): Promise<ReportPresetListResult> {
   try {
     const snapshot = await loadSnapshot(db);
     return {
@@ -2898,7 +2964,7 @@ export async function getReportPresetList(db: BetterSQLite3Database): Promise<Re
       optionSets: {
         contracts: buildOptions(snapshot, 'contract'),
         brands: buildOptions(snapshot, 'engine_brand'),
-        assemblyBrands: await buildAssemblyBomEngineOptions(db),
+        assemblyBrands: await buildAssemblyBomEngineOptions(db, snapshot, ctx),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),

@@ -98,7 +98,7 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:presetList', async () => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return getReportPresetList(ctx.dataDb());
+    return getReportPresetList(ctx.dataDb(), { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
   ipcMain.handle('reports:presetPreview', async (_e, args) => {
