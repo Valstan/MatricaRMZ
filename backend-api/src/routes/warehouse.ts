@@ -697,6 +697,7 @@ warehouseRouter.get('/movements', requirePermission(PermissionCode.ErpRegistersV
 warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
   const schema = z.object({
     targetEnginesPerDay: z.coerce.number().int().min(0).max(500),
+    sameBrandBatchSize: z.coerce.number().int().min(1).max(500).optional(),
     horizonDays: z.coerce.number().int().min(1).max(31).optional(),
     warehouseIds: z.array(z.string().min(1)).optional(),
     engineBrandIds: z.array(z.string().uuid()).optional(),
@@ -707,13 +708,22 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
   try {
     const forecast = await computeAssemblyForecastFromServer({
       targetEnginesPerDay: parsed.data.targetEnginesPerDay,
+      ...(parsed.data.sameBrandBatchSize !== undefined ? { sameBrandBatchSize: parsed.data.sameBrandBatchSize } : {}),
       ...(parsed.data.horizonDays !== undefined ? { horizonDays: parsed.data.horizonDays } : {}),
       ...(parsed.data.warehouseIds !== undefined ? { warehouseIds: parsed.data.warehouseIds } : {}),
       ...(parsed.data.engineBrandIds !== undefined ? { engineBrandIds: parsed.data.engineBrandIds } : {}),
       ...(parsed.data.priorityEngineBrandIds !== undefined ? { priorityEngineBrandIds: parsed.data.priorityEngineBrandIds } : {}),
     });
     const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
-    const rows = forecast.rows.map((r) => ({
+    const rows = forecast.rows.map((r: {
+      dayLabel: string;
+      engineBrand: string;
+      plannedEngines: number;
+      status: 'ok' | 'shortage' | 'waiting';
+      requiredComponentsSummary: string;
+      deficitsSummary: string;
+      alternativeBrands: string;
+    }) => ({
       dayLabel: r.dayLabel,
       engineBrand: r.engineBrand,
       plannedEngines: r.plannedEngines,

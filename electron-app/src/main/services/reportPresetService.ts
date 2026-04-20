@@ -2781,11 +2781,13 @@ async function buildAssemblyForecast7dReport(
     const apiBaseUrl = String(ctx?.apiBaseUrl ?? '').trim();
     if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
     const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
+    const sameBrandBatchSize = Math.max(1, Math.floor(Number(filters?.sameBrandBatchSize ?? 2)));
     const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(filters?.horizonDays ?? 7))));
     const warehouseIds = asArray(filters?.warehouseIds);
     const engineBrandIds = asArray(filters?.engineBrandIds);
     const payload = {
       targetEnginesPerDay,
+      sameBrandBatchSize,
       horizonDays,
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
       ...(engineBrandIds.length > 0 ? { engineBrandIds } : {}),
@@ -2847,6 +2849,7 @@ async function buildAssemblyForecast7dReport(
             : 'Приоритет марок: нет';
       const subtitleParts = [
         `Цель: ${targetEnginesPerDay}/сутки`,
+        `Серия одной марки: ${sameBrandBatchSize}`,
         `Горизонт: ${horizonDays} дн.`,
         warehouseIds.length ? `Склады: ${warehouseIds.length}` : 'Склады: все (сумма)',
         prioritySubtitle,

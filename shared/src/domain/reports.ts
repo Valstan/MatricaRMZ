@@ -708,6 +708,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
       {
         type: 'number',
+        key: 'sameBrandBatchSize',
+        label: 'Серия одинаковой марки в день (стараться подряд)',
+        min: 1,
+        max: 500,
+        step: 1,
+        defaultValue: 2,
+      },
+      {
+        type: 'number',
         key: 'horizonDays',
         label: 'Горизонт прогноза (дней)',
         min: 1,

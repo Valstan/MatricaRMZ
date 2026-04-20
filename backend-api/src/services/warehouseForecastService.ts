@@ -17,6 +17,7 @@ import { parseWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
 
 type ForecastRequest = {
   targetEnginesPerDay: number;
+  sameBrandBatchSize?: number;
   horizonDays?: number;
   warehouseIds?: string[];
   /** Фильтр по маркам двигателя из справочника (entities). */
@@ -219,6 +220,7 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
 export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(args.horizonDays ?? 7))));
   const targetEnginesPerDay = Math.max(0, Math.floor(Number(args.targetEnginesPerDay ?? 0)));
+  const sameBrandBatchSize = Math.max(1, Math.floor(Number(args.sameBrandBatchSize ?? 2)));
   const warehouseIds = Array.isArray(args.warehouseIds) ? args.warehouseIds.map(String) : undefined;
   const engineBrandIds = Array.isArray(args.engineBrandIds) ? args.engineBrandIds.map(String) : undefined;
   const priorityEngineBrandIds = Array.isArray(args.priorityEngineBrandIds)
@@ -241,6 +243,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   return computeAssemblyForecast({
     horizonDays,
     targetEnginesPerDay,
+    sameBrandBatchSize,
     warehouseId: warehouseIds?.length === 1 ? warehouseIds[0]! : null,
     kits,
     stockByNomenclatureId: stock,

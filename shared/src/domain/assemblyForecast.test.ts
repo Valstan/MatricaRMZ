@@ -117,6 +117,64 @@ describe('assemblyForecast', () => {
     expect(Math.abs(plannedA - plannedB)).toBeLessThanOrEqual(1);
   });
 
+  it('prefers same-brand batches when sameBrandBatchSize is set', () => {
+    const stock = new Map<string, number>([
+      ['a1', 20],
+      ['a2', 20],
+      ['b1', 20],
+      ['b2', 20],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'a1', brandId: 'ba', brandLabel: 'Brand A', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'a2', brandId: 'ba', brandLabel: 'Brand A', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'b1', brandId: 'bb', brandLabel: 'Brand B', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'b2', brandId: 'bb', brandLabel: 'Brand B', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 1,
+      targetEnginesPerDay: 8,
+      sameBrandBatchSize: 4,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+    });
+    const plannedA = res.rows.filter((r) => r.engineBrand === 'Brand A').reduce((a, r) => a + r.plannedEngines, 0);
+    const plannedB = res.rows.filter((r) => r.engineBrand === 'Brand B').reduce((a, r) => a + r.plannedEngines, 0);
+    expect(plannedA).toBe(4);
+    expect(plannedB).toBe(4);
+  });
+
+  it('moves to next brand if full same-brand batch is impossible and keeps that start on next day', () => {
+    const stock = new Map<string, number>([
+      ['a1', 3],
+      ['a2', 3],
+      ['b1', 5],
+      ['b2', 5],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'a1', brandId: 'ba', brandLabel: 'Brand A', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'a2', brandId: 'ba', brandLabel: 'Brand A', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'b1', brandId: 'bb', brandLabel: 'Brand B', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'b2', brandId: 'bb', brandLabel: 'Brand B', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 2,
+      targetEnginesPerDay: 4,
+      sameBrandBatchSize: 4,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+    });
+    const day1A = res.rows.filter((r) => r.dayOffset === 0 && r.engineBrand === 'Brand A').reduce((a, r) => a + r.plannedEngines, 0);
+    const day1B = res.rows.filter((r) => r.dayOffset === 0 && r.engineBrand === 'Brand B').reduce((a, r) => a + r.plannedEngines, 0);
+    const day2B = res.rows.filter((r) => r.dayOffset === 1 && r.engineBrand === 'Brand B').reduce((a, r) => a + r.plannedEngines, 0);
+    expect(day1A).toBe(3);
+    expect(day1B).toBe(1);
+    expect(day2B).toBe(4);
+  });
+
   it('applies incoming plan from a later day before that day allocation', () => {
     const stock = new Map<string, number>([
       ['p1', 0],

@@ -29,6 +29,11 @@ export type AssemblyForecastIncomingLine = {
 export type AssemblyForecastComputeInput = {
   horizonDays: number;
   targetEnginesPerDay: number;
+  /**
+   * Желаемый размер серии одинаковой марки внутри суток.
+   * 1 = максимально частое чередование марок, target = стараться закрывать весь день одной маркой.
+   */
+  sameBrandBatchSize?: number;
   /** null — агрегировать по всем складам (сумма qty по одному nomenclatureId). */
   warehouseId: string | null;
   kits: AssemblyEngineBrandKit[];
@@ -228,6 +233,7 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   const warnings: string[] = [];
   const horizon = Math.max(1, Math.min(31, Math.floor(input.horizonDays || 7)));
   const target = Math.max(0, Math.floor(input.targetEnginesPerDay || 0));
+  const sameBrandBatchSize = Math.max(1, Math.floor(Number(input.sameBrandBatchSize ?? 1)));
   const kits = input.kits.filter((k) => k.parts.some((p) => p.qtyPerEngine > 0));
   if (kits.length === 0) warnings.push('Нет комплектов по маркам (проверьте связи деталь↔марка и количество на двигатель).');
 
@@ -237,11 +243,16 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   const priorityOrderRaw = (input.priorityEngineBrandIds ?? []).map((id) => String(id).trim()).filter(Boolean);
   const prioritySet = new Set(priorityOrderRaw);
 
+  const lastUsedBrandByPool = new Map<string, string>();
+
   /**
-   * Распределяет часть дневной цели (remainingBudget) **по кругу** по переданному пулу комплектов.
+   * Распределяет часть дневной цели по переданному пулу комплектов
+   * с учётом желаемого размера серии одной марки (`sameBrandBatchSize`).
+   * Стартовая марка на следующий день — последняя успешно использованная в этом пуле.
    */
-  function allocateDayRoundRobin(
+  function allocateDayByBatchRuns(
     day: number,
+    poolKey: string,
     pool: AssemblyEngineBrandKit[],
     labelSuffix: string,
     initialBudget: number,
@@ -251,20 +262,38 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     let remaining = initialBudget;
     if (pool.length === 0 || remaining <= 0) return remaining;
     const order = sortPool(pool);
+    const startBrandId = lastUsedBrandByPool.get(poolKey) ?? '';
+    const startIdx = Math.max(0, order.findIndex((k) => k.brandId === startBrandId));
+    let cursor = startIdx >= 0 ? startIdx : 0;
     const enginesByBrand = new Map<string, number>();
+    let lastUsedBrandId: string | null = null;
 
     while (remaining > 0) {
+      let attempts = 0;
       let progressed = false;
-      for (const kit of order) {
-        if (remaining <= 0) break;
-        if (maxEnginesForKit(stock, kit) <= 0) continue;
-        consumeKit(stock, kit, 1);
-        remaining -= 1;
+      while (attempts < order.length && remaining > 0) {
+        const kit = order[cursor];
+        if (!kit) break;
+        const maxForCurrent = maxEnginesForKit(stock, kit);
+        if (maxForCurrent <= 0) {
+          cursor = (cursor + 1) % order.length;
+          attempts += 1;
+          continue;
+        }
+        const run = Math.max(1, Math.min(remaining, sameBrandBatchSize, maxForCurrent));
+        consumeKit(stock, kit, run);
+        remaining -= run;
         progressed = true;
-        enginesByBrand.set(kit.brandId, (enginesByBrand.get(kit.brandId) ?? 0) + 1);
+        lastUsedBrandId = kit.brandId;
+        enginesByBrand.set(kit.brandId, (enginesByBrand.get(kit.brandId) ?? 0) + run);
+        if (remaining > 0) {
+          cursor = (cursor + 1) % order.length;
+        }
+        break;
       }
       if (!progressed) break;
     }
+    if (lastUsedBrandId) lastUsedBrandByPool.set(poolKey, lastUsedBrandId);
 
     const entryList = Array.from(enginesByBrand.entries()).filter(([, n]) => n > 0);
     entryList.forEach(([brandId, plannedEngines]) => {
@@ -298,10 +327,10 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
       if (prioritySet.size > 0) {
         const priorityKits = kits.filter((k) => kitMatchesPriorityEngineBrand(k, prioritySet));
         const otherKits = kits.filter((k) => !kitMatchesPriorityEngineBrand(k, prioritySet));
-        remaining = allocateDayRoundRobin(day, priorityKits, '', remaining, (p) => sortKitsByPriorityList(p, priorityOrderRaw));
-        remaining = allocateDayRoundRobin(day, otherKits, '', remaining, sortAlpha);
+        remaining = allocateDayByBatchRuns(day, 'priority', priorityKits, '', remaining, (p) => sortKitsByPriorityList(p, priorityOrderRaw));
+        remaining = allocateDayByBatchRuns(day, 'other', otherKits, '', remaining, sortAlpha);
       } else {
-        remaining = allocateDayRoundRobin(day, kits, '', remaining, sortAlpha);
+        remaining = allocateDayByBatchRuns(day, 'all', kits, '', remaining, sortAlpha);
       }
     }
 
