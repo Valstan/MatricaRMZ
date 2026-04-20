@@ -387,48 +387,6 @@ export function assemblyForecastStatusLabelRu(status: AssemblyForecastDayRow['st
   }
 }
 
-/**
- * Строка «не закрыт план за день»: какие марки можно было бы набирать при поставке и разбор остатков по комплектующим на 1 двигатель.
- */
-export function formatAssemblyShortageRowForOperator(
-  kits: AssemblyEngineBrandKit[],
-  stock: ReadonlyMap<string, number>,
-  remaining: number,
-  target: number,
-): { engineBrand: string; requiredComponentsSummary: string } {
-  const uniqueLabels = [...new Set(kits.map((k) => k.brandLabel))].sort((a, b) => a.localeCompare(b, 'ru'));
-  const brandHint =
-    uniqueLabels.length <= 8
-      ? uniqueLabels.join(', ')
-      : `${uniqueLabels.slice(0, 7).join(', ')}… (+${uniqueLabels.length - 7})`;
-
-  const detailLines: string[] = [];
-  const sortedKits = [...kits].sort((a, b) => a.brandLabel.localeCompare(b.brandLabel, 'ru'));
-  for (const kit of sortedKits.slice(0, 12)) {
-    const parts = [...kit.parts]
-      .filter((p) => p.qtyPerEngine > 0)
-      .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
-    const chunks: string[] = [];
-    for (const p of parts.slice(0, 24)) {
-      const need = Math.max(0, Math.floor(p.qtyPerEngine));
-      const have = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
-      if (have >= need) {
-        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need} — хватает`);
-      } else {
-        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need}, не хватает ${need - have} шт. (склад поставки неизвестен)`);
-      }
-    }
-    if (chunks.length > 0) detailLines.push(`${kit.brandLabel}:\n${chunks.join('\n')}`);
-  }
-
-  const head = `Не удалось набрать ${remaining} из ${target} двиг. за день (остатки на конец дня).`;
-  const body = detailLines.join('\n');
-  return {
-    engineBrand: `Не закрыто ${remaining} двиг. При поставке комплектующих возможны марки: ${brandHint}`,
-    requiredComponentsSummary: body ? `${head}\n${body}` : head,
-  };
-}
-
 function mergeHorizonMissingByDisplayLabel(rows: AssemblyHorizonMissingBrand[]): AssemblyHorizonMissingBrand[] {
   const m = new Map<string, number>();
   for (const r of rows) {
@@ -464,6 +422,94 @@ function sortKitsByPriorityList(pool: AssemblyEngineBrandKit[], priorityOrder: s
     if (ib !== undefined && ia === undefined) return 1;
     return a.brandLabel.localeCompare(b.brandLabel, 'ru');
   });
+}
+
+const MAX_SCENARIO_BASE_BRANDS_FOR_SHORTAGE_ROW = 2;
+
+/**
+ * 1–2 «сценарных» комплекта в том же порядке, что и дневной план: приоритетный пул по списку UUID,
+ * затем остальные по алфавиту; по каждой базовой марке двигателя — один вариант BOM (первый в этом порядке).
+ */
+function selectScenarioKitsForShortageRow(
+  kits: AssemblyEngineBrandKit[],
+  priorityOrderRaw: string[],
+  prioritySet: Set<string>,
+): AssemblyEngineBrandKit[] {
+  if (kits.length === 0) return [];
+  const sortAlpha = (pool: AssemblyEngineBrandKit[]) =>
+    [...pool].sort((a, b) => a.brandLabel.localeCompare(b.brandLabel, 'ru'));
+
+  const out: AssemblyEngineBrandKit[] = [];
+  const seenBase = new Set<string>();
+
+  const pushFirstVariantPerBase = (ordered: AssemblyEngineBrandKit[]) => {
+    for (const k of ordered) {
+      const base = baseEngineBrandIdFromKitBrandId(k.brandId);
+      if (seenBase.has(base)) continue;
+      seenBase.add(base);
+      out.push(k);
+      if (out.length >= MAX_SCENARIO_BASE_BRANDS_FOR_SHORTAGE_ROW) return;
+    }
+  };
+
+  if (prioritySet.size > 0) {
+    const priorityKits = kits.filter((k) => kitMatchesPriorityEngineBrand(k, prioritySet));
+    const otherKits = kits.filter((k) => !kitMatchesPriorityEngineBrand(k, prioritySet));
+    pushFirstVariantPerBase(sortKitsByPriorityList(priorityKits, priorityOrderRaw));
+    if (out.length < MAX_SCENARIO_BASE_BRANDS_FOR_SHORTAGE_ROW) pushFirstVariantPerBase(sortAlpha(otherKits));
+  } else {
+    pushFirstVariantPerBase(sortAlpha(kits));
+  }
+
+  return out;
+}
+
+/**
+ * Строка «не закрыт план за день»: короткий ориентир по 1–2 маркам в порядке плана и разбор остатков по ним (без перебора всех вариантов BOM).
+ */
+export function formatAssemblyShortageRowForOperator(
+  kits: AssemblyEngineBrandKit[],
+  stock: ReadonlyMap<string, number>,
+  remaining: number,
+  target: number,
+  opts?: { priorityEngineBrandIds?: string[] },
+): { engineBrand: string; requiredComponentsSummary: string } {
+  const priorityOrderRaw = (opts?.priorityEngineBrandIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  const prioritySet = new Set(priorityOrderRaw);
+  const scenarioKits = selectScenarioKitsForShortageRow(kits, priorityOrderRaw, prioritySet);
+
+  const detailLines: string[] = [];
+  for (const kit of scenarioKits) {
+    const parts = [...kit.parts]
+      .filter((p) => p.qtyPerEngine > 0)
+      .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+    const chunks: string[] = [];
+    for (const p of parts.slice(0, 24)) {
+      const need = Math.max(0, Math.floor(p.qtyPerEngine));
+      const have = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
+      if (have >= need) {
+        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need} — хватает`);
+      } else {
+        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need}, не хватает ${need - have} шт. (склад поставки неизвестен)`);
+      }
+    }
+    if (chunks.length > 0) detailLines.push(`${kit.brandLabel}:\n${chunks.join('\n')}`);
+  }
+
+  const scenarioHint =
+    scenarioKits.length > 0
+      ? ` Ориентир по плану: ${scenarioKits.map((k) => k.brandLabel).join(', ')}.`
+      : '';
+  const head = `Не удалось набрать ${remaining} из ${target} двиг. за день (остатки на конец дня).`;
+  const intro =
+    scenarioKits.length > 0
+      ? `Разбор по ${scenarioKits.length === 1 ? 'одной марке' : 'двум маркам'} в порядке приоритета/плана; остальные варианты BOM не перечисляем.`
+      : '';
+  const body = [intro, ...detailLines].filter(Boolean).join('\n');
+  return {
+    engineBrand: `Не закрыто ${remaining} из ${target} двиг. за день.${scenarioHint}`,
+    requiredComponentsSummary: body ? `${head}\n${body}` : head,
+  };
 }
 
 /**
@@ -641,7 +687,9 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     }
 
     if (remaining > 0 && target > 0) {
-      const shortage = formatAssemblyShortageRowForOperator(kits, stock, remaining, target);
+      const shortage = formatAssemblyShortageRowForOperator(kits, stock, remaining, target, {
+        priorityEngineBrandIds: priorityOrderRaw,
+      });
       rows.push({
         dayOffset: day,
         dayLabel,

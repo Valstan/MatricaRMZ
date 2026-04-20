@@ -544,7 +544,7 @@ export function ReportsPage(props: { canExport: boolean }) {
         {!preview ? (
           <div className="ui-muted">Сформируйте отчет для просмотра данных.</div>
         ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div className="report-preview-root" style={{ display: 'grid', gap: 8 }}>
             {preview.subtitle ? <div className="ui-muted">{preview.subtitle}</div> : null}
             {preview.presetId === 'work_order_payroll' ? (
               <div className="work-order-payroll-onscreen" dangerouslySetInnerHTML={{ __html: renderWorkOrderPayrollFormInnerHtml(preview) }} />

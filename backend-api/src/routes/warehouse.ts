@@ -714,7 +714,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       ...(parsed.data.engineBrandIds !== undefined ? { engineBrandIds: parsed.data.engineBrandIds } : {}),
       ...(parsed.data.priorityEngineBrandIds !== undefined ? { priorityEngineBrandIds: parsed.data.priorityEngineBrandIds } : {}),
     });
-    const statusRu = (s: string) => (s === 'ok' ? 'хватит' : s === 'shortage' ? 'не хватает' : 'ожидание');
+    /** Коды статуса как в `computeAssemblyForecast` (`ok` | `waiting` | `shortage`); подписи для UI делает клиент. */
     const rows = forecast.rows.map((r: {
       dayLabel: string;
       engineBrand: string;
@@ -727,7 +727,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       dayLabel: r.dayLabel,
       engineBrand: r.engineBrand,
       plannedEngines: r.plannedEngines,
-      status: statusRu(r.status),
+      status: r.status,
       requiredComponentsSummary: r.requiredComponentsSummary,
       deficitsSummary: r.deficitsSummary,
       alternativeBrands: r.alternativeBrands,

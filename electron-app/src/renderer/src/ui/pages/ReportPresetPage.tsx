@@ -833,7 +833,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         {!preview ? (
           <div className="ui-muted">Отчет формируется автоматически при изменении фильтров.</div>
         ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div className="report-preview-root" style={{ display: 'grid', gap: 8 }}>
             {preview.presetId !== 'assembly_forecast_7d' && preview.subtitle ? (
               <div className="ui-muted">{preview.subtitle}</div>
             ) : null}

@@ -41,15 +41,15 @@ function resolvePayrollAccrualTotalRub(report: PreviewOk): number {
 }
 
 const PAYROLL_PRINT_STYLES = `
-body{font-family:Arial,sans-serif;font-size:12px;padding:16px;color:#0b1220}
+body{font-family:Arial,sans-serif;font-size:14px;padding:16px;color:#0b1220}
 .payroll-doc{max-width:900px;margin:0 auto}
 .payroll-hero{font-size:18px;font-weight:700;margin:12px 0 16px 0;line-height:1.3}
-.payroll-block-title{font-weight:700;margin:16px 0 8px 0;font-size:13px}
+.payroll-block-title{font-weight:700;margin:16px 0 8px 0;font-size:14px}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #e5e7eb;padding:6px;text-align:left;vertical-align:top}
 th{background:#f1f5f9}
-.payroll-total{margin-top:12px;font-weight:700;font-size:13px}
-.payroll-formula{margin-top:6px;font-size:11px;color:#475569}
+.payroll-total{margin-top:12px;font-weight:700;font-size:14px}
+.payroll-formula{margin-top:6px;font-size:14px;color:#475569}
 .payroll-sig{margin-top:28px;display:grid;gap:14px}
 .payroll-sig-row{display:flex;gap:12px;align-items:flex-end;justify-content:space-between}
 .payroll-sig-row span:first-child{white-space:nowrap;color:#334155}

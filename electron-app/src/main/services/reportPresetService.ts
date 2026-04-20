@@ -356,6 +356,16 @@ function statusLabel(status: string): string {
   }
 }
 
+/** Коды `ok` | `waiting` | `shortage` с API; совместимость со старым ответом с русскими подписями. */
+function normalizeAssemblyForecastStatusFromApi(raw: string): 'ok' | 'waiting' | 'shortage' {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s === 'ok' || s === 'хватит') return 'ok';
+  if (s === 'waiting' || s === 'ожидание') return 'waiting';
+  if (s === 'shortage' || s.includes('не хватает')) return 'shortage';
+  if (s.includes('хват')) return 'ok';
+  return 'shortage';
+}
+
 function matchesDueState(dueAt: number | null, now: number, dueState: string): boolean {
   if (dueState === 'all') return true;
   if (!dueAt) return dueState === 'no_due';
@@ -2844,8 +2854,7 @@ async function buildAssemblyForecast7dReport(
       const rows = rowsRaw.map((row) => {
         const r0 = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
         const rawStatus = normalizeText(r0.status, '');
-        const statusCode =
-          rawStatus === 'ok' || rawStatus === 'waiting' || rawStatus === 'shortage' ? rawStatus : 'shortage';
+        const statusCode = normalizeAssemblyForecastStatusFromApi(rawStatus);
         return {
           dayLabel: sanitizeAssemblyForecastOperatorText(normalizeText(r0.dayLabel, '')),
           engineBrand: sanitizeAssemblyForecastOperatorText(normalizeText(r0.engineBrand, '')),
@@ -3219,14 +3228,14 @@ function renderAssemblyForecastPdfConsumptionLines(text: string): string {
 
 function renderAssemblyForecastPdfTable(report: OkPreview): string {
   const style = `<style>
-.afp-wrap{font-size:12px;color:#0b1220}
+.afp-wrap{font-size:14px;color:#0b1220}
 .afp-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden}
-.afp-th{padding:9px 10px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1;font-weight:800;font-size:11px;text-align:left}
+.afp-th{padding:9px 10px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1;font-weight:800;font-size:14px;text-align:left}
 .afp-td{padding:9px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top;line-height:1.45}
 .afp-tr-ok{background:#ecfdf5;box-shadow:inset 3px 0 0 0 #16a34a}
 .afp-tr-wait{background:#fffbeb;box-shadow:inset 3px 0 0 0 #d97706}
 .afp-tr-short{background:#fef2f2;box-shadow:inset 3px 0 0 0 #dc2626}
-.afp-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:0.03em;border:1px solid transparent}
+.afp-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:14px;font-weight:800;letter-spacing:0.03em;border:1px solid transparent}
 .afp-st-ok{background:rgba(22,163,74,0.14);color:#14532d;border-color:rgba(22,163,74,0.35)}
 .afp-st-wait{background:rgba(217,119,6,0.16);color:#7c2d12;border-color:rgba(217,119,6,0.4)}
 .afp-st-bad{background:rgba(220,38,38,0.12);color:#7f1d1d;border-color:rgba(220,38,38,0.35)}
@@ -3270,10 +3279,10 @@ function renderAssemblyForecastPdfTable(report: OkPreview): string {
 function renderAssemblyForecastPdfFooter(lines: string[]): string {
   const style = `<style>
 .afp-fn{border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-top:12px}
-.afp-fn-h{padding:8px 12px;font-weight:800;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;background:linear-gradient(180deg,#f1f5f9,#f8fafc);border-bottom:1px solid #e2e8f0}
-.afp-fn-line{padding:7px 12px;font-size:11.5px;line-height:1.45;color:#475569;border-bottom:1px solid #f1f5f9}
+.afp-fn-h{padding:8px 12px;font-weight:800;font-size:14px;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;background:linear-gradient(180deg,#f1f5f9,#f8fafc);border-bottom:1px solid #e2e8f0}
+.afp-fn-line{padding:7px 12px;font-size:14px;line-height:1.45;color:#475569;border-bottom:1px solid #f1f5f9}
 .afp-fn-line:last-child{border-bottom:none}
-.afp-fn-lead{margin:8px 10px 4px;padding:7px 10px;font-weight:800;font-size:11.5px;color:#0b1220;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px}
+.afp-fn-lead{margin:8px 10px 4px;padding:7px 10px;font-weight:800;font-size:14px;color:#0b1220;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px}
 .afp-fn-bul{padding-left:20px;position:relative}
 .afp-fn-bul:before{content:'';position:absolute;left:10px;top:0.85em;width:4px;height:4px;border-radius:50%;background:#94a3b8}
 </style>`;
@@ -3314,7 +3323,7 @@ export function renderReportHtml(report: OkPreview): string {
       .filter(Boolean)
       .map(
         (chunk) =>
-          `<span style="display:inline-block;margin:3px 4px 0 0;padding:4px 9px;border-radius:999px;border:1px solid #e2e8f0;background:#f8fafc;font-size:11px;color:#475569">${htmlEscape(chunk)}</span>`,
+          `<span style="display:inline-block;margin:3px 4px 0 0;padding:4px 9px;border-radius:999px;border:1px solid #e2e8f0;background:#f8fafc;font-size:14px;color:#475569">${htmlEscape(chunk)}</span>`,
       )
       .join('');
     const metaHtml = subtitleChips
@@ -3323,14 +3332,14 @@ export function renderReportHtml(report: OkPreview): string {
     const tableBlock = renderAssemblyForecastPdfTable(report);
     const totalsHtml =
       report.totals && Object.keys(report.totals).length > 0
-        ? `<div style="margin-top:12px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:12px"><b>Итого по отчёту:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
+        ? `<div style="margin-top:12px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:14px"><b>Итого по отчёту:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`
         : '';
     const footerNotesHtml =
       report.footerNotes && report.footerNotes.length > 0 ? renderAssemblyForecastPdfFooter(report.footerNotes) : '';
     return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <style>
-body{font-family:Arial,Helvetica,sans-serif;font-size:12px;padding:16px;color:#0b1220}
+body{font-family:Arial,Helvetica,sans-serif;font-size:14px;padding:16px;color:#0b1220}
 h1{font-size:16px;margin:0 0 8px 0}
 </style>
 </head><body>
@@ -3371,7 +3380,7 @@ ${footerNotesHtml}
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <style>
-body{font-family:Arial,sans-serif;font-size:12px;padding:16px;color:#0b1220}
+body{font-family:Arial,sans-serif;font-size:14px;padding:16px;color:#0b1220}
 h1{font-size:16px;margin:0 0 8px 0}
 .meta{color:#475569;margin-bottom:10px}
 table{border-collapse:collapse;width:100%}

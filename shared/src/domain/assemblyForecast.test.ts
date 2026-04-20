@@ -87,6 +87,48 @@ describe('assemblyForecast', () => {
     expect(shortage[0]?.requiredComponentsSummary).toMatch(/Не удалось набрать/);
   });
 
+  it('shortage row gives a narrow plan scenario (1–2 base brands), not every BOM variant', () => {
+    const stock = new Map<string, number>([
+      ['g1', 0],
+      ['p1', 0],
+      ['g2', 0],
+      ['p2', 0],
+    ]);
+    const base46 = '11111111-1111-1111-1111-111111111146';
+    const base59 = '22222222-2222-2222-2222-222222222259';
+    const kits = mergeBrandKits([
+      { partId: 'g1', brandId: `${base46}::v1`, brandLabel: 'В-46 (вариант 1)', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p1', brandId: `${base46}::v1`, brandLabel: 'В-46 (вариант 1)', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'g1', brandId: `${base46}::v2`, brandLabel: 'В-46 (вариант 2)', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p1', brandId: `${base46}::v2`, brandLabel: 'В-46 (вариант 2)', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'g2', brandId: `${base59}::v1`, brandLabel: 'В-59 (вариант 1)', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: `${base59}::v1`, brandLabel: 'В-59 (вариант 1)', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'g2', brandId: `${base59}::v2`, brandLabel: 'В-59 (вариант 2)', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: `${base59}::v2`, brandLabel: 'В-59 (вариант 2)', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 1,
+      targetEnginesPerDay: 2,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+      priorityEngineBrandIds: [base59, base46],
+    });
+    const shortage = res.rows.filter((r) => r.status === 'shortage');
+    expect(shortage.length).toBeGreaterThan(0);
+    const eb = shortage[0]?.engineBrand ?? '';
+    expect(eb).toMatch(/Не закрыто \d+ из \d+ двиг\. за день\./);
+    expect(eb).toContain('Ориентир по плану:');
+    expect(eb).toContain('В-59 (вариант 1)');
+    expect(eb).toContain('В-46 (вариант 1)');
+    expect(eb).not.toContain('возможны марки');
+    expect(eb).not.toContain('вариант 2)');
+    const summary = shortage[0]?.requiredComponentsSummary ?? '';
+    expect(summary).toContain('остальные варианты BOM не перечисляем');
+    expect(summary.match(/В-59 \(вариант/g)?.length).toBe(1);
+  });
+
   it('allocates priority brands before others when priorityEngineBrandIds is set', () => {
     const stock = new Map<string, number>([
       ['a1', 2],

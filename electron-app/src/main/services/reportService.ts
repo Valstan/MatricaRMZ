@@ -167,7 +167,7 @@ function buildDefectSupplyHtml(data: DefectSupplyReportResult & { startMs?: numb
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <style>
-  body{font-family:Arial,sans-serif;font-size:12px;padding:16px;color:#0b1220}
+  body{font-family:Arial,sans-serif;font-size:14px;padding:16px;color:#0b1220}
   h1{font-size:16px;margin:0 0 8px 0}
   .meta{color:#475569;margin-bottom:12px}
   .metrics-guide{margin-top:10px;padding:10px;border:1px solid #e2e8f0;background:#f8fafc}

@@ -26,6 +26,8 @@ body {
   --ui-body-size: 13px;
   --ui-muted-size: 12px;
   --ui-table-size: 13px;
+  /** Минимальный размер текста в предпросмотре/таблицах отчётов (читаемость для оператора). */
+  --ui-report-font-size: 14px;
   --ui-list-font-size: 14px;
   --ui-card-font-size: 14px;
   --entity-card-min-width: 520px;
@@ -1303,6 +1305,23 @@ table.list-table.list-table--catalog {
   }
 }
 
+/* Предпросмотр результата отчёта (страницы «Отчёты» / пресеты): единый минимум 14px */
+.report-preview-root {
+  font-size: var(--ui-report-font-size);
+}
+
+.report-preview-root .ui-muted {
+  font-size: var(--ui-report-font-size);
+}
+
+.report-preview-root table.list-table {
+  font-size: var(--ui-report-font-size);
+}
+
+.report-preview-root .work-order-payroll-onscreen {
+  font-size: var(--ui-report-font-size);
+}
+
 /* —— Отчёт «Прогноз сборки двигателей»: читаемая сетка без «каши» — */
 .report-af {
   display: grid;
@@ -1317,7 +1336,7 @@ table.list-table.list-table--catalog {
 }
 
 .report-af__chip {
-  font-size: var(--ui-muted-size);
+  font-size: var(--ui-report-font-size);
   line-height: 1.35;
   padding: 5px 10px;
   border-radius: 999px;
@@ -1337,15 +1356,16 @@ table.list-table.list-table--catalog {
 
 .report-af-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
-  font-size: var(--ui-table-size);
+  font-size: var(--ui-report-font-size);
 }
 
 .report-af-th {
   padding: 10px 12px;
   text-align: left;
   font-weight: 800;
-  font-size: 12px;
+  font-size: var(--ui-report-font-size);
   letter-spacing: 0.02em;
   text-transform: none;
   color: var(--text);
@@ -1353,35 +1373,48 @@ table.list-table.list-table--catalog {
   border-bottom: 1px solid var(--border-strong);
 }
 
-.report-af-th--plannedEngines,
-.report-af-td--plannedEngines {
-  text-align: right !important;
-  white-space: nowrap;
-  width: 1%;
-}
-
+/* Левая половина таблицы — компактные служебные колонки + марка (перенос длинных названий). Правая — 50% под расход. */
 .report-af-th--dayLabel,
 .report-af-td--dayLabel {
+  width: 9%;
+  min-width: 0;
   white-space: nowrap;
-  width: 1%;
 }
 
 .report-af-th--engineBrand,
 .report-af-td--engineBrand {
-  min-width: 140px;
-  max-width: 220px;
+  width: 26%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: manual;
+}
+
+.report-af-th--plannedEngines,
+.report-af-td--plannedEngines {
+  width: 7%;
+  min-width: 0;
+  text-align: right !important;
+  white-space: nowrap;
 }
 
 .report-af-th--status,
 .report-af-td--status {
-  width: 1%;
+  width: 8%;
+  min-width: 0;
   white-space: nowrap;
   vertical-align: middle;
 }
 
 .report-af-th--requiredComponentsSummary,
 .report-af-td--requiredComponentsSummary {
-  min-width: min(100%, 360px);
+  width: 50%;
+  min-width: 0;
+}
+
+.report-af-th--requiredComponentsSummary {
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .report-af-tr--ok {
@@ -1427,7 +1460,7 @@ table.list-table.list-table--catalog {
   justify-content: center;
   padding: 3px 10px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--ui-report-font-size);
   font-weight: 800;
   letter-spacing: 0.03em;
   line-height: 1.2;
@@ -1459,9 +1492,12 @@ table.list-table.list-table--catalog {
 }
 
 .report-af-consume {
-  font-size: 12.5px;
+  max-width: 100%;
+  font-size: inherit;
   line-height: 1.5;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .report-af-consume__row {
@@ -1489,12 +1525,12 @@ table.list-table.list-table--catalog {
 
 .report-af-totals__label {
   font-weight: 800;
-  font-size: 13px;
+  font-size: var(--ui-report-font-size);
   color: var(--text);
 }
 
 .report-af-totals__value {
-  font-size: 13px;
+  font-size: var(--ui-report-font-size);
   color: var(--muted);
 }
 
@@ -1511,7 +1547,7 @@ table.list-table.list-table--catalog {
 .report-af-foot__head {
   padding: 10px 14px;
   font-weight: 800;
-  font-size: 13px;
+  font-size: var(--ui-report-font-size);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1525,7 +1561,7 @@ table.list-table.list-table--catalog {
 
 .report-af-foot__line {
   padding: 8px 14px 8px 14px;
-  font-size: var(--ui-muted-size);
+  font-size: var(--ui-report-font-size);
   line-height: 1.5;
   color: var(--muted);
   border-bottom: 1px solid rgba(148, 163, 184, 0.25);
@@ -1543,7 +1579,7 @@ table.list-table.list-table--catalog {
   margin: 8px 12px 4px;
   padding: 8px 12px;
   font-weight: 800;
-  font-size: 12.5px;
+  font-size: var(--ui-report-font-size);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
