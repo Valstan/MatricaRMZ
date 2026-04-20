@@ -248,5 +248,36 @@ describe('assemblyForecast', () => {
       incomingLines: [],
     });
     expect(res.warnings.some((w) => w.includes('Нет комплектов'))).toBe(true);
+    expect(res.horizonMissingByBrand).toEqual([]);
+    expect(res.horizonComponentNeeds).toEqual([]);
+  });
+
+  it('returns horizon deficit by brands and component needs', () => {
+    const stock = new Map<string, number>([
+      ['a1', 3],
+      ['a2', 3],
+      ['b1', 5],
+      ['b2', 5],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'a1', brandId: 'ba', brandLabel: 'Brand A', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'a2', brandId: 'ba', brandLabel: 'Brand A', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+      { partId: 'b1', brandId: 'bb', brandLabel: 'Brand B', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'b2', brandId: 'bb', brandLabel: 'Brand B', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 2,
+      targetEnginesPerDay: 4,
+      sameBrandBatchSize: 4,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+    });
+    const gapBrandA = res.horizonMissingByBrand.find((x) => x.brandId === 'ba');
+    expect(gapBrandA?.missingEngines).toBe(5);
+    const needs = res.horizonComponentNeeds;
+    expect(needs.length).toBeGreaterThan(0);
+    expect(needs.some((n) => n.requiredQty >= 1 && n.forBrands.includes('Brand A'))).toBe(true);
   });
 });

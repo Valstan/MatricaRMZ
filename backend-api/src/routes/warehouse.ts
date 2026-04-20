@@ -732,7 +732,14 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       deficitsSummary: r.deficitsSummary,
       alternativeBrands: r.alternativeBrands,
     }));
-    return res.json({ ok: true, rows, warnings: forecast.warnings, deficitRecommendations: forecast.deficitRecommendations });
+    return res.json({
+      ok: true,
+      rows,
+      warnings: forecast.warnings,
+      deficitRecommendations: forecast.deficitRecommendations,
+      horizonMissingByBrand: forecast.horizonMissingByBrand,
+      horizonComponentNeeds: forecast.horizonComponentNeeds,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

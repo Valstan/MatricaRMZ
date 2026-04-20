@@ -2572,12 +2572,15 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
   const now = Date.now();
   const engineBrandFilter = new Set(asArray(filters?.engineBrandIds).map(String));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   type Scored = {
     contractId: string;
     label: string;
+    customerLabel: string;
     score: number;
     actualPct: number;
     expected: number | null;
+    dueAt: number | null;
     daysLeft: number | null;
     brandIds: string[];
     pendingEngines: number;
@@ -2646,13 +2649,17 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
     const expected = linearScheduleExpectedProgressPct({ signedAt, dueAt, now });
     const score = contractLagScore(actualPct, signedAt, dueAt, now);
     const daysLeft = dueAt != null ? Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000)) : null;
+    const customerId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
+    const customerLabel = resolveCounterpartyLabel(snapshot, counterpartyOptions, customerId);
 
     scored.push({
       contractId,
       label,
+      customerLabel,
       score,
       actualPct,
       expected,
+      dueAt,
       daysLeft,
       brandIds: inBom,
       pendingEngines,
@@ -2690,9 +2697,10 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
     footerNotes.push('Контракты с отставанием (не исполнены, срок в будущем; самые отстающие — выше):');
     for (const row of scored.slice(0, 12)) {
       const duePart = row.daysLeft == null ? 'срок не задан' : `до срока ${row.daysLeft} дн.`;
+      const dueDatePart = row.dueAt == null ? 'дата исполнения: —' : `дата исполнения: ${formatMoscowDate(row.dueAt)}`;
       const expPart = row.expected == null ? '—' : `${row.expected.toFixed(0)}%`;
       footerNotes.push(
-        `• ${row.label}: исполнение ${row.actualPct.toFixed(0)}%, по графику ~${expPart}, ${duePart}, двигателей не завершено: ${row.pendingEngines}.`,
+        `• ${row.label}: заказчик «${row.customerLabel}», ${dueDatePart}, ${duePart}; исполнение ${row.actualPct.toFixed(0)}%, по графику ~${expPart}, двигателей не завершено: ${row.pendingEngines}.`,
       );
     }
   }
@@ -2824,6 +2832,25 @@ async function buildAssemblyForecast7dReport(
         } as Record<string, ReportCellValue>;
       });
       const warnings = Array.isArray(body.warnings) ? body.warnings.map((w) => String(w)).filter(Boolean) : [];
+      const horizonMissingByBrand = Array.isArray(body.horizonMissingByBrand)
+        ? body.horizonMissingByBrand
+            .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : {}))
+            .map((x) => ({
+              brandLabel: normalizeText(x.brandLabel, ''),
+              missingEngines: Math.max(0, Math.floor(toNumber(x.missingEngines))),
+            }))
+            .filter((x) => x.brandLabel && x.missingEngines > 0)
+        : [];
+      const horizonComponentNeeds = Array.isArray(body.horizonComponentNeeds)
+        ? body.horizonComponentNeeds
+            .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : {}))
+            .map((x) => ({
+              partLabel: normalizeText(x.partLabel, ''),
+              requiredQty: Math.max(0, Math.floor(toNumber(x.requiredQty))),
+              forBrands: Array.isArray(x.forBrands) ? x.forBrands.map((b) => normalizeText(b, '')).filter(Boolean) : [],
+            }))
+            .filter((x) => x.partLabel && x.requiredQty > 0)
+        : [];
       const deficitHints =
         mode === 'contracts' || priorityEngineBrandIds.length > 0
           ? formatAssemblyDeficitHintsForPriorityBrands(
@@ -2838,8 +2865,25 @@ async function buildAssemblyForecast7dReport(
               ...deficitHints,
             ]
           : [];
+      const horizonGapFooter =
+        horizonMissingByBrand.length > 0
+          ? [
+              `Недовыпуск на горизонт ${horizonDays} дн. (цель ${targetEnginesPerDay}/сутки):`,
+              ...horizonMissingByBrand
+                .slice(0, 20)
+                .map((b) => `${b.brandLabel}: не хватает собрать ещё ~${b.missingEngines} двиг.`),
+              ...(horizonComponentNeeds.length > 0
+                ? [
+                    'Чтобы закрыть горизонт, дополнительно нужны комплектующие (оценка):',
+                    ...horizonComponentNeeds
+                      .slice(0, 30)
+                      .map((p) => `${p.partLabel}: ~${p.requiredQty} шт.${p.forBrands.length ? ` (марки: ${p.forBrands.slice(0, 4).join(', ')})` : ''}`),
+                  ]
+                : []),
+            ]
+          : [];
 
-      const footerNotes = [...contractFooterNotes, ...manualBomFooter, ...deficitFooter].filter(Boolean);
+      const footerNotes = [...contractFooterNotes, ...manualBomFooter, ...deficitFooter, ...horizonGapFooter].filter(Boolean);
       const preset = getPreset('assembly_forecast_7d');
       const prioritySubtitle =
         mode === 'contracts'

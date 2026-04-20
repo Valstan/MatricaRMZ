@@ -64,6 +64,8 @@ export type AssemblyForecastComputeResult = {
   rows: AssemblyForecastDayRow[];
   warnings: string[];
   deficitRecommendations: AssemblyDeficitRecommendation[];
+  horizonMissingByBrand: AssemblyHorizonMissingBrand[];
+  horizonComponentNeeds: AssemblyHorizonComponentNeed[];
 };
 
 export type AssemblyDeficitRecommendation = {
@@ -75,6 +77,20 @@ export type AssemblyDeficitRecommendation = {
   totalPlannedIncoming: number;
   deficit: number;
   usedByBrands: string[];
+};
+
+export type AssemblyHorizonMissingBrand = {
+  brandId: string;
+  brandLabel: string;
+  missingEngines: number;
+};
+
+export type AssemblyHorizonComponentNeed = {
+  nomenclatureId: string;
+  partLabel: string;
+  role: AssemblyComponentRole;
+  requiredQty: number;
+  forBrands: string[];
 };
 
 const ROLE_ORDER: AssemblyComponentRole[] = ['sleeve', 'piston', 'rings', 'jacket', 'head', 'other'];
@@ -358,7 +374,131 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   }
 
   const deficitRecommendations = computeDeficitRecommendations(input, kits, horizon, target);
-  return { rows, warnings, deficitRecommendations };
+  const horizonGap = computeHorizonCoverageGap({
+    kits,
+    rows,
+    horizon,
+    target,
+    sameBrandBatchSize,
+    prioritySet,
+    priorityOrderRaw,
+  });
+  return {
+    rows,
+    warnings,
+    deficitRecommendations,
+    horizonMissingByBrand: horizonGap.horizonMissingByBrand,
+    horizonComponentNeeds: horizonGap.horizonComponentNeeds,
+  };
+}
+
+function computeHorizonCoverageGap(args: {
+  kits: AssemblyEngineBrandKit[];
+  rows: AssemblyForecastDayRow[];
+  horizon: number;
+  target: number;
+  sameBrandBatchSize: number;
+  prioritySet: Set<string>;
+  priorityOrderRaw: string[];
+}): {
+  horizonMissingByBrand: AssemblyHorizonMissingBrand[];
+  horizonComponentNeeds: AssemblyHorizonComponentNeed[];
+} {
+  if (args.target <= 0 || args.horizon <= 0 || args.kits.length === 0) {
+    return { horizonMissingByBrand: [], horizonComponentNeeds: [] };
+  }
+
+  const actualByBrand = new Map<string, number>();
+  for (const row of args.rows) {
+    if (!row.brandId || row.plannedEngines <= 0) continue;
+    actualByBrand.set(row.brandId, (actualByBrand.get(row.brandId) ?? 0) + Math.max(0, Math.floor(row.plannedEngines)));
+  }
+
+  const idealByBrand = new Map<string, number>();
+  const lastUsedByPool = new Map<string, string>();
+  const sortAlpha = (pool: AssemblyEngineBrandKit[]) => [...pool].sort((a, b) => a.brandLabel.localeCompare(b.brandLabel, 'ru'));
+
+  function idealAllocate(poolKey: string, pool: AssemblyEngineBrandKit[], budget: number, sortPool: (p: AssemblyEngineBrandKit[]) => AssemblyEngineBrandKit[]) {
+    let remaining = budget;
+    if (remaining <= 0 || pool.length === 0) return remaining;
+    const order = sortPool(pool);
+    const startBrandId = lastUsedByPool.get(poolKey) ?? '';
+    const startIdx = Math.max(0, order.findIndex((k) => k.brandId === startBrandId));
+    let cursor = startIdx >= 0 ? startIdx : 0;
+    let lastUsed: string | null = null;
+    while (remaining > 0) {
+      const kit = order[cursor];
+      if (!kit) break;
+      const run = Math.max(1, Math.min(remaining, args.sameBrandBatchSize));
+      idealByBrand.set(kit.brandId, (idealByBrand.get(kit.brandId) ?? 0) + run);
+      remaining -= run;
+      lastUsed = kit.brandId;
+      if (remaining > 0) cursor = (cursor + 1) % order.length;
+    }
+    if (lastUsed) lastUsedByPool.set(poolKey, lastUsed);
+    return remaining;
+  }
+
+  for (let day = 0; day < args.horizon; day++) {
+    let remaining = args.target;
+    if (args.prioritySet.size > 0) {
+      const priorityKits = args.kits.filter((k) => kitMatchesPriorityEngineBrand(k, args.prioritySet));
+      const otherKits = args.kits.filter((k) => !kitMatchesPriorityEngineBrand(k, args.prioritySet));
+      remaining = idealAllocate('priority', priorityKits, remaining, (p) => sortKitsByPriorityList(p, args.priorityOrderRaw));
+      remaining = idealAllocate('other', otherKits, remaining, sortAlpha);
+    } else {
+      remaining = idealAllocate('all', args.kits, remaining, sortAlpha);
+    }
+    if (remaining > 0) break;
+  }
+
+  const kitByBrand = new Map(args.kits.map((k) => [k.brandId, k] as const));
+  const missingByBrand: AssemblyHorizonMissingBrand[] = [];
+  const partNeedMap = new Map<string, { nomenclatureId: string; partLabel: string; role: AssemblyComponentRole; requiredQty: number; brands: Set<string> }>();
+
+  for (const [brandId, ideal] of idealByBrand.entries()) {
+    const actual = actualByBrand.get(brandId) ?? 0;
+    const miss = Math.max(0, ideal - actual);
+    if (miss <= 0) continue;
+    const kit = kitByBrand.get(brandId);
+    if (!kit) continue;
+    missingByBrand.push({
+      brandId,
+      brandLabel: kit.brandLabel,
+      missingEngines: miss,
+    });
+    for (const p of kit.parts) {
+      const qtyPerEngine = Math.max(0, Math.floor(p.qtyPerEngine));
+      if (qtyPerEngine <= 0) continue;
+      const need = qtyPerEngine * miss;
+      const prev = partNeedMap.get(p.nomenclatureId);
+      if (prev) {
+        prev.requiredQty += need;
+        prev.brands.add(kit.brandLabel);
+      } else {
+        partNeedMap.set(p.nomenclatureId, {
+          nomenclatureId: p.nomenclatureId,
+          partLabel: p.partLabel,
+          role: p.role,
+          requiredQty: need,
+          brands: new Set([kit.brandLabel]),
+        });
+      }
+    }
+  }
+
+  const horizonMissingByBrand = missingByBrand.sort((a, b) => b.missingEngines - a.missingEngines || a.brandLabel.localeCompare(b.brandLabel, 'ru'));
+  const horizonComponentNeeds = Array.from(partNeedMap.values())
+    .sort((a, b) => b.requiredQty - a.requiredQty || a.partLabel.localeCompare(b.partLabel, 'ru'))
+    .map((p) => ({
+      nomenclatureId: p.nomenclatureId,
+      partLabel: p.partLabel,
+      role: p.role,
+      requiredQty: p.requiredQty,
+      forBrands: Array.from(p.brands).sort((x, y) => x.localeCompare(y, 'ru')),
+    }));
+
+  return { horizonMissingByBrand, horizonComponentNeeds };
 }
 
 function computeDeficitRecommendations(
