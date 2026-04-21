@@ -94,6 +94,14 @@ gh auth login
 
 Если `gh` установлен в `%LOCALAPPDATA%\Programs\GitHub CLI\bin`, добавьте каталог в пользовательский `PATH` (или переоткройте терминал после установщика MSI). Проверка: `gh auth status`.
 
+Если PowerShell пишет, что **`gh` не распознан**, а каталог уже в `PATH`: закройте и снова откройте терминал (или Cursor целиком). Либо в **текущей** сессии обновите `PATH` из реестра:
+
+```powershell
+$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')
+```
+
+Временный обход без `PATH`: `& "$env:LOCALAPPDATA\Programs\GitHub CLI\bin\gh.exe" auth login`
+
 Полный чеклист релиза (включая **обязательный** деплой на прод по SSH после изменений backend) описан в `docs/RELEASE.md`.
 
 ### Поведение `release:auto` на Windows
