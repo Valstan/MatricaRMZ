@@ -368,6 +368,60 @@ function summarizeKit(kit: AssemblyEngineBrandKit, engines: number): string {
   return parts.join('\n');
 }
 
+type PartWarehouseTake = { warehouseLabel: string; takeQty: number; beforeQty: number };
+
+function consumeOneEngineAndFormatSummary(
+  stock: Map<string, number>,
+  warehouseBins: MutableWarehouseState | null,
+  kit: AssemblyEngineBrandKit,
+): string {
+  const lines: string[] = [];
+  const parts = [...kit.parts]
+    .filter((p) => p.qtyPerEngine > 0)
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+
+  for (const p of parts) {
+    const need = Math.max(0, Math.floor(p.qtyPerEngine));
+    if (need <= 0) continue;
+    const beforeTotal = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
+    const afterTotal = Math.max(0, beforeTotal - need);
+    stock.set(p.nomenclatureId, afterTotal);
+
+    const takes: PartWarehouseTake[] = [];
+    if (warehouseBins) {
+      let left = need;
+      const rows = [...(warehouseBins.get(p.nomenclatureId) ?? [])].filter((r) => r.qty > 0);
+      rows.sort((a, b) => {
+        const pa = isPlannedWarehouseId(a.warehouseId) ? 1 : 0;
+        const pb = isPlannedWarehouseId(b.warehouseId) ? 1 : 0;
+        if (pa !== pb) return pa - pb;
+        if (b.qty !== a.qty) return b.qty - a.qty;
+        return a.warehouseLabel.localeCompare(b.warehouseLabel, 'ru');
+      });
+      for (const row of rows) {
+        if (left <= 0) break;
+        const avail = Math.max(0, Math.floor(row.qty));
+        if (avail <= 0) continue;
+        const t = Math.min(left, avail);
+        takes.push({ warehouseLabel: row.warehouseLabel, takeQty: t, beforeQty: avail });
+        takeFromWarehouse(warehouseBins, p.nomenclatureId, row.warehouseId, t);
+        left -= t;
+      }
+    }
+
+    const allocText =
+      takes.length === 0
+        ? `взять: ${need} шт.`
+        : takes.length === 1
+          ? `взять со склада «${takes[0]!.warehouseLabel}» ${takes[0]!.takeQty} шт. (остаток перед списанием: ${takes[0]!.beforeQty} шт.)`
+          : `взять: ${takes.map((x) => `«${x.warehouseLabel}» ${x.takeQty} шт. (перед списанием ${x.beforeQty})`).join('; ')}`;
+
+    lines.push(`${p.partLabel}: нужно ${need} шт.; ${allocText}; остаток перед сборкой: ${beforeTotal} шт.`);
+  }
+
+  return lines.join('\n');
+}
+
 function getOrCreateWhPartAcc(map: Map<string, WhPartAcc>, brandId: string): WhPartAcc {
   let a = map.get(brandId);
   if (!a) {
@@ -745,8 +799,6 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     const startBrandId = lastUsedBrandByPool.get(poolKey) ?? '';
     const startIdx = Math.max(0, order.findIndex((k) => k.brandId === startBrandId));
     let cursor = startIdx >= 0 ? startIdx : 0;
-    const enginesByBrand = new Map<string, number>();
-    const whAccByBrand = new Map<string, WhPartAcc>();
     let lastUsedBrandId: string | null = null;
 
     while (remaining > 0) {
@@ -762,18 +814,23 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
           continue;
         }
         const run = Math.max(1, Math.min(remaining, sameBrandBatchSize, maxForCurrent));
-        consumeKit(stock, kit, run);
-        if (warehouseBins) {
-          const delta = allocateKitConsumptionFromBins(warehouseBins, kit, run);
-          if (delta) {
-            const acc = getOrCreateWhPartAcc(whAccByBrand, kit.brandId);
-            mergeConsumptionIntoWhAcc(acc, kit, delta);
-          }
+        for (let i = 0; i < run; i++) {
+          const requiredSummary = consumeOneEngineAndFormatSummary(stock, warehouseBins, kit);
+          rows.push({
+            dayOffset: day,
+            dayLabel,
+            engineBrand: labelSuffix ? `${kit.brandLabel}${labelSuffix}` : kit.brandLabel,
+            brandId: kit.brandId,
+            plannedEngines: 1,
+            status: 'ok',
+            requiredComponentsSummary: requiredSummary,
+            deficitsSummary: '',
+            alternativeBrands: '',
+          });
         }
         remaining -= run;
         progressed = true;
         lastUsedBrandId = kit.brandId;
-        enginesByBrand.set(kit.brandId, (enginesByBrand.get(kit.brandId) ?? 0) + run);
         if (remaining > 0) {
           cursor = (cursor + 1) % order.length;
         }
@@ -782,29 +839,6 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
       if (!progressed) break;
     }
     if (lastUsedBrandId) lastUsedBrandByPool.set(poolKey, lastUsedBrandId);
-
-    const entryList = Array.from(enginesByBrand.entries()).filter(([, n]) => n > 0);
-    entryList.forEach(([brandId, plannedEngines]) => {
-      const kit = pool.find((k) => k.brandId === brandId);
-      if (!kit) return;
-      const status: AssemblyForecastDayRow['status'] = remaining === 0 && target > 0 ? 'ok' : 'waiting';
-      const whAcc = whAccByBrand.get(brandId);
-      const requiredSummary =
-        warehouseBins && whAcc && whAcc.size > 0
-          ? formatWarehouseKitConsumptionSummary(kit, whAcc)
-          : summarizeKit(kit, plannedEngines);
-      rows.push({
-        dayOffset: day,
-        dayLabel,
-        engineBrand: labelSuffix ? `${kit.brandLabel}${labelSuffix}` : kit.brandLabel,
-        brandId,
-        plannedEngines,
-        status,
-        requiredComponentsSummary: requiredSummary,
-        deficitsSummary: '',
-        alternativeBrands: '',
-      });
-    });
 
     return remaining;
   }

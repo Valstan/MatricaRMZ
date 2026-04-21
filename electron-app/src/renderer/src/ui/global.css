@@ -1376,6 +1376,70 @@ table.list-table.list-table--catalog {
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
 }
 
+.report-af-day-list {
+  display: grid;
+  gap: 10px;
+}
+
+.report-af-day {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.report-af-day__head {
+  padding: 8px 10px;
+  font-weight: 800;
+  font-size: var(--ui-report-font-size);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.report-af-day__body {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.report-af-engine {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-2) 12%);
+}
+
+.report-af-engine__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.report-af-engine__brand {
+  font-size: var(--ui-report-font-size);
+  font-weight: 700;
+}
+
+.report-af-engine__parts {
+  display: grid;
+  gap: 4px;
+}
+
+.report-af-engine__part-line {
+  font-size: var(--ui-report-font-size);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.report-af-empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--muted);
+}
+
 .report-af-table {
   width: 100%;
   table-layout: fixed;

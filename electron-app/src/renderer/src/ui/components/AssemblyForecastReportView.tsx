@@ -43,25 +43,30 @@ function StatusBadge({ text, code }: { text: string; code: string }) {
   return <span className={`report-af-status report-af-status--${tone}`}>{text}</span>;
 }
 
-function ConsumptionBlock({ text }: { text: string }) {
-  const lines = text.split('\n').filter((s) => s.trim().length > 0);
-  if (lines.length <= 1) {
-    return <div className="report-af-consume">{text}</div>;
-  }
-  return (
-    <div className="report-af-consume">
-      {lines.map((line, i) => (
-        <div key={i} className="report-af-consume__row">
-          {line}
-        </div>
-      ))}
-    </div>
-  );
-}
+type ForecastRowView = { dayLabel: string; engineBrand: string; status: string; statusCode: string; parts: string[] };
 
 export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
   const { preview } = props;
   const subtitleParts = preview.subtitle?.split(' | ').map((s) => s.trim()).filter(Boolean) ?? [];
+  const rows: ForecastRowView[] = preview.rows.map((row) => {
+    const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
+    const statusCol = preview.columns.find((c) => c.key === 'status');
+    const dayCol = preview.columns.find((c) => c.key === 'dayLabel');
+    const brandCol = preview.columns.find((c) => c.key === 'engineBrand');
+    const compCol = preview.columns.find((c) => c.key === 'requiredComponentsSummary');
+    const status = formatReportCell(statusCol?.kind ?? 'text', (row['status'] ?? null) as ReportCellValue, 'status');
+    const dayLabel = formatReportCell(dayCol?.kind ?? 'text', (row['dayLabel'] ?? null) as ReportCellValue, 'dayLabel');
+    const engineBrand = formatReportCell(brandCol?.kind ?? 'text', (row['engineBrand'] ?? null) as ReportCellValue, 'engineBrand');
+    const partsRaw = formatReportCell(compCol?.kind ?? 'text', (row['requiredComponentsSummary'] ?? null) as ReportCellValue, 'requiredComponentsSummary');
+    const parts = partsRaw.split('\n').map((x) => x.trim()).filter(Boolean);
+    return { dayLabel, engineBrand, status, statusCode: code, parts };
+  });
+  const byDay = new Map<string, ForecastRowView[]>();
+  for (const row of rows) {
+    const arr = byDay.get(row.dayLabel) ?? [];
+    arr.push(row);
+    byDay.set(row.dayLabel, arr);
+  }
 
   return (
     <div className="report-af">
@@ -75,67 +80,32 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
         </div>
       ) : null}
 
-      <div className="report-af__table-wrap">
-        <table className="report-af-table">
-          <thead>
-            <tr>
-              {preview.columns.map((column) => (
-                <th
-                  key={column.key}
-                  className={`report-af-th report-af-th--${column.key}`}
-                  style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}
-                >
-                  {column.label}
-                </th>
+      <div className="report-af-day-list">
+        {Array.from(byDay.entries()).map(([dayLabel, dayRows], i) => (
+          <section key={`${dayLabel}-${i}`} className="report-af-day">
+            <div className="report-af-day__head">{dayLabel}</div>
+            <div className="report-af-day__body">
+              {dayRows.map((r, idx) => (
+                <article key={`${dayLabel}-${idx}`} className="report-af-engine">
+                  <div className="report-af-engine__head">
+                    <div className="report-af-engine__brand">{r.engineBrand}</div>
+                    <StatusBadge text={r.status} code={r.statusCode} />
+                  </div>
+                  {r.parts.length > 0 ? (
+                    <div className="report-af-engine__parts">
+                      {r.parts.map((line, li) => (
+                        <div key={`${idx}-${li}`} className="report-af-engine__part-line">
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {preview.rows.map((row, idx) => {
-              const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
-              const rowMod =
-                code === 'ok'
-                  ? 'ok'
-                  : code === 'weekend'
-                    ? 'neutral'
-                  : code === 'waiting'
-                    ? 'wait'
-                    : code === 'shortage' || code === 'absent'
-                      ? 'short'
-                      : 'neutral';
-              return (
-                <tr key={`report-row-${idx}`} className={`report-af-tr report-af-tr--${rowMod}`}>
-                  {preview.columns.map((column) => {
-                    const raw = (row[column.key] ?? null) as ReportCellValue;
-                    const text = formatReportCell(column.kind ?? 'text', raw, column.key);
-                    return (
-                      <td
-                        key={`${idx}-${column.key}`}
-                        className={`report-af-td report-af-td--${column.key}`}
-                        style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}
-                      >
-                        {column.key === 'status' ? (
-                          <StatusBadge text={text} code={code} />
-                        ) : column.key === 'requiredComponentsSummary' ? (
-                          <ConsumptionBlock text={text} />
-                        ) : (
-                          text
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-            {preview.rows.length === 0 ? (
-              <tr>
-                <td colSpan={preview.columns.length} className="report-af-td report-af-td--empty">
-                  Нет данных
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </div>
+          </section>
+        ))}
+        {rows.length === 0 ? <div className="report-af-empty">Нет данных</div> : null}
       </div>
 
       {preview.totals && Object.keys(preview.totals).length > 0 ? (
