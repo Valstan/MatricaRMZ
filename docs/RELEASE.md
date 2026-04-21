@@ -9,18 +9,80 @@
 
 ## Базовый релиз
 
-### С VPS (основной путь)
+Релиз состоит из двух независимых частей:
+1. **Git / версия / тег / GitHub Release / ledger** — делает `pnpm release:auto` (локально на Windows или на VPS).
+2. **Прод-VPS: актуальный код, сборка, миграции БД, перезапуск systemd** — делается **только по SSH**, даже если `release:auto` отработал полностью на Windows. Скрипт на Windows **не** перезапускает backend и **не** применяет миграции на сервере.
+
+### Подготовка Windows (один раз)
+
+1. Установите [GitHub CLI (`gh`)](https://cli.github.com/) и убедитесь, что `gh` доступен в `PATH` (после установки может понадобиться новое окно терминала).
+2. Авторизация для доступа к релизам репозитория:
+   ```powershell
+   gh auth login
+   ```
+   Выберите `GitHub.com`, способ `HTTPS` или `SSH` как вам удобно, браузер или токен. Для неинтерактивных сценариев допустима переменная `GITHUB_TOKEN` (права на чтение релизов и репозитория).
+3. В корне проекта должен быть `backend-api/.env` с **`MATRICA_LEDGER_RELEASE_TOKEN`** и URL API (**`MATRICA_API_URL`** или **`MATRICA_PUBLIC_BASE_URL`**) — их подхватывает `scripts/run-with-backend-env.mjs` при запуске `release:auto` / `release:ledger-publish`.
+
+### С Windows (рекомендуемый путь разработчика)
+
+```powershell
+corepack pnpm run release:auto
+```
+
+При установленном **`gh`** и настроенном **`MATRICA_LEDGER_RELEASE_TOKEN`** скрипт после пуша тега:
+- ждёт появления `.exe` в GitHub Release (workflow `release-electron-windows.yml`);
+- скачивает установщик в **`%USERPROFILE%\.matricarmz\updates`** (на Windows; на Linux по-прежнему `/opt/matricarmz/updates`);
+- при необходимости ждёт `updates/status` на API из `.env`;
+- публикует релиз в ledger.
+
+Если **`gh` не в PATH** или нет доступа к GitHub, шаг ожидания артефакта и публикации в ledger **пропускаются** — тогда дождитесь `.exe` и выполните на **VPS**: `pnpm release:ledger-publish X.Y.Z` (см. ниже).
+
+### С VPS (как раньше, «всё на сервере»)
+
 ```bash
 cd /home/valstan/MatricaRMZ
 pnpm release:auto
 ```
 
-### С Windows (dev-машина)
-```powershell
-corepack pnpm run release:auto
+На VPS скрипт по-прежнему может пересобрать и перезапустить backend, если менялись `backend-api` / `shared` / `web-admin`.
+
+### Прод после тега: синхронизация, миграции, деплой (SSH)
+
+Выполните по алиасу из `~/.ssh/config` (типично `matricarmz`), из каталога репозитория на сервере:
+
+```bash
+cd /home/valstan/MatricaRMZ
+git fetch origin --prune
+git pull --ff-only origin main
+pnpm install
+pnpm -C shared build
+pnpm -C backend-api build
+pnpm --filter @matricarmz/web-admin build
 ```
 
-На Windows скрипт выполняет commit, version bump, tag, push. Deploy backend пропускается (нет systemd). GitHub Actions собирает Windows installer по тегу `v*.*.*`. Ledger publish выполняется позже с VPS или при наличии `gh` CLI.
+Если в релизе менялась схема БД под миграции backend:
+
+```bash
+pnpm --filter @matricarmz/backend-api db:migrate
+```
+
+Перезапуск **dual-backend** (порядок важен): сначала primary, дождаться `/health`, затем secondary:
+
+```bash
+sudo systemctl restart matricarmz-backend-primary.service
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/health   # ожидается 200
+sudo systemctl restart matricarmz-backend-secondary.service
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3002/health   # ожидается 200
+```
+
+**Установщик в каталоге раздачи на сервере:** если ledger уже опубликован с Windows, повторный `release:ledger-publish` может быть не нужен. Если политика обновлений требует копию `.exe` на диске VPS (например под `/opt/matricarmz/updates`), скачайте артефакт с GitHub:
+
+```bash
+mkdir -p /opt/matricarmz/updates
+gh release download vX.Y.Z --repo Valstan/MatricaRMZ --pattern "*.exe" -D /opt/matricarmz/updates --skip-existing
+```
+
+Подробности эксплуатации и nginx см. `docs/OPERATIONS.md`.
 
 `release:auto` автоматически подхватывает env из `backend-api/.env` (если файл существует), включая `MATRICA_LEDGER_RELEASE_TOKEN`.
 
@@ -30,10 +92,9 @@ corepack pnpm run release:auto
 - Коммитит рабочее дерево (если есть изменения).
 - Выравнивает версии пакетов с `VERSION` (или повышает `RELEASE`, если тег уже существует).
 - Создает релизный коммит и тег `vX.Y.Z`, пушит `main` и теги.
-- При изменениях backend/web-admin/shared пересобирает и перезапускает backend.
-- Ждет Windows `.exe` asset в GitHub Release и скачивает установщик.
-- Проверяет статус update-сервиса (если включен).
-- Публикует релиз в ledger автоматически при наличии `MATRICA_LEDGER_RELEASE_TOKEN`.
+- **Только на Linux/VPS:** при изменениях `backend-api` / `web-admin` / `shared` пересобирает и перезапускает backend через systemd.
+- **Если доступен `gh`:** ждёт Windows `.exe` в GitHub Release, скачивает установщик в каталог обновлений (см. выше), ждёт `updates/status` (если не отключено), публикует релиз в ledger при наличии `MATRICA_LEDGER_RELEASE_TOKEN`.
+- **На Windows без `gh`:** этап ожидания артефакта и ledger пропускается — завершите вручную на VPS (`gh release download` + при необходимости `pnpm release:ledger-publish`).
 
 Workflow **Release Electron (Windows)** (`release-electron-windows.yml`) вызывает `electron-builder --publish always`. По умолчанию electron-builder создаёт GitHub Release как **draft**; у нас в `electron-app/package.json` в `build.publish` для GitHub задано **`releaseType: release`**, чтобы релиз сразу был опубликованным и публичные ссылки на `.exe` работали (в т.ч. для `curl`/VPS без `gh release edit --draft=false`).
 

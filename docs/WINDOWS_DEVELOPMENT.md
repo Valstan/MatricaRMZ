@@ -83,13 +83,26 @@ corepack pnpm run release:auto
 corepack pnpm run release:ledger-publish -- 1.2.3
 ```
 
-На Windows `release:auto`:
-- коммитит, бампит версию, тегирует, пушит в GitHub;
-- deploy backend пропускается (нет systemd);
-- GitHub Actions (`release-electron-windows.yml`) собирает Windows installer по тегу;
-- без `gh` CLI ожидание артефакта и ledger publish пропускаются (делается позже с VPS).
+### GitHub CLI (`gh`)
 
-Для полного пайплайна с Windows можно установить [GitHub CLI](https://cli.github.com/).
+Чтобы `release:auto` на Windows **дождался** `.exe` в GitHub Release и мог **опубликовать ledger**, нужен **`gh` в PATH** и авторизация:
+
+```powershell
+gh version
+gh auth login
+```
+
+Если `gh` установлен в `%LOCALAPPDATA%\Programs\GitHub CLI\bin`, добавьте каталог в пользовательский `PATH` (или переоткройте терминал после установщика MSI). Проверка: `gh auth status`.
+
+Полный чеклист релиза (включая **обязательный** деплой на прод по SSH после изменений backend) описан в `docs/RELEASE.md`.
+
+### Поведение `release:auto` на Windows
+
+- коммитит при необходимости, бампит версию, тегирует, пушит в GitHub;
+- **не** деплоит backend на прод (нет systemd) — после релиза синхронизация, сборка, миграции и перезапуски на VPS по `docs/RELEASE.md` и `docs/OPERATIONS.md`;
+- GitHub Actions (`release-electron-windows.yml`) собирает Windows installer по тегу;
+- **с `gh`:** ожидание `.exe`, скачивание в `%USERPROFILE%\.matricarmz\updates`, публикация в ledger (при `MATRICA_LEDGER_RELEASE_TOKEN` в `.env`);
+- **без `gh`:** ожидание артефакта и ledger пропускаются — завершите на VPS (`pnpm release:ledger-publish` или `gh release download` в каталог обновлений).
 
 ## 8. Работа с прод-VPS (только SSH)
 

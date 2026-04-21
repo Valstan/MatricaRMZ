@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { readFile, stat, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -24,6 +25,14 @@ function envInt(name, fallback) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PNPM = process.platform === 'win32' ? 'corepack pnpm' : 'pnpm';
+
+/** Куда скачивать `.exe` перед публикацией в ledger (на Windows нет `/opt/...`). */
+function localInstallerDownloadDir() {
+  if (process.platform === 'win32') {
+    return join(homedir(), '.matricarmz', 'updates');
+  }
+  return '/opt/matricarmz/updates';
+}
 
 async function readVersion() {
   return (await readFile(join(process.cwd(), 'VERSION'), 'utf8').catch(() => '')).trim();
@@ -288,7 +297,7 @@ async function main() {
       return;
     }
 
-    const destDir = '/opt/matricarmz/updates';
+    const destDir = localInstallerDownloadDir();
     await mkdir(destDir, { recursive: true }).catch(() => {});
     const installerPath = downloadInstaller(tag, assetName, destDir);
     await waitForUpdatesStatus(version, statusWaitMs, statusPollMs);
