@@ -1151,11 +1151,33 @@ table.list-table.list-table--catalog {
   }
 }
 
+/* Страница шаблона отчёта: на всю ширину области контента (не узкий 1400px столбец). */
+.ui-content-viewport > .report-preset-page {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-inline: 0;
+  box-sizing: border-box;
+}
+
+.report-preset-page > .ui-content-block {
+  width: 100%;
+  max-width: 100%;
+}
+
 .report-preset-split-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
   gap: 10px;
   align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Карточки фильтров/результата заполняют свои дорожки (иначе ui-content-block режет max-width). */
+.report-preset-split-layout > .ui-content-block {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .report-preset-filter-grid {
@@ -1373,17 +1395,17 @@ table.list-table.list-table--catalog {
   border-bottom: 1px solid var(--border-strong);
 }
 
-/* Левая половина таблицы — компактные служебные колонки + марка (перенос длинных названий). Правая — 50% под расход. */
+/* Компактные служебные колонки; «Марка двигателя» уже, «Расход комплектующих» — остаток ширины. */
 .report-af-th--dayLabel,
 .report-af-td--dayLabel {
-  width: 9%;
+  width: 8%;
   min-width: 0;
   white-space: nowrap;
 }
 
 .report-af-th--engineBrand,
 .report-af-td--engineBrand {
-  width: 26%;
+  width: 18%;
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1408,7 +1430,7 @@ table.list-table.list-table--catalog {
 
 .report-af-th--requiredComponentsSummary,
 .report-af-td--requiredComponentsSummary {
-  width: 50%;
+  width: 59%;
   min-width: 0;
 }
 

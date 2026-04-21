@@ -243,6 +243,9 @@ function assemblyForecastRowIsBold(report: PreviewOk, row: Record<string, Report
 }
 
 function assemblyForecastStatusPrintClass(statusText: string): string {
+  if (statusText === 'Комплект') return 'afp-st-ok';
+  if (statusText === 'Неполный комплект') return 'afp-st-wait';
+  if (statusText === 'Нет') return 'afp-st-bad';
   if (statusText === 'Хватает') return 'afp-st-ok';
   if (statusText === 'Частично') return 'afp-st-wait';
   if (statusText === 'Не хватает') return 'afp-st-bad';
@@ -286,7 +289,13 @@ export function renderAssemblyForecastTableForPrint(report: PreviewOk): string {
           .map((row) => {
             const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
             const trClass =
-              code === 'ok' ? 'afp-tr-ok' : code === 'waiting' ? 'afp-tr-wait' : code === 'shortage' ? 'afp-tr-short' : '';
+              code === 'ok'
+                ? 'afp-tr-ok'
+                : code === 'waiting'
+                  ? 'afp-tr-wait'
+                  : code === 'shortage' || code === 'absent'
+                    ? 'afp-tr-short'
+                    : '';
             const cells = report.columns
               .map((column) => {
                 const value = row[column.key] ?? null;

@@ -34,7 +34,9 @@ export type ReportOptionSource =
   | 'departments'
   | 'warehouses'
   | 'assemblyBrands'
-  | 'assemblySleeves';
+  | 'assemblySleeves'
+  /** Контракты для режима «По контрактам» в прогнозе сборки: подпись № / внутр. / заказчик и поиск по номерам. */
+  | 'assembly_forecast_contracts';
 
 export type ReportFilterSpec =
   | {
@@ -679,6 +681,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
           { value: 'manual', label: 'Вручную' },
           { value: 'contracts', label: 'По контрактам' },
         ],
+      },
+      {
+        type: 'multi_select',
+        key: 'assemblyContractIds',
+        label: 'Контракты для авто-приоритета',
+        labelHint:
+          'Доступно в режиме «По контрактам». Среди выбранных контрактов строится приоритет марок по отставанию от графика (самые рискованные — выше). По умолчанию выбраны все контракты; пустой список после загрузки опций означает все контракты.',
+        optionsSource: 'assembly_forecast_contracts',
+        selectAllByDefault: true,
       },
       {
         type: 'multi_select',

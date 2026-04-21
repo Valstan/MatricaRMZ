@@ -1,13 +1,13 @@
 # Windows 11 Development
 
-Короткий рабочий контур для локальной разработки на Windows 11 с доступом к VPS через Cursor MCP.
+Короткий рабочий контур для локальной разработки на Windows 11 с **SSH-доступом к прод-VPS** (управление сервером — через OpenSSH в терминале, не через MCP).
 
 ## 1. Базовый стек
 
 - Рекомендуемый Node.js: `22.x LTS`, чтобы совпадать с VPS (`v22.22.0`).
 - Пакетный менеджер: `pnpm@10.26.1` через `corepack`.
 - IDE: Cursor / VS Code.
-- Удаленный доступ к серверу: **OpenSSH** с Host-алиасом из `%USERPROFILE%\.ssh\config` (например `matricarmz`) — основной канал для агента в терминале; MCP `vps-matricarmz` — опционально, см. `docs/MCP_SETUP_WINDOWS.md` §8.
+- Удалённый доступ к прод-серверу: **только OpenSSH** с Host-алиасом из `%USERPROFILE%\.ssh\config` (например `matricarmz`). ИИ-агенту и разработчику нужно помнить: **прод настраивается и обслуживается командами через `ssh`**, полноценные shell-пайплайны и длинные логи — в обычном терминале.
 
 ## 2. Первый запуск
 
@@ -91,9 +91,9 @@ corepack pnpm run release:ledger-publish -- 1.2.3
 
 Для полного пайплайна с Windows можно установить [GitHub CLI](https://cli.github.com/).
 
-## 8. Работа с VPS (SSH и MCP)
+## 8. Работа с прод-VPS (только SSH)
 
-**ИИ-агент в Cursor:** для операций на прод-VPS предпочтительно вызывать команды через **SSH** с использованием Host из локального `~/.ssh/config` (типичный алиас в этом проекте — `matricarmz`: нестандартный порт, пользователь `valstan`, ключ из профиля). Так проще повторять runbook-команды, смотреть полные логи и не упираться в таймауты MCP.
+**ИИ-агент и разработчик:** любые операции на прод-VPS выполняйте через **SSH** с Host из локального `~/.ssh/config` (типичный алиас в этом проекте — `matricarmz`: нестандартный порт, пользователь `valstan`, ключ из профиля). Так доступны полные логи, произвольные команды и повторяемые runbook-шаги из `docs/OPERATIONS.md` и `docs/TROUBLESHOOTING.md`.
 
 Пример:
 
@@ -101,7 +101,7 @@ corepack pnpm run release:ledger-publish -- 1.2.3
 ssh matricarmz "systemctl is-active matricarmz-backend-primary.service matricarmz-backend-secondary.service"
 ```
 
-**MCP `vps-matricarmz`:** остаётся удобным дополнением (настройка, типичные ошибки, `exec` / `sudo-exec`) — см. `docs/MCP_SETUP_WINDOWS.md`, в том числе §8 «SSH vs MCP».
+Отдельный MCP/ssh-mcp для доступа к этому VPS **не является частью проекта** и не должен подставляться вместо SSH.
 
 Типичные сценарии на сервере:
 

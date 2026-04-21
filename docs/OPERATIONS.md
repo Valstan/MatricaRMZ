@@ -6,6 +6,10 @@
 - Корень: `/home/valstan/MatricaRMZ`
 - Пакеты: `backend-api/`, `electron-app/`, `shared/`, `web-admin/`, `docs/`, `scripts/`
 
+### Управление прод-сервером (напоминание для ИИ-агентов)
+- Прод-VPS обслуживается **только через SSH** в терминале: Host-алиас из `~/.ssh/config` (на Windows — `%USERPROFILE%\.ssh\config`, обычно `matricarmz`). Не рассчитывайте на отдельный MCP-сервер в этом репозитории.
+- После push в GitHub типичный контур: `ssh matricarmz` → `cd ~/MatricaRMZ` → `git pull`, сборка/миграции/рестарт сервисов по задаче (подробнее `docs/README.md` при завершении сессии, `docs/TROUBLESHOOTING.md`).
+
 ## 2) Ключевые точки входа
 
 ### Backend API
@@ -98,10 +102,11 @@ corepack pnpm run dev:electron
 - В dual-backend контуре singleton background jobs (`sync pipeline supervisor`, `critical events notifier`, schedulers) запускаются только на `primary` (`MATRICA_INSTANCE_ROLE` не должен быть `secondary/readonly/worker`).
 
 ## 7) Что смотреть в первую очередь при новой сессии
-1. `docs/README.md`
+1. `docs/README.md` (в т.ч. блок «Напоминание для ИИ-агентов: прод-сервер»)
 2. `docs/OPERATIONS.md` (этот файл)
-3. В зависимости от задачи: `WAREHOUSE.md`, `RELEASE.md`, `REPORTS.md`, `BLOCKCHAIN.md`, `TROUBLESHOOTING.md`
-4. Политика поддержки документации: `docs/DOCUMENTATION_POLICY.md`
+3. Правило Cursor для агента: `.cursor/rules/production-ssh.mdc` (прод только через SSH)
+4. В зависимости от задачи: `WAREHOUSE.md`, `RELEASE.md`, `REPORTS.md`, `BLOCKCHAIN.md`, `TROUBLESHOOTING.md`
+5. Политика поддержки документации: `docs/DOCUMENTATION_POLICY.md`
 
 ## 8) Базовый срез актуальности
 Документация синхронизирована по изменениям актуального рабочего контура, в том числе:

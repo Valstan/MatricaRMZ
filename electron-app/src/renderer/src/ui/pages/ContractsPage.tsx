@@ -454,33 +454,43 @@ export function ContractsPage(props: {
     await loadContracts();
   }
 
+  const headerCellBorder = { borderBottom: '1px solid #e5e7eb' } as const;
+  const headerThBase: React.CSSProperties = {
+    ...headerCellBorder,
+    padding: 8,
+    fontWeight: 700,
+    fontSize: 14,
+    color: '#111827',
+    cursor: 'pointer',
+  };
+
   const tableHeader = (
     <thead>
-      <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #1d4ed8 120%)', color: '#fff' }}>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('number')}>
+      <tr style={{ background: '#f9fafb', color: '#111827' }}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('number')}>
           Номер контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'number')}
         </th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('internalNumber')}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('internalNumber')}>
           Внутренний номер контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'internalNumber')}
         </th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('counterparty')}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('counterparty')}>
           Контрагент {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'counterparty')}
         </th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('dateMs')}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('dateMs')}>
           Дата заключения {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'dateMs')}
         </th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('dueDateMs')}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('dueDateMs')}>
           Дата исполнения {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'dueDateMs')}
         </th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('amount')}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('amount')}>
           Сумма контракта (контракт плюс ДС) {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'amount')}
         </th>
-        <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('updatedAt')}>
           Дата обновления карточки контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
         </th>
-        <th style={{ textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 80 }}>Прогресс</th>
+        <th style={{ ...headerCellBorder, padding: 8, width: 80, textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111827' }}>Прогресс</th>
         {showPreviews && (
-          <th style={{ textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, width: 220 }}>
+          <th style={{ ...headerCellBorder, padding: 8, width: 220, textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111827' }}>
             Превью
           </th>
         )}

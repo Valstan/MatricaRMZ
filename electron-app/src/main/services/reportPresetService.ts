@@ -356,11 +356,12 @@ function statusLabel(status: string): string {
   }
 }
 
-/** Коды `ok` | `waiting` | `shortage` с API; совместимость со старым ответом с русскими подписями. */
-function normalizeAssemblyForecastStatusFromApi(raw: string): 'ok' | 'waiting' | 'shortage' {
+/** Коды `ok` | `waiting` | `shortage` | `absent` с API; совместимость со старым ответом с русскими подписями. */
+function normalizeAssemblyForecastStatusFromApi(raw: string): 'ok' | 'waiting' | 'shortage' | 'absent' {
   const s = String(raw ?? '').trim().toLowerCase();
   if (s === 'ok' || s === 'хватит') return 'ok';
   if (s === 'waiting' || s === 'ожидание') return 'waiting';
+  if (s === 'absent') return 'absent';
   if (s === 'shortage' || s.includes('не хватает')) return 'shortage';
   if (s.includes('хват')) return 'ok';
   return 'shortage';
@@ -604,6 +605,43 @@ function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[
         label: label || (typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : id),
         ...(meta.hintText ? { hintText: meta.hintText } : {}),
         ...(meta.searchText ? { searchText: meta.searchText } : {}),
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+}
+
+/** Список контрактов для фильтра прогноза сборки: №, внутр. №, заказчик; поиск по подряд идущим цифрам в номере и внутр. номере (через searchText / subsequence). */
+function buildAssemblyForecastContractOptions(snapshot: Snapshot): ReportFilterOption[] {
+  return getIdsByType(snapshot, 'contract')
+    .map((id) => {
+      const attrs = snapshot.attrsByEntity.get(id);
+      const safeAttrs = attrs ?? {};
+      const sections = parseContractSections(safeAttrs);
+      const externalNum = normalizeText(sections.primary.number || safeAttrs.contract_number || safeAttrs.number, '');
+      const internalNum = normalizeText(sections.primary.internalNumber || safeAttrs.internal_number, '');
+      const baseEntityLabel = entityLabel(attrs, '').trim();
+      const displayNum = externalNum || baseEntityLabel || id;
+      const customerId = normalizeText(sections.primary.customerId ?? safeAttrs.customer_id, '');
+      const customerLabel = customerId ? relatedEntityLabel(snapshot, customerId) : '';
+      const internalPart =
+        internalNum && (internalNum !== externalNum || !externalNum) ? ` · внутр. ${internalNum}` : '';
+      const label = `№${displayNum || '—'}${internalPart}${customerLabel ? ` · ${customerLabel}` : ''}`;
+      const baseLabelForMeta = baseEntityLabel || displayNum;
+      const meta = buildOptionMeta(snapshot, 'contract', id, attrs, baseLabelForMeta || UNKNOWN_CONTRACT_LABEL);
+      const searchText =
+        joinOptionSearch([
+          meta.searchText,
+          externalNum,
+          internalNum,
+          displayNum,
+          customerLabel,
+          `${String(externalNum).replace(/\D/g, '')}${String(internalNum).replace(/\D/g, '')}`,
+        ]) ?? joinOptionSearch([externalNum, internalNum, customerLabel, id]);
+      return {
+        value: id,
+        label: label.trim() || UNKNOWN_CONTRACT_LABEL,
+        ...(meta.hintText ? { hintText: meta.hintText } : {}),
+        ...(searchText ? { searchText } : {}),
       };
     })
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
@@ -2582,6 +2620,7 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
 ): { priorityEngineBrandIds: string[]; footerNotes: string[]; modeHints: string[] } {
   const now = Date.now();
   const engineBrandFilter = new Set(asArray(filters?.engineBrandIds).map(String));
+  const selectedContractIds = new Set(asArray(filters?.assemblyContractIds).map(String).filter(Boolean));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   type Scored = {
@@ -2601,6 +2640,7 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
   const missingBomBrandLabels = new Map<string, string>();
 
   for (const contractId of getIdsByType(snapshot, 'contract')) {
+    if (selectedContractIds.size > 0 && !selectedContractIds.has(contractId)) continue;
     const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
     const st = normalizeText(attrs.status, '').toLowerCase();
     if (st === 'fulfilled_full' || st === 'fulfilled_partial') continue;
@@ -2691,6 +2731,9 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
 
   const footerNotes: string[] = [...mismatchNotes];
   const modeHints: string[] = [];
+  if (selectedContractIds.size > 0) {
+    modeHints.push(`Ограничение: авто-приоритет только среди ${selectedContractIds.size} выбранных контракт(ов).`);
+  }
   if (missingBomBrandLabels.size > 0) {
     const list = Array.from(missingBomBrandLabels.entries())
       .map(([, lab]) => lab)
@@ -3060,6 +3103,7 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
         brands: buildOptions(snapshot, 'engine_brand'),
         assemblyBrands: await buildAssemblyBomEngineOptions(db, snapshot, ctx),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
+        assembly_forecast_contracts: buildAssemblyForecastContractOptions(snapshot),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
@@ -3214,6 +3258,9 @@ export function buildReport1cXml(report: OkPreview): string {
 }
 
 function assemblyForecastPdfStatusClass(statusText: string): string {
+  if (statusText === 'Комплект') return 'afp-st-ok';
+  if (statusText === 'Неполный комплект') return 'afp-st-wait';
+  if (statusText === 'Нет') return 'afp-st-bad';
   if (statusText === 'Хватает') return 'afp-st-ok';
   if (statusText === 'Частично') return 'afp-st-wait';
   if (statusText === 'Не хватает') return 'afp-st-bad';
@@ -3255,7 +3302,13 @@ function renderAssemblyForecastPdfTable(report: OkPreview): string {
           .map((row) => {
             const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
             const trClass =
-              code === 'ok' ? 'afp-tr-ok' : code === 'waiting' ? 'afp-tr-wait' : code === 'shortage' ? 'afp-tr-short' : '';
+              code === 'ok'
+                ? 'afp-tr-ok'
+                : code === 'waiting'
+                  ? 'afp-tr-wait'
+                  : code === 'shortage' || code === 'absent'
+                    ? 'afp-tr-short'
+                    : '';
             const tds = report.columns
               .map((column) => {
                 const text = formatCell(column, (row[column.key] ?? null) as ReportCellValue);
@@ -3296,6 +3349,7 @@ function renderAssemblyForecastPdfFooter(lines: string[]): string {
     'Авто: нет контрактов',
     'Приоритет:',
     'Приоритетные марки',
+    'Ограничение:',
   ];
   const body = lines
     .map((line) => {

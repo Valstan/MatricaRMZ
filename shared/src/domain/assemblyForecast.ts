@@ -66,7 +66,8 @@ export type AssemblyForecastDayRow = {
   engineBrand: string;
   brandId: string;
   plannedEngines: number;
-  status: 'ok' | 'shortage' | 'waiting';
+  /** ok — комплект закрыт по плану; waiting — неполный комплект по марке; shortage — неполный комплект по дню (итог); absent — нет комплектующих для сборки */
+  status: 'ok' | 'shortage' | 'waiting' | 'absent';
   requiredComponentsSummary: string;
   deficitsSummary: string;
   alternativeBrands: string;
@@ -377,11 +378,12 @@ function getOrCreateWhPartAcc(map: Map<string, WhPartAcc>, brandId: string): WhP
 export function assemblyForecastStatusLabelRu(status: AssemblyForecastDayRow['status']): string {
   switch (status) {
     case 'ok':
-      return 'Хватает';
+      return 'Комплект';
     case 'waiting':
-      return 'Частично';
     case 'shortage':
-      return 'Не хватает';
+      return 'Неполный комплект';
+    case 'absent':
+      return 'Нет';
     default:
       return String(status ?? '').trim() || '—';
   }
@@ -465,50 +467,154 @@ function selectScenarioKitsForShortageRow(
 }
 
 /**
- * Строка «не закрыт план за день»: короткий ориентир по 1–2 маркам в порядке плана и разбор остатков по ним (без перебора всех вариантов BOM).
+ * После фактической укладки по маркам: дополнительно уменьшает остатки на «недобранные» двигатели за день,
+ * чтобы по горизонту учитывался прогнозируемый расход (в т.ч. по позициям, которые ещё в избытке).
+ * 1) Сбалансированное списание по сценарным BOM (1–2 марки), пока maxEnginesForKit > 0.
+ * 2) Остаток лимита — номинальное списание по первому сценарному комплекту (по каждой позиции отдельно),
+ *    чтобы «лишние» комплектующие тоже снижались при узком месте.
+ */
+function applyVirtualUnmetDayConsumption(
+  stock: Map<string, number>,
+  warehouseBins: MutableWarehouseState | null,
+  kits: AssemblyEngineBrandKit[],
+  remainingEngines: number,
+  priorityOrderRaw: string[],
+): void {
+  let left = Math.max(0, Math.floor(remainingEngines));
+  if (left <= 0 || kits.length === 0) return;
+
+  const prioritySet = new Set(priorityOrderRaw.map((id) => String(id).trim()).filter(Boolean));
+  const scenarioKits = selectScenarioKitsForShortageRow(kits, priorityOrderRaw, prioritySet);
+
+  for (const kit of scenarioKits) {
+    while (left > 0) {
+      const m = maxEnginesForKit(stock, kit);
+      if (m <= 0) break;
+      const run = Math.min(left, m);
+      consumeKit(stock, kit, run);
+      if (warehouseBins) {
+        allocateKitConsumptionFromBins(warehouseBins, kit, run);
+      }
+      left -= run;
+    }
+  }
+
+  if (left > 0 && scenarioKits.length > 0) {
+    subtractNominalDemandAcrossParts(stock, warehouseBins, scenarioKits[0]!, left);
+  }
+}
+
+/** Номинальный расход по каждой позиции комплекта (без требования полного комплекта на каждый двигатель). */
+function subtractNominalDemandAcrossParts(
+  stock: Map<string, number>,
+  warehouseBins: MutableWarehouseState | null,
+  kit: AssemblyEngineBrandKit,
+  engines: number,
+): void {
+  const n = Math.max(0, Math.floor(engines));
+  if (n <= 0) return;
+  for (const p of kit.parts) {
+    const per = Math.max(0, Math.floor(p.qtyPerEngine));
+    const need = per * n;
+    if (need <= 0) continue;
+    const id = p.nomenclatureId;
+    const prev = stock.get(id) ?? 0;
+    stock.set(id, Math.max(0, prev - need));
+    if (!warehouseBins) continue;
+    let takeLeft = need;
+    const rows = [...(warehouseBins.get(id) ?? [])].filter((r) => r.qty > 0);
+    rows.sort((a, b) => {
+      const pa = isPlannedWarehouseId(a.warehouseId) ? 1 : 0;
+      const pb = isPlannedWarehouseId(b.warehouseId) ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      if (b.qty !== a.qty) return b.qty - a.qty;
+      return a.warehouseLabel.localeCompare(b.warehouseLabel, 'ru');
+    });
+    for (const row of rows) {
+      if (takeLeft <= 0) break;
+      const avail = Math.max(0, Math.floor(row.qty));
+      if (avail <= 0) continue;
+      const t = Math.min(takeLeft, avail);
+      takeFromWarehouse(warehouseBins, id, row.warehouseId, t);
+      takeLeft -= t;
+    }
+  }
+}
+
+/**
+ * Строка «не закрыт план за день»: план в графе «двигателей» = цель суток (как в настройках);
+ * расход — номинал на эту цель по 1–2 сценарным маркам; остатки — после распределения по плану.
  */
 export function formatAssemblyShortageRowForOperator(
   kits: AssemblyEngineBrandKit[],
   stock: ReadonlyMap<string, number>,
   remaining: number,
   target: number,
-  opts?: { priorityEngineBrandIds?: string[] },
-): { engineBrand: string; requiredComponentsSummary: string } {
+  opts?: {
+    priorityEngineBrandIds?: string[];
+    /** Сколько двигателей за день удалось «разложить» по маркам до остановки (target − remaining). */
+    builtEnginesInDay: number;
+    sameBrandBatchSize?: number;
+  },
+): { engineBrand: string; requiredComponentsSummary: string; status: 'shortage' | 'absent' } {
   const priorityOrderRaw = (opts?.priorityEngineBrandIds ?? []).map((id) => String(id).trim()).filter(Boolean);
   const prioritySet = new Set(priorityOrderRaw);
   const scenarioKits = selectScenarioKitsForShortageRow(kits, priorityOrderRaw, prioritySet);
+  const batch = Math.max(1, Math.floor(Number(opts?.sameBrandBatchSize ?? 1)));
+  const built = Math.max(0, Math.floor(opts?.builtEnginesInDay ?? 0));
+  const status: 'shortage' | 'absent' = built <= 0 ? 'absent' : 'shortage';
+
+  const scenarioHint =
+    scenarioKits.length > 0 ? ` Ориентир по плану: ${scenarioKits.map((k) => k.brandLabel).join(', ')}.` : '';
+
+  const engineBrand = `Цель ${target} двиг./сутки · серия одной марки: ${batch}. Не закрыто ${remaining} из ${target}.${scenarioHint}`;
+
+  const virtualNote =
+    ' Остатки в расшифровке ниже — с учётом виртуального списания недобранных двигателей по сценарию (чтобы по горизонту уменьшались и избыточные позиции).';
+
+  const head =
+    status === 'absent'
+      ? `За день не удалось заложить ни одного двигателя в план (остатки после приоритета/серий). По настройкам отчёта номинальная цель — ${target} двиг./сутки.${virtualNote}`
+      : `После распределения по маркам осталось не закрыть ${remaining} из ${target} двиг. (цель суток по настройкам).${virtualNote}`;
+
+  const intro =
+    scenarioKits.length > 0
+      ? `Разбор по ${scenarioKits.length === 1 ? 'одной марке' : 'двум маркам'} в порядке приоритета/плана; остальные варианты BOM не перечисляем.`
+      : '';
 
   const detailLines: string[] = [];
   for (const kit of scenarioKits) {
     const parts = [...kit.parts]
       .filter((p) => p.qtyPerEngine > 0)
       .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+    const nominal = summarizeKit(kit, target);
     const chunks: string[] = [];
     for (const p of parts.slice(0, 24)) {
-      const need = Math.max(0, Math.floor(p.qtyPerEngine));
+      const perEng = Math.max(0, Math.floor(p.qtyPerEngine));
+      const needTotal = perEng * target;
       const have = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
-      if (have >= need) {
-        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need} — хватает`);
+      if (needTotal <= 0) continue;
+      if (have >= needTotal) {
+        chunks.push(`${p.partLabel}: на складах после учёта дня ${have} шт.; на ${target} двиг. нужно ${needTotal} — по этой позиции хватает`);
+      } else if (have <= 0) {
+        chunks.push(`${p.partLabel}: на складах после учёта дня ${have} шт.; на ${target} двиг. нужно ${needTotal} — нет остатка`);
       } else {
-        chunks.push(`${p.partLabel}: на складах ${have} шт., на 1 двиг нужно ${need}, не хватает ${need - have} шт. (склад поставки неизвестен)`);
+        chunks.push(
+          `${p.partLabel}: на складах после учёта дня ${have} шт.; на ${target} двиг. нужно ${needTotal} — не хватает ${needTotal - have} шт.`,
+        );
       }
     }
-    if (chunks.length > 0) detailLines.push(`${kit.brandLabel}:\n${chunks.join('\n')}`);
+    const blockParts = [`Номинальный расход на цель ${target} двиг. (${kit.brandLabel}):`, nominal, ...chunks];
+    detailLines.push(blockParts.filter(Boolean).join('\n'));
   }
 
-  const scenarioHint =
-    scenarioKits.length > 0
-      ? ` Ориентир по плану: ${scenarioKits.map((k) => k.brandLabel).join(', ')}.`
-      : '';
-  const head = `Не удалось набрать ${remaining} из ${target} двиг. за день (остатки на конец дня).`;
-  const intro =
-    scenarioKits.length > 0
-      ? `Разбор по ${scenarioKits.length === 1 ? 'одной марке' : 'двум маркам'} в порядке приоритета/плана; остальные варианты BOM не перечисляем.`
-      : '';
-  const body = [intro, ...detailLines].filter(Boolean).join('\n');
+  const body = [intro, ...detailLines].filter(Boolean).join('\n\n');
+  const requiredComponentsSummary = body ? `${head}\n\n${body}` : head;
+
   return {
-    engineBrand: `Не закрыто ${remaining} из ${target} двиг. за день.${scenarioHint}`,
-    requiredComponentsSummary: body ? `${head}\n${body}` : head,
+    engineBrand,
+    requiredComponentsSummary,
+    status,
   };
 }
 
@@ -687,16 +793,20 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     }
 
     if (remaining > 0 && target > 0) {
+      const builtEnginesInDay = target - remaining;
+      applyVirtualUnmetDayConsumption(stock, warehouseBins, kits, remaining, priorityOrderRaw);
       const shortage = formatAssemblyShortageRowForOperator(kits, stock, remaining, target, {
         priorityEngineBrandIds: priorityOrderRaw,
+        builtEnginesInDay,
+        sameBrandBatchSize,
       });
       rows.push({
         dayOffset: day,
         dayLabel,
         engineBrand: shortage.engineBrand,
         brandId: '',
-        plannedEngines: 0,
-        status: 'shortage',
+        plannedEngines: target,
+        status: shortage.status,
         requiredComponentsSummary: shortage.requiredComponentsSummary,
         deficitsSummary: '',
         alternativeBrands: '',

@@ -385,32 +385,40 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     if (!activePreset || activePreset.id !== 'assembly_forecast_7d') return null;
     const filterOf = (key: string) => activePreset.filters.find((fl) => 'key' in fl && (fl as { key: string }).key === key) as ReportFilterSpec | undefined;
     const prio = filterOf('assemblyPriorityMode');
+    const contF = filterOf('assemblyContractIds');
     const whF = filterOf('warehouseIds');
     const engF = filterOf('engineBrandIds');
     const priF = filterOf('priorityEngineBrandIds');
     const tgtF = filterOf('targetEnginesPerDay');
     const batchF = filterOf('sameBrandBatchSize');
     const horF = filterOf('horizonDays');
-    if (!prio || !whF || !engF || !priF || !tgtF || !batchF || !horF) return null;
-    if (prio.type !== 'select' || whF.type !== 'multi_select' || engF.type !== 'multi_select' || priF.type !== 'multi_select') return null;
+    if (!prio || !contF || !whF || !engF || !priF || !tgtF || !batchF || !horF) return null;
+    if (prio.type !== 'select' || contF.type !== 'multi_select' || whF.type !== 'multi_select' || engF.type !== 'multi_select' || priF.type !== 'multi_select') return null;
     if (tgtF.type !== 'number' || batchF.type !== 'number' || horF.type !== 'number') return null;
 
     const warehouseOpts = optionSets.warehouses ?? [];
     const brandOpts = optionSets.brands ?? [];
+    const contractOpts = optionSets.assembly_forecast_contracts ?? [];
     const pm = String(activeFilters.assemblyPriorityMode ?? prio.options?.[0]?.value ?? 'manual');
+    const contractsDisabled = busy || pm === 'manual';
     const selWh = Array.isArray(activeFilters.warehouseIds) ? (activeFilters.warehouseIds as string[]) : [];
     const selBrand = Array.isArray(activeFilters.engineBrandIds) ? (activeFilters.engineBrandIds as string[]) : [];
     const selPriBrand = Array.isArray(activeFilters.priorityEngineBrandIds) ? (activeFilters.priorityEngineBrandIds as string[]) : [];
+    const selContracts = Array.isArray(activeFilters.assemblyContractIds) ? (activeFilters.assemblyContractIds as string[]) : [];
 
     const allWhIds = warehouseOpts.map((o) => String(o.value));
     const allBrandIds = brandOpts.map((o) => String(o.value));
+    const allContractIds = contractOpts.map((o) => String(o.value));
     const allWhSelected = allWhIds.length > 0 && selWh.length === allWhIds.length && allWhIds.every((id) => selWh.includes(id));
     const allBrandsSelected =
       allBrandIds.length > 0 && selBrand.length === allBrandIds.length && allBrandIds.every((id) => selBrand.includes(id));
+    const allContractsSelected =
+      allContractIds.length > 0 && selContracts.length === allContractIds.length && allContractIds.every((id) => selContracts.includes(id));
 
     const whLabels = warehouseOpts.filter((o) => selWh.includes(String(o.value)));
     const brandLabels = brandOpts.filter((o) => selBrand.includes(String(o.value)));
     const priBrandLabels = brandOpts.filter((o) => selPriBrand.includes(String(o.value)));
+    const contractLabels = contractOpts.filter((o) => selContracts.includes(String(o.value)));
 
     const priorityManualDisabled = pm === 'contracts';
 
@@ -479,6 +487,48 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
           <button type="button" onClick={() => resetFilter(prio)} title="Сбросить" style={filterResetBtnStyle}>
             ✕
           </button>
+        </div>
+
+        <div className="report-preset-af-block">
+          <div className="report-preset-af-label" title={filterLabelHint(contF)}>
+            {contF.label}
+          </div>
+          <div className="report-preset-af-main" style={{ width: '100%', minWidth: 0 }}>
+            <MultiSearchSelect
+              values={selContracts}
+              options={contractOpts.map((option) => ({
+                id: option.value,
+                label: option.label,
+                ...(option.hintText ? { hintText: option.hintText } : {}),
+                ...(option.searchText ? { searchText: option.searchText } : {}),
+              }))}
+              placeholder="Номер контракта, внутр. номер или заказчик"
+              disabled={contractsDisabled}
+              query={activeFilterSearch[contF.key] ?? ''}
+              onQueryChange={(next) => patchFilterSearch(contF.key, next)}
+              onChange={(next) => patchFilter(contF.key, next)}
+            />
+          </div>
+          <button type="button" onClick={() => resetFilter(contF)} title="Сбросить" style={filterResetBtnStyle} disabled={contractsDisabled}>
+            ✕
+          </button>
+          {contractsDisabled ? (
+            <div className="report-preset-af-meta">Доступно в режиме «По контрактам».</div>
+          ) : contractOpts.length === 0 ? (
+            <div className="report-preset-af-meta">Загрузка списка контрактов…</div>
+          ) : allContractsSelected ? (
+            <div className="report-preset-af-meta">Учитываются все контракты ({contractLabels.length}): авто-приоритет по отставанию среди них.</div>
+          ) : selContracts.length === 0 ? (
+            <div className="report-preset-af-meta">Пустой список — как «все контракты» после загрузки опций.</div>
+          ) : (
+            <div className="report-preset-af-meta report-preset-af-tags">
+              {contractLabels.map((o) => (
+                <span key={o.value} className="report-preset-af-tag" title={o.label}>
+                  {o.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="report-preset-af-block">
@@ -754,7 +804,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
   }
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div className="report-preset-page" style={{ display: 'grid', gap: 10 }}>
       <SectionCard
         title={activePreset ? activePreset.title : 'Шаблон отчёта'}
         actions={

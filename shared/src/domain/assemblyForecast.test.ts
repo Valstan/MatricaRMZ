@@ -81,10 +81,11 @@ describe('assemblyForecast', () => {
       stockByNomenclatureId: stock,
       incomingLines: [],
     });
-    const shortage = res.rows.filter((r) => r.status === 'shortage');
-    expect(shortage.length).toBeGreaterThan(0);
-    expect(shortage[0]?.plannedEngines).toBe(0);
-    expect(shortage[0]?.requiredComponentsSummary).toMatch(/Не удалось набрать/);
+    const gap = res.rows.filter((r) => r.status === 'shortage' || r.status === 'absent');
+    expect(gap.length).toBeGreaterThan(0);
+    expect(gap[0]?.plannedEngines).toBe(5);
+    expect(gap[0]?.status).toBe('shortage');
+    expect(gap[0]?.requiredComponentsSummary).toMatch(/настройкам|Номинальный расход/);
   });
 
   it('shortage row gives a narrow plan scenario (1–2 base brands), not every BOM variant', () => {
@@ -115,16 +116,19 @@ describe('assemblyForecast', () => {
       incomingLines: [],
       priorityEngineBrandIds: [base59, base46],
     });
-    const shortage = res.rows.filter((r) => r.status === 'shortage');
-    expect(shortage.length).toBeGreaterThan(0);
-    const eb = shortage[0]?.engineBrand ?? '';
-    expect(eb).toMatch(/Не закрыто \d+ из \d+ двиг\. за день\./);
+    const gap = res.rows.filter((r) => r.status === 'shortage' || r.status === 'absent');
+    expect(gap.length).toBeGreaterThan(0);
+    expect(gap[0]?.status).toBe('absent');
+    expect(gap[0]?.plannedEngines).toBe(2);
+    const eb = gap[0]?.engineBrand ?? '';
+    expect(eb).toMatch(/Цель 2 двиг\.\/сутки/);
+    expect(eb).toContain('Не закрыто');
     expect(eb).toContain('Ориентир по плану:');
     expect(eb).toContain('В-59 (вариант 1)');
     expect(eb).toContain('В-46 (вариант 1)');
     expect(eb).not.toContain('возможны марки');
     expect(eb).not.toContain('вариант 2)');
-    const summary = shortage[0]?.requiredComponentsSummary ?? '';
+    const summary = gap[0]?.requiredComponentsSummary ?? '';
     expect(summary).toContain('остальные варианты BOM не перечисляем');
     expect(summary.match(/В-59 \(вариант/g)?.length).toBe(1);
   });
@@ -266,9 +270,40 @@ describe('assemblyForecast', () => {
     });
     const day0 = res.rows.filter((r) => r.dayOffset === 0);
     const day1 = res.rows.filter((r) => r.dayOffset === 1);
-    expect(day0.some((r) => r.status === 'shortage')).toBe(true);
+    expect(day0.some((r) => r.status === 'shortage' || r.status === 'absent')).toBe(true);
     const plannedD1 = day1.filter((r) => r.engineBrand === 'B1').reduce((a, r) => a + r.plannedEngines, 0);
     expect(plannedD1).toBe(2);
+  });
+
+  it('virtually depletes abundant stock across horizon when daily target is only partly met', () => {
+    const stock = new Map<string, number>([
+      ['p1', 100],
+      ['p2', 2],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: 'b1', brandLabel: 'B1', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 2,
+      targetEnginesPerDay: 3,
+      sameBrandBatchSize: 2,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+    });
+    const day0Gap = res.rows.filter((r) => r.dayOffset === 0 && (r.status === 'shortage' || r.status === 'absent'));
+    const day1Gap = res.rows.filter((r) => r.dayOffset === 1 && (r.status === 'shortage' || r.status === 'absent'));
+    expect(day0Gap.length).toBeGreaterThan(0);
+    expect(day1Gap.length).toBeGreaterThan(0);
+    const s0 = day0Gap[0]!.requiredComponentsSummary ?? '';
+    const s1 = day1Gap[0]!.requiredComponentsSummary ?? '';
+    const m0 = s0.match(/Гильза: на складах после учёта дня (\d+) шт\./);
+    const m1 = s1.match(/Гильза: на складах после учёта дня (\d+) шт\./);
+    expect(m0?.[1]).toBeTruthy();
+    expect(m1?.[1]).toBeTruthy();
+    expect(Number(m1![1])).toBeLessThan(Number(m0![1]));
   });
 
   it('is deterministic for identical inputs', () => {

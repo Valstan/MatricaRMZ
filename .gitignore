@@ -6,6 +6,7 @@ build
 .eslintcache
 .idea
 .vscode
+.cursor
 .DS_Store
 
 # Env files

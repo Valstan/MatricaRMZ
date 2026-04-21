@@ -29,9 +29,15 @@ function footerLineClass(line: string): string {
   return 'report-af-foot__line report-af-foot__line--text';
 }
 
-function StatusBadge({ text }: { text: string }) {
+function StatusBadge({ text, code }: { text: string; code: string }) {
   const tone =
-    text === 'Хватает' ? 'ok' : text === 'Частично' ? 'partial' : text === 'Не хватает' ? 'bad' : 'neutral';
+    code === 'ok'
+      ? 'ok'
+      : code === 'absent'
+        ? 'bad'
+        : code === 'waiting' || code === 'shortage'
+          ? 'partial'
+          : 'neutral';
   return <span className={`report-af-status report-af-status--${tone}`}>{text}</span>;
 }
 
@@ -86,7 +92,13 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
             {preview.rows.map((row, idx) => {
               const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
               const rowMod =
-                code === 'ok' ? 'ok' : code === 'waiting' ? 'wait' : code === 'shortage' ? 'short' : 'neutral';
+                code === 'ok'
+                  ? 'ok'
+                  : code === 'waiting'
+                    ? 'wait'
+                    : code === 'shortage' || code === 'absent'
+                      ? 'short'
+                      : 'neutral';
               return (
                 <tr key={`report-row-${idx}`} className={`report-af-tr report-af-tr--${rowMod}`}>
                   {preview.columns.map((column) => {
@@ -99,7 +111,7 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
                         style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}
                       >
                         {column.key === 'status' ? (
-                          <StatusBadge text={text} />
+                          <StatusBadge text={text} code={code} />
                         ) : column.key === 'requiredComponentsSummary' ? (
                           <ConsumptionBlock text={text} />
                         ) : (

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matricarmz/shared';
+import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, type WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -62,12 +62,31 @@ export function NomenclatureDirectoryPage(props: {
   function looksLikeLegacyDirectoryRow(row: WarehouseNomenclatureListItem): boolean {
     const code = String((row as any).code ?? '').trim().toLowerCase();
     const itemType = String((row as any).itemType ?? '').trim().toLowerCase();
-    const specJson = String((row as any).specJson ?? '').trim().toLowerCase();
+    const specRaw = String((row as any).specJson ?? '');
+    const specJson = specRaw.trim().toLowerCase();
+    const directoryKind = String((row as any).directoryKind ?? '').trim().toLowerCase();
+    const category = String((row as any).category ?? '').trim().toLowerCase();
+    const isPartMirror = tryParseWarehousePartNomenclatureMirror(specRaw) != null;
+
     if (props.directoryKind === 'part') {
       return itemType === 'component' || code.startsWith('det-') || specJson.includes('"source":"part"');
     }
     if (props.directoryKind === 'tool') {
-      return itemType === 'tool_consumable' || code.startsWith('tls-');
+      if (['part', 'good', 'service', 'engine_brand'].includes(directoryKind)) return false;
+      if (isPartMirror) return false;
+      return directoryKind === 'tool' || itemType === 'tool_consumable' || code.startsWith('tls-');
+    }
+    if (props.directoryKind === 'good') {
+      if (['part', 'tool', 'service', 'engine_brand'].includes(directoryKind)) return false;
+      if (isPartMirror) return false;
+      if (directoryKind === 'good') return true;
+      return (itemType === 'product' && category === 'assembly') || code.startsWith('prd-') || specJson.includes('"source":"good"');
+    }
+    if (props.directoryKind === 'service') {
+      if (['part', 'tool', 'good', 'engine_brand'].includes(directoryKind)) return false;
+      if (isPartMirror) return false;
+      if (directoryKind === 'service') return true;
+      return (itemType === 'product' && category === 'service') || code.startsWith('srv-') || specJson.includes('"source":"service"');
     }
     return false;
   }
@@ -87,12 +106,14 @@ export function NomenclatureDirectoryPage(props: {
         return;
       }
       const strictRows = (result.rows ?? []) as WarehouseNomenclatureListItem[];
-      if (strictRows.length > 0 || (props.directoryKind !== 'part' && props.directoryKind !== 'tool')) {
+      const legacyDirectoryKinds = new Set(['part', 'tool', 'good', 'service']);
+      const tryLegacyFallback = strictRows.length === 0 && legacyDirectoryKinds.has(props.directoryKind);
+      if (strictRows.length > 0 || !tryLegacyFallback) {
         setRows(strictRows);
         setStatus('');
         return;
       }
-      // Legacy fallback: in old data directory_kind was often empty.
+      // Legacy fallback: позиции из единой номенклатуры склада без заполненного directory_kind (или со старыми признаками).
       const fallback = await window.matrica.warehouse.nomenclatureList({
         ...(query.trim() ? { search: query.trim() } : {}),
         limit: 1000,
